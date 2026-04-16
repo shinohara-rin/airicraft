@@ -260,6 +260,29 @@ class BaritoneTaskExecutorTest {
 		assertEquals(2, facade.mineCalls.size());
 	}
 
+	@Test
+	void facadeStartFailureBecomesFailedTaskEvent() {
+		FakeBaritoneFacade facade = new FakeBaritoneFacade();
+		facade.startMineFailure = new IllegalArgumentException("Invalid block name minecraft:log");
+		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(facade);
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.MINE_BLOCKS,
+			null,
+			null,
+			new GoalMineSpec(List.of("minecraft:log"), 8),
+			20L,
+			"planner_response"
+		);
+
+		Optional<TaskTerminalEvent> event = executor.tick(multiplayer(), Optional.of(request("mine-task", goal)));
+
+		assertTrue(event.isPresent());
+		assertEquals(TaskExecutionState.FAILED, event.orElseThrow().terminalState());
+		assertEquals("Invalid block name minecraft:log", event.orElseThrow().message());
+		assertEquals(TaskExecutionState.FAILED, executor.snapshot().state());
+		assertEquals("Invalid block name minecraft:log", executor.snapshot().lastPathEvent());
+	}
+
 	private static WorldTaskRequest request(String taskId, GoalSnapshot goal) {
 		return WorldTaskRequest.direct(taskId, goal);
 	}
@@ -284,6 +307,7 @@ class BaritoneTaskExecutorTest {
 		private final ArrayDeque<String> pathEvents = new ArrayDeque<>();
 		private boolean navigationGoalReached;
 		private int cancelCalls;
+		private RuntimeException startMineFailure;
 
 		@Override
 		public boolean isLoaded() {
@@ -307,6 +331,9 @@ class BaritoneTaskExecutorTest {
 
 		@Override
 		public void startMine(GoalMineSpec spec) {
+			if (startMineFailure != null) {
+				throw startMineFailure;
+			}
 			mineCalls.add(spec);
 		}
 

@@ -61,7 +61,13 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 				facade.cancel();
 			}
 			clearTerminalEvent(activeTask.get());
-			applyGoal(activeTask.get().goal());
+			try {
+				applyGoal(activeTask.get().goal());
+			}
+			catch (RuntimeException exception) {
+				appliedTask = activeTask.get();
+				return failTaskStart(appliedTask, exception);
+			}
 		}
 		appliedTask = activeTask.get();
 
@@ -110,6 +116,29 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 			case NAVIGATE_TO -> facade.startNavigate(goal.position());
 			case MINE_BLOCKS -> facade.startMine(goal.mineSpec());
 		}
+	}
+
+	private Optional<TaskTerminalEvent> failTaskStart(WorldTaskRequest request, RuntimeException exception) {
+		String message = nonEmpty(exception.getMessage(), exception.getClass().getSimpleName());
+		snapshot = new TaskExecutionSnapshot(
+			TaskExecutionState.FAILED,
+			request.taskId(),
+			request.goal(),
+			null,
+			message,
+			null,
+			null
+		);
+		terminalEventTaskId = request.taskId();
+		terminalEventState = TaskExecutionState.FAILED;
+		terminalEventCause = null;
+		return Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			request.goal(),
+			TaskExecutionState.FAILED,
+			message,
+			null
+		));
 	}
 
 	private Optional<TerminalOutcome> terminalOutcomeFor(Optional<String> pathEvent, WorldTaskRequest activeTask) {
@@ -183,6 +212,10 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 			case CANCELLED -> "Task cancelled";
 			default -> "Task update";
 		};
+	}
+
+	private static String nonEmpty(String value, String fallback) {
+		return value == null || value.isBlank() ? fallback : value;
 	}
 
 	@Override
