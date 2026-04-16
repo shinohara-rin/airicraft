@@ -298,6 +298,55 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
+	void generateNormalizesLogMineJobToCollectResource() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": "{\\"replyText\\":\\"I'll get 5 logs.\\",\\"intent\\":{\\"type\\":\\"job_update\\",\\"activeJob\\":{\\"type\\":\\"MINE_BLOCKS\\",\\"mineSpec\\":{\\"blockIds\\":[\\"minecraft:birch_log\\"],\\"quantity\\":5}}},\\"toolRequest\\":null}"
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(new AgentConfig.LlmConfig(
+				"http://127.0.0.1:" + server.port(),
+				"planner-key",
+				"planner-model",
+				"https://api.openai.com/v1",
+				"",
+				"",
+				15_000,
+				10_000,
+				8,
+				65_536,
+				"low",
+				false
+			));
+
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent get 5 logs", LlmMessageKind.USER_TURN)
+			)));
+
+			assertEquals("I'll get 5 logs.", result.payload().replyText());
+			assertEquals("job_update", result.payload().intent().type());
+			assertEquals(
+				ActiveJobProposal.collectResource(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, 5)),
+				result.payload().intent().activeJob()
+			);
+		}
+	}
+
+	@Test
 	void generateParsesCraftItemActiveJobPlannerPayload() throws Exception {
 		String responseBody = """
 			{

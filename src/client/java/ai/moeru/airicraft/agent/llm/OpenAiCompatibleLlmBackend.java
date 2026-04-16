@@ -13,6 +13,7 @@ import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
 import ai.moeru.airicraft.agent.observability.TraceSanitizer;
+import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
@@ -325,9 +326,16 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			case NAVIGATE_TO -> Optional.ofNullable(parseGoalPosition(jobObject, "position"))
 				.map(ActiveJobProposal::navigateTo)
 				.orElse(null);
-			case MINE_BLOCKS -> Optional.ofNullable(parseGoalMineSpec(jobObject, "mineSpec"))
-				.map(ActiveJobProposal::mineBlocks)
-				.orElse(null);
+			case MINE_BLOCKS -> {
+				GoalMineSpec mineSpec = parseGoalMineSpec(jobObject, "mineSpec");
+				if (mineSpec == null) {
+					yield null;
+				}
+				if (CollectResourceTaskHandler.matchesResourceKind(TaskResourceKind.WOOD_LOGS, mineSpec.blockIds())) {
+					yield ActiveJobProposal.collectResource(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, mineSpec.quantity()));
+				}
+				yield ActiveJobProposal.mineBlocks(mineSpec);
+			}
 			case COLLECT_RESOURCE -> parseActiveCollectResourceProposal(jobObject);
 			case CRAFT_RECIPE -> parseActiveCraftRecipeProposal(jobObject);
 			case ASK_USER -> {

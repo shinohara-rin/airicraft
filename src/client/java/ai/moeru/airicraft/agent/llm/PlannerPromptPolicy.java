@@ -88,7 +88,7 @@ public final class PlannerPromptPolicy {
 			When runtime notices include collected/remaining progress, trust that delta progress over raw inventoryCounts.
 			Do not invent ad-hoc fields outside the schema above.
 			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
-			Use COLLECT_RESOURCE for gathering tasks like wood logs.
+			Use COLLECT_RESOURCE for gathering tasks like wood logs. Do not use MINE_BLOCKS when the user asks to get, gather, collect, or obtain logs/items.
 			Use CRAFT_RECIPE only for itemId values currently shown in availableCrafts. quantity is desired output item count, not craft operation count.
 			availableCrafts and exactCraftItemIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
 			When issuing CRAFT_RECIPE, copy the exact namespaced itemId from availableCrafts or exactCraftItemIds. Never use display names, plural names, or unqualified ids such as "sticks".

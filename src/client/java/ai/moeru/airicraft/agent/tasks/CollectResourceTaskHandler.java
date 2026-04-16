@@ -49,4 +49,11 @@ public final class CollectResourceTaskHandler {
 		}
 		return WOOD_LOG_BLOCK_IDS;
 	}
+
+	public static boolean matchesResourceKind(TaskResourceKind resourceKind, List<String> blockIds) {
+		if (resourceKind != TaskResourceKind.WOOD_LOGS || blockIds == null || blockIds.isEmpty()) {
+			return false;
+		}
+		return blockIds.stream().allMatch(WOOD_LOG_BLOCK_IDS::contains);
+	}
 }
