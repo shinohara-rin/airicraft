@@ -227,12 +227,12 @@ class BaritoneTaskExecutorTest {
 		assertEquals(1, facade.cancelCalls);
 	}
 
-	private static BaritoneTaskRequest request(String taskId, GoalSnapshot goal) {
-		return BaritoneTaskRequest.direct(taskId, goal);
+	private static WorldTaskRequest request(String taskId, GoalSnapshot goal) {
+		return WorldTaskRequest.direct(taskId, goal);
 	}
 
-	private static BaritoneTaskRequest request(String taskId, String sourceJobId, GoalSnapshot goal) {
-		return new BaritoneTaskRequest(taskId, sourceJobId, BaritoneTaskType.MINE, goal);
+	private static WorldTaskRequest request(String taskId, String sourceJobId, GoalSnapshot goal) {
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.MINE, goal);
 	}
 
 	private static SessionSnapshot multiplayer() {

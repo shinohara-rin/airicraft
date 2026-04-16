@@ -10,8 +10,9 @@ import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
-import ai.moeru.airicraft.agent.tasks.BaritoneTaskRequest;
+import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
+import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
 import ai.moeru.airicraft.agent.tasks.EvidenceRequirement;
 import ai.moeru.airicraft.agent.tasks.FinishStepArgs;
@@ -30,6 +31,7 @@ import ai.moeru.airicraft.agent.tasks.TaskTerminationCause;
 import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.WorldTaskType;
 import ai.moeru.airicraft.agent.verification.VerificationStatus;
 import org.junit.jupiter.api.Test;
 
@@ -127,6 +129,34 @@ class EmbodiedAgentRuntimeTest {
 		runtime.onClientTick(null);
 
 		assertEquals(TaskExecutionState.PAUSED_BY_SESSION_GATE, runtime.taskExecutionSnapshot().state());
+	}
+
+	@Test
+	void craftRecipePlannerResponseRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("minecraft:stick", 4);
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"Crafting sticks.",
+			new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.craftRecipe(craftRecipe)),
+			20L
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertEquals(WorldTaskType.CRAFT_RECIPE, request.type());
+		assertEquals(craftRecipe, request.craftRecipe());
+		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
 	@Test
@@ -538,14 +568,16 @@ class EmbodiedAgentRuntimeTest {
 	private static final class FakeWorldTaskExecutor implements WorldTaskExecutor {
 		private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 		private Optional<TaskTerminalEvent> nextTerminalEvent = Optional.empty();
+		private Optional<WorldTaskRequest> lastActiveTask = Optional.empty();
 
 		@Override
-		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<BaritoneTaskRequest> activeTask) {
+		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
+			lastActiveTask = activeTask;
 			if (!sessionSnapshot.companionActuationAllowed()) {
 				snapshot = new TaskExecutionSnapshot(
 					TaskExecutionState.PAUSED_BY_SESSION_GATE,
-					activeTask.map(BaritoneTaskRequest::taskId).orElse(null),
-					activeTask.map(BaritoneTaskRequest::goal).orElse(null),
+					activeTask.map(WorldTaskRequest::taskId).orElse(null),
+					activeTask.map(WorldTaskRequest::goal).orElse(null),
 					null,
 					null,
 					null,
@@ -567,8 +599,8 @@ class EmbodiedAgentRuntimeTest {
 			else {
 				snapshot = new TaskExecutionSnapshot(
 					activeTask.isPresent() ? TaskExecutionState.RUNNING : TaskExecutionState.IDLE,
-					activeTask.map(BaritoneTaskRequest::taskId).orElse(null),
-					activeTask.map(BaritoneTaskRequest::goal).orElse(null),
+					activeTask.map(WorldTaskRequest::taskId).orElse(null),
+					activeTask.map(WorldTaskRequest::goal).orElse(null),
 					null,
 					null,
 					null,
