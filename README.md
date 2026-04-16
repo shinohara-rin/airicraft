@@ -143,23 +143,40 @@ Start the client:
 source .envrc && ./gradlew runClient
 ```
 
-Open an interactive Arthas shell:
+For a cold dev client, use the helper to start the client, wait for the bridge, join the first saved world, open LAN, and attach Arthas. This command is cold-only and fails fast if a client is already running:
 
 ```shell
-source .envrc && ./gradlew arthasShell
+scripts/arthas kickstart
 ```
 
-Run a one-shot Arthas command:
+Attach Arthas manually when the client is already running:
 
 ```shell
-source .envrc && ./gradlew arthasExec -Pairicraft.arthas.command='sc ai.moeru.airicraft.*'
+source .envrc && ./gradlew arthasAttach
+```
+
+Use the low-noise HTTP helper for probes after Arthas is attached. It auto-selects the Minecraft Arthas HTTP port when possible and prints compact results:
+
+```shell
+scripts/arthas --help
+scripts/arthas v
+scripts/arthas sc 'ai.moeru.airicraft.*'
+scripts/arthas sm ai.moeru.airicraft.ModBridgeServer createStatusResponse
+scripts/arthas w ai.moeru.airicraft.ModBridgeServer createStatusResponse
+scripts/arthas raw 'thread -n 1'
+```
+
+If another JVM already owns the default Arthas port, pass the Minecraft port explicitly:
+
+```shell
+scripts/arthas --port 8564 sc ai.moeru.airicraft.ModBridgeServer
 ```
 
 If process-name selection misses the dev client, find the JVM and attach by PID:
 
 ```shell
 jps -lv
-source .envrc && ./gradlew arthasShell -Pairicraft.arthas.pid=<pid>
+source .envrc && ./gradlew arthasAttach -Pairicraft.arthas.pid=<pid>
 ```
 
 Useful Airicraft inspection commands include `sc`, `sm`, `jad`, `watch`, `trace`, `stack`, `tt`, `thread`, `dashboard`, and `ognl`.

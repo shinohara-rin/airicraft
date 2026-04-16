@@ -1,0 +1,468 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WRAPPER_BIN="$ROOT_DIR/wrapper/build/install/airicraft/bin/airicraft"
+RUN_LOG="${ARTHAS_RUN_LOG:-$ROOT_DIR/logs/arthas-kickstart-runClient.log}"
+ATTACH_LOG="${ARTHAS_ATTACH_LOG:-$ROOT_DIR/logs/arthas-kickstart-attach.log}"
+PID_FILE="${ARTHAS_PID_FILE:-$ROOT_DIR/build/arthas/runClient.pid}"
+
+usage() {
+	cat <<'EOF'
+Usage:
+  scripts/arthas [options] <alias> [args...]
+
+Options:
+  --url URL       Arthas HTTP API URL. Env: ARTHAS_URL
+  --port PORT     Arthas HTTP port on 127.0.0.1. Env: ARTHAS_HTTP_PORT or ARTHAS_PORT
+  --json          Print raw Arthas HTTP JSON.
+  --any           Use first reachable Arthas HTTP API if no Minecraft JVM is found.
+  -h, --help      Show help.
+
+Aliases:
+  v|version                         version
+  sc <class-pattern>                sc <class-pattern>
+  sm <class> [method]               sm <class> [method]
+  jad <class>                       jad <class>
+  th|thread [args...]               thread args, default: -n 5
+  dash|dashboard [args...]          dashboard args, default: -n 1
+  w|watch <class> <method> [args]   watch, default expr + one hit + 10s timeout
+  tr|trace <class> <method> [args]  trace, default #cost>10 + one hit + 10s timeout
+  st|stack <class> <method> [args]  stack, default one hit + 10s timeout
+  tt [args...]                      tt args
+  raw <command...>                  exact Arthas command
+  kickstart [--world-id ID]          start client, join world, open LAN, attach
+
+Examples:
+  scripts/arthas kickstart
+  scripts/arthas v
+  scripts/arthas sc 'ai.moeru.airicraft.*'
+  scripts/arthas sm ai.moeru.airicraft.ModBridgeServer createStatusResponse
+  scripts/arthas w ai.moeru.airicraft.ModBridgeServer createStatusResponse
+  scripts/arthas raw 'thread -n 1'
+EOF
+}
+
+die() {
+	printf 'error: %s\n' "$*" >&2
+	exit 2
+}
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+load_env() {
+	if [[ -f "$ROOT_DIR/.envrc" ]]; then
+		# shellcheck disable=SC1091
+		source "$ROOT_DIR/.envrc"
+	fi
+}
+
+join_args() {
+	local first=1
+	local out=''
+	for arg in "$@"; do
+		if (( first )); then
+			out="$arg"
+			first=0
+		else
+			out="$out $arg"
+		fi
+	done
+	printf '%s' "$out"
+}
+
+exec_json_url() {
+	local url="$1"
+	local command="$2"
+	local payload
+	payload="$(jq -cn --arg command "$command" '{action:"exec", command:$command}')"
+	curl -sS --max-time "${ARTHAS_TIMEOUT:-15}" \
+		-H 'Content-Type: application/json' \
+		-d "$payload" \
+		"$url"
+}
+
+resolve_url() {
+	if [[ -n "${ARTHAS_URL:-}" ]]; then
+		printf '%s\n' "$ARTHAS_URL"
+		return
+	fi
+
+	if [[ -n "${ARTHAS_HTTP_PORT:-${ARTHAS_PORT:-}}" ]]; then
+		printf 'http://127.0.0.1:%s/api\n' "${ARTHAS_HTTP_PORT:-${ARTHAS_PORT:-}}"
+		return
+	fi
+
+	local first_working=''
+	local probe
+	local port
+	for port in ${ARTHAS_PORTS:-8563 8564 8565 8566 8567 8568}; do
+		local url="http://127.0.0.1:${port}/api"
+		probe="$(exec_json_url "$url" 'sysprop sun.java.command' 2>/dev/null || true)"
+		if [[ -z "$probe" ]]; then
+			continue
+		fi
+		[[ -n "$first_working" ]] || first_working="$url"
+		if jq -e '.. | strings | select(test("net\\.fabricmc\\.devlaunchinjector\\.Main|fabric\\.dli|KnotClient"))' \
+			<<<"$probe" >/dev/null; then
+			printf '%s\n' "$url"
+			return
+		fi
+	done
+
+	if [[ "${ARTHAS_ANY:-0}" == "1" && -n "$first_working" ]]; then
+		printf '%s\n' "$first_working"
+		return
+	fi
+
+	die "no Minecraft Arthas HTTP API found; attach first or pass --url/--port"
+}
+
+render_compact() {
+	jq -r '
+		if .state != "SUCCEEDED" then
+			"state=" + (.state // "unknown") + " message=" + (.message // "")
+		else
+			.body.results[]? | select(.type != "status") |
+			if .type == "version" then
+				.version
+			elif .type == "sc" then
+				.classNames[]?
+			elif .type == "sm" then
+				(.methodInfo | "\(.declaringClass) \(.methodName)\(.descriptor)")
+			elif .type == "row_affect" then
+				"rows=" + (.rowCount | tostring)
+			elif .type == "sysprop" then
+				.props | to_entries[] | "\(.key)=\(.value)"
+			elif .type == "thread" and (.busyThreads? != null) then
+				.busyThreads[] | "\(.id) \(.name) \(.state) cpu=\(.cpu)"
+			elif has("value") then
+				.value
+			else
+				@json
+			end
+		end
+	'
+}
+
+bridge_status() {
+	load_env
+	"$WRAPPER_BIN" status
+}
+
+bridge_field() {
+	local key="$1"
+	awk -F': ' -v key="$key" '$1 == key { print $2; exit }'
+}
+
+wait_bridge() {
+	local timeout="$1"
+	local started_at now
+	started_at="$(date +%s)"
+	while true; do
+		local status
+		status="$(bridge_status 2>/dev/null || true)"
+		if [[ "$(bridge_field bridgeAvailable <<<"$status")" == "true" ]]; then
+			printf 'bridge=ready\n'
+			return 0
+		fi
+		now="$(date +%s)"
+		if (( now - started_at >= timeout )); then
+			printf 'bridge=timeout log=%s\n' "$RUN_LOG" >&2
+			if [[ -f "$RUN_LOG" ]]; then
+				tail -n 40 "$RUN_LOG" >&2
+			fi
+			return 1
+		fi
+		sleep 1
+	done
+}
+
+start_client_if_needed() {
+	local status
+	status="$(bridge_status 2>/dev/null || true)"
+	if [[ "$(bridge_field bridgeAvailable <<<"$status")" == "true" ]]; then
+		printf 'client=already-running\n' >&2
+		printf '%s\n' "$status" >&2
+		return 1
+	fi
+
+	mkdir -p "$(dirname "$RUN_LOG")" "$(dirname "$PID_FILE")"
+	(
+		cd "$ROOT_DIR"
+		load_env
+		nohup ./gradlew runClient >"$RUN_LOG" 2>&1 &
+		printf '%s\n' "$!" >"$PID_FILE"
+	)
+	printf 'client=start pid=%s log=%s\n' "$(cat "$PID_FILE")" "$RUN_LOG"
+}
+
+first_world_id() {
+	load_env
+	"$WRAPPER_BIN" worlds list | awk -F': ' '$1 ~ /^[[:space:]-]*worldId$/ { print $2; exit }'
+}
+
+wait_world_loaded() {
+	local timeout="$1"
+	local started_at now
+	started_at="$(date +%s)"
+	while true; do
+		local status
+		status="$(bridge_status 2>/dev/null || true)"
+		if [[ "$(bridge_field worldLoaded <<<"$status")" == "true" ]]; then
+			printf 'world=loaded\n'
+			return 0
+		fi
+		now="$(date +%s)"
+		if (( now - started_at >= timeout )); then
+			printf 'world=timeout\n' >&2
+			printf '%s\n' "$status" >&2
+			return 1
+		fi
+		sleep 1
+	done
+}
+
+join_world_if_needed() {
+	local world_id="$1"
+	local timeout="$2"
+	local status
+	status="$(bridge_status)"
+	if [[ "$(bridge_field worldLoaded <<<"$status")" == "true" ]]; then
+		printf 'world=already-loaded\n'
+		return
+	fi
+
+	if [[ -z "$world_id" ]]; then
+		world_id="$(first_world_id)"
+	fi
+	[[ -n "$world_id" ]] || die "no saved world found"
+
+	load_env
+	"$WRAPPER_BIN" worlds join --world-id "$world_id" >/dev/null
+	printf 'world=join id=%s\n' "$world_id"
+	wait_world_loaded "$timeout"
+}
+
+open_lan_if_possible() {
+	local status
+	status="$(bridge_status)"
+	if [[ "$(bridge_field worldLoaded <<<"$status")" != "true" ]]; then
+		printf 'lan=skipped reason=world_not_loaded\n'
+		return
+	fi
+
+	local output opened port
+	load_env
+	output="$("$WRAPPER_BIN" agent session open-lan 2>&1)" || {
+		printf 'lan=unavailable\n'
+		printf '%s\n' "$output" | awk -F': ' '$1 == "error_code" || $1 == "message" { printf "lan.%s=%s\n", $1, $2 }'
+		return
+	}
+	opened="$(bridge_field opened <<<"$output")"
+	port="$(bridge_field port <<<"$output")"
+	printf 'lan=opened opened=%s port=%s\n' "${opened:-unknown}" "${port:-unknown}"
+}
+
+attach_arthas_if_needed() {
+	if "$0" v >/dev/null 2>&1; then
+		printf 'arthas=already-attached\n'
+		return
+	fi
+
+	mkdir -p "$(dirname "$ATTACH_LOG")"
+	(
+		cd "$ROOT_DIR"
+		load_env
+		./gradlew arthasAttach >"$ATTACH_LOG" 2>&1
+	) || {
+		printf 'arthas=attach-failed log=%s\n' "$ATTACH_LOG" >&2
+		tail -n 60 "$ATTACH_LOG" >&2
+		return 1
+	}
+	printf 'arthas=attached log=%s\n' "$ATTACH_LOG"
+}
+
+kickstart() {
+	local world_id=''
+	local timeout="${ARTHAS_KICKSTART_TIMEOUT:-90}"
+
+	while (($#)); do
+		case "$1" in
+			--world-id)
+				(($# >= 2)) || die "kickstart --world-id needs value"
+				world_id="$2"
+				shift 2
+				;;
+			--timeout)
+				(($# >= 2)) || die "kickstart --timeout needs seconds"
+				timeout="$2"
+				shift 2
+				;;
+			-h|--help)
+				printf 'Usage: scripts/arthas kickstart [--world-id ID] [--timeout SECONDS]\n'
+				return 0
+				;;
+			*)
+				die "unknown kickstart option: $1"
+				;;
+		esac
+	done
+
+	[[ -x "$WRAPPER_BIN" ]] || die "wrapper CLI missing: run ./gradlew wrapper:installDist first"
+	start_client_if_needed
+	wait_bridge "$timeout"
+	join_world_if_needed "$world_id" "$timeout"
+	open_lan_if_possible
+	attach_arthas_if_needed
+	if "$0" v >/dev/null 2>&1; then
+		printf 'arthas=ready\n'
+	else
+		die "Arthas attached but HTTP API is not ready"
+	fi
+}
+
+need curl
+need jq
+
+json_output=0
+ARTHAS_ANY="${ARTHAS_ANY:-0}"
+
+while (($#)); do
+	case "$1" in
+		--url)
+			(($# >= 2)) || die "--url needs value"
+			ARTHAS_URL="$2"
+			shift 2
+			;;
+		--port)
+			(($# >= 2)) || die "--port needs value"
+			ARTHAS_HTTP_PORT="$2"
+			shift 2
+			;;
+		--json|-j)
+			json_output=1
+			shift
+			;;
+		--any)
+			ARTHAS_ANY=1
+			shift
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			die "unknown option: $1"
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+(($#)) || {
+	usage >&2
+	exit 2
+}
+
+alias="$1"
+shift
+
+case "$alias" in
+	kickstart|ks)
+		kickstart "$@"
+		exit 0
+		;;
+	v|ver|version)
+		arthas_command='version'
+		;;
+	sc|class|c)
+		(($# >= 1)) || die "sc needs class pattern"
+		arthas_command="sc $(join_args "$@")"
+		;;
+	sm|method|m)
+		(($# >= 1)) || die "sm needs class"
+		arthas_command="sm $(join_args "$@")"
+		;;
+	jad|decompile|j)
+		(($# >= 1)) || die "jad needs class"
+		arthas_command="jad $(join_args "$@")"
+		;;
+	th|thread)
+		if (($#)); then
+			arthas_command="thread $(join_args "$@")"
+		else
+			arthas_command='thread -n 5'
+		fi
+		;;
+	dash|dashboard)
+		if (($#)); then
+			arthas_command="dashboard $(join_args "$@")"
+		else
+			arthas_command='dashboard -n 1'
+		fi
+		;;
+	w|watch)
+		(($# >= 2)) || die "watch needs class and method"
+		class_name="$1"
+		method_name="$2"
+		shift 2
+		if (($#)); then
+			arthas_command="watch $class_name $method_name $(join_args "$@")"
+		else
+			arthas_command="watch $class_name $method_name '{params, returnObj, throwExp}' -n 1 -m 1 --timeout 10"
+		fi
+		;;
+	tr|trace)
+		(($# >= 2)) || die "trace needs class and method"
+		class_name="$1"
+		method_name="$2"
+		shift 2
+		if (($#)); then
+			arthas_command="trace $class_name $method_name $(join_args "$@")"
+		else
+			arthas_command="trace $class_name $method_name '#cost>10' -n 1 -m 1 --timeout 10"
+		fi
+		;;
+	st|stack)
+		(($# >= 2)) || die "stack needs class and method"
+		class_name="$1"
+		method_name="$2"
+		shift 2
+		if (($#)); then
+			arthas_command="stack $class_name $method_name $(join_args "$@")"
+		else
+			arthas_command="stack $class_name $method_name -n 1 --timeout 10"
+		fi
+		;;
+	tt)
+		(($# >= 1)) || die "tt needs args"
+		arthas_command="tt $(join_args "$@")"
+		;;
+	raw|exec|-)
+		(($# >= 1)) || die "raw needs command"
+		arthas_command="$(join_args "$@")"
+		;;
+	*)
+		arthas_command="$alias"
+		if (($#)); then
+			arthas_command="$arthas_command $(join_args "$@")"
+		fi
+		;;
+esac
+
+url="$(resolve_url)"
+response="$(exec_json_url "$url" "$arthas_command")" || die "Arthas HTTP request failed: $url"
+
+if (( json_output )); then
+	printf '%s\n' "$response"
+else
+	render_compact <<<"$response"
+fi
