@@ -84,12 +84,16 @@ public final class PlannerPromptPolicy {
 			eventPolicyChanges affect future events only; they do not rewrite already observed context.
 			Use job_update for any new active job. There is only one active job at a time, so always propose the single current job, not a multi-step ledger.
 			Runtime notices describing the active job, world evidence, and last step result are the source of truth for progress.
+			If the latest runtime notice or last step result says a CRAFT_RECIPE task completed, that specific recipe step is done. Do not issue another CRAFT_RECIPE for the same item.
+			For an explicit multi-step crafting request, you may issue the next distinct CRAFT_RECIPE item after the prior craft completes, for example planks then sticks.
+			When acknowledging completed work, use clear_goal or reply_only with activeJob null. Never combine completion text like "I crafted", "done", "stopped", or "completed" with job_update.
 			INVENTORY_DELTA_AT_LEAST means items gained since the current mission started, not absolute inventory and not the current total inventory.
 			When runtime notices include collected/remaining progress, trust that delta progress over raw inventoryCounts.
 			Do not invent ad-hoc fields outside the schema above.
 			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
 			Use COLLECT_RESOURCE for gathering tasks like wood logs. Do not use MINE_BLOCKS when the user asks to get, gather, collect, or obtain logs/items.
 			Use CRAFT_RECIPE only for itemId values currently shown in availableCrafts. quantity is desired output item count, not craft operation count.
+			A CRAFT_RECIPE job is for the user's current request only. After one completed craft request, stop and wait for the next user instruction unless the user explicitly requested a multi-step craft and the next job is for a different item.
 			availableCrafts and exactCraftItemIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
 			When issuing CRAFT_RECIPE, copy the exact namespaced itemId from availableCrafts or exactCraftItemIds. Never use display names, plural names, or unqualified ids such as "sticks".
 			When asked what you can craft, answer only from availableCrafts; every listed craft is currently craftable even if the recipe uses interchangeable ingredient tags.
