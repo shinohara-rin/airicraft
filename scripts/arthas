@@ -76,9 +76,10 @@ join_args() {
 exec_json_url() {
 	local url="$1"
 	local command="$2"
+	local timeout="${3:-${ARTHAS_TIMEOUT:-15}}"
 	local payload
 	payload="$(jq -cn --arg command "$command" '{action:"exec", command:$command}')"
-	curl -sS --max-time "${ARTHAS_TIMEOUT:-15}" \
+	curl --fail -sS --max-time "$timeout" \
 		-H 'Content-Type: application/json' \
 		-d "$payload" \
 		"$url"
@@ -100,7 +101,7 @@ resolve_url() {
 	local port
 	for port in ${ARTHAS_PORTS:-8563 8564 8565 8566 8567 8568}; do
 		local url="http://127.0.0.1:${port}/api"
-		probe="$(exec_json_url "$url" 'sysprop sun.java.command' 2>/dev/null || true)"
+		probe="$(exec_json_url "$url" 'sysprop sun.java.command' "${ARTHAS_DISCOVERY_TIMEOUT:-1}" 2>/dev/null || true)"
 		if [[ -z "$probe" ]]; then
 			continue
 		fi
@@ -145,6 +146,14 @@ render_compact() {
 			end
 		end
 	'
+}
+
+arthas_ready() {
+	local check_url
+	local check_response
+	check_url="$(resolve_url 2>/dev/null)" || return 1
+	check_response="$(exec_json_url "$check_url" version 2>/dev/null)" || return 1
+	jq -e '.state == "SUCCEEDED"' <<<"$check_response" >/dev/null
 }
 
 bridge_status() {
@@ -267,7 +276,7 @@ open_lan_if_possible() {
 }
 
 attach_arthas_if_needed() {
-	if "$0" v >/dev/null 2>&1; then
+	if arthas_ready; then
 		printf 'arthas=already-attached\n'
 		return
 	fi
@@ -317,7 +326,7 @@ kickstart() {
 	join_world_if_needed "$world_id" "$timeout"
 	open_lan_if_possible
 	attach_arthas_if_needed
-	if "$0" v >/dev/null 2>&1; then
+	if arthas_ready; then
 		printf 'arthas=ready\n'
 	else
 		die "Arthas attached but HTTP API is not ready"
@@ -466,3 +475,5 @@ if (( json_output )); then
 else
 	render_compact <<<"$response"
 fi
+
+jq -e '.state == "SUCCEEDED"' <<<"$response" >/dev/null
