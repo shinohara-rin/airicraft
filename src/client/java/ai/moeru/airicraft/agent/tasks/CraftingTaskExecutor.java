@@ -36,8 +36,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	private WorldTaskRequest appliedTask;
 	private CraftingPlan plan;
 	private CraftPhase phase = CraftPhase.IDLE;
-	private int baselineOutputCount;
-	private int lastObservedDelta;
+	private final CraftingProgressTracker progressTracker = new CraftingProgressTracker();
 	private int waitTicks;
 	private boolean terminalEventEmitted;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
@@ -82,13 +81,10 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			if (plan.failureReason() != null) {
 				return fail(request, plan.failureReason());
 			}
-			baselineOutputCount = inventoryCount(player, plan.outputItem());
-			lastObservedDelta = 0;
+			progressTracker.reset();
 		}
 
-		int craftedCount = inventoryCount(player, plan.outputItem()) - baselineOutputCount;
-		lastObservedDelta = Math.max(lastObservedDelta, craftedCount);
-		if (lastObservedDelta >= plan.requestedQuantity()) {
+		if (progressTracker.targetReached(plan.requestedQuantity())) {
 			return complete(request);
 		}
 
@@ -109,6 +105,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		if (phase == CraftPhase.WAITING_FOR_RESULT) {
 			ItemStack resultStack = handler.getSlot(RESULT_SLOT).getStack();
 			if (!resultStack.isEmpty() && resultStack.isOf(plan.outputItem())) {
+				progressTracker.beginTake(inventoryCount(player, plan.outputItem()), resultStack.getCount());
 				client.interactionManager.clickSlot(handler.syncId, RESULT_SLOT, 0, SlotActionType.QUICK_MOVE, player);
 				phase = CraftPhase.WAITING_FOR_TAKE;
 				waitTicks = 0;
@@ -119,12 +116,10 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		}
 
 		if (phase == CraftPhase.WAITING_FOR_TAKE) {
-			int updatedCraftedCount = inventoryCount(player, plan.outputItem()) - baselineOutputCount;
-			if (updatedCraftedCount > lastObservedDelta) {
-				lastObservedDelta = updatedCraftedCount;
+			if (progressTracker.finishTakeIfInventoryIncreased(inventoryCount(player, plan.outputItem()))) {
 				phase = CraftPhase.IDLE;
 				waitTicks = 0;
-				if (lastObservedDelta >= plan.requestedQuantity()) {
+				if (progressTracker.targetReached(plan.requestedQuantity())) {
 					return complete(request);
 				}
 				snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_next_batch");
@@ -320,8 +315,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		appliedTask = null;
 		plan = null;
 		phase = CraftPhase.IDLE;
-		baselineOutputCount = 0;
-		lastObservedDelta = 0;
+		progressTracker.reset();
 		waitTicks = 0;
 		terminalEventEmitted = false;
 		snapshot = TaskExecutionSnapshot.idle();
