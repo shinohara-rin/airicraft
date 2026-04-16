@@ -271,6 +271,28 @@ class DialogueRuntimeTest {
 	}
 
 	@Test
+	void degradedDirectChatEmitsBlockedEventAndVisibleResetReminder() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+
+		for (long tick = 1L; tick <= 3L; tick++) {
+			backend.injectTimeout();
+			runtime.onPlayerChat("Alice", "@agent follow me", tick, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+			awaitFailureProcessed(runtime, eventBuffer, tick, Duration.ofSeconds(1));
+		}
+
+		long sinceSeqNo = eventBuffer.latestSeqNo();
+		runtime.markReplyObserved();
+		runtime.onPlayerChat("Alice", "@agent are you alive?", 50L, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+
+		assertTrue(eventBuffer.containsTypeSince(sinceSeqNo, "planner.degraded_blocked"));
+		assertTrue(runtime.lastResponse().orElseThrow().text().contains("@agent reset"));
+		assertEquals("planner_degraded_visible_reply", runtime.pendingReplyReason());
+		runtime.shutdown();
+	}
+
+	@Test
 	void timeoutEmitsFreshVisibleReplyForDirectChat() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		DialogueRuntime runtime = newDialogueRuntime(backend);

@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntent;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
+import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
@@ -36,6 +37,7 @@ import ai.moeru.airicraft.agent.verification.VerificationStatus;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -495,6 +497,50 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
 			"system".equals(turn.speaker()) && turn.text().contains("TASK UPDATE: state=FAILED")
 		));
+	}
+
+	@Test
+	void collectResourceTargetMissingEmitsBlockedEventAndPlannerTrigger() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"Got it, collecting 5 logs now.",
+			new DialogueIntent(
+				DialogueIntentType.JOB_UPDATE,
+				ActiveJobProposal.collectResource(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, 5))
+			),
+			20L
+		));
+
+		runtime.onClientTick(null);
+
+		SemanticEvent blockedEvent = runtime.recentEvents(null).events().stream()
+			.filter(event -> "task.blocked".equals(event.type()))
+			.findFirst()
+			.orElseThrow();
+		Map<String, Object> payload = blockedEvent.payload();
+		assertEquals("COLLECT_RESOURCE", payload.get("taskType"));
+		assertEquals("WOOD_LOGS", payload.get("resourceKind"));
+		assertEquals(5, payload.get("quantity"));
+		assertEquals("WAITING_FOR_PICKUP", payload.get("state"));
+		assertEquals("target_missing", payload.get("blockedReason"));
+		assertEquals(0, payload.get("collected"));
+		assertEquals(5, payload.get("remaining"));
+		assertEquals("planner_response", payload.get("source"));
+		assertEquals("task.blocked", runtime.debugEventPipelineState().lastEventType());
+		assertEquals("SYSTEM", runtime.debugEventPipelineState().lastTriggerType());
+		assertTrue(runtime.debugEventPipelineState().lastEmitSemantic());
+		assertTrue(runtime.debugEventPipelineState().lastEmitTrigger());
 	}
 
 	@Test

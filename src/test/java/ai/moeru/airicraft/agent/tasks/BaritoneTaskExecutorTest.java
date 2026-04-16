@@ -227,6 +227,39 @@ class BaritoneTaskExecutorTest {
 		assertEquals(1, facade.cancelCalls);
 	}
 
+	@Test
+	void replacingMineTaskAfterCompletionResetsSnapshotToRunning() {
+		FakeBaritoneFacade facade = new FakeBaritoneFacade();
+		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(facade);
+		GoalSnapshot first = new GoalSnapshot(
+			GoalType.MINE_BLOCKS,
+			null,
+			null,
+			new GoalMineSpec(List.of("minecraft:oak_log"), 8),
+			20L,
+			"task_runtime"
+		);
+		GoalSnapshot second = new GoalSnapshot(
+			GoalType.MINE_BLOCKS,
+			null,
+			null,
+			new GoalMineSpec(List.of("minecraft:oak_log"), 7),
+			21L,
+			"task_runtime"
+		);
+
+		executor.tick(multiplayer(), Optional.of(request("job-1:mine:1", "job-1", first)));
+		facade.pathEvents.add("AT_GOAL");
+		Optional<TaskTerminalEvent> completed = executor.tick(multiplayer(), Optional.of(request("job-1:mine:1", "job-1", first)));
+		Optional<TaskTerminalEvent> replacement = executor.tick(multiplayer(), Optional.of(request("job-1:mine:2", "job-1", second)));
+
+		assertTrue(completed.isPresent());
+		assertTrue(replacement.isEmpty());
+		assertEquals(TaskExecutionState.RUNNING, executor.snapshot().state());
+		assertEquals("job-1:mine:2", executor.snapshot().taskId());
+		assertEquals(2, facade.mineCalls.size());
+	}
+
 	private static WorldTaskRequest request(String taskId, GoalSnapshot goal) {
 		return WorldTaskRequest.direct(taskId, goal);
 	}

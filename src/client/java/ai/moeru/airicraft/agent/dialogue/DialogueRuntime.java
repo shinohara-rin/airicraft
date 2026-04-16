@@ -351,6 +351,11 @@ public final class DialogueRuntime {
 		boolean timeoutVisibleReply
 	) {
 		if (state.degraded()) {
+			applyTransition(
+				DialogueCore.onPlannerDegradedBlocked(state, request.senderName(), timeoutVisibleReply, request.tick()),
+				request.tick(),
+				eventBuffer
+			);
 			return;
 		}
 		Long sinceSeqNo = plannerOrchestrator.lastObservedEventSeqNo();

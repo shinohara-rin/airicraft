@@ -139,9 +139,27 @@ public final class OpenAiCompatibleChatClient {
 			throw new LlmBackendException(LlmFailureType.TIMEOUT, "LLM request interrupted", exception);
 		}
 		catch (IOException exception) {
-			observability.recordFailure(Context.current(), LlmFailureType.PROVIDER_ERROR.name(), "LLM request failed", exception);
-			throw new LlmBackendException(LlmFailureType.PROVIDER_ERROR, "LLM request failed", exception);
+			String message = requestFailureMessage("LLM request failed", exception);
+			Airicraft.LOGGER.warn("LLM request transport failed model={} cause={}", config.model(), message, exception);
+			observability.recordFailure(Context.current(), LlmFailureType.PROVIDER_UNAVAILABLE.name(), message, exception);
+			throw new LlmBackendException(LlmFailureType.PROVIDER_UNAVAILABLE, message, exception);
 		}
+	}
+
+	static String requestFailureMessage(String prefix, Throwable exception) {
+		return prefix + ": " + exceptionSummary(exception);
+	}
+
+	private static String exceptionSummary(Throwable exception) {
+		if (exception == null) {
+			return "unknown";
+		}
+		String type = exception.getClass().getSimpleName();
+		String message = exception.getMessage();
+		if (message == null || message.isBlank()) {
+			return type;
+		}
+		return type + ": " + message;
 	}
 
 	private Map<String, Object> buildRequestPayload(LlmConversation conversation) {

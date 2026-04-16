@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -36,9 +37,40 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpenAiCompatibleLlmBackendTest {
+	@Test
+	void generateClassifiesConnectionFailureAsProviderUnavailable() throws Exception {
+		int closedPort = closedLocalPort();
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(new AgentConfig.LlmConfig(
+			"http://127.0.0.1:" + closedPort,
+			"planner-key",
+			"planner-model",
+			"https://api.openai.com/v1",
+			"",
+			"",
+			2_000,
+			10_000,
+			8,
+			65_536,
+			"low",
+			false
+		));
+
+		LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
+			backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent status", LlmMessageKind.USER_TURN)
+			)))
+		);
+
+		assertEquals(LlmFailureType.PROVIDER_UNAVAILABLE, exception.failureType());
+		assertTrue(exception.getMessage().contains("LLM request failed:"));
+		assertTrue(exception.getMessage().contains("ConnectException"));
+	}
+
 	@Test
 	void generateParsesPlannerResponseAndUsage() throws Exception {
 		AtomicReference<String> bodyRef = new AtomicReference<>();
@@ -1109,5 +1141,11 @@ class OpenAiCompatibleLlmBackendTest {
 		exchange.sendResponseHeaders(statusCode, bytes.length);
 		exchange.getResponseBody().write(bytes);
 		exchange.close();
+	}
+
+	private static int closedLocalPort() throws IOException {
+		try (ServerSocket socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+			return socket.getLocalPort();
+		}
 	}
 }

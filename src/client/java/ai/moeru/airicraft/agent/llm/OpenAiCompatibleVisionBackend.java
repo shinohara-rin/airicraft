@@ -126,8 +126,9 @@ public final class OpenAiCompatibleVisionBackend implements VisionBackend {
 			throw new LlmBackendException(LlmFailureType.TIMEOUT, "Vision request interrupted", exception);
 		}
 		catch (IOException exception) {
-			observability.recordFailure(Context.current(), LlmFailureType.PROVIDER_ERROR.name(), "Vision request failed", exception);
-			throw new LlmBackendException(LlmFailureType.PROVIDER_ERROR, "Vision request failed", exception);
+			String message = OpenAiCompatibleChatClient.requestFailureMessage("Vision request failed", exception);
+			observability.recordFailure(Context.current(), LlmFailureType.PROVIDER_UNAVAILABLE.name(), message, exception);
+			throw new LlmBackendException(LlmFailureType.PROVIDER_UNAVAILABLE, message, exception);
 		}
 	}
 

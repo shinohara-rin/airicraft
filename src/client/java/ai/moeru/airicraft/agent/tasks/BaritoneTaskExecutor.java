@@ -54,7 +54,8 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 			return Optional.empty();
 		}
 
-		if (!sameTaskTarget(activeTask.get(), appliedTask)) {
+		boolean taskTargetChanged = !sameTaskTarget(activeTask.get(), appliedTask);
+		if (taskTargetChanged) {
 			if (appliedTask != null) {
 				pendingInternalCancelTaskId = appliedTask.taskId();
 				facade.cancel();
@@ -71,7 +72,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 		}
 		TaskExecutionState state = terminalOutcome
 			.map(TerminalOutcome::state)
-			.orElseGet(() -> isTerminal(snapshot.state()) ? snapshot.state() : TaskExecutionState.RUNNING);
+			.orElseGet(() -> taskTargetChanged || !isTerminal(snapshot.state()) ? TaskExecutionState.RUNNING : snapshot.state());
 		TaskTerminationCause terminationCause = terminalOutcome.map(TerminalOutcome::cause).orElse(null);
 		snapshot = new TaskExecutionSnapshot(
 			state,

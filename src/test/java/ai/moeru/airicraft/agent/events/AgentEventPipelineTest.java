@@ -170,4 +170,55 @@ class AgentEventPipelineTest {
 		assertEquals(0, policyState.recentInterventionCount());
 		assertEquals(1, raw.size());
 	}
+
+	@Test
+	void taskBlockedBypassesPolicyAndEmitsSemanticAndTrigger() {
+		SemanticEventBuffer raw = new SemanticEventBuffer(16, () -> 1000L);
+		SemanticEventBuffer planner = new SemanticEventBuffer(16, () -> 1000L);
+		EventPolicyState policyState = new EventPolicyState();
+		policyState.upsert(new EventPolicyRule(
+			"ignore-task-blocked",
+			EventPolicyEffect.IGNORE,
+			new EventPolicyMatch("task.blocked", null, null, null, null, null, null),
+			"should be bypassed",
+			1000L,
+			null,
+			0L,
+			"planner"
+		));
+		AgentEventPipeline pipeline = new AgentEventPipeline(raw, planner, policyState, Map.of(
+			"task.blocked", new EventRoutingProfile("task.blocked", true, PlannerTriggerType.SYSTEM, true),
+			"policy.event_intervened", EventRoutingProfile.rawOnly("policy.event_intervened")
+		));
+
+		pipeline.appendRaw(10L, "task.blocked", Map.of(
+			"taskType", "COLLECT_RESOURCE",
+			"resourceKind", "WOOD_LOGS",
+			"blockedReason", "target_missing",
+			"collected", 0,
+			"remaining", 5
+		));
+		List<PlannerTrigger> triggers = pipeline.drain((event, profile) ->
+			PlannerTrigger.pending(
+				profile.triggerType(),
+				"runtime",
+				"Task blocked: taskType=COLLECT_RESOURCE resourceKind=WOOD_LOGS reason=target_missing collected=0 remaining=5.",
+				event.tick(),
+				event.timestampMs()
+			)
+		);
+
+		assertEquals(1, triggers.size());
+		assertEquals(PlannerTriggerType.SYSTEM, triggers.getFirst().type());
+		assertEquals("runtime", triggers.getFirst().speaker());
+		assertEquals(
+			"Task blocked: taskType=COLLECT_RESOURCE resourceKind=WOOD_LOGS reason=target_missing collected=0 remaining=5.",
+			triggers.getFirst().text()
+		);
+		assertEquals(1, planner.size());
+		assertTrue(planner.containsType("task.blocked"));
+		assertEquals(0, policyState.recentInterventionCount());
+		assertEquals(1, raw.size());
+		assertTrue(policyState.lastDecision().orElseThrow().bypassed());
+	}
 }

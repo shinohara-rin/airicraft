@@ -15,6 +15,7 @@ public final class DialogueCore {
 	static final String RESET_MESSAGE = "Planner state reset.";
 	static final String PARSE_ERROR_MESSAGE = "I got confused for a moment.";
 	static final String TIMEOUT_MESSAGE = "I hit a timeout just now. Please try again.";
+	static final String PROVIDER_UNAVAILABLE_MESSAGE = "I can't reach the LLM provider right now. Please try again.";
 
 	private DialogueCore() {
 	}
@@ -94,6 +95,13 @@ public final class DialogueCore {
 				tick
 			));
 		}
+		else if (failureType == LlmFailureType.PROVIDER_UNAVAILABLE && directChatTrigger) {
+			visibleResponses.add(new DialogueResponse(
+				PROVIDER_UNAVAILABLE_MESSAGE,
+				new DialogueIntent(DialogueIntentType.ACKNOWLEDGE_FAILURE, null, null),
+				tick
+			));
+		}
 
 		int consecutiveFailureCount = state.consecutiveFailureCount() + 1;
 		boolean degraded = state.degraded();
@@ -116,6 +124,7 @@ public final class DialogueCore {
 			pendingReplyReason = switch (failureType) {
 				case PARSE_ERROR -> "parse_error_visible_reply";
 				case TIMEOUT -> "timeout_visible_reply";
+				case PROVIDER_UNAVAILABLE -> "provider_unavailable_visible_reply";
 				default -> null;
 			};
 		}
@@ -127,6 +136,34 @@ public final class DialogueCore {
 			.withLastResponse(lastResponse)
 			.withPendingReply(lastResponse != null && hasVisibleText(lastResponse), pendingReplyReason);
 		return new DialogueTransition(nextState, List.copyOf(visibleResponses), List.copyOf(effects));
+	}
+
+	public static DialogueTransition onPlannerDegradedBlocked(DialogueState state, String senderName, boolean directChatTrigger, long tick) {
+		ArrayList<DialogueEffect> effects = new ArrayList<>();
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("directChat", directChatTrigger);
+		payload.put("consecutiveFailureCount", state.consecutiveFailureCount());
+		if (state.lastFailureType() != null) {
+			payload.put("failureType", state.lastFailureType().name());
+		}
+		if (senderName != null && !senderName.isBlank()) {
+			payload.put("speaker", senderName);
+		}
+		effects.add(DialogueEffect.appendSemanticEvent("planner.degraded_blocked", payload));
+
+		if (!directChatTrigger) {
+			return new DialogueTransition(state, List.of(), List.copyOf(effects));
+		}
+
+		DialogueResponse response = new DialogueResponse(
+			DEGRADED_MESSAGE,
+			new DialogueIntent(DialogueIntentType.ACKNOWLEDGE_FAILURE, null, null),
+			tick
+		);
+		DialogueState nextState = state
+			.withLastResponse(response)
+			.withPendingReply(true, "planner_degraded_visible_reply");
+		return new DialogueTransition(nextState, List.of(response), List.copyOf(effects));
 	}
 
 	public static DialogueTransition onReset(DialogueState state, String senderName, long tick) {

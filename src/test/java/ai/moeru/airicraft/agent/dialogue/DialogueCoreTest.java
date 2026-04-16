@@ -64,6 +64,20 @@ class DialogueCoreTest {
 	}
 
 	@Test
+	void directChatProviderUnavailableUsesFreshVisibleReply() {
+		DialogueTransition transition = DialogueCore.onPlannerFailure(
+			DialogueState.initial(),
+			LlmFailureType.PROVIDER_UNAVAILABLE,
+			"LLM request failed: ConnectException",
+			true,
+			91L
+		);
+
+		assertEquals("I can't reach the LLM provider right now. Please try again.", transition.lastVisibleResponse().text());
+		assertEquals("provider_unavailable_visible_reply", transition.state().pendingReplyReason());
+	}
+
+	@Test
 	void resetClearsDegradedStateAndEmitsRecoveryEffects() {
 		DialogueState state = DialogueState.initial()
 			.withDegraded(true)

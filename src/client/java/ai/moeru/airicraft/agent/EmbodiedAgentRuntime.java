@@ -1247,6 +1247,7 @@ public final class EmbodiedAgentRuntime {
 			case "pickup.item_picked_up" -> createPickupTrigger(event);
 			case "crafting.item_crafted" -> createCraftTrigger(event);
 			case "combat.damage_taken" -> createDamageTrigger(event);
+			case "task.blocked" -> createTaskBlockedTrigger(event);
 			default -> null;
 		};
 	}
@@ -1368,6 +1369,38 @@ public final class EmbodiedAgentRuntime {
 		);
 	}
 
+	private ai.moeru.airicraft.agent.llm.PlannerTrigger createTaskBlockedTrigger(SemanticEvent event) {
+		Map<String, Object> payload = event.payload();
+		String taskType = stringPayloadValue(payload, "taskType");
+		String resourceKind = stringPayloadValue(payload, "resourceKind");
+		String blockedReason = stringPayloadValue(payload, "blockedReason");
+		Float collected = floatPayloadValue(payload, "collected");
+		Float remaining = floatPayloadValue(payload, "remaining");
+		if (taskType == null || blockedReason == null) {
+			return null;
+		}
+
+		StringBuilder message = new StringBuilder("Task blocked: taskType=").append(taskType);
+		if (resourceKind != null) {
+			message.append(" resourceKind=").append(resourceKind);
+		}
+		message.append(" reason=").append(blockedReason);
+		if (collected != null) {
+			message.append(" collected=").append(formatDecimal(collected));
+		}
+		if (remaining != null) {
+			message.append(" remaining=").append(formatDecimal(remaining));
+		}
+		message.append('.');
+		return ai.moeru.airicraft.agent.llm.PlannerTrigger.pending(
+			PlannerTriggerType.SYSTEM,
+			"runtime",
+			message.toString(),
+			event.tick(),
+			event.timestampMs()
+		);
+	}
+
 	private void applyPlannerEventPolicyChanges(EventPolicyChanges changes) {
 		if (changes == null) {
 			return;
@@ -1466,6 +1499,7 @@ public final class EmbodiedAgentRuntime {
 		profiles.put("planner.degraded_entered", new EventRoutingProfile("planner.degraded_entered", true, null, false));
 		profiles.put("planner.degraded_cleared", new EventRoutingProfile("planner.degraded_cleared", true, null, false));
 		profiles.put("planner.reset_requested", new EventRoutingProfile("planner.reset_requested", true, null, true));
+		profiles.put("task.blocked", new EventRoutingProfile("task.blocked", true, PlannerTriggerType.SYSTEM, true));
 		profiles.put("policy.event_intervened", EventRoutingProfile.rawOnly("policy.event_intervened"));
 		profiles.put("policy.rule_rejected", EventRoutingProfile.rawOnly("policy.rule_rejected"));
 		return Map.copyOf(profiles);
@@ -1506,25 +1540,31 @@ public final class EmbodiedAgentRuntime {
 			return;
 		}
 
-			java.util.LinkedHashMap<String, Object> payload = new java.util.LinkedHashMap<>();
-			if (current.spec() != null) {
-				payload.put("taskType", current.spec().type().name());
-				payload.put("resourceKind", current.spec().resourceKind().name());
-				payload.put("quantity", current.spec().quantity());
+		java.util.LinkedHashMap<String, Object> payload = new java.util.LinkedHashMap<>();
+		if (current.spec() != null) {
+			payload.put("taskType", current.spec().type().name());
+			payload.put("resourceKind", current.spec().resourceKind().name());
+			payload.put("quantity", current.spec().quantity());
+		}
+		if (current.mission() != null) {
+			payload.put("missionId", current.mission().missionId());
+			payload.put("missionType", current.mission().missionType().name());
+		}
+		if (current.activeStepId() != null) {
+			payload.put("activeStepId", current.activeStepId());
+		}
+		if (current.activeStepKind() != null) {
+			payload.put("activeStepKind", current.activeStepKind().name());
+		}
+		payload.put("state", current.state().name());
+		payload.put("collected", current.progress().collected());
+		payload.put("remaining", current.progress().remaining());
+		if (current.state() == TaskState.WAITING_FOR_PICKUP) {
+			String blockedReason = activeJobRuntime.current().blockedReason();
+			if (blockedReason != null && !blockedReason.isBlank()) {
+				payload.put("blockedReason", blockedReason);
 			}
-			if (current.mission() != null) {
-				payload.put("missionId", current.mission().missionId());
-				payload.put("missionType", current.mission().missionType().name());
-			}
-			if (current.activeStepId() != null) {
-				payload.put("activeStepId", current.activeStepId());
-			}
-			if (current.activeStepKind() != null) {
-				payload.put("activeStepKind", current.activeStepKind().name());
-			}
-			payload.put("state", current.state().name());
-			payload.put("collected", current.progress().collected());
-			payload.put("remaining", current.progress().remaining());
+		}
 		if (current.source() != null && !current.source().isBlank()) {
 			payload.put("source", current.source());
 		}
@@ -1534,6 +1574,7 @@ public final class EmbodiedAgentRuntime {
 
 		String eventType = switch (current.state()) {
 			case RUNNING -> "task.started";
+			case WAITING_FOR_PICKUP -> "task.blocked";
 			case PAUSED_BY_SESSION_GATE -> "task.paused_by_session_gate";
 			case COMPLETED -> "task.completed";
 			case FAILED -> "task.failed";
