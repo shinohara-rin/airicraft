@@ -10,9 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class CraftingOpportunityResolverTest {
 	@Test
-	void compactDescriptionIncludesOutputAndIngredients() {
+	void compactDescriptionIncludesExactOutputAndCraftableFlag() {
 		assertEquals(
-			"minecraft:oak_planks output=4 ingredients=minecraft:oak_log",
+			"minecraft:oak_planks output=4 craftableNow=true",
 			new CraftingOpportunity("minecraft:oak_planks", 4, "minecraft:oak_log").compactDescription()
 		);
 	}

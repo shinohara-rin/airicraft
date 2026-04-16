@@ -1591,7 +1591,6 @@ public final class EmbodiedAgentRuntime {
 		if (
 			current.state() == TaskState.PAUSED_BY_SESSION_GATE
 				|| current.state() == TaskState.COMPLETED
-				|| current.state() == TaskState.FAILED
 				|| current.state() == TaskState.CANCELLED
 		) {
 				dialogueRuntime.onInternalTaskUpdate(
@@ -1683,18 +1682,20 @@ public final class EmbodiedAgentRuntime {
 			eventBuffer.append(tickCount, eventType, payload);
 		}
 
-			dialogueRuntime.onInternalTaskUpdate(
-				"TASK UPDATE: state=" + event.terminalState().name()
-					+ " taskId=" + event.taskId()
-					+ " goalType=" + event.goal().type().name()
-					+ " message=" + (event.message() == null ? "" : event.message()),
-				tickCount,
-				sessionSnapshot,
-				activeGoal(),
-				taskSnapshot,
-				missionExecutionSnapshot,
-				eventBuffer
-			);
+		if (event.terminalState() != TaskExecutionState.FAILED) {
+				dialogueRuntime.onInternalTaskUpdate(
+					"TASK UPDATE: state=" + event.terminalState().name()
+						+ " taskId=" + event.taskId()
+						+ " goalType=" + event.goal().type().name()
+						+ " message=" + (event.message() == null ? "" : event.message()),
+					tickCount,
+					sessionSnapshot,
+					activeGoal(),
+					taskSnapshot,
+					missionExecutionSnapshot,
+					eventBuffer
+				);
+		}
 	}
 
 	private void registerDefaultScenarios() {

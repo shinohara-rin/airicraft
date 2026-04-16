@@ -18,8 +18,8 @@ import net.minecraft.util.Identifier;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 public final class CraftingOpportunityResolver {
@@ -69,8 +69,8 @@ public final class CraftingOpportunityResolver {
 	}
 
 	static CraftingRecipeResolution resolve(List<RecipeResultCollection> collections, RecipeFinder finder, String itemId, int quantity) {
-		Identifier requestedId = Identifier.tryParse(itemId);
-		if (requestedId == null || collections == null || finder == null) {
+		String requestedItem = normalizeRequestedItem(itemId);
+		if (requestedItem.isBlank() || collections == null || finder == null) {
 			return CraftingRecipeResolution.failure("recipe_not_found");
 		}
 
@@ -80,7 +80,7 @@ public final class CraftingOpportunityResolver {
 			collection.populateRecipes(finder, CraftingOpportunityResolver::fitsPlayerGrid);
 			for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
 				ItemStack result = resultStack(entry.display());
-				if (result.isEmpty() || !Objects.equals(Registries.ITEM.getId(result.getItem()), requestedId)) {
+				if (result.isEmpty() || !matchesRequestedItem(Registries.ITEM.getId(result.getItem()), requestedItem)) {
 					continue;
 				}
 				if (!fitsPlayerGrid(entry.display())) {
@@ -123,6 +123,46 @@ public final class CraftingOpportunityResolver {
 			return itemDisplay.item().value().getDefaultStack();
 		}
 		return ItemStack.EMPTY;
+	}
+
+	private static boolean matchesRequestedItem(Identifier outputItemId, String requestedItem) {
+		if (outputItemId == null || requestedItem.isBlank()) {
+			return false;
+		}
+		// TODO(crafting): remove this planner-output sanitization once craft requests are routed through
+		// a semantic choice/token from inspect_recipes instead of trusting the model to copy item ids.
+		String exact = outputItemId.toString();
+		if (exact.equals(requestedItem)) {
+			return true;
+		}
+		String path = outputItemId.getPath();
+		if (path.equals(requestedItem)) {
+			return true;
+		}
+		String requestedPath = requestedItemPath(requestedItem);
+		if (path.equals(requestedPath)) {
+			return true;
+		}
+		if (!requestedItem.endsWith("s")) {
+			return false;
+		}
+		String singular = requestedItem.substring(0, requestedItem.length() - 1);
+		return exact.equals(singular) || path.equals(requestedItemPath(singular));
+	}
+
+	private static String requestedItemPath(String requestedItem) {
+		int namespaceSeparator = requestedItem.indexOf(':');
+		if (namespaceSeparator < 0 || namespaceSeparator == requestedItem.length() - 1) {
+			return requestedItem;
+		}
+		return requestedItem.substring(namespaceSeparator + 1);
+	}
+
+	private static String normalizeRequestedItem(String itemId) {
+		if (itemId == null) {
+			return "";
+		}
+		return itemId.trim().toLowerCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
 	}
 
 	private static RecipeFinder recipeFinder(ClientPlayerEntity player) {
