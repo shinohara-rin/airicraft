@@ -87,6 +87,29 @@ class ActiveJobRuntimeTest {
 	}
 
 	@Test
+	void clearGoalDoesNotCancelCompletedCollectJob() {
+		ActiveJobRuntime runtime = new ActiveJobRuntime();
+		runtime.submitTask(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, 5), 3, "test", 1L);
+
+		runtime.tick(TaskExecutionSnapshot.idle(), evidence(8, 2L), true, true, 2L);
+		assertEquals(ActiveJobStatus.COMPLETED, runtime.current().status());
+
+		runtime.applyPlannerResponse(
+			new DialogueResponse(
+				"Done.",
+				new DialogueIntent(DialogueIntentType.CLEAR_GOAL, null, null),
+				3L
+			),
+			8,
+			"planner_response",
+			3L
+		);
+
+		assertEquals(ActiveJobStatus.COMPLETED, runtime.current().status());
+		assertNull(runtime.current().lastError());
+	}
+
+	@Test
 	void craftRecipeActiveJobProjectsWorldTaskRequest() {
 		ActiveJobRuntime runtime = new ActiveJobRuntime();
 		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("minecraft:stick", 4);

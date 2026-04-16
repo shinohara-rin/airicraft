@@ -156,8 +156,14 @@ public final class ActiveJobRuntime {
 			submitTask(response.intent().taskSpec(), currentResourceCount, source, tick);
 			return;
 		}
-		if (response.intent().type() == DialogueIntentType.CANCEL_TASK || response.intent().type() == DialogueIntentType.CLEAR_GOAL) {
+		if (response.intent().type() == DialogueIntentType.CANCEL_TASK) {
 			cancel("planner_cancelled", tick);
+			return;
+		}
+		if (response.intent().type() == DialogueIntentType.CLEAR_GOAL) {
+			if (!activeJob.status().terminal()) {
+				cancel("planner_cancelled", tick);
+			}
 			return;
 		}
 		if (response.intent().type() == DialogueIntentType.SET_GOAL && response.intent().goalType() != null) {
