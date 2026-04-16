@@ -27,7 +27,7 @@ public final class PlannerPromptPolicy {
 			  "intent": {
 			    "type": "job_update" | "clear_goal" | "cancel_task" | "reply_only" | "ask_clarification" | "acknowledge_failure" | "none",
 			    "activeJob": {
-			      "type": "FOLLOW_PLAYER" | "NAVIGATE_TO" | "MINE_BLOCKS" | "COLLECT_RESOURCE" | "ASK_USER",
+			      "type": "FOLLOW_PLAYER" | "NAVIGATE_TO" | "MINE_BLOCKS" | "COLLECT_RESOURCE" | "CRAFT_RECIPE" | "ASK_USER",
 			      "targetPlayer": string | null,
 			      "position": {
 			        "x": number,
@@ -40,6 +40,7 @@ public final class PlannerPromptPolicy {
 			        "quantity": number
 			      } | null,
 			      "resourceKind": "WOOD_LOGS" | null,
+			      "recipeId": string | null,
 			      "quantity": number | null,
 			      "askPrompt": string | null
 			    } | null
@@ -80,8 +81,11 @@ public final class PlannerPromptPolicy {
 			INVENTORY_DELTA_AT_LEAST means items gained since the current mission started, not absolute inventory and not the current total inventory.
 			When runtime notices include collected/remaining progress, trust that delta progress over raw inventoryCounts.
 			Do not invent ad-hoc fields outside the schema above.
-			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, and ASK_USER.
+			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
 			Use COLLECT_RESOURCE for gathering tasks like wood logs.
+			Use CRAFT_RECIPE only for 2x2 player-inventory crafting recipes. quantity is desired output item count, not craft operation count.
+			2x2 craft examples include planks, sticks, and crafting table when ingredients exist.
+			3x3/crafting-table recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not issue CRAFT_RECIPE.
 			Use ASK_USER when a required decision or missing information cannot be safely inferred.
 			Do not create a job to mean idle, ready, or waiting for the next task; use reply_only or clear_goal.
 			Legacy compatibility fields such as taskLedger, taskSpec, set_goal, and submit_task may still work, but prefer activeJob with job_update.

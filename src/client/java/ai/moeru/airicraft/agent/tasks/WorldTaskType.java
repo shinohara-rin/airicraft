@@ -1,7 +1,8 @@
 package ai.moeru.airicraft.agent.tasks;
 
-public enum BaritoneTaskType {
+public enum WorldTaskType {
 	FOLLOW,
 	NAVIGATE,
-	MINE
+	MINE,
+	CRAFT_RECIPE
 }

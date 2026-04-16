@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.agent.job;
 
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
+import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 
 import java.util.Objects;
@@ -11,6 +12,7 @@ public record ActiveJob(
 	ActiveJobStatus status,
 	GoalSnapshot directGoal,
 	TaskSpec taskSpec,
+	CraftRecipeStepArgs craftRecipe,
 	String askPrompt,
 	long waitUntilTick,
 	int baselineResourceCount,
@@ -36,6 +38,7 @@ public record ActiveJob(
 			"job-idle",
 			ActiveJobType.IDLE,
 			ActiveJobStatus.IDLE,
+			null,
 			null,
 			null,
 			null,

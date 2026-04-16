@@ -302,6 +302,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 				.map(ActiveJobProposal::mineBlocks)
 				.orElse(null);
 			case COLLECT_RESOURCE -> parseActiveCollectResourceProposal(jobObject);
+			case CRAFT_RECIPE -> parseActiveCraftRecipeProposal(jobObject);
 			case ASK_USER -> {
 				String prompt = getString(jobObject, "askPrompt").orElseGet(() -> getString(jobObject, "prompt").orElse(null));
 				yield prompt == null ? null : ActiveJobProposal.askUser(prompt);
@@ -321,6 +322,19 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			return null;
 		}
 		return ActiveJobProposal.collectResource(new TaskSpec(TaskType.COLLECT_RESOURCE, resourceKind.get(), quantity.get()));
+	}
+
+	private static ActiveJobProposal parseActiveCraftRecipeProposal(JsonObject jobObject) {
+		CraftRecipeStepArgs nestedCraftRecipe = parseCraftRecipeStepArgs(jobObject, "craftRecipe");
+		if (nestedCraftRecipe != null) {
+			return ActiveJobProposal.craftRecipe(nestedCraftRecipe);
+		}
+		Optional<String> recipeId = getString(jobObject, "recipeId").or(() -> getString(jobObject, "itemId"));
+		Optional<Integer> quantity = getInt(jobObject, "quantity");
+		if (recipeId.isEmpty() || quantity.isEmpty()) {
+			return null;
+		}
+		return ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs(recipeId.get(), quantity.get()));
 	}
 
 	private static TaskLedger parseTaskLedger(JsonObject object, String fieldName) {

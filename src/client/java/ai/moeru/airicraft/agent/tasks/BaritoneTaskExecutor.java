@@ -12,7 +12,7 @@ import java.util.Optional;
 public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 	private final BaritoneFacade facade;
 
-	private BaritoneTaskRequest appliedTask;
+	private WorldTaskRequest appliedTask;
 	private String terminalEventTaskId;
 	private TaskExecutionState terminalEventState;
 	private TaskTerminationCause terminalEventCause;
@@ -25,7 +25,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 	}
 
 	@Override
-	public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<BaritoneTaskRequest> activeTask) {
+	public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 		if (!facade.isLoaded()) {
 			reset();
 			return Optional.empty();
@@ -111,7 +111,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 		}
 	}
 
-	private Optional<TerminalOutcome> terminalOutcomeFor(Optional<String> pathEvent, BaritoneTaskRequest activeTask) {
+	private Optional<TerminalOutcome> terminalOutcomeFor(Optional<String> pathEvent, WorldTaskRequest activeTask) {
 		if (pathEvent.isEmpty()) {
 			return Optional.empty();
 		}
@@ -151,7 +151,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 		return true;
 	}
 
-	private static boolean sameTaskTarget(BaritoneTaskRequest left, BaritoneTaskRequest right) {
+	private static boolean sameTaskTarget(WorldTaskRequest left, WorldTaskRequest right) {
 		if (left == right) {
 			return true;
 		}
@@ -209,7 +209,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 		snapshot = TaskExecutionSnapshot.idle();
 	}
 
-	private void clearTerminalEvent(BaritoneTaskRequest task) {
+	private void clearTerminalEvent(WorldTaskRequest task) {
 		if (!sameTaskTarget(task, appliedTask) || !Objects.equals(task.taskId(), terminalEventTaskId)) {
 			terminalEventTaskId = null;
 			terminalEventState = null;

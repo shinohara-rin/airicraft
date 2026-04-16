@@ -7,9 +7,9 @@ import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.tasks.AskUserStepArgs;
-import ai.moeru.airicraft.agent.tasks.BaritoneTaskRequest;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
+import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.LedgerStep;
 import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
 import ai.moeru.airicraft.agent.tasks.MissionExecutionSnapshot;
@@ -26,6 +26,7 @@ import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 import ai.moeru.airicraft.agent.tasks.TaskState;
 import ai.moeru.airicraft.agent.tasks.TaskStep;
+import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 
 import java.util.Map;
@@ -42,7 +43,7 @@ public final class ActiveJobRuntime {
 	private MissionSpec compatibilityMission;
 	private TaskLedger compatibilityLedger;
 	private CollectResourceTaskDebugSnapshot collectResourceDebugSnapshot = CollectResourceTaskDebugSnapshot.empty();
-	private BaritoneTaskRequest desiredPrimitiveTask;
+	private WorldTaskRequest desiredPrimitiveTask;
 	private String collectAttemptJobId;
 	private int collectAttemptSequence;
 
@@ -66,7 +67,9 @@ public final class ActiveJobRuntime {
 		if (activeJob.isIdle() || activeJob.status().terminal()) {
 			return Optional.empty();
 		}
-		if (desiredPrimitiveTask != null && Objects.equals(desiredPrimitiveTask.sourceJobId(), activeJob.jobId())) {
+		if (desiredPrimitiveTask != null
+			&& desiredPrimitiveTask.goal() != null
+			&& Objects.equals(desiredPrimitiveTask.sourceJobId(), activeJob.jobId())) {
 			return Optional.of(desiredPrimitiveTask.goal());
 		}
 		if (activeJob.directGoal() != null) {
@@ -82,7 +85,7 @@ public final class ActiveJobRuntime {
 		return Optional.empty();
 	}
 
-	public Optional<BaritoneTaskRequest> activeTaskRequest() {
+	public Optional<WorldTaskRequest> activeTaskRequest() {
 		return Optional.ofNullable(desiredPrimitiveTask);
 	}
 
@@ -98,6 +101,7 @@ public final class ActiveJobRuntime {
 			ActiveJobStatus.QUEUED,
 			null,
 			spec,
+			null,
 			null,
 			-1L,
 			currentResourceCount,
@@ -173,6 +177,7 @@ public final class ActiveJobRuntime {
 			ActiveJobStatus.CANCELLED,
 			activeJob.directGoal(),
 			activeJob.taskSpec(),
+			activeJob.craftRecipe(),
 			activeJob.askPrompt(),
 			activeJob.waitUntilTick(),
 			activeJob.baselineResourceCount(),
@@ -216,6 +221,7 @@ public final class ActiveJobRuntime {
 
 		activeJob = switch (activeJob.type()) {
 			case COLLECT_RESOURCE -> tickCollectResource(activeJob, lastPrimitiveExecution, lastEvidence, actuationAllowed, nearbyResourceTargetAvailable, tick);
+			case CRAFT_RECIPE -> tickCraftRecipe(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case ASK_USER -> tickAskUser(activeJob, tick);
 			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS -> tickGoalJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case IDLE -> ActiveJob.idle();
@@ -233,7 +239,12 @@ public final class ActiveJobRuntime {
 		}
 		if (activeJob.directGoal() != null) {
 			clearCollectAttemptState();
-			desiredPrimitiveTask = BaritoneTaskRequest.direct(activeJob.jobId(), activeJob.directGoal());
+			desiredPrimitiveTask = WorldTaskRequest.direct(activeJob.jobId(), activeJob.directGoal());
+			return;
+		}
+		if (activeJob.type() == ActiveJobType.CRAFT_RECIPE && activeJob.craftRecipe() != null) {
+			clearCollectAttemptState();
+			desiredPrimitiveTask = WorldTaskRequest.craftRecipe(activeJob.jobId(), activeJob.jobId(), activeJob.craftRecipe());
 			return;
 		}
 		if (activeJob.type() != ActiveJobType.COLLECT_RESOURCE || activeJob.taskSpec() == null) {
@@ -271,7 +282,7 @@ public final class ActiveJobRuntime {
 		collectAttemptSequence++;
 		int absoluteInventoryTarget = activeJob.baselineResourceCount() + activeJob.taskSpec().quantity();
 		GoalSnapshot goal = collectResourceTaskHandler.start(activeJob.taskSpec(), absoluteInventoryTarget, tick);
-		desiredPrimitiveTask = BaritoneTaskRequest.collectMine(
+		desiredPrimitiveTask = WorldTaskRequest.collectMine(
 			activeJob.jobId() + ":mine:" + collectAttemptSequence,
 			activeJob.jobId(),
 			goal
@@ -366,6 +377,24 @@ public final class ActiveJobRuntime {
 		return updated(job, ActiveJobStatus.BLOCKED, "waiting_for_user", null, job.collectedCount(), tick);
 	}
 
+	private static ActiveJob tickCraftRecipe(
+		ActiveJob job,
+		TaskExecutionSnapshot primitiveExecution,
+		boolean actuationAllowed,
+		long tick
+	) {
+		if (!actuationAllowed || primitiveExecution.state() == TaskExecutionState.PAUSED_BY_SESSION_GATE) {
+			return updated(job, ActiveJobStatus.BLOCKED, "session_gate", null, job.collectedCount(), tick);
+		}
+		return switch (primitiveExecution.state()) {
+			case RUNNING, IDLE -> updated(job, ActiveJobStatus.RUNNING, null, null, job.collectedCount(), tick);
+			case COMPLETED -> updated(job, ActiveJobStatus.COMPLETED, null, null, job.collectedCount(), tick);
+			case FAILED -> updated(job, ActiveJobStatus.FAILED, null, nonEmpty(primitiveExecution.lastPathEvent(), "crafting_failed"), job.collectedCount(), tick);
+			case CANCELLED -> updated(job, ActiveJobStatus.CANCELLED, null, nonEmpty(primitiveExecution.lastPathEvent(), "crafting_cancelled"), job.collectedCount(), tick);
+			case PAUSED_BY_SESSION_GATE -> updated(job, ActiveJobStatus.BLOCKED, "session_gate", null, job.collectedCount(), tick);
+		};
+	}
+
 	private static ActiveJob tickGoalJob(
 		ActiveJob job,
 		TaskExecutionSnapshot primitiveExecution,
@@ -386,7 +415,7 @@ public final class ActiveJobRuntime {
 
 	private ActiveJob fromLedger(TaskLedger ledger, int currentResourceCount, String source, long tick) {
 		if (ledger.activeStepId() == null) {
-			return new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, -1L, 0, 0, source, null, null, tick);
+			return new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, null, -1L, 0, 0, source, null, null, tick);
 		}
 		LedgerStep activeStep = ledger.steps().stream()
 			.filter(step -> Objects.equals(step.id(), ledger.activeStepId()))
@@ -411,19 +440,27 @@ public final class ActiveJobRuntime {
 				source,
 				tick
 			);
+			case CRAFT_RECIPE -> fromCraftRecipeStep(ledger.missionId(), activeStep.args().craftRecipe(), source, tick);
 			case ASK_USER -> fromAskUserStep(ledger.missionId(), activeStep.args().askUser(), source, tick);
-			case FINISH -> new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, -1L, 0, 0, source, null, null, tick);
-			default -> new ActiveJob(ledger.missionId(), ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, "Unsupported step: " + activeStep.kind().name(), -1L, 0, 0, source, "unsupported_step", null, tick);
+			case FINISH -> new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, null, -1L, 0, 0, source, null, null, tick);
+			default -> new ActiveJob(ledger.missionId(), ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, null, "Unsupported step: " + activeStep.kind().name(), -1L, 0, 0, source, "unsupported_step", null, tick);
 		};
 	}
 
 	private static ActiveJob fromAskUserStep(String jobId, AskUserStepArgs askUser, String source, long tick) {
-		return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, askUser == null ? null : askUser.prompt(), -1L, 0, 0, source, "waiting_for_user", null, tick);
+		return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, null, askUser == null ? null : askUser.prompt(), -1L, 0, 0, source, "waiting_for_user", null, tick);
+	}
+
+	private static ActiveJob fromCraftRecipeStep(String jobId, CraftRecipeStepArgs craftRecipe, String source, long tick) {
+		if (craftRecipe == null) {
+			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, -1L, 0, 0, source, null, "missing_craft_recipe_args", tick);
+		}
+		return new ActiveJob(jobId, ActiveJobType.CRAFT_RECIPE, ActiveJobStatus.QUEUED, null, null, craftRecipe, null, -1L, 0, 0, source, null, null, tick);
 	}
 
 	private ActiveJob fromCollectResourceStep(String jobId, CollectResourceStepArgs args, int currentResourceCount, String source, long tick) {
 		if (args == null) {
-			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, -1L, 0, 0, source, null, "missing_collect_resource_args", tick);
+			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, -1L, 0, 0, source, null, "missing_collect_resource_args", tick);
 		}
 		return new ActiveJob(
 			jobId,
@@ -431,6 +468,7 @@ public final class ActiveJobRuntime {
 			ActiveJobStatus.QUEUED,
 			null,
 			new TaskSpec(ai.moeru.airicraft.agent.tasks.TaskType.COLLECT_RESOURCE, args.resourceKind(), args.quantity()),
+			null,
 			null,
 			-1L,
 			currentResourceCount,
@@ -489,6 +527,7 @@ public final class ActiveJobRuntime {
 				null,
 				proposal.taskSpec(),
 				null,
+				null,
 				-1L,
 				currentResourceCount,
 				0,
@@ -497,13 +536,14 @@ public final class ActiveJobRuntime {
 				null,
 				tick
 			);
+			case CRAFT_RECIPE -> fromCraftRecipeStep(newJobId(), proposal.craftRecipe(), source, tick);
 			case ASK_USER -> fromAskUserStep(newJobId(), new AskUserStepArgs(proposal.askPrompt()), source, tick);
 			case IDLE -> ActiveJob.idle();
 		};
 	}
 
 	private static ActiveJob fromDirectGoal(String jobId, GoalSnapshot goal, ActiveJobType type, String source, long tick) {
-		return new ActiveJob(jobId, type, ActiveJobStatus.QUEUED, goal, null, null, -1L, 0, 0, source, null, null, tick);
+		return new ActiveJob(jobId, type, ActiveJobStatus.QUEUED, goal, null, null, null, -1L, 0, 0, source, null, null, tick);
 	}
 
 	private ActiveJob preserveProgressIfSame(ActiveJob next, long tick) {
@@ -514,6 +554,7 @@ public final class ActiveJobRuntime {
 				activeJob.status(),
 				next.directGoal(),
 				next.taskSpec(),
+				next.craftRecipe(),
 				next.askPrompt(),
 				next.waitUntilTick(),
 				activeJob.baselineResourceCount(),
@@ -537,6 +578,9 @@ public final class ActiveJobRuntime {
 		if (left.taskSpec() != null || right.taskSpec() != null) {
 			return Objects.equals(left.taskSpec(), right.taskSpec());
 		}
+		if (left.craftRecipe() != null || right.craftRecipe() != null) {
+			return Objects.equals(left.craftRecipe(), right.craftRecipe());
+		}
 		return Objects.equals(left.askPrompt(), right.askPrompt()) && left.waitUntilTick() == right.waitUntilTick();
 	}
 
@@ -546,6 +590,7 @@ public final class ActiveJobRuntime {
 		}
 		MissionType missionType = switch (activeJob.type()) {
 			case COLLECT_RESOURCE -> MissionType.COLLECT_RESOURCE;
+			case CRAFT_RECIPE -> MissionType.CRAFT_ITEM;
 			default -> MissionType.COLLECT_RESOURCE;
 		};
 		return new MissionSpec(activeJob.jobId(), missionType, goalText());
@@ -557,6 +602,7 @@ public final class ActiveJobRuntime {
 			case NAVIGATE_TO -> "Navigate to target";
 			case MINE_BLOCKS -> "Mine blocks";
 			case COLLECT_RESOURCE -> activeJob.taskSpec() == null ? "Collect resource" : "Collect " + activeJob.taskSpec().quantity() + " " + activeJob.taskSpec().resourceKind().name().toLowerCase();
+			case CRAFT_RECIPE -> activeJob.craftRecipe() == null ? "Craft recipe" : "Craft " + activeJob.craftRecipe().quantity() + "x " + activeJob.craftRecipe().recipeId();
 			case ASK_USER -> "Ask user";
 			case IDLE -> "";
 		};
@@ -567,6 +613,7 @@ public final class ActiveJobRuntime {
 			case FOLLOW_PLAYER, NAVIGATE_TO -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.NAVIGATE_TO_POSITION;
 			case MINE_BLOCKS -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.MINE_BLOCKS;
 			case COLLECT_RESOURCE -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_RESOURCE;
+			case CRAFT_RECIPE -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE;
 			case ASK_USER -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
 			case IDLE -> null;
 		};
@@ -635,6 +682,7 @@ public final class ActiveJobRuntime {
 			status,
 			job.directGoal(),
 			job.taskSpec(),
+			job.craftRecipe(),
 			job.askPrompt(),
 			job.waitUntilTick(),
 			job.baselineResourceCount(),

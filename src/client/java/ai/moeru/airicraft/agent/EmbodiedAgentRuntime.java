@@ -75,7 +75,7 @@ import ai.moeru.airicraft.agent.social.PrimaryInteractionPlayer;
 import ai.moeru.airicraft.agent.social.PrimaryInteractionResolver;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
-import ai.moeru.airicraft.agent.tasks.BaritoneTaskRequest;
+import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
 import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
 import ai.moeru.airicraft.agent.tasks.InventoryResourceCounter;
@@ -363,7 +363,7 @@ public final class EmbodiedAgentRuntime {
 		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
 		recordSemanticTaskTransition(previousTaskSnapshot, taskSnapshot);
 		Optional<GoalSnapshot> activeGoal = activeGoal();
-		Optional<BaritoneTaskRequest> activeTaskRequest = activeJobRuntime.activeTaskRequest();
+		Optional<WorldTaskRequest> activeTaskRequest = activeJobRuntime.activeTaskRequest();
 
 		followState = followCapability.tick(
 			client,
@@ -1588,7 +1588,7 @@ public final class EmbodiedAgentRuntime {
 		}
 		return switch (intent.activeJob().type()) {
 			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS -> true;
-			case IDLE, COLLECT_RESOURCE, ASK_USER -> false;
+			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, ASK_USER -> false;
 		};
 	}
 
@@ -1600,6 +1600,7 @@ public final class EmbodiedAgentRuntime {
 			return true;
 		}
 		return snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_RESOURCE
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
 	}
 
@@ -2253,7 +2254,7 @@ public final class EmbodiedAgentRuntime {
 		private static final NoopWorldTaskExecutor INSTANCE = new NoopWorldTaskExecutor();
 
 		@Override
-		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<BaritoneTaskRequest> activeTask) {
+		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 			return Optional.empty();
 		}
 
