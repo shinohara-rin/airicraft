@@ -174,8 +174,18 @@ public record PlannerAmbientContext(
 		if (!evidence.nearbyBlocks().isEmpty()) {
 			builder.append(", nearbyBlocks=").append(limitNearbyBlocks(evidence.nearbyBlocks()));
 		}
+		if (!evidence.availableCrafts().isEmpty()) {
+			builder.append(", availableCrafts=").append(renderAvailableCrafts(evidence.availableCrafts()));
+		}
 		builder.append('}');
 		return builder.toString();
+	}
+
+	private static String renderAvailableCrafts(java.util.List<ai.moeru.airicraft.agent.tasks.CraftingOpportunity> opportunities) {
+		return opportunities.stream()
+			.limit(12)
+			.map(ai.moeru.airicraft.agent.tasks.CraftingOpportunity::compactDescription)
+			.collect(java.util.stream.Collectors.joining("; ", "Available 2x2 crafts: ", ""));
 	}
 
 	private static java.util.Map<String, Integer> limitNearbyBlocks(java.util.Map<String, Integer> nearbyBlocks) {

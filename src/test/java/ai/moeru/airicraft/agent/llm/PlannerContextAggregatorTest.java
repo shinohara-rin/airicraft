@@ -238,7 +238,18 @@ class PlannerContextAggregatorTest {
 				new MissionSpec("mission-wood-1", MissionType.COLLECT_RESOURCE, "Collect 4 wood logs"),
 				ledger,
 				null,
-				new WorldEvidence(Map.of(ai.moeru.airicraft.agent.tasks.TaskResourceKind.WOOD_LOGS, 2), Map.of("minecraft:oak_log", 3), "minecraft:overworld", 0, 64, 0, null, 200L),
+				new WorldEvidence(
+					Map.of(ai.moeru.airicraft.agent.tasks.TaskResourceKind.WOOD_LOGS, 2),
+					Map.of("minecraft:oak_log", 3),
+					Map.of(),
+					List.of(new ai.moeru.airicraft.agent.tasks.CraftingOpportunity("minecraft:oak_planks", 4, "minecraft:oak_log")),
+					"minecraft:overworld",
+					0,
+					64,
+					0,
+					null,
+					200L
+				),
 				new StepExecutionResult("collect_logs", StepExecutionStatus.RUNNING, null, Map.of(), Map.of(), 200L),
 				TaskExecutionSnapshot.idle()
 			),
@@ -253,6 +264,7 @@ class PlannerContextAggregatorTest {
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Compatibility ledger snapshot:")));
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Last step result:")));
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Compatibility history summary:")));
+		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Available 2x2 crafts: minecraft:oak_planks output=4 ingredients=minecraft:oak_log")));
 	}
 
 	@Test

@@ -992,6 +992,7 @@ public final class EmbodiedAgentRuntime {
 			resourceCounts,
 			inventoryItemCounter.count(client.player.getInventory()),
 			collectNearbyBlocks(client, origin),
+			ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver.availableCrafts(client.player),
 			client.world == null ? null : client.world.getRegistryKey().getValue().toString(),
 			origin.getX(),
 			origin.getY(),
