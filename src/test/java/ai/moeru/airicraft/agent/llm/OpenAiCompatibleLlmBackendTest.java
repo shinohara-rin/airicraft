@@ -347,6 +347,55 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
+	void generateTreatsUnknownIntentWithActiveJobAsJobUpdate() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": "{\\"replyText\\":\\"Crafting planks.\\",\\"intent\\":{\\"type\\":\\"craft_recipe\\",\\"activeJob\\":{\\"type\\":\\"CRAFT_RECIPE\\",\\"itemId\\":\\"minecraft:jungle_planks\\",\\"quantity\\":4}},\\"toolRequest\\":null}"
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(new AgentConfig.LlmConfig(
+				"http://127.0.0.1:" + server.port(),
+				"planner-key",
+				"planner-model",
+				"https://api.openai.com/v1",
+				"",
+				"",
+				15_000,
+				10_000,
+				8,
+				65_536,
+				"low",
+				false
+			));
+
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent craft planks", LlmMessageKind.USER_TURN)
+			)));
+
+			assertEquals("Crafting planks.", result.payload().replyText());
+			assertEquals("job_update", result.payload().intent().type());
+			assertEquals(
+				ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs("minecraft:jungle_planks", 4)),
+				result.payload().intent().activeJob()
+			);
+		}
+	}
+
+	@Test
 	void generateStillParsesLegacyCraftRecipeIdPlannerPayload() throws Exception {
 		String responseBody = """
 			{

@@ -132,7 +132,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 				? payload.getAsJsonObject("eventPolicyChanges")
 				: null;
 			ActiveJobProposal activeJob = parseActiveJobProposal(intentObject, "activeJob");
-			String intentType = getString(intentObject, "type").orElse(activeJob == null ? "none" : "job_update").toLowerCase(Locale.ROOT);
+			String intentType = canonicalIntentType(getString(intentObject, "type"), activeJob);
 
 			PlannerIntent intent = new PlannerIntent(
 				intentType,
@@ -280,6 +280,33 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		catch (IllegalArgumentException exception) {
 			return null;
 		}
+	}
+
+	private static String canonicalIntentType(Optional<String> wireType, ActiveJobProposal activeJob) {
+		if (wireType.isEmpty() || wireType.get().isBlank()) {
+			return activeJob == null ? "none" : "job_update";
+		}
+		String normalized = wireType.get().toLowerCase(Locale.ROOT);
+		if (activeJob != null && !isKnownIntentType(normalized)) {
+			return "job_update";
+		}
+		return normalized;
+	}
+
+	private static boolean isKnownIntentType(String intentType) {
+		return switch (intentType) {
+			case "set_goal",
+				"clear_goal",
+				"job_update",
+				"mission_update",
+				"submit_task",
+				"cancel_task",
+				"reply_only",
+				"ask_clarification",
+				"acknowledge_failure",
+				"none" -> true;
+			default -> false;
+		};
 	}
 
 	private static ActiveJobProposal parseActiveJobProposal(JsonObject object, String fieldName) {
