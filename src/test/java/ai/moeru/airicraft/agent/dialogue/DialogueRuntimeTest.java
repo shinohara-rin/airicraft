@@ -19,6 +19,7 @@ import ai.moeru.airicraft.agent.llm.PlannerResponse;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import ai.moeru.airicraft.agent.llm.PlannerVisionMode;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
 import ai.moeru.airicraft.agent.tasks.EvidenceRequirement;
 import ai.moeru.airicraft.agent.tasks.FinishStepArgs;
@@ -26,11 +27,21 @@ import ai.moeru.airicraft.agent.tasks.LedgerStep;
 import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
 import ai.moeru.airicraft.agent.tasks.LedgerStepPayload;
 import ai.moeru.airicraft.agent.tasks.LedgerStepStatus;
+import ai.moeru.airicraft.agent.tasks.MissionExecutionSnapshot;
+import ai.moeru.airicraft.agent.tasks.MissionSpec;
 import ai.moeru.airicraft.agent.tasks.MissionType;
+import ai.moeru.airicraft.agent.tasks.StepExecutionResult;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
+import ai.moeru.airicraft.agent.tasks.TaskOwnership;
+import ai.moeru.airicraft.agent.tasks.TaskProgressSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
+import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskState;
+import ai.moeru.airicraft.agent.tasks.TaskStep;
 import ai.moeru.airicraft.agent.tasks.TaskType;
+import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import org.junit.jupiter.api.Test;
 
@@ -388,6 +399,70 @@ class DialogueRuntimeTest {
 		));
 		assertFalse(runtime.plannerCanonicalConversationDebugSnapshot().messages().stream().anyMatch(message ->
 			message.kind() == PlannerConversationDebugKind.ASSISTANT_TURN && message.text().contains("I see snow.")
+		));
+		runtime.shutdown();
+	}
+
+	@Test
+	void playerChatPlannerRequestIncludesMissionEvidence() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+		backend.injectMockResponse(new PlannerResponse(
+			"I can craft jungle planks.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		MissionSpec mission = new MissionSpec("mission-craft", MissionType.CRAFT_ITEM, "Craft from inventory");
+		MissionExecutionSnapshot missionExecution = new MissionExecutionSnapshot(
+			mission,
+			null,
+			null,
+			new WorldEvidence(
+				java.util.Map.of(),
+				java.util.Map.of("minecraft:jungle_log", 7),
+				java.util.Map.of(),
+				List.of(new CraftingOpportunity("minecraft:jungle_planks", 4, "minecraft:jungle_log")),
+				"minecraft:overworld",
+				0,
+				64,
+				0,
+				null,
+				10L
+			),
+			StepExecutionResult.idle(),
+			TaskExecutionSnapshot.idle()
+		);
+		TaskSnapshot activeTask = new TaskSnapshot(
+			TaskState.RUNNING,
+			mission,
+			null,
+			null,
+			new TaskProgressSnapshot(0, 0),
+			TaskStep.NONE,
+			TaskOwnership.NONE,
+			"test",
+			null,
+			null,
+			null,
+			StepExecutionResult.idle(),
+			10L
+		);
+
+		runtime.onPlayerChat(
+			"Alice",
+			"@agent what can you craft?",
+			10L,
+			SessionSnapshot.initial(),
+			"Alice",
+			Optional.empty(),
+			activeTask,
+			missionExecution,
+			eventBuffer
+		);
+		awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
+
+		assertTrue(runtime.plannerConversationDebugSnapshot().messages().stream().anyMatch(message ->
+			message.text().contains("Available 2x2 crafts: minecraft:jungle_planks output=4 ingredients=minecraft:jungle_log")
 		));
 		runtime.shutdown();
 	}

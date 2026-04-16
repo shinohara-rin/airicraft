@@ -149,13 +149,14 @@ public final class DialogueRuntime {
 		long timestampMs = clock.millis();
 		appendTurn(new DialogueTurn(senderName, plainTextMessage, tick, timestampMs));
 		submitPlannerTrigger(
-			PlannerRequest.ofTrigger(
+			new PlannerRequest(
 				tick,
 				timestampMs,
 				sessionSnapshot.mode(),
 				primaryInteractionPlayer,
 				activeGoal.orElse(null),
-				PlannerTriggerType.CHAT,
+				activeTask,
+				missionExecution,
 				senderName,
 				plainTextMessage,
 				null
@@ -200,19 +201,22 @@ public final class DialogueRuntime {
 		SessionSnapshot sessionSnapshot,
 		String primaryInteractionPlayer,
 		Optional<GoalSnapshot> activeGoal,
+		TaskSnapshot activeTask,
+		MissionExecutionSnapshot missionExecution,
 		SemanticEventBuffer plannerEventBuffer
 	) {
 		if (trigger == null) {
 			return;
 		}
 		submitPlannerTrigger(
-			PlannerRequest.ofTrigger(
+			new PlannerRequest(
 				trigger.tick(),
 				trigger.timestampMs(),
 				sessionSnapshot.mode(),
 				primaryInteractionPlayer,
 				activeGoal.orElse(null),
-				trigger.type(),
+				activeTask,
+				missionExecution,
 				trigger.speaker(),
 				trigger.text(),
 				null

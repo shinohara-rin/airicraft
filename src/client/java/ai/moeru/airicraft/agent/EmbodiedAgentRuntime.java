@@ -1230,6 +1230,8 @@ public final class EmbodiedAgentRuntime {
 				sessionSnapshot,
 				primaryInteractionPlayer,
 				activeGoal,
+				taskSnapshot,
+				missionExecutionSnapshot,
 				plannerEventBuffer
 			);
 		}
