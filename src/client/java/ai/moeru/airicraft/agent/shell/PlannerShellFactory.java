@@ -4,6 +4,7 @@ import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.dialogue.DialogueRuntime;
+import ai.moeru.airicraft.agent.llm.CurrentInventoryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
@@ -40,6 +41,7 @@ public final class PlannerShellFactory {
 			MinecraftClient::getInstance,
 			observability
 		);
+		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
 		PlannerOrchestrator orchestrator = new PlannerOrchestrator(
 			new PlannerExecutor(new OpenAiCompatibleLlmBackend(config.llm(), observability), observability),
 			new PlannerCompactionService(new OpenAiCompatibleChatClient(config.llm(), observability), observability),
@@ -50,6 +52,7 @@ public final class PlannerShellFactory {
 				config.llm().plannerVisionMode()
 			),
 			visionService,
+			inventoryService,
 			config.llm().plannerVisionMode(),
 			config.llm().visionImageDetail(),
 			config.llm().plannerSessionMaxConcurrentAttempts(),

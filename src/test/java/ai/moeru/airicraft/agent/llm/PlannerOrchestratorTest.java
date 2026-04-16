@@ -91,6 +91,77 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void singleToolCallFeedsInventoryInspectionBackIntoPlanner() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerIntent("none", null, null),
+			new PlannerToolRequest("inspect_inventory", null)
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"You have 5 jungle logs.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:jungle_log=5}",
+			"unused"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals("You have 5 jungle logs.", result.response().replyText());
+		assertEquals("Tool result for inspect_inventory: itemCounts={minecraft:jungle_log=5}", result.request().toolResult());
+		assertEquals(1, inventoryTool.inventoryRequestCount());
+		assertEquals(0, inventoryTool.recipeRequestCount());
+	}
+
+	@Test
+	void singleToolCallFeedsRecipeInspectionBackIntoPlanner() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerIntent("none", null, null),
+			new PlannerToolRequest("inspect_recipes", null)
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"You can craft jungle planks.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"unused",
+			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: minecraft:jungle_planks output=4"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals("You can craft jungle planks.", result.response().replyText());
+		assertEquals(
+			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: minecraft:jungle_planks output=4",
+			result.request().toolResult()
+		);
+		assertEquals(0, inventoryTool.inventoryRequestCount());
+		assertEquals(1, inventoryTool.recipeRequestCount());
+	}
+
+	@Test
 	void toolRequestIgnoresStrayReplyTextWhenIntentIsNone() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		backend.injectMockResponse(new PlannerResponse(
@@ -1124,12 +1195,33 @@ class PlannerOrchestratorTest {
 	}
 
 	private static PlannerOrchestrator newOrchestrator(LlmBackend backend, CurrentViewVisionTool visionTool, PlannerVisionMode visionMode) {
-		return newOrchestrator(backend, visionTool, visionMode, 3, Clock.systemDefaultZone());
+		return newOrchestrator(backend, visionTool, CurrentInventoryTool.disabled(), visionMode);
 	}
 
 	private static PlannerOrchestrator newOrchestrator(
 		LlmBackend backend,
 		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode
+	) {
+		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, 3, Clock.systemDefaultZone());
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		int plannerSessionMaxConcurrentAttempts,
+		Clock clock
+	) {
+		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, plannerSessionMaxConcurrentAttempts, clock);
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
 		PlannerVisionMode visionMode,
 		int plannerSessionMaxConcurrentAttempts,
 		Clock clock
@@ -1138,6 +1230,7 @@ class PlannerOrchestratorTest {
 		return newOrchestrator(
 			backend,
 			visionTool,
+			inventoryTool,
 			visionMode,
 			plannerSessionMaxConcurrentAttempts,
 			config.plannerSessionCoalesceStepMillis(),
@@ -1165,6 +1258,7 @@ class PlannerOrchestratorTest {
 			new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
 			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), plannerPendingSemanticEventCap, visionMode),
 			visionTool,
+			inventoryTool,
 			visionMode,
 			config.visionImageDetail(),
 			plannerSessionMaxConcurrentAttempts,
@@ -1340,6 +1434,38 @@ class PlannerOrchestratorTest {
 
 		private CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture() {
 			return captureFuture;
+		}
+	}
+
+	private static final class StubInventoryTool implements CurrentInventoryTool {
+		private final String inventoryResult;
+		private final String recipeResult;
+		private int inventoryRequestCount;
+		private int recipeRequestCount;
+
+		private StubInventoryTool(String inventoryResult, String recipeResult) {
+			this.inventoryResult = inventoryResult;
+			this.recipeResult = recipeResult;
+		}
+
+		@Override
+		public CompletableFuture<String> inspectInventory(String prompt) {
+			inventoryRequestCount++;
+			return CompletableFuture.completedFuture(inventoryResult);
+		}
+
+		@Override
+		public CompletableFuture<String> inspectRecipes(String prompt) {
+			recipeRequestCount++;
+			return CompletableFuture.completedFuture(recipeResult);
+		}
+
+		private int inventoryRequestCount() {
+			return inventoryRequestCount;
+		}
+
+		private int recipeRequestCount() {
+			return recipeRequestCount;
 		}
 	}
 

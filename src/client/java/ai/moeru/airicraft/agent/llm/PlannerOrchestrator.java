@@ -26,6 +26,8 @@ import java.util.concurrent.CompletionException;
 
 public final class PlannerOrchestrator {
 	private static final String VISUAL_TOOL_NAME = "take_a_look";
+	private static final String INVENTORY_TOOL_NAME = "inspect_inventory";
+	private static final String RECIPES_TOOL_NAME = "inspect_recipes";
 	private static final String NATIVE_TOOL_RESULT_TEXT = "Tool result for take_a_look: current first-person view attached.";
 	private static final int SESSION_MAX_ATTEMPTS = 2;
 	private static final long SESSION_RETRY_BACKOFF_MS = 250L;
@@ -39,6 +41,7 @@ public final class PlannerOrchestrator {
 	private final PlannerContextAggregator contextAggregator;
 	private final PlannerSessionCoordinator sessionCoordinator;
 	private final CurrentViewVisionTool visionTool;
+	private final CurrentInventoryTool inventoryTool;
 	private final PlannerVisionMode visionMode;
 	private final String imageDetail;
 	private final Clock clock;
@@ -291,6 +294,77 @@ public final class PlannerOrchestrator {
 		PlannerLifecycleListener lifecycleListener,
 		AgentDebugRecorder debugRecorder
 	) {
+		this(
+			plannerExecutor,
+			compactionService,
+			contextAggregator,
+			visionTool,
+			CurrentInventoryTool.disabled(),
+			visionMode,
+			imageDetail,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			clock,
+			observability,
+			lifecycleListener,
+			debugRecorder
+		);
+	}
+
+	public PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		AgentObservability observability,
+		PlannerLifecycleListener lifecycleListener,
+		AgentDebugRecorder debugRecorder
+	) {
+		this(
+			plannerExecutor,
+			compactionService,
+			contextAggregator,
+			visionTool,
+			inventoryTool,
+			visionMode,
+			imageDetail,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			Clock.systemDefaultZone(),
+			observability,
+			lifecycleListener,
+			debugRecorder
+		);
+	}
+
+	PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		Clock clock,
+		AgentObservability observability,
+		PlannerLifecycleListener lifecycleListener,
+		AgentDebugRecorder debugRecorder
+	) {
 		this.plannerExecutor = Objects.requireNonNull(plannerExecutor, "plannerExecutor");
 		this.compactionService = Objects.requireNonNull(compactionService, "compactionService");
 		this.contextAggregator = Objects.requireNonNull(contextAggregator, "contextAggregator");
@@ -304,6 +378,7 @@ public final class PlannerOrchestrator {
 			this::recordSubmittedConversation
 		);
 		this.visionTool = Objects.requireNonNull(visionTool, "visionTool");
+		this.inventoryTool = Objects.requireNonNull(inventoryTool, "inventoryTool");
 		this.visionMode = Objects.requireNonNull(visionMode, "visionMode");
 		this.imageDetail = Objects.requireNonNull(imageDetail, "imageDetail");
 		this.coalesceStepMs = Math.max(0L, plannerSessionCoalesceStepMillis);
@@ -466,7 +541,8 @@ public final class PlannerOrchestrator {
 			return plannerResult;
 		}
 		if (plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP) {
-			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested take_a_look more than once");
+			// TODO: Support bounded multi-tool plans so the planner can request inventory and recipes in one goal.
+			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested a tool more than once");
 			appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
@@ -522,7 +598,7 @@ public final class PlannerOrchestrator {
 		pendingToolExecution = new PendingToolExecution(
 			plannerResult.generation(),
 			toolRequestSummary(toolRequest),
-			requestVisionTool(toolRequest),
+			requestPlannerTool(toolRequest),
 			plannerResult.response().rawAssistantContent()
 		);
 		return null;
@@ -735,6 +811,15 @@ public final class PlannerOrchestrator {
 		return null;
 	}
 
+	private CompletableFuture<ToolExecutionOutcome> requestPlannerTool(PlannerToolRequest toolRequest) {
+		return switch (normalizedToolType(toolRequest)) {
+			case VISUAL_TOOL_NAME -> requestVisionTool(toolRequest);
+			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolRequest.prompt()).thenApply(TextToolExecutionOutcome::new);
+			case RECIPES_TOOL_NAME -> inventoryTool.inspectRecipes(toolRequest.prompt()).thenApply(TextToolExecutionOutcome::new);
+			default -> CompletableFuture.completedFuture(new TextToolExecutionOutcome("TOOL_UNAVAILABLE: invalid_tool"));
+		};
+	}
+
 	private CompletableFuture<ToolExecutionOutcome> requestVisionTool(PlannerToolRequest toolRequest) {
 		Context parentContext = currentTurnContext();
 		try (Scope scope = parentContext.makeCurrent()) {
@@ -861,13 +946,16 @@ public final class PlannerOrchestrator {
 	}
 
 	private boolean isValidToolRequest(PlannerToolRequest toolRequest) {
-		if (!VISUAL_TOOL_NAME.equals(toolRequest.type())) {
-			return false;
-		}
-		if (visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE) {
-			return true;
-		}
-		return toolRequest.prompt() != null && !toolRequest.prompt().isBlank();
+		return switch (normalizedToolType(toolRequest)) {
+			case VISUAL_TOOL_NAME -> visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE
+				|| (toolRequest.prompt() != null && !toolRequest.prompt().isBlank());
+			case INVENTORY_TOOL_NAME, RECIPES_TOOL_NAME -> true;
+			default -> false;
+		};
+	}
+
+	private static String normalizedToolType(PlannerToolRequest toolRequest) {
+		return toolRequest == null || toolRequest.type() == null ? "" : toolRequest.type().toLowerCase(Locale.ROOT);
 	}
 
 	private static boolean hasToolCompatibleIntent(PlannerResponse response) {

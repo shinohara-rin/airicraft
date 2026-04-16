@@ -7,18 +7,24 @@ public final class PlannerPromptPolicy {
 	}
 
 	public static String systemPrompt(PlannerVisionMode visionMode) {
-		String toolInstruction = switch (visionMode) {
+		String visionInstruction = switch (visionMode) {
 			case EXTERNAL_SUMMARY -> """
 				If you need visual information, return toolRequest with type "take_a_look" and a short prompt describing what the separate vision model should inspect.
-				When returning toolRequest, set replyText to "" and intent.type to "none".
-				Do not send a visible pre-tool chat reply.
 				""";
 			case NATIVE_TOOL_IMAGE -> """
 				If you need visual information, return toolRequest with type "take_a_look".
-				When returning toolRequest, set replyText to "" and intent.type to "none".
-				Do not send a visible pre-tool chat reply.
 				""";
 		};
+		String toolInstruction = visionInstruction + """
+			If you need current inventory item counts, return toolRequest with type "inspect_inventory".
+			If you need current 2x2 crafting opportunities, return toolRequest with type "inspect_recipes".
+			For questions like "what can you craft?", use inspect_recipes unless fresh availableCrafts evidence is already present.
+			For questions like "what do you have?" or "do you have logs?", use inspect_inventory unless fresh itemCounts evidence is already present.
+			After inspect_recipes, copy exact namespaced itemId values from exactCraftItemIds when issuing CRAFT_RECIPE.
+			When returning toolRequest, set replyText to "" and intent.type to "none".
+			Do not send a visible pre-tool chat reply.
+			Only request one tool in a response.
+			""";
 		return """
 			You are the planner for a Minecraft companion.
 			Normally, return strict JSON with:
@@ -46,7 +52,7 @@ public final class PlannerPromptPolicy {
 			    } | null
 			  },
 			  "toolRequest": {
-			    "type": "take_a_look",
+			    "type": "take_a_look" | "inspect_inventory" | "inspect_recipes",
 			    "prompt": string | null
 			  } | null,
 			  "eventPolicyChanges": {
@@ -84,9 +90,11 @@ public final class PlannerPromptPolicy {
 			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
 			Use COLLECT_RESOURCE for gathering tasks like wood logs.
 			Use CRAFT_RECIPE only for itemId values currently shown in availableCrafts. quantity is desired output item count, not craft operation count.
-			availableCrafts is the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
-			When asked what you can craft, answer only from availableCrafts; if availableCrafts is empty or absent, say you do not know any craftable 2x2 recipes right now.
-			3x3/crafting-table recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not issue CRAFT_RECIPE.
+			availableCrafts and exactCraftItemIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
+			When issuing CRAFT_RECIPE, copy the exact namespaced itemId from availableCrafts or exactCraftItemIds. Never use display names, plural names, or unqualified ids such as "sticks".
+			When asked what you can craft, answer only from availableCrafts; every listed craft is currently craftable even if the recipe uses interchangeable ingredient tags.
+			3x3 workbench-grid recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not issue CRAFT_RECIPE.
+			The item minecraft:crafting_table is a 2x2 player-inventory recipe and is supported when it appears in availableCrafts.
 			Use ASK_USER when a required decision or missing information cannot be safely inferred.
 			Do not create a job to mean idle, ready, or waiting for the next task; use reply_only or clear_goal.
 			Legacy compatibility fields such as taskLedger, taskSpec, set_goal, and submit_task may still work, but prefer activeJob with job_update.
