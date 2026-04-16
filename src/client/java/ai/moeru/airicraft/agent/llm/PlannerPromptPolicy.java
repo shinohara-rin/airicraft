@@ -40,7 +40,7 @@ public final class PlannerPromptPolicy {
 			        "quantity": number
 			      } | null,
 			      "resourceKind": "WOOD_LOGS" | null,
-			      "recipeId": string | null,
+			      "itemId": string | null,
 			      "quantity": number | null,
 			      "askPrompt": string | null
 			    } | null
@@ -83,8 +83,9 @@ public final class PlannerPromptPolicy {
 			Do not invent ad-hoc fields outside the schema above.
 			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
 			Use COLLECT_RESOURCE for gathering tasks like wood logs.
-			Use CRAFT_RECIPE only for 2x2 player-inventory crafting recipes. quantity is desired output item count, not craft operation count.
-			2x2 craft examples include planks, sticks, and crafting table when ingredients exist.
+			Use CRAFT_RECIPE only for itemId values currently shown in availableCrafts. quantity is desired output item count, not craft operation count.
+			availableCrafts is the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
+			When asked what you can craft, answer only from availableCrafts; if availableCrafts is empty or absent, say you do not know any craftable 2x2 recipes right now.
 			3x3/crafting-table recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not issue CRAFT_RECIPE.
 			Use ASK_USER when a required decision or missing information cannot be safely inferred.
 			Do not create a job to mean idle, ready, or waiting for the next task; use reply_only or clear_goal.

@@ -329,7 +329,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		if (nestedCraftRecipe != null) {
 			return ActiveJobProposal.craftRecipe(nestedCraftRecipe);
 		}
-		Optional<String> recipeId = getString(jobObject, "recipeId").or(() -> getString(jobObject, "itemId"));
+		Optional<String> recipeId = getString(jobObject, "itemId").or(() -> getString(jobObject, "recipeId"));
 		Optional<Integer> quantity = getInt(jobObject, "quantity");
 		if (recipeId.isEmpty() || quantity.isEmpty()) {
 			return null;
@@ -451,7 +451,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			return null;
 		}
 		JsonObject argsObject = object.getAsJsonObject(fieldName);
-		Optional<String> recipeId = getString(argsObject, "recipeId");
+		Optional<String> recipeId = getString(argsObject, "itemId").or(() -> getString(argsObject, "recipeId"));
 		Optional<Integer> quantity = getInt(argsObject, "quantity");
 		return recipeId.isPresent() && quantity.isPresent() ? new CraftRecipeStepArgs(recipeId.get(), quantity.get()) : null;
 	}

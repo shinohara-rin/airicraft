@@ -3,23 +3,13 @@ package ai.moeru.airicraft.agent.tasks;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.recipe.NetworkRecipeId;
-import net.minecraft.recipe.RecipeDisplayEntry;
-import net.minecraft.recipe.RecipeFinder;
-import net.minecraft.recipe.ServerRecipeManager;
-import net.minecraft.recipe.display.RecipeDisplay;
-import net.minecraft.recipe.display.ShapedCraftingRecipeDisplay;
-import net.minecraft.recipe.display.ShapelessCraftingRecipeDisplay;
-import net.minecraft.recipe.display.SlotDisplay;
-import net.minecraft.registry.Registries;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.util.Identifier;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -142,92 +132,17 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private Optional<CraftingPlan> resolvePlan(ClientPlayerEntity player, CraftRecipeStepArgs request) {
-		Identifier requestedId = Identifier.tryParse(request.recipeId());
-		if (requestedId == null) {
-			return Optional.of(CraftingPlan.failure("recipe_not_found"));
+		CraftingOpportunityResolver.CraftingRecipeResolution resolved = CraftingOpportunityResolver.resolve(player, request);
+		if (resolved.failureReason() != null) {
+			return Optional.of(CraftingPlan.failure(resolved.failureReason()));
 		}
-
-		RecipeFinder finder = new RecipeFinder();
-		player.getInventory().populateRecipeFinder(finder);
-
-		boolean matchedUnsupported = false;
-		boolean matchedMissingIngredients = false;
-		for (RecipeResultCollection collection : player.getRecipeBook().getOrderedResults()) {
-			for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
-				RecipeDisplay display = entry.display();
-				ItemStack result = resultStack(display);
-				if (result.isEmpty() || !matchesRequestedRecipe(player, entry, result, requestedId)) {
-					continue;
-				}
-				if (!fitsPlayerGrid(display)) {
-					matchedUnsupported = true;
-					continue;
-				}
-				if (!entry.isCraftable(finder)) {
-					matchedMissingIngredients = true;
-					continue;
-				}
-				return Optional.of(new CraftingPlan(entry.id(), result.getItem(), result.getCount(), request.quantity(), null));
-			}
-		}
-
-		if (matchedUnsupported) {
-			return Optional.of(CraftingPlan.failure("crafting_table_not_supported"));
-		}
-		if (matchedMissingIngredients) {
-			return Optional.of(CraftingPlan.failure("missing_ingredients"));
-		}
-		return Optional.empty();
-	}
-
-	private static boolean matchesRequestedRecipe(
-		ClientPlayerEntity player,
-		RecipeDisplayEntry entry,
-		ItemStack result,
-		Identifier requestedId
-	) {
-		if (Objects.equals(Registries.ITEM.getId(result.getItem()), requestedId)) {
-			return true;
-		}
-		return exactRecipeId(player, entry.id())
-			.map(requestedId::equals)
-			.orElse(false);
-	}
-
-	private static Optional<Identifier> exactRecipeId(ClientPlayerEntity player, NetworkRecipeId recipeId) {
-		if (player.networkHandler == null) {
-			return Optional.empty();
-		}
-		if (!(player.networkHandler.getRecipeManager() instanceof ServerRecipeManager recipeManager)) {
-			return Optional.empty();
-		}
-		try {
-			return Optional.of(recipeManager.get(recipeId).parent().id().getValue());
-		}
-		catch (RuntimeException exception) {
-			return Optional.empty();
-		}
-	}
-
-	private static boolean fitsPlayerGrid(RecipeDisplay display) {
-		if (display instanceof ShapedCraftingRecipeDisplay shaped) {
-			return shaped.width() <= 2 && shaped.height() <= 2;
-		}
-		if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
-			return shapeless.ingredients().size() <= INPUT_SLOT_COUNT;
-		}
-		return false;
-	}
-
-	private static ItemStack resultStack(RecipeDisplay display) {
-		SlotDisplay result = display.result();
-		if (result instanceof SlotDisplay.StackSlotDisplay stackDisplay) {
-			return stackDisplay.stack();
-		}
-		if (result instanceof SlotDisplay.ItemSlotDisplay itemDisplay) {
-			return itemDisplay.item().value().getDefaultStack();
-		}
-		return ItemStack.EMPTY;
+		return Optional.of(new CraftingPlan(
+			resolved.networkRecipeId(),
+			resolved.outputItem(),
+			resolved.outputCount(),
+			resolved.requestedQuantity(),
+			null
+		));
 	}
 
 	private static Optional<String> readinessFailure(MinecraftClient client, ClientPlayerEntity player, boolean requireEmptyGrid) {

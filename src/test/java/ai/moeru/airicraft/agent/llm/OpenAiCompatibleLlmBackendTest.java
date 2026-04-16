@@ -298,7 +298,56 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
-	void generateParsesCraftRecipeActiveJobPlannerPayload() throws Exception {
+	void generateParsesCraftItemActiveJobPlannerPayload() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": "{\\"replyText\\":\\"Crafting sticks.\\",\\"intent\\":{\\"type\\":\\"job_update\\",\\"activeJob\\":{\\"type\\":\\"CRAFT_RECIPE\\",\\"itemId\\":\\"minecraft:stick\\",\\"quantity\\":4}},\\"toolRequest\\":null}"
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(new AgentConfig.LlmConfig(
+				"http://127.0.0.1:" + server.port(),
+				"planner-key",
+				"planner-model",
+				"https://api.openai.com/v1",
+				"",
+				"",
+				15_000,
+				10_000,
+				8,
+				65_536,
+				"low",
+				false
+			));
+
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent craft sticks", LlmMessageKind.USER_TURN)
+			)));
+
+			assertEquals("Crafting sticks.", result.payload().replyText());
+			assertEquals("job_update", result.payload().intent().type());
+			assertEquals(
+				ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs("minecraft:stick", 4)),
+				result.payload().intent().activeJob()
+			);
+		}
+	}
+
+	@Test
+	void generateStillParsesLegacyCraftRecipeIdPlannerPayload() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -337,8 +386,6 @@ class OpenAiCompatibleLlmBackendTest {
 				LlmChatMessage.user("Alice said just now: @agent craft sticks", LlmMessageKind.USER_TURN)
 			)));
 
-			assertEquals("Crafting sticks.", result.payload().replyText());
-			assertEquals("job_update", result.payload().intent().type());
 			assertEquals(
 				ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs("minecraft:stick", 4)),
 				result.payload().intent().activeJob()
@@ -499,7 +546,7 @@ class OpenAiCompatibleLlmBackendTest {
 			  "choices": [
 			    {
 			      "message": {
-			        "content": "{\\"replyText\\":\\"Crafting sticks next.\\",\\"intent\\":{\\"type\\":\\"mission_update\\",\\"taskLedger\\":{\\"missionId\\":\\"mission-craft-1\\",\\"missionType\\":\\"CRAFT_TOOL\\",\\"goalText\\":\\"Turn wood into sticks\\",\\"steps\\":[{\\"id\\":\\"craft_sticks\\",\\"kind\\":\\"CRAFT_RECIPE\\",\\"args\\":{\\"craftRecipe\\":{\\"recipeId\\":\\"minecraft:stick\\",\\"quantity\\":4}},\\"dependsOn\\":[],\\"status\\":\\"ACTIVE\\",\\"expectedEvidence\\":[{\\"type\\":\\"ITEM_DELTA_AT_LEAST\\",\\"itemId\\":\\"minecraft:stick\\",\\"quantity\\":4}],\\"retryBudget\\":1,\\"notes\\":\\"Craft sticks from planks\\"}],\\"activeStepId\\":\\"craft_sticks\\",\\"completionCriteria\\":[],\\"replanReason\\":\\"step_completed\\",\\"plannerNotes\\":\\"Use inventory crafting\\"}},\\"toolRequest\\":null}"
+			        "content": "{\\"replyText\\":\\"Crafting sticks next.\\",\\"intent\\":{\\"type\\":\\"mission_update\\",\\"taskLedger\\":{\\"missionId\\":\\"mission-craft-1\\",\\"missionType\\":\\"CRAFT_TOOL\\",\\"goalText\\":\\"Turn wood into sticks\\",\\"steps\\":[{\\"id\\":\\"craft_sticks\\",\\"kind\\":\\"CRAFT_RECIPE\\",\\"args\\":{\\"craftRecipe\\":{\\"itemId\\":\\"minecraft:stick\\",\\"quantity\\":4}},\\"dependsOn\\":[],\\"status\\":\\"ACTIVE\\",\\"expectedEvidence\\":[{\\"type\\":\\"ITEM_DELTA_AT_LEAST\\",\\"itemId\\":\\"minecraft:stick\\",\\"quantity\\":4}],\\"retryBudget\\":1,\\"notes\\":\\"Craft sticks from planks\\"}],\\"activeStepId\\":\\"craft_sticks\\",\\"completionCriteria\\":[],\\"replanReason\\":\\"step_completed\\",\\"plannerNotes\\":\\"Use inventory crafting\\"}},\\"toolRequest\\":null}"
 			      }
 			    }
 			  ],
