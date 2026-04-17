@@ -116,7 +116,12 @@ public final class PlannerToolCatalog {
 				continue;
 			}
 			if (toolCall.rawToolCall() != null && toolCall.rawToolCall().isJsonObject()) {
-				array.add(toolCall.rawToolCall());
+				JsonObject replayed = toolCall.rawToolCall().getAsJsonObject().deepCopy();
+				replayed.addProperty("id", toolCall.id());
+				if (!replayed.has("type") || replayed.get("type").isJsonNull()) {
+					replayed.addProperty("type", "function");
+				}
+				array.add(replayed);
 				continue;
 			}
 			JsonObject function = new JsonObject();

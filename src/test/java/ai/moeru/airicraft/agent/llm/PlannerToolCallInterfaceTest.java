@@ -114,6 +114,26 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void replayedRawToolCallUsesSynthesizedIdWhenProviderOmittedId() {
+		JsonObject rawToolCall = JsonParser.parseString("""
+			{
+			  "type": "function",
+			  "function": {
+			    "name": "inspect_inventory",
+			    "arguments": "{}"
+			  }
+			}
+			""").getAsJsonObject();
+
+		PlannerToolCall toolCall = PlannerToolCatalog.parseToolCall(rawToolCall);
+
+		JsonObject replayed = PlannerToolCatalog.toOpenAiToolCalls(List.of(toolCall)).get(0).getAsJsonObject();
+		assertEquals("call_planner_tool", toolCall.id());
+		assertEquals(toolCall.id(), replayed.get("id").getAsString());
+		assertEquals("inspect_inventory", replayed.getAsJsonObject("function").get("name").getAsString());
+	}
+
+	@Test
 	void rejectsMultipleToolCallsInOneAssistantMessage() throws Exception {
 		AtomicReference<String> bodyRef = new AtomicReference<>();
 		try (TestServer server = TestServer.start(bodyRef, """
