@@ -18,8 +18,10 @@ import io.opentelemetry.context.Scope;
 
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -51,6 +53,8 @@ public final class PlannerOrchestrator {
 	private final AgentObservability observability;
 	private final PlannerLifecycleListener lifecycleListener;
 	private final AgentDebugRecorder debugRecorder;
+
+	private final Map<Long, List<RecordedToolExchange>> toolExchangesByGeneration = new HashMap<>();
 
 	private PlannerRequest pendingSubmitRequest;
 	private PendingToolExecution pendingToolExecution;
@@ -525,6 +529,7 @@ public final class PlannerOrchestrator {
 			debugRecorder.recordPlannerCompletion(plannerResult);
 			observability.recordFailure(turnContext, plannerResult.failureType().name(), plannerResult.failureMessage(), null);
 			lifecycleListener.onPlannerExecutionFailed(plannerResult);
+			dropRecordedToolExchanges(plannerResult.generation());
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 			endTurnSpan();
 			return plannerResult;
@@ -545,6 +550,7 @@ public final class PlannerOrchestrator {
 			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested a tool more than once");
 			appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
+			dropRecordedToolExchanges(plannerResult.generation());
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 			return failure;
 		}
@@ -561,6 +567,7 @@ public final class PlannerOrchestrator {
 			PlannerExecutionResult failure = parseFailure(plannerResult, "Tool requests cannot set goal intents");
 			appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
+			dropRecordedToolExchanges(plannerResult.generation());
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 			return failure;
 		}
@@ -573,6 +580,7 @@ public final class PlannerOrchestrator {
 			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested an invalid tool");
 			appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
+			dropRecordedToolExchanges(plannerResult.generation());
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 			return failure;
 		}
@@ -664,6 +672,7 @@ public final class PlannerOrchestrator {
 		sessionCoordinator.reset();
 		compactionService.reset();
 		contextAggregator.clear();
+		toolExchangesByGeneration.clear();
 		pendingSubmitRequest = null;
 		lastCompactionResult = null;
 		awaitingAcceptedReplyRecord = false;
@@ -681,6 +690,7 @@ public final class PlannerOrchestrator {
 		sessionCoordinator.shutdown();
 		compactionService.shutdown();
 		contextAggregator.clear();
+		toolExchangesByGeneration.clear();
 		pendingSubmitRequest = null;
 		lastCompactionResult = null;
 		awaitingAcceptedReplyRecord = false;
@@ -751,6 +761,7 @@ public final class PlannerOrchestrator {
 		if (snapshot != null) {
 			contextAggregator.commitAcceptedTriggerBatch(snapshot);
 		}
+		commitRecordedToolExchanges(acceptedResult.generation());
 		sessionCoordinator.finishGeneration(acceptedResult.generation(), false);
 		boolean hasVisibleReply = acceptedResult.response() != null
 			&& acceptedResult.response().replyText() != null
@@ -801,6 +812,7 @@ public final class PlannerOrchestrator {
 		}
 
 		PlannerRequest followUpRequest = snapshot.request().withToolResult(toolOutcome.toolResultText());
+		recordToolExchange(toolExecution.generation(), snapshot, toolExecution.assistantRawContent(), toolOutcome.toolResultText());
 		sessionCoordinator.submitToolFollowUp(
 			toolExecution.generation(),
 			followUpRequest,
@@ -891,6 +903,39 @@ public final class PlannerOrchestrator {
 			pendingToolExecution = null;
 		}
 		captureInFlight = false;
+	}
+
+	private void recordToolExchange(long generation, PlannerContextSnapshot snapshot, JsonElement assistantRawContent, String toolResultText) {
+		if (assistantRawContent == null || snapshot == null) {
+			return;
+		}
+		toolExchangesByGeneration
+			.computeIfAbsent(generation, key -> new ArrayList<>())
+			.add(new RecordedToolExchange(
+				assistantRawContent,
+				toolResultText,
+				snapshot.request().tick(),
+				snapshot.request().timestampMs()
+			));
+	}
+
+	private void commitRecordedToolExchanges(long generation) {
+		List<RecordedToolExchange> exchanges = toolExchangesByGeneration.remove(generation);
+		if (exchanges == null) {
+			return;
+		}
+		for (RecordedToolExchange exchange : exchanges) {
+			contextAggregator.recordAcceptedToolExchange(
+				exchange.assistantRawContent(),
+				exchange.toolResultText(),
+				exchange.tick(),
+				exchange.timestampMs()
+			);
+		}
+	}
+
+	private void dropRecordedToolExchanges(long generation) {
+		toolExchangesByGeneration.remove(generation);
 	}
 
 	private void armCoalesceWindow() {
@@ -1245,6 +1290,14 @@ public final class PlannerOrchestrator {
 		String toolSummary,
 		CompletableFuture<ToolExecutionOutcome> future,
 		JsonElement assistantRawContent
+	) {
+	}
+
+	private record RecordedToolExchange(
+		JsonElement assistantRawContent,
+		String toolResultText,
+		long tick,
+		long timestampMs
 	) {
 	}
 

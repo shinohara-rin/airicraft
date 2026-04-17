@@ -1022,6 +1022,63 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void acceptedToolExchangeRehydratesIntoNextPlannerPrompt() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"unused",
+			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*birch_wood} to 4*birch_planks]: birch_wood_to_birch_planks"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent what can I craft?"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, new PlannerResponse(
+			"",
+			new PlannerIntent("none", null, null),
+			new PlannerToolRequest("inspect_recipes", null),
+			null,
+			JsonParser.parseString("""
+				[
+				  {
+				    "type": "text",
+				    "text": "{\\"replyText\\":\\"\\",\\"intent\\":{\\"type\\":\\"none\\"},\\"toolRequest\\":{\\"type\\":\\"inspect_recipes\\",\\"prompt\\":null}}"
+				  }
+				]
+				""")
+		));
+
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		backend.succeed(1, replyOnly("You can craft birch planks."));
+		PlannerExecutionResult firstResult = awaitResult(orchestrator);
+		assertTrue(firstResult.succeeded());
+
+		orchestrator.recordAssistantTurn(new DialogueTurn("agent", firstResult.response().replyText(), 11L, 1_100L));
+		orchestrator.onAcceptedReplyRecorded();
+
+		orchestrator.submit(requestAt(20L, 2_000L, "Alice", "@agent craft them"));
+		awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(1));
+
+		LlmConversation secondPrompt = backend.conversation(2);
+		LlmChatMessage replayedToolRequest = secondPrompt.messages().stream()
+			.filter(message -> "assistant".equals(message.role()) && message.rawContentOverride() != null)
+			.filter(message -> message.rawContentOverride().toString().contains("inspect_recipes"))
+			.findFirst()
+			.orElseThrow();
+		assertNotNull(replayedToolRequest);
+
+		LlmChatMessage replayedToolResult = secondPrompt.messages().stream()
+			.filter(message -> message.kind() == LlmMessageKind.TOOL_RESULT)
+			.findFirst()
+			.orElseThrow();
+		assertTrue(replayedToolResult.content().contains("birch_wood_to_birch_planks"));
+	}
+
+	@Test
 	void toolFollowUpConversationReplaysRawAssistantContentBeforeToolResult() {
 		RecordingBackend backend = new RecordingBackend();
 		StubVisionTool visionTool = new StubVisionTool(

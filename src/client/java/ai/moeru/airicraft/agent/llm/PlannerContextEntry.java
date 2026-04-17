@@ -44,4 +44,31 @@ public record PlannerContextEntry(
 			null
 		);
 	}
+
+	public static PlannerContextEntry toolRequest(JsonElement assistantRawContent, long tick, long timestampMs) {
+		Objects.requireNonNull(assistantRawContent, "assistantRawContent");
+		String visibleText = OpenAiCompatibleMessageContent.extractVisibleText(assistantRawContent);
+		return new PlannerContextEntry(
+			PlannerContextEntryType.TOOL_REQUEST,
+			null,
+			visibleText == null ? "" : visibleText,
+			tick,
+			timestampMs,
+			null,
+			assistantRawContent
+		);
+	}
+
+	public static PlannerContextEntry toolResult(String toolResultText, long tick, long timestampMs) {
+		String body = toolResultText == null || toolResultText.isBlank() ? "none" : toolResultText;
+		return new PlannerContextEntry(
+			PlannerContextEntryType.TOOL_RESULT,
+			null,
+			"Tool result: " + body,
+			tick,
+			timestampMs,
+			null,
+			null
+		);
+	}
 }

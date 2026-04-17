@@ -102,6 +102,36 @@ final class PlannerContextReducer {
 		);
 	}
 
+	static PlannerContextState recordAcceptedToolExchange(
+		PlannerContextState state,
+		JsonElement assistantRawContent,
+		String toolResultText,
+		long tick,
+		long timestampMs
+	) {
+		if (assistantRawContent == null) {
+			return state;
+		}
+
+		ArrayList<PlannerContextEntry> acceptedHistory = new ArrayList<>(state.acceptedHistoryTape());
+		acceptedHistory.add(PlannerContextEntry.toolRequest(assistantRawContent, tick, timestampMs));
+		acceptedHistory.add(PlannerContextEntry.toolResult(toolResultText, tick, timestampMs));
+		return new PlannerContextState(
+			List.copyOf(acceptedHistory),
+			state.activeCheckpoint(),
+			state.pendingSemanticEvents(),
+			state.pendingSemanticGapVersion(),
+			state.nextSemanticGapVersion(),
+			state.lastObservedEventSeqNo(),
+			state.lastAcceptedAmbientContext(),
+			state.lastAcceptedTimeContextAtMs(),
+			state.compactionPending(),
+			state.lastObservedUsage(),
+			state.queuedTriggers(),
+			state.nextTriggerSeqNo()
+		);
+	}
+
 	static PlannerContextState recordAcceptedAssistantTurn(PlannerContextState state, DialogueTurn turn, JsonElement rawAssistantContent) {
 		if (turn == null) {
 			return state;
@@ -184,6 +214,25 @@ final class PlannerContextReducer {
 		);
 	}
 
+	private static void stripDanglingToolEntries(ArrayList<PlannerContextEntry> retained) {
+		while (!retained.isEmpty()) {
+			PlannerContextEntryType head = retained.get(0).type();
+			if (head == PlannerContextEntryType.TOOL_REQUEST || head == PlannerContextEntryType.TOOL_RESULT) {
+				retained.remove(0);
+				continue;
+			}
+			break;
+		}
+		while (!retained.isEmpty()) {
+			PlannerContextEntryType tail = retained.get(retained.size() - 1).type();
+			if (tail == PlannerContextEntryType.TOOL_REQUEST) {
+				retained.remove(retained.size() - 1);
+				continue;
+			}
+			break;
+		}
+	}
+
 	static PlannerContextState updateUsage(PlannerContextState state, LlmUsageSnapshot usage, int thresholdTokens) {
 		boolean compactionPending = state.compactionPending() || PlannerContextPolicy.shouldCompact(usage, thresholdTokens);
 		return updateObservedUsage(state, usage, compactionPending);
@@ -211,7 +260,12 @@ final class PlannerContextReducer {
 		int retainedUserTurns = 0;
 		for (int index = state.acceptedHistoryTape().size() - 1; index >= 0; index--) {
 			PlannerContextEntry entry = state.acceptedHistoryTape().get(index);
-			if (entry.type() != PlannerContextEntryType.USER_TURN && entry.type() != PlannerContextEntryType.ASSISTANT_TURN) {
+			if (
+				entry.type() != PlannerContextEntryType.USER_TURN
+				&& entry.type() != PlannerContextEntryType.ASSISTANT_TURN
+				&& entry.type() != PlannerContextEntryType.TOOL_REQUEST
+				&& entry.type() != PlannerContextEntryType.TOOL_RESULT
+			) {
 				continue;
 			}
 			retained.add(0, entry);
@@ -222,6 +276,7 @@ final class PlannerContextReducer {
 				break;
 			}
 		}
+		stripDanglingToolEntries(retained);
 
 		return new PlannerContextState(
 			List.copyOf(retained),

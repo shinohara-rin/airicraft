@@ -12,6 +12,8 @@ public final class ContextMessageRenderer {
 				LlmMessageKind.USER_TURN
 			);
 			case ASSISTANT_TURN -> LlmChatMessage.assistant("Agent replied " + relativeTime + ": " + entry.text());
+			case TOOL_REQUEST -> LlmChatMessage.assistant("Agent requested tool " + relativeTime + ".", entry.rawAssistantContent());
+			case TOOL_RESULT -> LlmChatMessage.user(entry.text(), LlmMessageKind.TOOL_RESULT);
 			case NOTICE -> LlmChatMessage.user("Context update: " + entry.text(), LlmMessageKind.NOTICE);
 		};
 	}

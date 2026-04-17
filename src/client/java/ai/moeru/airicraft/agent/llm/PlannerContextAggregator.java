@@ -267,6 +267,13 @@ public final class PlannerContextAggregator {
 		state = PlannerContextReducer.recordAcceptedAssistantTurn(state, turn, rawAssistantContent);
 	}
 
+	public void recordAcceptedToolExchange(JsonElement assistantRawContent, String toolResultText, long tick, long timestampMs) {
+		if (assistantRawContent == null) {
+			return;
+		}
+		state = PlannerContextReducer.recordAcceptedToolExchange(state, assistantRawContent, toolResultText, tick, timestampMs);
+	}
+
 	public void recordAgentTurn(DialogueTurn turn) {
 		recordAgentTurn(turn, null);
 	}
@@ -371,6 +378,8 @@ public final class PlannerContextAggregator {
 		return switch (entry.type()) {
 			case USER_TURN -> LlmChatMessage.user(entry.text(), LlmMessageKind.USER_TURN);
 			case ASSISTANT_TURN -> LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent());
+			case TOOL_REQUEST -> LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent());
+			case TOOL_RESULT -> LlmChatMessage.user(entry.text(), LlmMessageKind.TOOL_RESULT);
 			case NOTICE -> ContextMessageRenderer.renderEntry(entry, anchorTimeMs);
 		};
 	}
