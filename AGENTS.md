@@ -18,10 +18,12 @@
   - `./gradlew runClient -Pairicraft.jdwp.port=5006`
   - `./gradlew runClient -Pairicraft.jdwp.suspend=y`
 - Arthas CLI live-debug:
-  - Start client first: `source .envrc && ./gradlew runClient`
-  - Attach shell: `source .envrc && ./gradlew arthasShell`
-  - One-shot: `source .envrc && ./gradlew arthasExec -Pairicraft.arthas.command='version'`
-  - If select fails: `jps -lv`, then `source .envrc && ./gradlew arthasShell -Pairicraft.arthas.pid=<pid>`
+  - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.
+  - Manual start: `source .envrc && ./gradlew runClient`
+  - Attach once: `source .envrc && ./gradlew arthasAttach`
+  - Default probe interface after attach: `scripts/arthas v`, `scripts/arthas sc 'ai.moeru.airicraft.*'`, `scripts/arthas sm <class> <method>`, `scripts/arthas w <class> <method>`, `scripts/arthas raw 'thread -n 1'`
+  - If another JVM owns the default Arthas port, pass the Minecraft port: `scripts/arthas --port 8564 sc ai.moeru.airicraft.ModBridgeServer`
+  - If select fails: `jps -lv`, then `source .envrc && ./gradlew arthasAttach -Pairicraft.arthas.pid=<pid>`
   - Useful probes: `sc ai.moeru.airicraft.*`, `sm <class>`, `jad <class>`, `thread -n 5`, `dashboard`
   - Useful live observe: `watch <class> <method> '{params, returnObj, throwExp}' -n 1 -m 1 --timeout 10`
   - Useful path cost: `trace <class> <method> '#cost>10' -n 1 -m 1 --timeout 10`

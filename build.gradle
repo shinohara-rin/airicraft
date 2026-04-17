@@ -17,7 +17,6 @@ def arthasTelnetPort = providers.gradleProperty("airicraft.arthas.telnetPort").o
 def arthasTargetIp = providers.gradleProperty("airicraft.arthas.targetIp").orElse("127.0.0.1")
 def arthasDisabledCommands = providers.gradleProperty("airicraft.arthas.disabledCommands").orElse("")
 def arthasExtraArgs = providers.gradleProperty("airicraft.arthas.args").orElse("")
-def arthasCommand = providers.gradleProperty("airicraft.arthas.command").orElse("")
 def arthasBootJar = layout.buildDirectory.file("arthas/arthas-boot-${arthasVersion.get()}.jar")
 
 base {
@@ -66,7 +65,7 @@ def arthasExtraArgList = {
 	return extraArgs.split(/\s+/).findAll { !it.isEmpty() }
 }
 
-def arthasBootArgs = { boolean attachOnly, String commandValue ->
+def arthasBootArgs = { boolean attachOnly ->
 	def args = [
 		"-jar", arthasBootJar.get().asFile.absolutePath,
 		"--target-ip", arthasTargetIp.get(),
@@ -76,11 +75,6 @@ def arthasBootArgs = { boolean attachOnly, String commandValue ->
 
 	if (attachOnly) {
 		args.add("--attach-only")
-	}
-
-	if (commandValue != null && !commandValue.trim().isEmpty()) {
-		args.add("-c")
-		args.add(commandValue.trim())
 	}
 
 	def disabledCommands = arthasDisabledCommands.get().trim()
@@ -119,7 +113,7 @@ tasks.register("arthasAttach", Exec) {
 	standardInput = System.in
 
 	doFirst {
-		commandLine([arthasJavaExecutable()] + arthasBootArgs(true, null))
+		commandLine([arthasJavaExecutable()] + arthasBootArgs(true))
 	}
 }
 
@@ -130,22 +124,7 @@ tasks.register("arthasShell", Exec) {
 	standardInput = System.in
 
 	doFirst {
-		commandLine([arthasJavaExecutable()] + arthasBootArgs(false, null))
-	}
-}
-
-tasks.register("arthasExec", Exec) {
-	group = "airicraft debug"
-	description = "Runs one Arthas command against the running Minecraft dev client."
-	dependsOn tasks.named("downloadArthasBoot")
-	standardInput = System.in
-
-	doFirst {
-		def commandValue = arthasCommand.get().trim()
-		if (commandValue.isEmpty()) {
-			throw new GradleException("arthasExec requires -Pairicraft.arthas.command=<arthas command>")
-		}
-		commandLine([arthasJavaExecutable()] + arthasBootArgs(false, commandValue))
+		commandLine([arthasJavaExecutable()] + arthasBootArgs(false))
 	}
 }
 
