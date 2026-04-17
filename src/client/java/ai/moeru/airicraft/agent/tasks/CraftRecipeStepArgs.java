@@ -1,19 +1,15 @@
 package ai.moeru.airicraft.agent.tasks;
 
 public record CraftRecipeStepArgs(
-	String itemId,
-	int quantity
+	String recipeId,
+	int times
 ) {
 	public CraftRecipeStepArgs {
-		if (itemId == null || itemId.isBlank()) {
-			throw new IllegalArgumentException("itemId must not be blank");
+		if (recipeId == null || recipeId.isBlank()) {
+			throw new IllegalArgumentException("recipeId must not be blank");
 		}
-		if (quantity <= 0) {
-			throw new IllegalArgumentException("quantity must be positive");
+		if (times <= 0) {
+			throw new IllegalArgumentException("times must be positive");
 		}
-	}
-
-	public String recipeId() {
-		return itemId;
 	}
 }

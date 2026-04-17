@@ -6,7 +6,6 @@ import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
-import net.minecraft.recipe.NetworkRecipeId;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
@@ -74,7 +73,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			progressTracker.reset();
 		}
 
-		if (progressTracker.targetReached(plan.requestedQuantity())) {
+		if (progressTracker.targetReached(plan.targetOutputCount())) {
 			return complete(request);
 		}
 
@@ -85,10 +84,12 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 
 		ScreenHandler handler = player.currentScreenHandler;
 		if (phase == CraftPhase.IDLE) {
-			client.interactionManager.clickRecipe(handler.syncId, plan.networkRecipeId(), false);
+			if (!placeRecipeInputs(client, player, plan)) {
+				return fail(request, "missing_ingredients");
+			}
 			phase = CraftPhase.WAITING_FOR_RESULT;
 			waitTicks = 0;
-			snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_recipe_selected");
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_inputs_placed");
 			return Optional.empty();
 		}
 
@@ -109,7 +110,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			if (progressTracker.finishTakeIfInventoryIncreased(inventoryCount(player, plan.outputItem()))) {
 				phase = CraftPhase.IDLE;
 				waitTicks = 0;
-				if (progressTracker.targetReached(plan.requestedQuantity())) {
+				if (progressTracker.targetReached(plan.targetOutputCount())) {
 					return complete(request);
 				}
 				snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_next_batch");
@@ -137,12 +138,52 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			return Optional.of(CraftingPlan.failure(resolved.failureReason()));
 		}
 		return Optional.of(new CraftingPlan(
-			resolved.networkRecipeId(),
 			resolved.outputItem(),
 			resolved.outputCount(),
-			resolved.requestedQuantity(),
+			resolved.requestedTimes(),
+			resolved.outputCount() * resolved.requestedTimes(),
+			resolved.placements(),
 			null
 		));
+	}
+
+	private static boolean placeRecipeInputs(MinecraftClient client, ClientPlayerEntity player, CraftingPlan plan) {
+		ScreenHandler handler = player.currentScreenHandler;
+		for (CraftingOpportunityResolver.CraftingIngredientPlacement placement : plan.placements()) {
+			int targetSlot = FIRST_INPUT_SLOT + placement.gridIndex();
+			if (!handler.getSlot(targetSlot).getStack().isEmpty()) {
+				return false;
+			}
+			if (!moveSingleItemToCraftingSlot(client, player, handler, targetSlot, placement.item())) {
+				return false;
+			}
+		}
+		return handler.getCursorStack().isEmpty();
+	}
+
+	private static boolean moveSingleItemToCraftingSlot(MinecraftClient client, ClientPlayerEntity player, ScreenHandler handler, int targetSlot, Item item) {
+		int sourceSlot = findInventorySlot(handler, item);
+		if (sourceSlot < 0) {
+			return false;
+		}
+		client.interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, player);
+		client.interactionManager.clickSlot(handler.syncId, targetSlot, 1, SlotActionType.PICKUP, player);
+		if (!handler.getCursorStack().isEmpty()) {
+			client.interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, player);
+		}
+		return handler.getCursorStack().isEmpty()
+			&& !handler.getSlot(targetSlot).getStack().isEmpty()
+			&& handler.getSlot(targetSlot).getStack().isOf(item);
+	}
+
+	private static int findInventorySlot(ScreenHandler handler, Item item) {
+		for (int slot = PlayerScreenHandler.INVENTORY_START; slot < PlayerScreenHandler.HOTBAR_END; slot++) {
+			ItemStack stack = handler.getSlot(slot).getStack();
+			if (!stack.isEmpty() && stack.isOf(item)) {
+				return slot;
+			}
+		}
+		return -1;
 	}
 
 	private static Optional<String> readinessFailure(MinecraftClient client, ClientPlayerEntity player, boolean requireEmptyGrid) {
@@ -243,14 +284,15 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private record CraftingPlan(
-		NetworkRecipeId networkRecipeId,
 		Item outputItem,
 		int outputCount,
-		int requestedQuantity,
+		int requestedTimes,
+		int targetOutputCount,
+		java.util.List<CraftingOpportunityResolver.CraftingIngredientPlacement> placements,
 		String failureReason
 	) {
 		private static CraftingPlan failure(String reason) {
-			return new CraftingPlan(null, null, 0, 0, reason);
+			return new CraftingPlan(null, 0, 0, 0, java.util.List.of(), reason);
 		}
 	}
 }

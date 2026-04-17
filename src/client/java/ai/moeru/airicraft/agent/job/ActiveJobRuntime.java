@@ -608,7 +608,7 @@ public final class ActiveJobRuntime {
 			case NAVIGATE_TO -> "Navigate to target";
 			case MINE_BLOCKS -> "Mine blocks";
 			case COLLECT_RESOURCE -> activeJob.taskSpec() == null ? "Collect resource" : "Collect " + activeJob.taskSpec().quantity() + " " + activeJob.taskSpec().resourceKind().name().toLowerCase();
-			case CRAFT_RECIPE -> activeJob.craftRecipe() == null ? "Craft recipe" : "Craft " + activeJob.craftRecipe().quantity() + "x " + activeJob.craftRecipe().recipeId();
+			case CRAFT_RECIPE -> activeJob.craftRecipe() == null ? "Craft recipe" : "Run recipe " + activeJob.craftRecipe().recipeId() + " x" + activeJob.craftRecipe().times();
 			case ASK_USER -> "Ask user";
 			case IDLE -> "";
 		};

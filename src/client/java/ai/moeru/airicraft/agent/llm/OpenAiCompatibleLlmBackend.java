@@ -364,12 +364,12 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		if (nestedCraftRecipe != null) {
 			return ActiveJobProposal.craftRecipe(nestedCraftRecipe);
 		}
-		Optional<String> recipeId = getString(jobObject, "itemId").or(() -> getString(jobObject, "recipeId"));
-		Optional<Integer> quantity = getInt(jobObject, "quantity");
-		if (recipeId.isEmpty() || quantity.isEmpty()) {
+		Optional<String> recipeId = getString(jobObject, "recipeId");
+		Optional<Integer> times = getInt(jobObject, "times");
+		if (recipeId.isEmpty() || times.isEmpty()) {
 			return null;
 		}
-		return ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs(recipeId.get(), quantity.get()));
+		return ActiveJobProposal.craftRecipe(new CraftRecipeStepArgs(recipeId.get(), times.get()));
 	}
 
 	private static TaskLedger parseTaskLedger(JsonObject object, String fieldName) {
@@ -486,9 +486,9 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			return null;
 		}
 		JsonObject argsObject = object.getAsJsonObject(fieldName);
-		Optional<String> recipeId = getString(argsObject, "itemId").or(() -> getString(argsObject, "recipeId"));
-		Optional<Integer> quantity = getInt(argsObject, "quantity");
-		return recipeId.isPresent() && quantity.isPresent() ? new CraftRecipeStepArgs(recipeId.get(), quantity.get()) : null;
+		Optional<String> recipeId = getString(argsObject, "recipeId");
+		Optional<Integer> times = getInt(argsObject, "times");
+		return recipeId.isPresent() && times.isPresent() ? new CraftRecipeStepArgs(recipeId.get(), times.get()) : null;
 	}
 
 	private static OpenContainerStepArgs parseOpenContainerStepArgs(JsonObject object, String fieldName) {

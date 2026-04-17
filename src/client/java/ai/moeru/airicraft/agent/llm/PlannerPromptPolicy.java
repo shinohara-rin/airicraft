@@ -20,7 +20,7 @@ public final class PlannerPromptPolicy {
 			If you need current 2x2 crafting opportunities, return toolRequest with type "inspect_recipes".
 			For questions like "what can you craft?", use inspect_recipes unless fresh availableCrafts evidence is already present.
 			For questions like "what do you have?" or "do you have logs?", use inspect_inventory unless fresh itemCounts evidence is already present.
-			After inspect_recipes, copy exact namespaced itemId values from exactCraftItemIds when issuing CRAFT_RECIPE.
+			After inspect_recipes, copy exact recipeId values from exactRecipeIds when issuing CRAFT_RECIPE.
 			When returning toolRequest, set replyText to "" and intent.type to "none".
 			Do not send a visible pre-tool chat reply.
 			Only request one tool in a response.
@@ -46,8 +46,8 @@ public final class PlannerPromptPolicy {
 			        "quantity": number
 			      } | null,
 			      "resourceKind": "WOOD_LOGS" | null,
-			      "itemId": string | null,
-			      "quantity": number | null,
+			      "recipeId": string | null,
+			      "times": number | null,
 			      "askPrompt": string | null
 			    } | null
 			  },
@@ -84,21 +84,22 @@ public final class PlannerPromptPolicy {
 			eventPolicyChanges affect future events only; they do not rewrite already observed context.
 			Use job_update for any new active job. There is only one active job at a time, so always propose the single current job, not a multi-step ledger.
 			Runtime notices describing the active job, world evidence, and last step result are the source of truth for progress.
-			If the latest runtime notice or last step result says a CRAFT_RECIPE task completed, that specific recipe step is done. Do not issue another CRAFT_RECIPE for the same item.
-			For an explicit multi-step crafting request, you may issue the next distinct CRAFT_RECIPE item after the prior craft completes, for example planks then sticks.
+			If the latest runtime notice or last step result says a CRAFT_RECIPE task completed, that specific recipe step is done. Do not issue another CRAFT_RECIPE for the same recipeId.
+			For an explicit multi-step crafting request, you may issue the next distinct CRAFT_RECIPE recipeId after the prior craft completes, for example planks then sticks.
 			When acknowledging completed work, use clear_goal or reply_only with activeJob null. Never combine completion text like "I crafted", "done", "stopped", or "completed" with job_update.
 			INVENTORY_DELTA_AT_LEAST means items gained since the current mission started, not absolute inventory and not the current total inventory.
 			When runtime notices include collected/remaining progress, trust that delta progress over raw inventoryCounts.
 			Do not invent ad-hoc fields outside the schema above.
 			Currently supported active job types are FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, COLLECT_RESOURCE, CRAFT_RECIPE, and ASK_USER.
 			Use COLLECT_RESOURCE for gathering tasks like wood logs. Do not use MINE_BLOCKS when the user asks to get, gather, collect, or obtain logs/items.
-			Use CRAFT_RECIPE only for itemId values currently shown in availableCrafts. quantity is desired output item count, not craft operation count.
+			Use CRAFT_RECIPE only for recipeId values currently shown in availableCrafts or exactRecipeIds. times is recipe run count, not desired output item count.
+			If the user asks for an output item count, choose the smallest times value that produces at least that many items using the listed output amount.
 			A CRAFT_RECIPE job is for the user's current request only. After one completed craft request, stop and wait for the next user instruction unless the user explicitly requested a multi-step craft and the next job is for a different item.
-			availableCrafts and exactCraftItemIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
-			When issuing CRAFT_RECIPE, copy the exact namespaced itemId from availableCrafts or exactCraftItemIds. Never use display names, plural names, or unqualified ids such as "sticks".
+			availableCrafts and exactRecipeIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
+			When issuing CRAFT_RECIPE, copy the exact recipeId from availableCrafts or exactRecipeIds. Never use display names, plural names, item ids, or unqualified ids such as "sticks".
 			When asked what you can craft, answer only from availableCrafts; every listed craft is currently craftable even if the recipe uses interchangeable ingredient tags.
 			3x3 workbench-grid recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not issue CRAFT_RECIPE.
-			The item minecraft:crafting_table is a 2x2 player-inventory recipe and is supported when it appears in availableCrafts.
+			The item crafting_table is a 2x2 player-inventory recipe and is supported when it appears in availableCrafts.
 			Use ASK_USER when a required decision or missing information cannot be safely inferred.
 			Do not create a job to mean idle, ready, or waiting for the next task; use reply_only or clear_goal.
 			Legacy compatibility fields such as taskLedger, taskSpec, set_goal, and submit_task may still work, but prefer activeJob with job_update.

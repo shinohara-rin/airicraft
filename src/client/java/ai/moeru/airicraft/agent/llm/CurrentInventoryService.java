@@ -82,13 +82,13 @@ public final class CurrentInventoryService implements CurrentInventoryTool {
 			? "[]"
 			: opportunities.stream()
 				.limit(MAX_RECIPE_RESULTS)
-				.map(CraftingOpportunity::itemId)
+				.map(CraftingOpportunity::recipeId)
 				.collect(Collectors.joining(", ", "[", "]"));
 		return CompletableFuture.completedFuture(
 			"Tool result for inspect_recipes: "
 				+ "availableCrafts=" + recipes
-				+ ", exactCraftItemIds=" + exactItemIds
-				+ ", note=Use exactCraftItemIds for CRAFT_RECIPE.itemId. Only 2x2 player-inventory recipes are supported; 3x3 workbench-grid recipes are not supported yet. The item minecraft:crafting_table is supported when listed."
+				+ ", exactRecipeIds=" + exactItemIds
+				+ ", note=Use exactRecipeIds for CRAFT_RECIPE.recipeId. times means recipe runs, not output item count. Only 2x2 player-inventory recipes are supported; 3x3 workbench-grid recipes are not supported yet. The item crafting_table is supported when listed."
 		);
 	}
 
