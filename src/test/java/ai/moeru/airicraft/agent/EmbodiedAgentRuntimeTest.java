@@ -146,7 +146,7 @@ class EmbodiedAgentRuntimeTest {
 			0,
 			0L
 		));
-		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("minecraft:stick", 4);
+		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("oak_planks_x2_to_stick", 1);
 
 		runtime.injectDialogueResponseForTests(new DialogueResponse(
 			"Crafting sticks.",

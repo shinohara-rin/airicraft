@@ -242,7 +242,7 @@ class PlannerContextAggregatorTest {
 					Map.of(ai.moeru.airicraft.agent.tasks.TaskResourceKind.WOOD_LOGS, 2),
 					Map.of("minecraft:oak_log", 3),
 					Map.of(),
-					List.of(new ai.moeru.airicraft.agent.tasks.CraftingOpportunity("minecraft:oak_planks", 4, "minecraft:oak_log")),
+					List.of(new ai.moeru.airicraft.agent.tasks.CraftingOpportunity("oak_log_to_oak_planks", "minecraft:oak_planks", 4, List.of("minecraft:oak_log"))),
 					"minecraft:overworld",
 					0,
 					64,
@@ -264,7 +264,7 @@ class PlannerContextAggregatorTest {
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Compatibility ledger snapshot:")));
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Last step result:")));
 		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Compatibility history summary:")));
-		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("Available 2x2 crafts: minecraft:oak_planks output=4 ingredients=minecraft:oak_log")));
+		assertTrue(conversation.messages().stream().anyMatch(message -> message.content().contains("[From {1*oak_log} to 4*oak_planks]: oak_log_to_oak_planks")));
 	}
 
 	@Test

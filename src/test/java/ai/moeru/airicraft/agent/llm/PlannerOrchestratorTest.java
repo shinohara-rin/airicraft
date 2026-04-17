@@ -139,7 +139,7 @@ class PlannerOrchestratorTest {
 		));
 		StubInventoryTool inventoryTool = new StubInventoryTool(
 			"unused",
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: minecraft:jungle_planks output=4"
+			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks"
 		);
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
@@ -155,7 +155,7 @@ class PlannerOrchestratorTest {
 		assertTrue(result.succeeded());
 		assertEquals("You can craft jungle planks.", result.response().replyText());
 		assertEquals(
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: minecraft:jungle_planks output=4",
+			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks",
 			result.request().toolResult()
 		);
 		assertEquals(0, inventoryTool.inventoryRequestCount());

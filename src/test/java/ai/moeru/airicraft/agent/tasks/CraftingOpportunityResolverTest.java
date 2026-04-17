@@ -12,8 +12,8 @@ class CraftingOpportunityResolverTest {
 	@Test
 	void compactDescriptionIncludesExactOutputAndCraftableFlag() {
 		assertEquals(
-			"minecraft:oak_planks output=4 ingredients=minecraft:oak_log craftableNow=true",
-			new CraftingOpportunity("minecraft:oak_planks", 4, "minecraft:oak_log").compactDescription()
+			"[From {1*oak_log} to 4*oak_planks]: oak_log_to_oak_planks",
+			new CraftingOpportunity("oak_log_to_oak_planks", "minecraft:oak_planks", 4, List.of("minecraft:oak_log")).compactDescription()
 		);
 	}
 
@@ -22,6 +22,30 @@ class CraftingOpportunityResolverTest {
 		assertEquals(
 			List.of(),
 			CraftingOpportunityResolver.availableCrafts(List.of(RecipeResultCollection.EMPTY), new RecipeFinder())
+		);
+	}
+
+	@Test
+	void recipeIdMapsConcreteInputOutputPair() {
+		assertEquals(
+			List.of("birch_log_to_birch_planks", "birch_wood_to_birch_planks"),
+			List.of(
+				CraftingOpportunityResolver.recipeId(List.of("minecraft:birch_log"), "minecraft:birch_planks"),
+				CraftingOpportunityResolver.recipeId(List.of("minecraft:birch_wood"), "minecraft:birch_planks")
+			)
+		);
+	}
+
+	@Test
+	void recipeIdUsesTimesIndependentOfOutputCount() {
+		assertEquals("oak_planks_x2_to_stick", CraftingOpportunityResolver.recipeId(List.of("minecraft:oak_planks", "minecraft:oak_planks"), "minecraft:stick"));
+	}
+
+	@Test
+	void recipeIdCanonicalizesShapelessInputOrder() {
+		assertEquals(
+			CraftingOpportunityResolver.recipeId(List.of("minecraft:birch_planks", "minecraft:oak_planks"), "minecraft:stick"),
+			CraftingOpportunityResolver.recipeId(List.of("minecraft:oak_planks", "minecraft:birch_planks"), "minecraft:stick")
 		);
 	}
 

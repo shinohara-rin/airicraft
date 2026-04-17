@@ -112,7 +112,7 @@ class ActiveJobRuntimeTest {
 	@Test
 	void craftRecipeActiveJobProjectsWorldTaskRequest() {
 		ActiveJobRuntime runtime = new ActiveJobRuntime();
-		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("minecraft:stick", 4);
+		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("oak_planks_x2_to_stick", 1);
 
 		runtime.applyPlannerResponse(
 			new DialogueResponse(

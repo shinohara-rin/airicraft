@@ -421,7 +421,7 @@ class DialogueRuntimeTest {
 				java.util.Map.of(),
 				java.util.Map.of("minecraft:jungle_log", 7),
 				java.util.Map.of(),
-				List.of(new CraftingOpportunity("minecraft:jungle_planks", 4, "minecraft:jungle_log")),
+				List.of(new CraftingOpportunity("jungle_log_to_jungle_planks", "minecraft:jungle_planks", 4, List.of("minecraft:jungle_log"))),
 				"minecraft:overworld",
 				0,
 				64,
@@ -462,7 +462,7 @@ class DialogueRuntimeTest {
 		awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
 
 		assertTrue(runtime.plannerConversationDebugSnapshot().messages().stream().anyMatch(message ->
-			message.text().contains("Available 2x2 crafts: minecraft:jungle_planks output=4 ingredients=minecraft:jungle_log")
+			message.text().contains("[From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks")
 		));
 		runtime.shutdown();
 	}
