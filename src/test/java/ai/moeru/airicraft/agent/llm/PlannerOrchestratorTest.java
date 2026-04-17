@@ -3,6 +3,7 @@ package ai.moeru.airicraft.agent.llm;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
+import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.dialogue.DialogueTurn;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
 import ai.moeru.airicraft.agent.events.EventPolicyChanges;
@@ -1210,12 +1211,43 @@ class PlannerOrchestratorTest {
 	private static PlannerOrchestrator newOrchestrator(
 		LlmBackend backend,
 		CurrentViewVisionTool visionTool,
-		CurrentInventoryTool inventoryTool,
 		PlannerVisionMode visionMode,
 		int plannerSessionMaxConcurrentAttempts,
 		Clock clock
 	) {
-		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, plannerSessionMaxConcurrentAttempts, clock);
+		return newOrchestrator(
+			backend,
+			visionTool,
+			CurrentInventoryTool.disabled(),
+			visionMode,
+			plannerSessionMaxConcurrentAttempts,
+			clock
+		);
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		PlannerVisionMode visionMode,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		int plannerPendingSemanticEventCap,
+		Clock clock
+	) {
+		return newOrchestrator(
+			backend,
+			visionTool,
+			CurrentInventoryTool.disabled(),
+			visionMode,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			plannerPendingSemanticEventCap,
+			clock
+		);
 	}
 
 	private static PlannerOrchestrator newOrchestrator(
@@ -1244,6 +1276,7 @@ class PlannerOrchestratorTest {
 	private static PlannerOrchestrator newOrchestrator(
 		LlmBackend backend,
 		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
 		PlannerVisionMode visionMode,
 		int plannerSessionMaxConcurrentAttempts,
 		int plannerSessionCoalesceStepMillis,
@@ -1267,7 +1300,8 @@ class PlannerOrchestratorTest {
 			plannerSessionCoalesceMaxMillis,
 			clock,
 			NoopObservability.INSTANCE,
-			PlannerLifecycleListener.NO_OP
+			PlannerLifecycleListener.NO_OP,
+			new AgentDebugRecorder()
 		);
 	}
 

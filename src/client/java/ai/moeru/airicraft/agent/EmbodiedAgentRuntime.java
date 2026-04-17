@@ -1591,26 +1591,27 @@ public final class EmbodiedAgentRuntime {
 		if (
 			current.state() == TaskState.PAUSED_BY_SESSION_GATE
 				|| current.state() == TaskState.COMPLETED
+				|| current.state() == TaskState.FAILED
 				|| current.state() == TaskState.CANCELLED
 		) {
-				dialogueRuntime.onInternalTaskUpdate(
-					"TASK UPDATE: state=" + current.state().name()
-						+ " missionId=" + (current.mission() == null ? "" : current.mission().missionId())
-						+ " missionType=" + (current.mission() == null ? "" : current.mission().missionType().name())
-						+ " activeStepId=" + (current.activeStepId() == null ? "" : current.activeStepId())
-						+ " activeStepKind=" + (current.activeStepKind() == null ? "" : current.activeStepKind().name())
-						+ " taskType=" + (current.spec() == null ? "" : current.spec().type().name())
-						+ " resourceKind=" + (current.spec() == null ? "" : current.spec().resourceKind().name())
-						+ " collected=" + current.progress().collected()
+			dialogueRuntime.onInternalTaskUpdate(
+				"TASK UPDATE: state=" + current.state().name()
+					+ " missionId=" + (current.mission() == null ? "" : current.mission().missionId())
+					+ " missionType=" + (current.mission() == null ? "" : current.mission().missionType().name())
+					+ " activeStepId=" + (current.activeStepId() == null ? "" : current.activeStepId())
+					+ " activeStepKind=" + (current.activeStepKind() == null ? "" : current.activeStepKind().name())
+					+ " taskType=" + (current.spec() == null ? "" : current.spec().type().name())
+					+ " resourceKind=" + (current.spec() == null ? "" : current.spec().resourceKind().name())
+					+ " collected=" + current.progress().collected()
 					+ " remaining=" + current.progress().remaining()
 					+ " failure=" + (current.lastFailure() == null ? "" : current.lastFailure()),
-					tickCount,
-					sessionSnapshot,
-					activeGoal(),
-					current,
-					missionExecutionSnapshot,
-					eventBuffer
-				);
+				tickCount,
+				sessionSnapshot,
+				activeGoal(),
+				current,
+				missionExecutionSnapshot,
+				eventBuffer
+			);
 		}
 	}
 

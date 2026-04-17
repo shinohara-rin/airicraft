@@ -16,6 +16,10 @@ public record CraftingOpportunity(
 	}
 
 	public String compactDescription() {
-		return itemId + " output=" + outputCount + " craftableNow=true";
+		String description = itemId + " output=" + outputCount;
+		if (!ingredientSummary.isBlank()) {
+			description += " ingredients=" + ingredientSummary;
+		}
+		return description + " craftableNow=true";
 	}
 }

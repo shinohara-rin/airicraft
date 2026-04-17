@@ -12,7 +12,7 @@ class CraftingOpportunityResolverTest {
 	@Test
 	void compactDescriptionIncludesExactOutputAndCraftableFlag() {
 		assertEquals(
-			"minecraft:oak_planks output=4 craftableNow=true",
+			"minecraft:oak_planks output=4 ingredients=minecraft:oak_log craftableNow=true",
 			new CraftingOpportunity("minecraft:oak_planks", 4, "minecraft:oak_log").compactDescription()
 		);
 	}
