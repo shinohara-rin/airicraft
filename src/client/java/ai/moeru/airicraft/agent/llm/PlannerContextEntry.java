@@ -10,10 +10,11 @@ public record PlannerContextEntry(
 	String speaker,
 	String text,
 	long tick,
-	long timestampMs,
-	SemanticContextUpdate semanticUpdate,
-	JsonElement rawAssistantContent
-) {
+		long timestampMs,
+		SemanticContextUpdate semanticUpdate,
+		JsonElement rawAssistantContent,
+		PlannerToolCall toolCall
+	) {
 	public PlannerContextEntry(
 		PlannerContextEntryType type,
 		String speaker,
@@ -21,7 +22,7 @@ public record PlannerContextEntry(
 		long tick,
 		long timestampMs
 	) {
-		this(type, speaker, text, tick, timestampMs, null, null);
+			this(type, speaker, text, tick, timestampMs, null, null, null);
 	}
 
 	public PlannerContextEntry {
@@ -39,10 +40,11 @@ public record PlannerContextEntry(
 			null,
 			update.text(),
 			update.tick(),
-			update.timestampMs(),
-			update,
-			null
-		);
+				update.timestampMs(),
+				update,
+				null,
+				null
+			);
 	}
 
 	public static PlannerContextEntry toolRequest(JsonElement assistantRawContent, long tick, long timestampMs) {
@@ -53,13 +55,32 @@ public record PlannerContextEntry(
 			null,
 			visibleText == null ? "" : visibleText,
 			tick,
+				timestampMs,
+				null,
+				assistantRawContent,
+				null
+			);
+	}
+
+	public static PlannerContextEntry toolRequest(PlannerToolCall toolCall, long tick, long timestampMs) {
+		Objects.requireNonNull(toolCall, "toolCall");
+		return new PlannerContextEntry(
+			PlannerContextEntryType.TOOL_REQUEST,
+			null,
+			"",
+			tick,
 			timestampMs,
 			null,
-			assistantRawContent
+			null,
+			toolCall
 		);
 	}
 
 	public static PlannerContextEntry toolResult(String toolResultText, long tick, long timestampMs) {
+		return toolResult(toolResultText, null, tick, timestampMs);
+	}
+
+	public static PlannerContextEntry toolResult(String toolResultText, PlannerToolCall toolCall, long tick, long timestampMs) {
 		String body = toolResultText == null || toolResultText.isBlank() ? "none" : toolResultText;
 		return new PlannerContextEntry(
 			PlannerContextEntryType.TOOL_RESULT,
@@ -68,7 +89,8 @@ public record PlannerContextEntry(
 			tick,
 			timestampMs,
 			null,
-			null
+			null,
+			toolCall
 		);
 	}
 }

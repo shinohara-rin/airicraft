@@ -60,7 +60,7 @@ public final class PlannerCompactionService {
 		);
 		inFlight = CompletableFuture.supplyAsync(() -> {
 			try (Scope scope = compactionContext.makeCurrent()) {
-				LlmCallResult<String> response = chatClient.complete(conversation);
+					LlmCallResult<String> response = chatClient.complete(conversation, LlmRequestOptions.compaction());
 				CompactionCheckpoint checkpoint = parseCheckpoint(response.payload());
 				observability.recordLlmResponse(Context.current(), response.statusCode(), response.responseModel(), response.usage(), checkpoint);
 				return LlmCallResult.of(checkpoint, response.usage(), response.statusCode(), response.responseModel());

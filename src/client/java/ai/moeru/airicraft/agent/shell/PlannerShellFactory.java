@@ -9,10 +9,12 @@ import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleVisionBackend;
+import ai.moeru.airicraft.agent.llm.PlannerActionToolExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerCompactionService;
 import ai.moeru.airicraft.agent.llm.PlannerContextAggregator;
 import ai.moeru.airicraft.agent.llm.PlannerExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
+import ai.moeru.airicraft.agent.llm.PlannerToolNarrationSink;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import net.minecraft.client.MinecraftClient;
 
@@ -30,9 +32,31 @@ public final class PlannerShellFactory {
 		Clock clock,
 		AgentDebugRecorder debugRecorder
 	) {
+		return create(
+			config,
+			screenshotService,
+			observability,
+			clock,
+			debugRecorder,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
+		);
+	}
+
+	public static PlannerShellComponents create(
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		AgentObservability observability,
+		Clock clock,
+		AgentDebugRecorder debugRecorder,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink
+	) {
 		Objects.requireNonNull(config, "config");
 		Objects.requireNonNull(screenshotService, "screenshotService");
 		Objects.requireNonNull(observability, "observability");
+		PlannerActionToolExecutor effectiveActionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
+		PlannerToolNarrationSink effectiveNarrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
 		Clock effectiveClock = Objects.requireNonNull(clock, "clock");
 		PlannerShellJournal journal = new PlannerShellJournal(128, effectiveClock);
 		CurrentViewVisionService visionService = new CurrentViewVisionService(
@@ -58,11 +82,13 @@ public final class PlannerShellFactory {
 			config.llm().plannerSessionMaxConcurrentAttempts(),
 			config.llm().plannerSessionCoalesceStepMillis(),
 			config.llm().plannerSessionCoalesceMinMillis(),
-			config.llm().plannerSessionCoalesceMaxMillis(),
-			observability,
-			journal,
-			debugRecorder
-		);
+				config.llm().plannerSessionCoalesceMaxMillis(),
+				observability,
+				journal,
+				debugRecorder,
+				effectiveActionToolExecutor,
+				effectiveNarrationSink
+			);
 		return new PlannerShellComponents(
 			visionService,
 			new DialogueRuntime(orchestrator, config.llm().maxRecentConversationTurns(), effectiveClock),

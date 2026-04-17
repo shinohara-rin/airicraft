@@ -6,7 +6,7 @@ import ai.moeru.airicraft.agent.llm.PlannerExecutionResult;
 import ai.moeru.airicraft.agent.llm.PlannerLifecycleListener;
 import ai.moeru.airicraft.agent.llm.PlannerRequest;
 import ai.moeru.airicraft.agent.llm.PlannerSessionPhase;
-import ai.moeru.airicraft.agent.llm.PlannerToolRequest;
+import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 
 import java.time.Clock;
 import java.util.ArrayDeque;
@@ -63,13 +63,13 @@ public final class PlannerShellJournal implements PlannerLifecycleListener {
 	}
 
 	@Override
-	public synchronized void onToolRequested(long generation, PlannerToolRequest toolRequest) {
+	public synchronized void onToolRequested(long generation, PlannerToolCall toolCall) {
 		append(
 			"tool_requested",
 			generation,
 			0,
 			PlannerSessionPhase.TOOL_WAIT,
-			toolRequest == null ? "unknown_tool" : toolRequest.type()
+			toolCall == null ? "unknown_tool" : toolCall.name()
 		);
 	}
 

@@ -6,8 +6,8 @@ import ai.moeru.airicraft.agent.llm.LlmChatMessage;
 import ai.moeru.airicraft.agent.llm.LlmConversation;
 import ai.moeru.airicraft.agent.llm.LlmMessageKind;
 import ai.moeru.airicraft.agent.llm.LlmUsageSnapshot;
-import ai.moeru.airicraft.agent.llm.PlannerIntent;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
+import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -54,9 +54,12 @@ class OtelObservabilitySpanLayoutTest {
 			),
 			SimpleSpanProcessor.create(exporter)
 		);
-		try {
-			Context turnContext = observability.startTurnSpan(null, "session:test:speaker=rin");
-			Context plannerContext = observability.startChildSpan(AgentObservability.PLANNER_REQUEST_SPAN_NAME, turnContext);
+			try {
+				JsonObject followArgs = new JsonObject();
+				followArgs.addProperty("targetPlayer", "Alice");
+				followArgs.addProperty("narration", "Following you now");
+				Context turnContext = observability.startTurnSpan(null, "session:test:speaker=rin");
+				Context plannerContext = observability.startChildSpan(AgentObservability.PLANNER_REQUEST_SPAN_NAME, turnContext);
 			observability.recordLlmRequest(
 				plannerContext,
 				"openai",
@@ -67,13 +70,15 @@ class OtelObservabilitySpanLayoutTest {
 					LlmChatMessage.system("You are Airicraft."),
 					LlmChatMessage.user("Please follow me to the village and explain what you are doing.", LlmMessageKind.USER_TURN)
 				)),
-				"""
-					{
-					  "model": "planner-model",
-					  "response_format": {"type": "json_object"},
-					  "messages": [
-					    {"role": "system", "content": "You are Airicraft."},
-					    {"role": "user", "content": "Please follow me to the village and explain what you are doing."}
+					"""
+						{
+						  "model": "planner-model",
+						  "tools": [
+						    {"type": "function", "function": {"name": "follow_player"}}
+						  ],
+						  "messages": [
+						    {"role": "system", "content": "You are Airicraft."},
+						    {"role": "user", "content": "Please follow me to the village and explain what you are doing."}
 					  ]
 					}
 					"""
@@ -82,12 +87,13 @@ class OtelObservabilitySpanLayoutTest {
 				plannerContext,
 				200,
 				"planner-model",
-				new LlmUsageSnapshot(111, 22, 133),
-				new PlannerResponse(
-					"Following you toward the village now.",
-					new PlannerIntent("reply_only", null, null)
-				)
-			);
+					new LlmUsageSnapshot(111, 22, 133),
+					new PlannerResponse(
+						"",
+						new PlannerToolCall("call_follow", "follow_player", followArgs, "Following you now", null),
+						null
+					)
+				);
 			observability.endSpan(plannerContext);
 			observability.endSpan(turnContext);
 		}
@@ -101,10 +107,12 @@ class OtelObservabilitySpanLayoutTest {
 		assertEquals(AgentObservability.PLANNER_REQUEST_SPAN_NAME, plannerSpan.getName());
 		assertFalse(plannerSpan.getParentSpanContext().isValid());
 		assertEquals("session:test:speaker=rin", plannerSpan.getAttributes().get(AttributeKey.stringKey("wandb.thread_id")));
-		assertEquals(Boolean.TRUE, plannerSpan.getAttributes().get(AttributeKey.booleanKey("wandb.is_turn")));
-		assertEquals("llm", plannerSpan.getAttributes().get(AttributeKey.stringKey("openinference.span.kind")));
-		assertEquals("llm", plannerSpan.getAttributes().get(AttributeKey.stringKey("weave.span.kind")));
-		String inputValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("input.value"));
+			assertEquals(Boolean.TRUE, plannerSpan.getAttributes().get(AttributeKey.booleanKey("wandb.is_turn")));
+			assertEquals("llm", plannerSpan.getAttributes().get(AttributeKey.stringKey("openinference.span.kind")));
+			assertEquals("llm", plannerSpan.getAttributes().get(AttributeKey.stringKey("weave.span.kind")));
+			assertEquals("follow_player", plannerSpan.getAttributes().get(AttributeKey.stringKey("airicraft.tool_name")));
+			assertEquals("Following you now", plannerSpan.getAttributes().get(AttributeKey.stringKey("airicraft.tool_narration")));
+			String inputValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("input.value"));
 		String outputValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("output.value"));
 		String genAiPrompt = plannerSpan.getAttributes().get(AttributeKey.stringKey("gen_ai.prompt"));
 		String genAiSystem = plannerSpan.getAttributes().get(AttributeKey.stringKey("gen_ai.system"));
@@ -114,9 +122,10 @@ class OtelObservabilitySpanLayoutTest {
 		assertNotNull(genAiPrompt);
 		assertNotNull(genAiSystem);
 		assertNotNull(genAiCompletion);
-		JsonObject inputPayload = JsonParser.parseString(inputValue).getAsJsonObject();
-		assertEquals("planner-model", inputPayload.get("model").getAsString());
-		assertEquals("json_object", inputPayload.getAsJsonObject("response_format").get("type").getAsString());
+			JsonObject inputPayload = JsonParser.parseString(inputValue).getAsJsonObject();
+			assertEquals("planner-model", inputPayload.get("model").getAsString());
+			assertFalse(inputPayload.has("response_format"));
+			assertEquals("follow_player", inputPayload.getAsJsonArray("tools").get(0).getAsJsonObject().getAsJsonObject("function").get("name").getAsString());
 		JsonArray inputMessages = inputPayload.getAsJsonArray("messages");
 		assertEquals(2, inputMessages.size());
 		assertEquals("system", inputMessages.get(0).getAsJsonObject().get("role").getAsString());
@@ -126,11 +135,11 @@ class OtelObservabilitySpanLayoutTest {
 		assertEquals("system", promptMessages.get(0).getAsJsonObject().get("role").getAsString());
 		assertEquals("user", promptMessages.get(1).getAsJsonObject().get("role").getAsString());
 		assertTrue(genAiSystem.contains("You are Airicraft."));
-		JsonObject outputPayload = JsonParser.parseString(outputValue).getAsJsonObject();
-		assertEquals("assistant", outputPayload.get("role").getAsString());
-		assertEquals("reply_only", outputPayload.getAsJsonObject("intent").get("type").getAsString());
-		assertTrue(outputPayload.get("content").getAsString().contains("Following you toward the village now."));
-		assertTrue(genAiCompletion.contains("Following you toward the village now."));
+			JsonObject outputPayload = JsonParser.parseString(outputValue).getAsJsonObject();
+			assertEquals("assistant", outputPayload.get("role").getAsString());
+			assertEquals("follow_player", outputPayload.getAsJsonObject("toolCall").get("name").getAsString());
+			assertEquals("Following you now", outputPayload.getAsJsonObject("toolCall").get("narration").getAsString());
+			assertTrue(genAiCompletion.contains("follow_player"));
 	}
 
 	@Test

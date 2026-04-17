@@ -13,6 +13,7 @@ import ai.moeru.airicraft.agent.events.EventPolicyRuleUpsert;
 import ai.moeru.airicraft.agent.events.SemanticEventQueryResult;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 
@@ -53,6 +54,8 @@ public final class PlannerOrchestrator {
 	private final AgentObservability observability;
 	private final PlannerLifecycleListener lifecycleListener;
 	private final AgentDebugRecorder debugRecorder;
+	private final PlannerActionToolExecutor actionToolExecutor;
+	private final PlannerToolNarrationSink narrationSink;
 
 	private final Map<Long, List<RecordedToolExchange>> toolExchangesByGeneration = new HashMap<>();
 
@@ -80,20 +83,23 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
-			compactionService,
-			contextAggregator,
-			visionTool,
-			visionMode,
-			imageDetail,
-			3,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				3,
 			SESSION_COALESCE_STEP_MS,
 			SESSION_COALESCE_MIN_MS,
 			SESSION_COALESCE_MAX_MS,
 			Clock.systemDefaultZone(),
-			NoopObservability.INSTANCE,
-			PlannerLifecycleListener.NO_OP,
-			new AgentDebugRecorder()
-		);
+				NoopObservability.INSTANCE,
+				PlannerLifecycleListener.NO_OP,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
 	}
 
 	public PlannerOrchestrator(
@@ -107,20 +113,23 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
-			compactionService,
-			contextAggregator,
-			visionTool,
-			visionMode,
-			imageDetail,
-			plannerSessionMaxConcurrentAttempts,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				plannerSessionMaxConcurrentAttempts,
 			SESSION_COALESCE_STEP_MS,
 			SESSION_COALESCE_MIN_MS,
 			SESSION_COALESCE_MAX_MS,
 			Clock.systemDefaultZone(),
-			NoopObservability.INSTANCE,
-			PlannerLifecycleListener.NO_OP,
-			new AgentDebugRecorder()
-		);
+				NoopObservability.INSTANCE,
+				PlannerLifecycleListener.NO_OP,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
 	}
 
 	public PlannerOrchestrator(
@@ -137,20 +146,23 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
-			compactionService,
-			contextAggregator,
-			visionTool,
-			visionMode,
-			imageDetail,
-			plannerSessionMaxConcurrentAttempts,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				plannerSessionMaxConcurrentAttempts,
 			plannerSessionCoalesceStepMillis,
 			plannerSessionCoalesceMinMillis,
 			plannerSessionCoalesceMaxMillis,
 			Clock.systemDefaultZone(),
-			NoopObservability.INSTANCE,
-			PlannerLifecycleListener.NO_OP,
-			new AgentDebugRecorder()
-		);
+				NoopObservability.INSTANCE,
+				PlannerLifecycleListener.NO_OP,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
 	}
 
 	public PlannerOrchestrator(
@@ -168,20 +180,23 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
-			compactionService,
-			contextAggregator,
-			visionTool,
-			visionMode,
-			imageDetail,
-			plannerSessionMaxConcurrentAttempts,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				plannerSessionMaxConcurrentAttempts,
 			plannerSessionCoalesceStepMillis,
 			plannerSessionCoalesceMinMillis,
 			plannerSessionCoalesceMaxMillis,
-			Clock.systemDefaultZone(),
-			observability,
-			PlannerLifecycleListener.NO_OP,
-			new AgentDebugRecorder()
-		);
+				Clock.systemDefaultZone(),
+				observability,
+				PlannerLifecycleListener.NO_OP,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
 	}
 
 	public PlannerOrchestrator(
@@ -200,20 +215,23 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
-			compactionService,
-			contextAggregator,
-			visionTool,
-			visionMode,
-			imageDetail,
-			plannerSessionMaxConcurrentAttempts,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				plannerSessionMaxConcurrentAttempts,
 			plannerSessionCoalesceStepMillis,
 			plannerSessionCoalesceMinMillis,
 			plannerSessionCoalesceMaxMillis,
-			Clock.systemDefaultZone(),
-			observability,
-			lifecycleListener,
-			new AgentDebugRecorder()
-		);
+				Clock.systemDefaultZone(),
+				observability,
+				lifecycleListener,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
 	}
 
 	public PlannerOrchestrator(
@@ -233,9 +251,49 @@ public final class PlannerOrchestrator {
 	) {
 		this(
 			plannerExecutor,
+				compactionService,
+				contextAggregator,
+				visionTool,
+				CurrentInventoryTool.disabled(),
+				visionMode,
+				imageDetail,
+				plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			Clock.systemDefaultZone(),
+			observability,
+			lifecycleListener,
+			debugRecorder,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
+		);
+	}
+
+	public PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		AgentObservability observability,
+		PlannerLifecycleListener lifecycleListener,
+		AgentDebugRecorder debugRecorder,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink
+	) {
+		this(
+			plannerExecutor,
 			compactionService,
 			contextAggregator,
 			visionTool,
+			inventoryTool,
 			visionMode,
 			imageDetail,
 			plannerSessionMaxConcurrentAttempts,
@@ -245,7 +303,9 @@ public final class PlannerOrchestrator {
 			Clock.systemDefaultZone(),
 			observability,
 			lifecycleListener,
-			debugRecorder
+			debugRecorder,
+			actionToolExecutor,
+			narrationSink
 		);
 	}
 
@@ -269,6 +329,44 @@ public final class PlannerOrchestrator {
 			compactionService,
 			contextAggregator,
 			visionTool,
+			visionMode,
+			imageDetail,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+				clock,
+				observability,
+				lifecycleListener,
+				new AgentDebugRecorder(),
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
+		}
+
+	PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		Clock clock,
+		AgentObservability observability,
+		PlannerLifecycleListener lifecycleListener,
+		AgentDebugRecorder debugRecorder
+	) {
+		this(
+			plannerExecutor,
+			compactionService,
+			contextAggregator,
+			visionTool,
+			inventoryTool,
 			visionMode,
 			imageDetail,
 			plannerSessionMaxConcurrentAttempts,
@@ -278,7 +376,9 @@ public final class PlannerOrchestrator {
 			clock,
 			observability,
 			lifecycleListener,
-			new AgentDebugRecorder()
+			debugRecorder,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
 		);
 	}
 
@@ -296,7 +396,9 @@ public final class PlannerOrchestrator {
 		Clock clock,
 		AgentObservability observability,
 		PlannerLifecycleListener lifecycleListener,
-		AgentDebugRecorder debugRecorder
+		AgentDebugRecorder debugRecorder,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink
 	) {
 		this(
 			plannerExecutor,
@@ -310,12 +412,14 @@ public final class PlannerOrchestrator {
 			plannerSessionCoalesceStepMillis,
 			plannerSessionCoalesceMinMillis,
 			plannerSessionCoalesceMaxMillis,
-			clock,
-			observability,
-			lifecycleListener,
-			debugRecorder
-		);
-	}
+				clock,
+				observability,
+				lifecycleListener,
+				debugRecorder,
+				actionToolExecutor,
+				narrationSink
+			);
+		}
 
 	public PlannerOrchestrator(
 		PlannerExecutor plannerExecutor,
@@ -345,12 +449,14 @@ public final class PlannerOrchestrator {
 			plannerSessionCoalesceStepMillis,
 			plannerSessionCoalesceMinMillis,
 			plannerSessionCoalesceMaxMillis,
-			Clock.systemDefaultZone(),
-			observability,
-			lifecycleListener,
-			debugRecorder
-		);
-	}
+				Clock.systemDefaultZone(),
+				observability,
+				lifecycleListener,
+				debugRecorder,
+				PlannerActionToolExecutor.DISABLED,
+				PlannerToolNarrationSink.NO_OP
+			);
+		}
 
 	PlannerOrchestrator(
 		PlannerExecutor plannerExecutor,
@@ -364,11 +470,13 @@ public final class PlannerOrchestrator {
 		int plannerSessionCoalesceStepMillis,
 		int plannerSessionCoalesceMinMillis,
 		int plannerSessionCoalesceMaxMillis,
-		Clock clock,
-		AgentObservability observability,
-		PlannerLifecycleListener lifecycleListener,
-		AgentDebugRecorder debugRecorder
-	) {
+			Clock clock,
+			AgentObservability observability,
+			PlannerLifecycleListener lifecycleListener,
+			AgentDebugRecorder debugRecorder,
+			PlannerActionToolExecutor actionToolExecutor,
+			PlannerToolNarrationSink narrationSink
+		) {
 		this.plannerExecutor = Objects.requireNonNull(plannerExecutor, "plannerExecutor");
 		this.compactionService = Objects.requireNonNull(compactionService, "compactionService");
 		this.contextAggregator = Objects.requireNonNull(contextAggregator, "contextAggregator");
@@ -391,6 +499,8 @@ public final class PlannerOrchestrator {
 		this.observability = Objects.requireNonNull(observability, "observability");
 		this.lifecycleListener = Objects.requireNonNull(lifecycleListener, "lifecycleListener");
 		this.debugRecorder = Objects.requireNonNull(debugRecorder, "debugRecorder");
+		this.actionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
+		this.narrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
 	}
 
 	public boolean isConfigured() {
@@ -535,13 +645,13 @@ public final class PlannerOrchestrator {
 			return plannerResult;
 		}
 
-		contextAggregator.recordUsage(plannerResult.usage());
-		lifecycleListener.onPlannerExecutionSucceeded(plannerResult);
-		PlannerToolRequest toolRequest = plannerResult.response().toolRequest();
-		if (toolRequest == null) {
-			appendAssistantOutcomeCard(plannerResult);
-			appendOperationCards(plannerResult);
-			debugRecorder.recordPlannerCompletion(plannerResult);
+			contextAggregator.recordUsage(plannerResult.usage());
+			lifecycleListener.onPlannerExecutionSucceeded(plannerResult);
+			PlannerToolCall toolCall = effectiveToolCall(plannerResult.response());
+			if (toolCall == null) {
+				appendAssistantOutcomeCard(plannerResult);
+				appendOperationCards(plannerResult);
+				debugRecorder.recordPlannerCompletion(plannerResult);
 			acceptGeneration(plannerResult);
 			return plannerResult;
 		}
@@ -552,63 +662,65 @@ public final class PlannerOrchestrator {
 			debugRecorder.recordPlannerCompletion(failure);
 			dropRecordedToolExchanges(plannerResult.generation());
 			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-			return failure;
-		}
+				return failure;
+			}
 
-		String toolIntentType = toolIntentType(plannerResult.response());
-		if (!hasToolCompatibleIntent(plannerResult.response())) {
-			Airicraft.LOGGER.warn(
-				"Planner returned invalid tool response intentType={} toolRequestType={} toolPrompt={} replyText={}",
-				toolIntentType,
-				toolRequest.type(),
-				summarizeForLog(toolRequest.prompt()),
-				summarizeForLog(plannerResult.response().replyText())
-			);
-			PlannerExecutionResult failure = parseFailure(plannerResult, "Tool requests cannot set goal intents");
+			if (plannerResult.response().toolCall() == null && !hasToolCompatibleIntent(plannerResult.response())) {
+				String toolIntentType = toolIntentType(plannerResult.response());
+				Airicraft.LOGGER.warn(
+					"Planner returned invalid legacy tool response intentType={} toolCallName={} replyText={}",
+					toolIntentType,
+					toolCall.name(),
+					summarizeForLog(plannerResult.response().replyText())
+				);
+				PlannerExecutionResult failure = parseFailure(plannerResult, "Tool requests cannot set goal intents");
 			appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
 			dropRecordedToolExchanges(plannerResult.generation());
-			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-			return failure;
-		}
-		if (!isValidToolRequest(toolRequest)) {
-			Airicraft.LOGGER.warn(
-				"Planner returned invalid tool request type={} prompt={}",
-				toolRequest.type(),
-				summarizeForLog(toolRequest.prompt())
-			);
-			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested an invalid tool");
-			appendFailureCard(failure);
+				sessionCoordinator.finishGeneration(plannerResult.generation(), true);
+				return failure;
+			}
+			if (!isValidToolCall(toolCall)) {
+				Airicraft.LOGGER.warn(
+					"Planner returned invalid tool call name={} narration={}",
+					toolCall.name(),
+					summarizeForLog(toolCall.narration())
+				);
+				PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested an invalid tool");
+				appendFailureCard(failure);
 			debugRecorder.recordPlannerCompletion(failure);
 			dropRecordedToolExchanges(plannerResult.generation());
-			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-			return failure;
-		}
-		if (!"none".equals(toolIntentType)) {
-			Airicraft.LOGGER.info(
-				"Planner returned tool request with non-none intent; ignoring intentType={} toolRequestType={}",
-				toolIntentType,
-				toolRequest.type()
-			);
-		}
-		if (plannerResult.response().replyText() != null && !plannerResult.response().replyText().isBlank()) {
-			Airicraft.LOGGER.info(
-				"Planner returned tool request with stray replyText; ignoring text={} toolRequestType={}",
-				summarizeForLog(plannerResult.response().replyText()),
-				toolRequest.type()
-			);
-		}
+				sessionCoordinator.finishGeneration(plannerResult.generation(), true);
+				return failure;
+			}
+			String toolIntentType = toolIntentType(plannerResult.response());
+			if (plannerResult.response().toolCall() == null && !"none".equals(toolIntentType)) {
+				Airicraft.LOGGER.info(
+					"Planner returned legacy tool request with non-none intent; ignoring intentType={} toolCallName={}",
+					toolIntentType,
+					toolCall.name()
+				);
+			}
+			if (plannerResult.response().replyText() != null && !plannerResult.response().replyText().isBlank()) {
+				Airicraft.LOGGER.info(
+					"Planner returned tool call with stray replyText; ignoring text={} toolCallName={}",
+					summarizeForLog(plannerResult.response().replyText()),
+					toolCall.name()
+				);
+			}
 
-		appendToolRequestCard(plannerResult);
-		debugRecorder.recordPlannerCompletion(plannerResult);
-		lifecycleListener.onToolRequested(plannerResult.generation(), toolRequest);
-		sessionCoordinator.markToolWait(plannerResult.generation());
-		pendingToolExecution = new PendingToolExecution(
-			plannerResult.generation(),
-			toolRequestSummary(toolRequest),
-			requestPlannerTool(toolRequest),
-			plannerResult.response().rawAssistantContent()
-		);
+			narrationSink.onToolNarration(toolCall);
+			appendToolRequestCard(plannerResult, toolCall);
+			debugRecorder.recordPlannerCompletion(plannerResult);
+			lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
+			sessionCoordinator.markToolWait(plannerResult.generation());
+			pendingToolExecution = new PendingToolExecution(
+				plannerResult.generation(),
+				toolCallSummary(toolCall),
+				requestPlannerTool(toolCall),
+				plannerResult.response().rawAssistantContent(),
+				toolCall
+			);
 		return null;
 	}
 
@@ -811,28 +923,34 @@ public final class PlannerOrchestrator {
 			return null;
 		}
 
-		PlannerRequest followUpRequest = snapshot.request().withToolResult(toolOutcome.toolResultText());
-		recordToolExchange(toolExecution.generation(), snapshot, toolExecution.assistantRawContent(), toolOutcome.toolResultText());
-		sessionCoordinator.submitToolFollowUp(
-			toolExecution.generation(),
-			followUpRequest,
-			toolOutcome.appendFollowUp(contextAggregator, snapshot, toolExecution.assistantRawContent())
-		);
+			PlannerRequest followUpRequest = snapshot.request().withToolResult(toolOutcome.toolResultText());
+			recordToolExchange(
+				toolExecution.generation(),
+				snapshot,
+				toolExecution.assistantRawContent(),
+				toolExecution.toolCall(),
+				toolOutcome.toolResultText()
+			);
+			sessionCoordinator.submitToolFollowUp(
+				toolExecution.generation(),
+				followUpRequest,
+				toolOutcome.appendFollowUp(contextAggregator, snapshot, toolExecution.assistantRawContent(), toolExecution.toolCall())
+			);
 		lifecycleListener.onToolCompleted(toolExecution.generation(), toolOutcome.toolResultText(), toolOutcome instanceof ImageToolExecutionOutcome);
 		appendToolFollowUpCard(toolExecution);
 		return null;
 	}
 
-	private CompletableFuture<ToolExecutionOutcome> requestPlannerTool(PlannerToolRequest toolRequest) {
-		return switch (normalizedToolType(toolRequest)) {
-			case VISUAL_TOOL_NAME -> requestVisionTool(toolRequest);
-			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolRequest.prompt()).thenApply(TextToolExecutionOutcome::new);
-			case RECIPES_TOOL_NAME -> inventoryTool.inspectRecipes(toolRequest.prompt()).thenApply(TextToolExecutionOutcome::new);
-			default -> CompletableFuture.completedFuture(new TextToolExecutionOutcome("TOOL_UNAVAILABLE: invalid_tool"));
+	private CompletableFuture<ToolExecutionOutcome> requestPlannerTool(PlannerToolCall toolCall) {
+		return switch (normalizedToolName(toolCall)) {
+			case VISUAL_TOOL_NAME -> requestVisionTool(toolCall);
+			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
+			case RECIPES_TOOL_NAME -> inventoryTool.inspectRecipes(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
+			default -> actionToolExecutor.execute(toolCall).thenApply(TextToolExecutionOutcome::new);
 		};
 	}
 
-	private CompletableFuture<ToolExecutionOutcome> requestVisionTool(PlannerToolRequest toolRequest) {
+	private CompletableFuture<ToolExecutionOutcome> requestVisionTool(PlannerToolCall toolCall) {
 		Context parentContext = currentTurnContext();
 		try (Scope scope = parentContext.makeCurrent()) {
 			if (visionMode == PlannerVisionMode.EXTERNAL_SUMMARY) {
@@ -847,8 +965,8 @@ public final class PlannerOrchestrator {
 							Airicraft.LOGGER.warn("Vision tool capture failed code={}", code, throwable);
 							return CompletableFuture.<ToolExecutionOutcome>completedFuture(new TextToolExecutionOutcome("VISION_UNAVAILABLE: " + code));
 						}
-						return visionTool.requestDescription(capture, toolRequest.prompt())
-							.<ToolExecutionOutcome>handle((description, throwable2) -> {
+							return visionTool.requestDescription(capture, toolPrompt(toolCall))
+								.<ToolExecutionOutcome>handle((description, throwable2) -> {
 								if (throwable2 == null) {
 									return new TextToolExecutionOutcome(description.text());
 								}
@@ -905,14 +1023,21 @@ public final class PlannerOrchestrator {
 		captureInFlight = false;
 	}
 
-	private void recordToolExchange(long generation, PlannerContextSnapshot snapshot, JsonElement assistantRawContent, String toolResultText) {
-		if (assistantRawContent == null || snapshot == null) {
+	private void recordToolExchange(
+		long generation,
+		PlannerContextSnapshot snapshot,
+		JsonElement assistantRawContent,
+		PlannerToolCall toolCall,
+		String toolResultText
+	) {
+		if ((assistantRawContent == null && toolCall == null) || snapshot == null) {
 			return;
 		}
 		toolExchangesByGeneration
 			.computeIfAbsent(generation, key -> new ArrayList<>())
 			.add(new RecordedToolExchange(
 				assistantRawContent,
+				toolCall,
 				toolResultText,
 				snapshot.request().tick(),
 				snapshot.request().timestampMs()
@@ -925,12 +1050,22 @@ public final class PlannerOrchestrator {
 			return;
 		}
 		for (RecordedToolExchange exchange : exchanges) {
-			contextAggregator.recordAcceptedToolExchange(
-				exchange.assistantRawContent(),
-				exchange.toolResultText(),
-				exchange.tick(),
-				exchange.timestampMs()
-			);
+			if (exchange.toolCall() != null) {
+				contextAggregator.recordAcceptedToolExchange(
+					exchange.toolCall(),
+					exchange.toolResultText(),
+					exchange.tick(),
+					exchange.timestampMs()
+				);
+			}
+			else {
+				contextAggregator.recordAcceptedToolExchange(
+					exchange.assistantRawContent(),
+					exchange.toolResultText(),
+					exchange.tick(),
+					exchange.timestampMs()
+				);
+			}
 		}
 	}
 
@@ -990,17 +1125,57 @@ public final class PlannerOrchestrator {
 		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
 	}
 
-	private boolean isValidToolRequest(PlannerToolRequest toolRequest) {
-		return switch (normalizedToolType(toolRequest)) {
-			case VISUAL_TOOL_NAME -> visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE
-				|| (toolRequest.prompt() != null && !toolRequest.prompt().isBlank());
-			case INVENTORY_TOOL_NAME, RECIPES_TOOL_NAME -> true;
-			default -> false;
+	private PlannerToolCall effectiveToolCall(PlannerResponse response) {
+		if (response == null) {
+			return null;
+		}
+		if (response.toolCall() != null) {
+			return response.toolCall();
+		}
+		return legacyToolCall(response.toolRequest());
+	}
+
+	private boolean isValidToolCall(PlannerToolCall toolCall) {
+		String name = normalizedToolName(toolCall);
+		if (!PlannerToolCatalog.isKnownTool(name)) {
+			return false;
+		}
+		return switch (name) {
+			case VISUAL_TOOL_NAME -> visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE || !toolPrompt(toolCall).isBlank();
+			default -> true;
 		};
 	}
 
 	private static String normalizedToolType(PlannerToolRequest toolRequest) {
 		return toolRequest == null || toolRequest.type() == null ? "" : toolRequest.type().toLowerCase(Locale.ROOT);
+	}
+
+	private static String normalizedToolName(PlannerToolCall toolCall) {
+		return toolCall == null ? "" : PlannerToolCatalog.normalizeName(toolCall.name());
+	}
+
+	private static PlannerToolCall legacyToolCall(PlannerToolRequest toolRequest) {
+		String name = normalizedToolType(toolRequest);
+		if (name.isBlank()) {
+			return null;
+		}
+		JsonObject arguments = new JsonObject();
+		if (toolRequest.prompt() != null && !toolRequest.prompt().isBlank()) {
+			arguments.addProperty("prompt", toolRequest.prompt());
+		}
+		return new PlannerToolCall("legacy_" + name, name, arguments, null, null);
+	}
+
+	private static String toolPrompt(PlannerToolCall toolCall) {
+		if (toolCall == null || toolCall.arguments() == null || !toolCall.arguments().has("prompt")) {
+			return "";
+		}
+		try {
+			return toolCall.arguments().get("prompt").getAsString();
+		}
+		catch (RuntimeException exception) {
+			return "";
+		}
 	}
 
 	private static boolean hasToolCompatibleIntent(PlannerResponse response) {
@@ -1068,15 +1243,15 @@ public final class PlannerOrchestrator {
 		));
 	}
 
-	private void appendToolRequestCard(PlannerExecutionResult result) {
-		if (result == null || result.response() == null || result.response().toolRequest() == null) {
+	private void appendToolRequestCard(PlannerExecutionResult result, PlannerToolCall toolCall) {
+		if (result == null || toolCall == null) {
 			return;
 		}
 		appendOperationCard(
 			result.generation(),
 			result.phase().name(),
 			result.attempt(),
-			toolRequestSummary(result.response().toolRequest())
+			toolCallSummary(toolCall)
 		);
 	}
 
@@ -1260,7 +1435,12 @@ public final class PlannerOrchestrator {
 	private sealed interface ToolExecutionOutcome permits TextToolExecutionOutcome, ImageToolExecutionOutcome {
 		String toolResultText();
 
-		LlmConversation appendFollowUp(PlannerContextAggregator contextAggregator, PlannerContextSnapshot snapshot, JsonElement assistantRawContent);
+		LlmConversation appendFollowUp(
+			PlannerContextAggregator contextAggregator,
+			PlannerContextSnapshot snapshot,
+			JsonElement assistantRawContent,
+			PlannerToolCall toolCall
+		);
 	}
 
 	private record TextToolExecutionOutcome(String toolResultText) implements ToolExecutionOutcome {
@@ -1268,8 +1448,12 @@ public final class PlannerOrchestrator {
 		public LlmConversation appendFollowUp(
 			PlannerContextAggregator contextAggregator,
 			PlannerContextSnapshot snapshot,
-			JsonElement assistantRawContent
+			JsonElement assistantRawContent,
+			PlannerToolCall toolCall
 		) {
+			if (toolCall != null) {
+				return contextAggregator.buildPlannerFollowUpConversation(snapshot, toolCall, toolResultText);
+			}
 			return contextAggregator.buildPlannerFollowUpConversation(snapshot, assistantRawContent, toolResultText);
 		}
 	}
@@ -1279,8 +1463,12 @@ public final class PlannerOrchestrator {
 		public LlmConversation appendFollowUp(
 			PlannerContextAggregator contextAggregator,
 			PlannerContextSnapshot snapshot,
-			JsonElement assistantRawContent
+			JsonElement assistantRawContent,
+			PlannerToolCall toolCall
 		) {
+			if (toolCall != null) {
+				return contextAggregator.buildPlannerFollowUpConversation(snapshot, toolCall, toolResultText, imageAttachment);
+			}
 			return contextAggregator.buildPlannerFollowUpConversation(snapshot, assistantRawContent, toolResultText, imageAttachment);
 		}
 	}
@@ -1289,12 +1477,14 @@ public final class PlannerOrchestrator {
 		long generation,
 		String toolSummary,
 		CompletableFuture<ToolExecutionOutcome> future,
-		JsonElement assistantRawContent
+		JsonElement assistantRawContent,
+		PlannerToolCall toolCall
 	) {
 	}
 
 	private record RecordedToolExchange(
 		JsonElement assistantRawContent,
+		PlannerToolCall toolCall,
 		String toolResultText,
 		long tick,
 		long timestampMs
@@ -1347,6 +1537,21 @@ public final class PlannerOrchestrator {
 		}
 		return "Tool call: " + toolRequest.type()
 			+ (toolRequest.prompt() == null || toolRequest.prompt().isBlank() ? "" : " | " + toolRequest.prompt());
+	}
+
+	private static String toolCallSummary(PlannerToolCall toolCall) {
+		if (toolCall == null || toolCall.name() == null || toolCall.name().isBlank()) {
+			return null;
+		}
+		StringBuilder summary = new StringBuilder("Tool call: ").append(toolCall.name());
+		if (toolCall.narration() != null && !toolCall.narration().isBlank()) {
+			summary.append(" | narration: ").append(toolCall.narration());
+		}
+		String prompt = toolPrompt(toolCall);
+		if (!prompt.isBlank()) {
+			summary.append(" | ").append(prompt);
+		}
+		return summary.toString();
 	}
 
 	private static String intentOperationSummary(PlannerIntent intent) {

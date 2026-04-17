@@ -12,6 +12,7 @@ import ai.moeru.airicraft.agent.events.EventPolicyRuleUpsert;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.events.SemanticEventQueryResult;
 import ai.moeru.airicraft.agent.goals.GoalType;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -160,6 +161,33 @@ class PlannerOrchestratorTest {
 		);
 		assertEquals(0, inventoryTool.inventoryRequestCount());
 		assertEquals(1, inventoryTool.recipeRequestCount());
+	}
+
+	@Test
+	void actionToolCallsRouteThroughExecutorWithNarration() {
+		JsonObject followArgs = new JsonObject();
+		followArgs.addProperty("targetPlayer", "Alice");
+		assertActionToolRoute("follow_player", followArgs);
+
+		JsonObject collectArgs = new JsonObject();
+		collectArgs.addProperty("resourceKind", "WOOD_LOGS");
+		collectArgs.addProperty("quantity", 4);
+		assertActionToolRoute("collect_resource", collectArgs);
+
+		JsonObject craftArgs = new JsonObject();
+		craftArgs.addProperty("recipeId", "minecraft:oak_planks");
+		craftArgs.addProperty("times", 1);
+		assertActionToolRoute("craft_recipe", craftArgs);
+
+		JsonObject cancelArgs = new JsonObject();
+		cancelArgs.addProperty("reason", "user changed plan");
+		assertActionToolRoute("cancel_task", cancelArgs);
+
+		JsonObject policyArgs = new JsonObject();
+		policyArgs.addProperty("clearAll", true);
+		policyArgs.add("removeRuleIds", JsonParser.parseString("[]").getAsJsonArray());
+		policyArgs.add("upserts", JsonParser.parseString("[]").getAsJsonArray());
+		assertActionToolRoute("update_event_policy", policyArgs);
 	}
 
 	@Test
@@ -979,13 +1007,19 @@ class PlannerOrchestratorTest {
 		PlannerConversationDebugSnapshot followUp = orchestrator.conversationDebugSnapshot();
 		assertEquals(1L, followUp.generation());
 		assertEquals("TOOL_FOLLOW_UP", followUp.phase());
-		PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
-		assertNotNull(toolResultMessage);
-		assertTrue(toolResultMessage.hasImageAttachment());
-		PlannerConversationDebugMessage toolCallCard = lastConversationMessage(followUp);
-		assertEquals(PlannerConversationDebugKind.TASK, toolCallCard.kind());
-		assertTrue(toolCallCard.text().contains("Tool call: take_a_look"));
-	}
+			PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
+			assertNotNull(toolResultMessage);
+			PlannerConversationDebugMessage imageMessage = followUp.messages().stream()
+				.filter(message -> message.kind() == PlannerConversationDebugKind.TOOL_RESULT)
+				.filter(PlannerConversationDebugMessage::hasImageAttachment)
+				.findFirst()
+				.orElseThrow();
+			assertTrue(imageMessage.text().contains("current first-person view attached"));
+			PlannerConversationDebugMessage toolCallCard = findConversationMessage(followUp, PlannerConversationDebugKind.TASK, "Tool call: take_a_look");
+			assertNotNull(toolCallCard);
+			assertEquals(PlannerConversationDebugKind.TASK, toolCallCard.kind());
+			assertTrue(toolCallCard.text().contains("Tool call: take_a_look"));
+		}
 
 	@Test
 	void conversationSnapshotShowsAcceptedToolFollowUpReplyBeforeNextSubmit() {
@@ -1063,13 +1097,13 @@ class PlannerOrchestratorTest {
 		orchestrator.submit(requestAt(20L, 2_000L, "Alice", "@agent craft them"));
 		awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(1));
 
-		LlmConversation secondPrompt = backend.conversation(2);
-		LlmChatMessage replayedToolRequest = secondPrompt.messages().stream()
-			.filter(message -> "assistant".equals(message.role()) && message.rawContentOverride() != null)
-			.filter(message -> message.rawContentOverride().toString().contains("inspect_recipes"))
-			.findFirst()
-			.orElseThrow();
-		assertNotNull(replayedToolRequest);
+			LlmConversation secondPrompt = backend.conversation(2);
+			LlmChatMessage replayedToolRequest = secondPrompt.messages().stream()
+				.filter(message -> "assistant".equals(message.role()) && message.hasToolCalls())
+				.filter(message -> message.toolCalls().stream().anyMatch(toolCall -> "inspect_recipes".equals(toolCall.name())))
+				.findFirst()
+				.orElseThrow();
+			assertNotNull(replayedToolRequest);
 
 		LlmChatMessage replayedToolResult = secondPrompt.messages().stream()
 			.filter(message -> message.kind() == LlmMessageKind.TOOL_RESULT)
@@ -1115,12 +1149,18 @@ class PlannerOrchestratorTest {
 				""")
 		));
 
-		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
-		LlmConversation followUpConversation = backend.conversation(1);
-		assertEquals("assistant", followUpConversation.messages().get(followUpConversation.messages().size() - 2).role());
-		assertTrue(followUpConversation.messages().get(followUpConversation.messages().size() - 2).rawContentOverride().isJsonArray());
-		assertEquals("user", followUpConversation.messages().get(followUpConversation.messages().size() - 1).role());
-		assertTrue(followUpConversation.messages().get(followUpConversation.messages().size() - 1).content().contains("current first-person view attached"));
+			awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+			LlmConversation followUpConversation = backend.conversation(1);
+			LlmChatMessage replayedToolCall = followUpConversation.messages().get(followUpConversation.messages().size() - 3);
+			LlmChatMessage replayedToolResult = followUpConversation.messages().get(followUpConversation.messages().size() - 2);
+			LlmChatMessage replayedImageResult = followUpConversation.messages().get(followUpConversation.messages().size() - 1);
+			assertEquals("assistant", replayedToolCall.role());
+			assertTrue(replayedToolCall.hasToolCalls());
+			assertEquals("take_a_look", replayedToolCall.toolCalls().get(0).name());
+			assertEquals("tool", replayedToolResult.role());
+			assertTrue(replayedToolResult.content().contains("current first-person view attached"));
+			assertEquals("user", replayedImageResult.role());
+			assertTrue(replayedImageResult.hasImageAttachment());
 	}
 
 	@Test
@@ -1218,6 +1258,51 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 		assertEquals("reply B", result.response().replyText());
 		assertEquals(2L, result.generation());
+	}
+
+	private static void assertActionToolRoute(String toolName, JsonObject arguments) {
+		RecordingBackend backend = new RecordingBackend();
+		ArrayList<String> invokedTools = new ArrayList<>();
+		ArrayList<String> narrations = new ArrayList<>();
+		String narration = "Narrating " + toolName;
+		arguments.addProperty("narration", narration);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			3,
+			10,
+			10,
+			100,
+			128,
+			Clock.systemUTC(),
+			toolCall -> {
+				invokedTools.add(toolCall.name());
+				return CompletableFuture.completedFuture("Tool result for " + toolCall.name() + ": ok");
+			},
+			toolCall -> narrations.add(toolCall.narration())
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent " + toolName));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, new PlannerResponse("", new PlannerToolCall("call_" + toolName, toolName, arguments, narration, null), null));
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+
+		assertEquals(List.of(toolName), invokedTools);
+		assertEquals(List.of(narration), narrations);
+		LlmConversation followUp = backend.conversation(1);
+		LlmChatMessage replayedToolCall = followUp.messages().get(followUp.messages().size() - 2);
+		LlmChatMessage replayedToolResult = followUp.messages().get(followUp.messages().size() - 1);
+		assertEquals("assistant", replayedToolCall.role());
+		assertEquals(toolName, replayedToolCall.toolCalls().get(0).name());
+		assertEquals("tool", replayedToolResult.role());
+		assertTrue(replayedToolResult.content().contains("Tool result for " + toolName + ": ok"));
+
+		backend.succeed(1, replyOnly("Done."));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertTrue(result.succeeded());
+		assertEquals("Done.", result.response().replyText());
 	}
 
 	private static PlannerRequest baseRequest(String toolResult) {
@@ -1342,6 +1427,36 @@ class PlannerOrchestratorTest {
 		int plannerPendingSemanticEventCap,
 		Clock clock
 	) {
+		return newOrchestrator(
+			backend,
+			visionTool,
+			inventoryTool,
+			visionMode,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			plannerPendingSemanticEventCap,
+			clock,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
+		);
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+		int plannerPendingSemanticEventCap,
+		Clock clock,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink
+	) {
 		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
 		return new PlannerOrchestrator(
 			new PlannerExecutor(backend),
@@ -1358,7 +1473,9 @@ class PlannerOrchestratorTest {
 			clock,
 			NoopObservability.INSTANCE,
 			PlannerLifecycleListener.NO_OP,
-			new AgentDebugRecorder()
+			new AgentDebugRecorder(),
+			actionToolExecutor,
+			narrationSink
 		);
 	}
 

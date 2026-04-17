@@ -132,6 +132,36 @@ final class PlannerContextReducer {
 		);
 	}
 
+	static PlannerContextState recordAcceptedToolExchange(
+		PlannerContextState state,
+		PlannerToolCall toolCall,
+		String toolResultText,
+		long tick,
+		long timestampMs
+	) {
+		if (toolCall == null) {
+			return state;
+		}
+
+		ArrayList<PlannerContextEntry> acceptedHistory = new ArrayList<>(state.acceptedHistoryTape());
+		acceptedHistory.add(PlannerContextEntry.toolRequest(toolCall, tick, timestampMs));
+		acceptedHistory.add(PlannerContextEntry.toolResult(toolResultText, toolCall, tick, timestampMs));
+		return new PlannerContextState(
+			List.copyOf(acceptedHistory),
+			state.activeCheckpoint(),
+			state.pendingSemanticEvents(),
+			state.pendingSemanticGapVersion(),
+			state.nextSemanticGapVersion(),
+			state.lastObservedEventSeqNo(),
+			state.lastAcceptedAmbientContext(),
+			state.lastAcceptedTimeContextAtMs(),
+			state.compactionPending(),
+			state.lastObservedUsage(),
+			state.queuedTriggers(),
+			state.nextTriggerSeqNo()
+		);
+	}
+
 	static PlannerContextState recordAcceptedAssistantTurn(PlannerContextState state, DialogueTurn turn, JsonElement rawAssistantContent) {
 		if (turn == null) {
 			return state;
@@ -142,10 +172,11 @@ final class PlannerContextReducer {
 			turn.speaker(),
 			turn.text(),
 			turn.tick(),
-			turn.timestampMs(),
-			null,
-			rawAssistantContent
-		);
+				turn.timestampMs(),
+				null,
+				rawAssistantContent,
+				null
+			);
 		ArrayList<PlannerContextEntry> acceptedHistory = new ArrayList<>(state.acceptedHistoryTape());
 		acceptedHistory.add(acceptedEntry);
 		return new PlannerContextState(

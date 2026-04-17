@@ -45,7 +45,12 @@ public final class OpenAiCompatibleChatClient {
 	}
 
 	LlmCallResult<String> complete(LlmConversation conversation) throws LlmBackendException {
+		return complete(conversation, LlmRequestOptions.plain());
+	}
+
+	LlmCallResult<String> complete(LlmConversation conversation, LlmRequestOptions options) throws LlmBackendException {
 		Objects.requireNonNull(conversation, "conversation");
+		Objects.requireNonNull(options, "options");
 		if (!config.isConfigured()) {
 			throw new LlmBackendException(LlmFailureType.PROVIDER_UNAVAILABLE, "LLM provider is not configured");
 		}
@@ -59,7 +64,7 @@ public final class OpenAiCompatibleChatClient {
 			throw exception;
 		}
 
-		String requestBody = GSON.toJson(buildRequestPayload(conversation));
+		String requestBody = GSON.toJson(buildRequestPayload(conversation, options));
 		HttpResponse<String> response = sendHttpRequest(uri, conversation, requestBody);
 		if (response.statusCode() >= 400) {
 			String message = providerErrorMessage(response.statusCode(), response.body());
@@ -162,11 +167,15 @@ public final class OpenAiCompatibleChatClient {
 		return type + ": " + message;
 	}
 
-	private Map<String, Object> buildRequestPayload(LlmConversation conversation) {
+	private Map<String, Object> buildRequestPayload(LlmConversation conversation, LlmRequestOptions options) {
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 		payload.put("model", config.model());
-		if (config.plannerUseJsonObjectResponseFormat()) {
+		if (options.jsonObjectResponseFormat()) {
 			payload.put("response_format", Map.of("type", JSON_OBJECT_RESPONSE_FORMAT));
+		}
+		if (options.plannerTools()) {
+			payload.put("tools", PlannerToolCatalog.openAiTools());
+			payload.put("tool_choice", "auto");
 		}
 		payload.put("messages", compactRequestMessages(conversation.messages()));
 		return payload;
@@ -178,8 +187,15 @@ public final class OpenAiCompatibleChatClient {
 		if (message.rawContentOverride() != null) {
 			payload.put("content", message.rawContentOverride());
 		}
+		else if (message.hasToolCalls()) {
+			payload.put("content", message.content().isBlank() ? null : message.content());
+			payload.put("tool_calls", PlannerToolCatalog.toOpenAiToolCalls(message.toolCalls()));
+		}
 		else {
 			payload.put("content", message.hasImageAttachment() ? multimodalContent(message) : message.content());
+		}
+		if ("tool".equals(message.role()) && message.toolCallId() != null) {
+			payload.put("tool_call_id", message.toolCallId());
 		}
 		return payload;
 	}

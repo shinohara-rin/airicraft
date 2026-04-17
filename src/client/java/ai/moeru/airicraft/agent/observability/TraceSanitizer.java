@@ -5,6 +5,7 @@ import ai.moeru.airicraft.agent.llm.LlmChatMessage;
 import ai.moeru.airicraft.agent.llm.LlmConversation;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleMessageContent;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
+import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerToolRequest;
 import ai.moeru.airicraft.agent.llm.CompactionCheckpoint;
 import ai.moeru.airicraft.agent.llm.VisionDescription;
@@ -228,11 +229,31 @@ public final class TraceSanitizer {
 			}
 			root.add("toolRequest", tool);
 		}
+		PlannerToolCall toolCall = response.toolCall();
+		if (toolCall != null && toolCall.name() != null) {
+			JsonObject tool = new JsonObject();
+			tool.addProperty("name", sanitizeTraceText(toolCall.name(), 64));
+			if (toolCall.narration() != null && !toolCall.narration().isBlank()) {
+				tool.addProperty("narration", sanitizeTraceText(toolCall.narration(), TRACE_TEXT_LIMIT));
+			}
+			root.add("toolCall", tool);
+		}
 		return TRACE_GSON.toJson(root);
 	}
 
 	public static String sanitizePlannerCompletionForGenAi(PlannerResponse response) {
-		if (response == null || response.replyText() == null) {
+		if (response == null) {
+			return "";
+		}
+		if (response.toolCall() != null) {
+			JsonObject root = new JsonObject();
+			root.addProperty("tool_call", sanitizeTraceText(response.toolCall().name(), 64));
+			if (response.toolCall().narration() != null && !response.toolCall().narration().isBlank()) {
+				root.addProperty("narration", sanitizeTraceText(response.toolCall().narration(), TRACE_TEXT_LIMIT));
+			}
+			return TRACE_GSON.toJson(root);
+		}
+		if (response.replyText() == null) {
 			return "";
 		}
 		return sanitizeTraceText(response.replyText(), TRACE_TEXT_LIMIT);

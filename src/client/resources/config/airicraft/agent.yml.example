@@ -51,8 +51,8 @@ visionImageDetail: "low"
 # When false, the visual tool uses the external vision model to summarize the screenshot first.
 plannerNativeVisionEnabled: false
 
-# When true, planner requests include response_format.type=json_object for stricter JSON responses.
-# Set this to false for compatible providers like some LM Studio setups that reject json_object.
+# Deprecated for normal planner turns. Normal planning now uses plaintext replies plus tool calls.
+# Hidden compaction requests still use response_format.type=json_object.
 plannerUseJsonObjectResponseFormat: true
 
 observability:

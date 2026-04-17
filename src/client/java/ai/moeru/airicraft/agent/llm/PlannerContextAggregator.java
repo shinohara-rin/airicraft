@@ -215,6 +215,18 @@ public final class PlannerContextAggregator {
 		));
 	}
 
+	public LlmConversation buildPlannerFollowUpConversation(PlannerContextSnapshot snapshot, PlannerToolCall toolCall, String toolResult) {
+		if (snapshot == null) {
+			throw new IllegalStateException("No planner context snapshot");
+		}
+		if (toolCall == null) {
+			throw new IllegalArgumentException("toolCall");
+		}
+		return snapshot.plannerConversation()
+			.withAppended(LlmChatMessage.assistantToolCall("", toolCall))
+			.withAppended(LlmChatMessage.tool(toolCall.id(), toolResultContent(toolResult)));
+	}
+
 	public LlmConversation buildPlannerFollowUpConversation(
 		PlannerContextSnapshot snapshot,
 		JsonElement priorAssistantRawContent,
@@ -237,6 +249,25 @@ public final class PlannerContextAggregator {
 				LlmMessageKind.TOOL_RESULT,
 				imageAttachment
 			)
+			);
+	}
+
+	public LlmConversation buildPlannerFollowUpConversation(
+		PlannerContextSnapshot snapshot,
+		PlannerToolCall toolCall,
+		String toolResult,
+		LlmImageAttachment imageAttachment
+	) {
+		LlmConversation conversation = buildPlannerFollowUpConversation(snapshot, toolCall, toolResult);
+		if (imageAttachment == null) {
+			return conversation;
+		}
+		return conversation.withAppended(
+			LlmChatMessage.userWithImage(
+				toolResult == null || toolResult.isBlank() ? "Tool result: image attached." : toolResult,
+				LlmMessageKind.TOOL_RESULT,
+				imageAttachment
+			)
 		);
 	}
 
@@ -244,14 +275,14 @@ public final class PlannerContextAggregator {
 		if (lastFrozenSnapshot == null) {
 			throw new IllegalStateException("No frozen planner conversation");
 		}
-		return buildPlannerFollowUpConversation(lastFrozenSnapshot, null, toolResult);
+		return buildPlannerFollowUpConversation(lastFrozenSnapshot, (JsonElement) null, toolResult);
 	}
 
 	public LlmConversation buildPlannerFollowUpConversation(String toolResult, LlmImageAttachment imageAttachment) {
 		if (lastFrozenSnapshot == null) {
 			throw new IllegalStateException("No frozen planner conversation");
 		}
-		return buildPlannerFollowUpConversation(lastFrozenSnapshot, null, toolResult, imageAttachment);
+		return buildPlannerFollowUpConversation(lastFrozenSnapshot, (JsonElement) null, toolResult, imageAttachment);
 	}
 
 	public LlmConversation buildCompactionConversation() {
@@ -272,6 +303,13 @@ public final class PlannerContextAggregator {
 			return;
 		}
 		state = PlannerContextReducer.recordAcceptedToolExchange(state, assistantRawContent, toolResultText, tick, timestampMs);
+	}
+
+	public void recordAcceptedToolExchange(PlannerToolCall toolCall, String toolResultText, long tick, long timestampMs) {
+		if (toolCall == null) {
+			return;
+		}
+		state = PlannerContextReducer.recordAcceptedToolExchange(state, toolCall, toolResultText, tick, timestampMs);
 	}
 
 	public void recordAgentTurn(DialogueTurn turn) {
@@ -378,10 +416,21 @@ public final class PlannerContextAggregator {
 		return switch (entry.type()) {
 			case USER_TURN -> LlmChatMessage.user(entry.text(), LlmMessageKind.USER_TURN);
 			case ASSISTANT_TURN -> LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent());
-			case TOOL_REQUEST -> LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent());
-			case TOOL_RESULT -> LlmChatMessage.user(entry.text(), LlmMessageKind.TOOL_RESULT);
-			case NOTICE -> ContextMessageRenderer.renderEntry(entry, anchorTimeMs);
-		};
+				case TOOL_REQUEST -> entry.toolCall() == null
+					? LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent())
+					: LlmChatMessage.assistantToolCall(entry.text(), entry.toolCall());
+				case TOOL_RESULT -> entry.toolCall() == null
+					? LlmChatMessage.user(entry.text(), LlmMessageKind.TOOL_RESULT)
+					: LlmChatMessage.tool(entry.toolCall().id(), toolResultContent(entry.text()));
+				case NOTICE -> ContextMessageRenderer.renderEntry(entry, anchorTimeMs);
+			};
+		}
+
+	private static String toolResultContent(String toolResult) {
+		if (toolResult == null || toolResult.isBlank()) {
+			return "Tool result: none";
+		}
+		return toolResult;
 	}
 
 	private void recomputeOverflowFlushPending() {

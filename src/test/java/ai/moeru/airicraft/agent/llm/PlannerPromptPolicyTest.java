@@ -18,10 +18,19 @@ class PlannerPromptPolicyTest {
 	void systemPromptTellsPlannerNotToRepeatCompletedCrafts() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 
-		assertTrue(prompt.contains("CRAFT_RECIPE task completed"));
-		assertTrue(prompt.contains("Do not issue another CRAFT_RECIPE"));
-		assertTrue(prompt.contains("next distinct CRAFT_RECIPE"));
-		assertTrue(prompt.contains("activeJob null"));
+		assertTrue(prompt.contains("craft_recipe task completed"));
+		assertTrue(prompt.contains("Do not call craft_recipe again"));
+		assertTrue(prompt.contains("next distinct craft_recipe"));
+		assertTrue(prompt.contains("call clear_goal"));
 		assertTrue(prompt.contains("unless the user explicitly requested a multi-step craft"));
+	}
+
+	@Test
+	void systemPromptKeepsToolNarrationOutOfPlaintextContent() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("Do not write narration as assistant content"));
+		assertTrue(prompt.contains("assistant content must be empty or null"));
+		assertTrue(prompt.contains("must be inspect_inventory.narration"));
 	}
 }

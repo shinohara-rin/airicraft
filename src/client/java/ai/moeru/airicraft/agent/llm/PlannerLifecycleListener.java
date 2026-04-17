@@ -22,7 +22,7 @@ public interface PlannerLifecycleListener {
 	default void onPlannerExecutionFailed(PlannerExecutionResult result) {
 	}
 
-	default void onToolRequested(long generation, PlannerToolRequest toolRequest) {
+	default void onToolRequested(long generation, PlannerToolCall toolCall) {
 	}
 
 	default void onToolCompleted(long generation, String toolResult, boolean imageAttached) {

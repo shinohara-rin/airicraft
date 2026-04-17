@@ -406,10 +406,13 @@ public final class AgentDebugRecorder {
 		if (response == null) {
 			return "Planner completed without response";
 		}
-		String reply = response.replyText() == null ? "" : response.replyText();
-		if (reply.isBlank() && response.toolRequest() != null) {
-			reply = "Tool request: " + response.toolRequest().type();
-		}
+			String reply = response.replyText() == null ? "" : response.replyText();
+			if (reply.isBlank() && response.toolCall() != null) {
+				reply = "Tool call: " + response.toolCall().name();
+			}
+			if (reply.isBlank() && response.toolRequest() != null) {
+				reply = "Tool request: " + response.toolRequest().type();
+			}
 		return reply.isBlank() ? "Planner completed" : reply;
 	}
 

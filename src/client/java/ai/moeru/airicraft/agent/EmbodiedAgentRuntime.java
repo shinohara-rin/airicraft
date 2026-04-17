@@ -43,6 +43,7 @@ import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.job.ActiveJob;
+import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
@@ -59,6 +60,8 @@ import ai.moeru.airicraft.agent.llm.PlannerCompactionService;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestratorDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
+import ai.moeru.airicraft.agent.llm.PlannerToolCall;
+import ai.moeru.airicraft.agent.llm.PlannerToolCatalog;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import ai.moeru.airicraft.agent.llm.VisionDescription;
 import ai.moeru.airicraft.agent.session.LanHostingService;
@@ -86,8 +89,10 @@ import ai.moeru.airicraft.agent.tasks.TaskState;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
+import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
 import ai.moeru.airicraft.agent.verification.VerificationRunner;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
@@ -122,6 +127,9 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.GameMode;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -131,6 +139,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.time.Clock;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -197,11 +206,13 @@ public final class EmbodiedAgentRuntime {
 		Clock clock = Clock.systemDefaultZone();
 		PlannerShellComponents plannerShell = PlannerShellFactory.create(
 			config,
-			Objects.requireNonNull(screenshotService, "screenshotService"),
-			this.observability,
-			clock,
-			debugRecorder
-		);
+				Objects.requireNonNull(screenshotService, "screenshotService"),
+				this.observability,
+				clock,
+				debugRecorder,
+				this::executePlannerToolCall,
+				this::emitPlannerToolNarration
+			);
 		this.visionService = plannerShell.visionService();
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
 		this.plannerJournal = plannerShell.plannerJournal();
@@ -931,7 +942,115 @@ public final class EmbodiedAgentRuntime {
 		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
 	}
 
+	private CompletableFuture<String> executePlannerToolCall(PlannerToolCall toolCall) {
+		try {
+			return CompletableFuture.completedFuture(executePlannerToolCallNow(toolCall));
+		}
+		catch (RuntimeException exception) {
+			String name = toolCall == null ? "unknown" : toolCall.name();
+			return CompletableFuture.completedFuture("TOOL_ERROR: " + name + " " + safeToolError(exception));
+		}
+	}
+
+	private String executePlannerToolCallNow(PlannerToolCall toolCall) {
+		if (toolCall == null) {
+			return "TOOL_ERROR: missing_tool_call";
+		}
+		JsonObject args = toolCall.arguments();
+		return switch (PlannerToolCatalog.normalizeName(toolCall.name())) {
+			case PlannerToolCatalog.FOLLOW_PLAYER -> {
+				String targetPlayer = stringArg(args, "targetPlayer").orElseThrow(() -> new IllegalArgumentException("targetPlayer is required"));
+				applyPlannerJobTool(ActiveJobProposal.followPlayer(targetPlayer));
+				yield "Tool result for follow_player: accepted targetPlayer=" + targetPlayer;
+			}
+			case PlannerToolCatalog.NAVIGATE_TO -> {
+				GoalPosition position = new GoalPosition(
+					intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
+					intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
+					intArg(args, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
+					booleanArg(args, "exactY").orElse(false)
+				);
+				applyPlannerJobTool(ActiveJobProposal.navigateTo(position));
+				yield "Tool result for navigate_to: accepted x=" + position.x() + " y=" + position.y() + " z=" + position.z() + " exactY=" + position.exactY();
+			}
+			case PlannerToolCatalog.MINE_BLOCKS -> {
+				GoalMineSpec mineSpec = new GoalMineSpec(
+					stringArrayArg(args, "blockIds"),
+					intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required"))
+				);
+				applyPlannerJobTool(ActiveJobProposal.mineBlocks(mineSpec));
+				yield "Tool result for mine_blocks: accepted blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity();
+			}
+			case PlannerToolCatalog.COLLECT_RESOURCE -> {
+				TaskResourceKind resourceKind = resourceKindArg(args, "resourceKind");
+				int quantity = intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required"));
+				applyPlannerJobTool(ActiveJobProposal.collectResource(new TaskSpec(TaskType.COLLECT_RESOURCE, resourceKind, quantity)));
+				yield "Tool result for collect_resource: accepted resourceKind=" + resourceKind.name() + " quantity=" + quantity;
+			}
+			case PlannerToolCatalog.CRAFT_RECIPE -> {
+				CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
+					stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
+					intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
+				);
+				applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
+				yield "Tool result for craft_recipe: accepted recipeId=" + craftRecipe.recipeId() + " times=" + craftRecipe.times();
+			}
+			case PlannerToolCatalog.CANCEL_TASK -> {
+				String reason = stringArg(args, "reason").orElse("planner_tool_cancelled");
+				TaskSnapshot snapshot = cancelTask(reason);
+				yield "Tool result for cancel_task: accepted state=" + snapshot.state().name();
+			}
+			case PlannerToolCatalog.CLEAR_GOAL -> {
+				applyPlannerClearGoalTool();
+				yield "Tool result for clear_goal: accepted";
+			}
+			case PlannerToolCatalog.UPDATE_EVENT_POLICY -> {
+				EventPolicyChanges changes = parseToolEventPolicyChanges(args);
+				applyPlannerEventPolicyChanges(changes);
+				yield "Tool result for update_event_policy: applied clearAll=" + changes.clearAll()
+					+ " removeRuleIds=" + changes.removeRuleIds().size()
+					+ " upserts=" + changes.upserts().size();
+			}
+			default -> "TOOL_ERROR: unknown_tool " + toolCall.name();
+		};
+	}
+
+	private void emitPlannerToolNarration(PlannerToolCall toolCall) {
+		if (toolCall == null || toolCall.narration() == null || toolCall.narration().isBlank()) {
+			return;
+		}
+		chatService.send(MinecraftClient.getInstance(), toolCall.narration(), tickCount);
+	}
+
+	private void applyPlannerJobTool(ActiveJobProposal proposal) {
+		Optional<GoalSnapshot> previousGoal = activeGoal();
+		DialogueResponse response = new DialogueResponse(
+			"",
+			new DialogueIntent(DialogueIntentType.JOB_UPDATE, proposal),
+			tickCount
+		);
+		applyTaskIntent(response, currentWorldEvidence(MinecraftClient.getInstance()), "planner_tool");
+		recordPlannerOutcome(response, previousGoal, activeGoal());
+		drainEventPipeline();
+	}
+
+	private void applyPlannerClearGoalTool() {
+		Optional<GoalSnapshot> previousGoal = activeGoal();
+		DialogueResponse response = new DialogueResponse(
+			"",
+			new DialogueIntent(DialogueIntentType.CLEAR_GOAL, null, null),
+			tickCount
+		);
+		applyTaskIntent(response, currentWorldEvidence(MinecraftClient.getInstance()), "planner_tool");
+		recordPlannerOutcome(response, previousGoal, activeGoal());
+		drainEventPipeline();
+	}
+
 	private void applyTaskIntent(DialogueResponse response, WorldEvidence worldEvidence) {
+		applyTaskIntent(response, worldEvidence, "planner_response");
+	}
+
+	private void applyTaskIntent(DialogueResponse response, WorldEvidence worldEvidence, String source) {
 		if (response == null || response.intent() == null || response.intent().type() == null) {
 			return;
 		}
@@ -946,7 +1065,7 @@ public final class EmbodiedAgentRuntime {
 			debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
 			recordSemanticTaskTransition(previousTaskSnapshot, taskSnapshot);
 		}
-		activeJobRuntime.applyPlannerResponse(response, currentResourceCount, "planner_response", response.tick());
+		activeJobRuntime.applyPlannerResponse(response, currentResourceCount, source == null || source.isBlank() ? "planner_response" : source, response.tick());
 		TaskSnapshot projectedTaskSnapshot = activeJobRuntime.taskSnapshot();
 		if (isSemanticTaskSnapshot(projectedTaskSnapshot)) {
 			taskSnapshot = projectedTaskSnapshot;
@@ -968,6 +1087,139 @@ public final class EmbodiedAgentRuntime {
 			stacks.add(client.player.getInventory().getStack(slot));
 		}
 		return inventoryResourceCounter.count(stacks, spec.resourceKind());
+	}
+
+	private static Optional<String> stringArg(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull() || !object.get(key).isJsonPrimitive()) {
+			return Optional.empty();
+		}
+		try {
+			String value = object.get(key).getAsString();
+			return value == null || value.isBlank() ? Optional.empty() : Optional.of(value);
+		}
+		catch (RuntimeException exception) {
+			return Optional.empty();
+		}
+	}
+
+	private static Optional<Integer> intArg(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull() || !object.get(key).isJsonPrimitive()) {
+			return Optional.empty();
+		}
+		try {
+			return Optional.of(object.get(key).getAsInt());
+		}
+		catch (RuntimeException exception) {
+			return Optional.empty();
+		}
+	}
+
+	private static Optional<Boolean> booleanArg(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull() || !object.get(key).isJsonPrimitive()) {
+			return Optional.empty();
+		}
+		try {
+			return Optional.of(object.get(key).getAsBoolean());
+		}
+		catch (RuntimeException exception) {
+			return Optional.empty();
+		}
+	}
+
+	private static List<String> stringArrayArg(JsonObject object, String key) {
+		if (object == null || !object.has(key) || !object.get(key).isJsonArray()) {
+			throw new IllegalArgumentException(key + " is required");
+		}
+		JsonArray array = object.getAsJsonArray(key);
+		ArrayList<String> values = new ArrayList<>(array.size());
+		for (JsonElement element : array) {
+			if (!element.isJsonPrimitive()) {
+				throw new IllegalArgumentException(key + " must contain strings");
+			}
+			String value = element.getAsString();
+			if (value == null || value.isBlank()) {
+				throw new IllegalArgumentException(key + " must contain non-empty strings");
+			}
+			values.add(value);
+		}
+		if (values.isEmpty()) {
+			throw new IllegalArgumentException(key + " must not be empty");
+		}
+		return List.copyOf(values);
+	}
+
+	private static TaskResourceKind resourceKindArg(JsonObject object, String key) {
+		String value = stringArg(object, key).orElseThrow(() -> new IllegalArgumentException(key + " is required"));
+		try {
+			return TaskResourceKind.valueOf(value.toUpperCase(Locale.ROOT));
+		}
+		catch (RuntimeException exception) {
+			throw new IllegalArgumentException("unsupported resourceKind " + value, exception);
+		}
+	}
+
+	private static EventPolicyChanges parseToolEventPolicyChanges(JsonObject object) {
+		if (object == null) {
+			return new EventPolicyChanges(false, List.of(), List.of());
+		}
+		boolean clearAll = booleanArg(object, "clearAll").orElse(false);
+		List<String> removeRuleIds = object.has("removeRuleIds") && object.get("removeRuleIds").isJsonArray()
+			? stringArrayAllowEmptyArg(object, "removeRuleIds")
+			: List.of();
+		ArrayList<EventPolicyRuleUpsert> upserts = new ArrayList<>();
+		if (object.has("upserts") && object.get("upserts").isJsonArray()) {
+			for (JsonElement element : object.getAsJsonArray("upserts")) {
+				if (!element.isJsonObject()) {
+					throw new IllegalArgumentException("upserts must contain objects");
+				}
+				JsonObject upsert = element.getAsJsonObject();
+				upserts.add(new EventPolicyRuleUpsert(
+					stringArg(upsert, "ruleId").orElse(null),
+					stringArg(upsert, "effect").orElse(null),
+					parseToolEventPolicyMatch(upsert.has("match") && upsert.get("match").isJsonObject() ? upsert.getAsJsonObject("match") : null),
+					stringArg(upsert, "reason").orElse(null)
+				));
+			}
+		}
+		return new EventPolicyChanges(clearAll, removeRuleIds, upserts);
+	}
+
+	private static List<String> stringArrayAllowEmptyArg(JsonObject object, String key) {
+		JsonArray array = object.getAsJsonArray(key);
+		ArrayList<String> values = new ArrayList<>(array.size());
+		for (JsonElement element : array) {
+			if (!element.isJsonPrimitive()) {
+				throw new IllegalArgumentException(key + " must contain strings");
+			}
+			String value = element.getAsString();
+			if (value != null && !value.isBlank()) {
+				values.add(value);
+			}
+		}
+		return List.copyOf(values);
+	}
+
+	private static EventPolicyMatch parseToolEventPolicyMatch(JsonObject object) {
+		if (object == null) {
+			return null;
+		}
+		return new EventPolicyMatch(
+			stringArg(object, "eventType").orElse(null),
+			stringArg(object, "player").orElse(null),
+			stringArg(object, "speaker").orElse(null),
+			stringArg(object, "actor").orElse(null),
+			stringArg(object, "itemId").orElse(null),
+			stringArg(object, "damageTypeId").orElse(null),
+			stringArg(object, "attackerName").orElse(null)
+		);
+	}
+
+	private static String safeToolError(RuntimeException exception) {
+		String message = exception.getMessage();
+		if (message == null || message.isBlank()) {
+			return exception.getClass().getSimpleName();
+		}
+		return message.replace('\n', ' ').replace('\r', ' ').strip();
 	}
 
 	private WorldEvidence currentWorldEvidence(MinecraftClient client) {
