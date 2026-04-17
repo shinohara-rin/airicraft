@@ -988,11 +988,11 @@ public final class EmbodiedAgentRuntime {
 
 		String equippedItemId = Registries.ITEM.getId(client.player.getMainHandStack().getItem()).toString();
 		BlockPos origin = client.player.getBlockPos();
+		Map<String, Integer> itemCounts = inventoryItemCounter.count(client.player.getInventory());
 		return new WorldEvidence(
 			resourceCounts,
-			inventoryItemCounter.count(client.player.getInventory()),
+			itemCounts,
 			collectNearbyBlocks(client, origin),
-			ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver.availableCrafts(client.player),
 			client.world == null ? null : client.world.getRegistryKey().getValue().toString(),
 			origin.getX(),
 			origin.getY(),
