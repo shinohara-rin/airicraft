@@ -4,6 +4,7 @@ import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.dialogue.DialogueRuntime;
+import ai.moeru.airicraft.agent.integration.rei.ReiRecipeSearchToolProvider;
 import ai.moeru.airicraft.agent.llm.CurrentInventoryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
@@ -15,6 +16,7 @@ import ai.moeru.airicraft.agent.llm.PlannerContextAggregator;
 import ai.moeru.airicraft.agent.llm.PlannerExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.llm.PlannerToolNarrationSink;
+import ai.moeru.airicraft.agent.llm.PlannerToolRegistry;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import net.minecraft.client.MinecraftClient;
 
@@ -66,14 +68,16 @@ public final class PlannerShellFactory {
 			observability
 		);
 		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
+		PlannerToolRegistry toolRegistry = PlannerToolRegistry.of(new ReiRecipeSearchToolProvider());
 		PlannerOrchestrator orchestrator = new PlannerOrchestrator(
-			new PlannerExecutor(new OpenAiCompatibleLlmBackend(config.llm(), observability), observability),
-			new PlannerCompactionService(new OpenAiCompatibleChatClient(config.llm(), observability), observability),
+			new PlannerExecutor(new OpenAiCompatibleLlmBackend(config.llm(), observability, toolRegistry), observability),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config.llm(), observability, toolRegistry), observability),
 			new PlannerContextAggregator(
 				effectiveClock,
 				config.llm().plannerCompactionTriggerTokens(),
 				config.llm().plannerPendingSemanticEventCap(),
-				config.llm().plannerVisionMode()
+				config.llm().plannerVisionMode(),
+				toolRegistry
 			),
 			visionService,
 			inventoryService,
@@ -83,11 +87,13 @@ public final class PlannerShellFactory {
 			config.llm().plannerSessionCoalesceStepMillis(),
 			config.llm().plannerSessionCoalesceMinMillis(),
 				config.llm().plannerSessionCoalesceMaxMillis(),
+				effectiveClock,
 				observability,
 				journal,
 				debugRecorder,
 				effectiveActionToolExecutor,
-				effectiveNarrationSink
+				effectiveNarrationSink,
+				toolRegistry
 			);
 		return new PlannerShellComponents(
 			visionService,

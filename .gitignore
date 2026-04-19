@@ -45,6 +45,7 @@ replay_*.log
 # gradle local
 .gradle-local/
 
+.airicraft-compat/
 legacy_code_for_ref/
 
 logs/

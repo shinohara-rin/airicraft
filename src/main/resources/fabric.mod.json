@@ -20,6 +20,9 @@
 		],
 		"client": [
 			"ai.moeru.airicraft.AiricraftClient"
+		],
+		"rei_client": [
+			"ai.moeru.airicraft.agent.integration.rei.AiricraftReiPlugin"
 		]
 	},
 	"mixins": [
