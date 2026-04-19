@@ -23,6 +23,7 @@ public final class PlannerContextAggregator {
 	private final int compactionTriggerTokens;
 	private final int pendingSemanticEventCap;
 	private final PlannerVisionMode visionMode;
+	private final PlannerToolRegistry toolRegistry;
 	private final SemanticContextProjector semanticContextProjector = new SemanticContextProjector();
 
 	private PlannerContextState state = PlannerContextState.initial();
@@ -35,11 +36,22 @@ public final class PlannerContextAggregator {
 	}
 
 	public PlannerContextAggregator(Clock clock, int compactionTriggerTokens, int pendingSemanticEventCap, PlannerVisionMode visionMode) {
+		this(clock, compactionTriggerTokens, pendingSemanticEventCap, visionMode, PlannerToolRegistry.empty());
+	}
+
+	public PlannerContextAggregator(
+		Clock clock,
+		int compactionTriggerTokens,
+		int pendingSemanticEventCap,
+		PlannerVisionMode visionMode,
+		PlannerToolRegistry toolRegistry
+	) {
 		this.clock = Objects.requireNonNull(clock, "clock");
 		this.zoneId = clock.getZone();
 		this.compactionTriggerTokens = compactionTriggerTokens;
 		this.pendingSemanticEventCap = Math.max(1, pendingSemanticEventCap);
 		this.visionMode = Objects.requireNonNull(visionMode, "visionMode");
+		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
 	}
 
 	public boolean compactionPending() {
@@ -392,7 +404,7 @@ public final class PlannerContextAggregator {
 		LlmChatMessage terminalMessage
 	) {
 		ArrayList<LlmChatMessage> messages = new ArrayList<>();
-		messages.add(LlmChatMessage.system(PlannerPromptPolicy.systemPrompt(visionMode)));
+		messages.add(LlmChatMessage.system(PlannerPromptPolicy.systemPrompt(visionMode, toolRegistry)));
 		if (state.activeCheckpoint() != null) {
 			messages.add(LlmChatMessage.user(state.activeCheckpoint().renderMessage(), LlmMessageKind.CHECKPOINT));
 		}

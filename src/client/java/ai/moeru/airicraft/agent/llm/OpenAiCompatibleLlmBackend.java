@@ -21,16 +21,26 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 	private final AgentConfig.LlmConfig config;
 	private final OpenAiCompatibleChatClient chatClient;
 	private final AgentObservability observability;
+	private final PlannerToolRegistry toolRegistry;
 	private final Deque<Object> injectedOutcomes = new ArrayDeque<>();
 
 	public OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig config) {
-		this(config, NoopObservability.INSTANCE);
+		this(config, NoopObservability.INSTANCE, PlannerToolRegistry.empty());
+	}
+
+	public OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig config, PlannerToolRegistry toolRegistry) {
+		this(config, NoopObservability.INSTANCE, toolRegistry);
 	}
 
 	public OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig config, AgentObservability observability) {
+		this(config, observability, PlannerToolRegistry.empty());
+	}
+
+	public OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig config, AgentObservability observability, PlannerToolRegistry toolRegistry) {
 		this.config = Objects.requireNonNull(config, "config");
 		this.observability = Objects.requireNonNull(observability, "observability");
-		this.chatClient = new OpenAiCompatibleChatClient(config, observability);
+		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
+		this.chatClient = new OpenAiCompatibleChatClient(config, observability, toolRegistry);
 	}
 
 	@Override
@@ -103,7 +113,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		}
 	}
 
-	private static PlannerToolCall parseToolCall(JsonObject message) {
+	private PlannerToolCall parseToolCall(JsonObject message) {
 		if (message == null || !message.has("tool_calls") || !message.get("tool_calls").isJsonArray()) {
 			return null;
 		}
@@ -117,7 +127,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		if (!toolCalls.get(0).isJsonObject()) {
 			throw new JsonParseException("Planner tool call must be an object");
 		}
-		return PlannerToolCatalog.parseToolCall(toolCalls.get(0).getAsJsonObject());
+		return PlannerToolCatalog.parseToolCall(toolCalls.get(0).getAsJsonObject(), toolRegistry);
 	}
 
 	static String stripMarkdownCodeFences(String text) {

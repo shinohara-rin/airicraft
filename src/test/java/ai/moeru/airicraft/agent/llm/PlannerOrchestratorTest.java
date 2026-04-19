@@ -280,6 +280,39 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void providerToolCallsRouteThroughProvider() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		JsonObject args = new JsonObject();
+		args.addProperty("query", "oak planks");
+		args.addProperty("mode", "output");
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerToolCall("call_search", "search_recipes", args, null, null),
+			null
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"Oak planks have a recipe.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		RecordingPlannerToolProvider provider = new RecordingPlannerToolProvider();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			PlannerToolRegistry.of(provider)
+		);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertTrue(result.succeeded());
+		assertEquals("Oak planks have a recipe.", result.response().replyText());
+		assertEquals("Tool result for search_recipes: query=oak planks", result.request().toolResult());
+		assertEquals(List.of("oak planks"), provider.queries());
+	}
+
+	@Test
 	void actionToolCallsRouteThroughExecutorWithNarration() {
 		JsonObject followArgs = new JsonObject();
 		followArgs.addProperty("targetPlayer", "Alice");
@@ -1482,6 +1515,37 @@ class PlannerOrchestratorTest {
 	private static PlannerOrchestrator newOrchestrator(
 		LlmBackend backend,
 		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		PlannerToolRegistry toolRegistry
+	) {
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemDefaultZone();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(backend),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config, toolRegistry)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), visionMode, toolRegistry),
+			visionTool,
+			inventoryTool,
+			visionMode,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			PlannerLifecycleListener.NO_OP,
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			toolRegistry
+		);
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
 		PlannerVisionMode visionMode,
 		int plannerSessionMaxConcurrentAttempts,
 		Clock clock
@@ -1725,6 +1789,48 @@ class PlannerOrchestratorTest {
 
 	private static FirstPersonScreenshotService.CapturedScreenshot capturedScreenshot() {
 		return new FirstPersonScreenshotService.CapturedScreenshot("png", 854, 480, 1920, 1080, 1L, new byte[]{1, 2, 3});
+	}
+
+	private static final class RecordingPlannerToolProvider implements PlannerToolProvider {
+		private final List<String> queries = new ArrayList<>();
+
+		@Override
+		public String id() {
+			return "recording";
+		}
+
+		@Override
+		public List<Map<String, Object>> openAiTools() {
+			return List.of(PlannerToolCatalog.toolForProvider(
+				"search_recipes",
+				"Search recipe-viewer recipes.",
+				PlannerToolCatalog.propertiesForProvider(
+					PlannerToolCatalog.propForProvider("query", PlannerToolCatalog.stringForProvider("Recipe query."))
+				),
+				List.of("query")
+			));
+		}
+
+		@Override
+		public String promptInstructions() {
+			return "Use search_recipes for recipe-viewer searches.";
+		}
+
+		@Override
+		public boolean handles(String toolName) {
+			return "search_recipes".equals(PlannerToolCatalog.normalizeName(toolName));
+		}
+
+		@Override
+		public CompletableFuture<String> execute(PlannerToolCall toolCall) {
+			String query = toolCall.arguments().get("query").getAsString();
+			queries.add(query);
+			return CompletableFuture.completedFuture("Tool result for search_recipes: query=" + query);
+		}
+
+		private List<String> queries() {
+			return List.copyOf(queries);
+		}
 	}
 
 	private static final class StubVisionTool implements CurrentViewVisionTool {

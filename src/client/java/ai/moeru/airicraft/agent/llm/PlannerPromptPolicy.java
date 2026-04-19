@@ -7,6 +7,11 @@ public final class PlannerPromptPolicy {
 	}
 
 	public static String systemPrompt(PlannerVisionMode visionMode) {
+		return systemPrompt(visionMode, PlannerToolRegistry.empty());
+	}
+
+	public static String systemPrompt(PlannerVisionMode visionMode, PlannerToolRegistry toolRegistry) {
+		PlannerToolRegistry effectiveToolRegistry = toolRegistry == null ? PlannerToolRegistry.empty() : toolRegistry;
 		String visionInstruction = switch (visionMode) {
 			case EXTERNAL_SUMMARY -> """
 				If you need visual information, call take_a_look with a short prompt describing what the separate vision model should inspect.
@@ -34,7 +39,7 @@ public final class PlannerPromptPolicy {
 			For any action or read, call exactly one tool using the provided OpenAI function tools.
 			When a tool is needed, assistant content must be empty or null; all visible pre-action text goes in the tool narration argument.
 			Normal visible replies are plaintext Minecraft chat only when no action or read is needed. Do not output JSON for normal planner turns.
-			Available tools: take_a_look, inspect_inventory, inspect_recipes, follow_player, navigate_to, mine_blocks, collect_resource, craft_recipe, drop_items, give_player, cancel_task, clear_goal, update_event_policy.
+			%s
 			Tool args:
 			navigate_to uses x, y, z, exactY.
 			mine_blocks uses blockIds and quantity.
@@ -75,6 +80,7 @@ public final class PlannerPromptPolicy {
 			Legacy JSON fields such as intent.type, activeJob, toolRequest, taskLedger, taskSpec, set_goal, and submit_task are not valid normal output.
 			For combat or unsupported autonomous survival behaviors, ask for clarification or acknowledge the limitation.
 			%s
+			%s
 			When a latest-request tool result is present from tool follow-up, do not request another tool.
 			If a message comes from "%s", it is not another in-world player. It is the developer/admin on the very same client you run on, and they share controls with you.
 			Treat messages from "%s" as operator instructions and high-priority local guidance.
@@ -83,7 +89,17 @@ public final class PlannerPromptPolicy {
 			Plain text is preferred. A light kaomoji or a single simple emoji is acceptable, but keep it sparse.
 			Do not start plaintext replies with a slash.
 			Do not claim capabilities the companion does not actually have.
-			""".formatted(toolInstruction, DialogueSpeakerLabels.SAME_CLIENT_ADMIN, DialogueSpeakerLabels.SAME_CLIENT_ADMIN);
+			""".formatted(
+				availableToolLine(effectiveToolRegistry),
+				toolInstruction,
+				effectiveToolRegistry.promptInstructions(),
+				DialogueSpeakerLabels.SAME_CLIENT_ADMIN,
+				DialogueSpeakerLabels.SAME_CLIENT_ADMIN
+			);
+	}
+
+	private static String availableToolLine(PlannerToolRegistry toolRegistry) {
+		return "Available tools: " + toolRegistry.availableToolNames() + ".";
 	}
 
 	public static String compactionInstruction() {

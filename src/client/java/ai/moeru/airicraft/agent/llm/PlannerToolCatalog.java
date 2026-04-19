@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class PlannerToolCatalog {
@@ -99,6 +100,10 @@ public final class PlannerToolCatalog {
 	}
 
 	public static PlannerToolCall parseToolCall(JsonObject object) {
+		return parseToolCall(object, PlannerToolRegistry.empty());
+	}
+
+	public static PlannerToolCall parseToolCall(JsonObject object, PlannerToolRegistry toolRegistry) {
 		if (object == null) {
 			throw new JsonParseException("Missing tool call");
 		}
@@ -115,7 +120,7 @@ public final class PlannerToolCatalog {
 		}
 		String name = getString(function, "name").orElseThrow(() -> new JsonParseException("Missing tool name"));
 		JsonObject arguments = parseArguments(getString(function, "arguments").orElse("{}"));
-		validateArguments(name, arguments);
+		validateArguments(name, arguments, toolRegistry);
 		return new PlannerToolCall(id, name, arguments, getString(arguments, "narration").orElse(null), object);
 	}
 
@@ -179,6 +184,36 @@ public final class PlannerToolCatalog {
 		return name == null ? "" : name.trim().toLowerCase(Locale.ROOT);
 	}
 
+	public static Map<String, Object> toolForProvider(
+		String name,
+		String description,
+		Map<String, Object> properties,
+		List<String> required
+	) {
+		return tool(name, description, properties, required);
+	}
+
+	@SafeVarargs
+	public static Map<String, Object> propertiesForProvider(Map.Entry<String, Object>... entries) {
+		return properties(entries);
+	}
+
+	public static Map.Entry<String, Object> propForProvider(String name, Map<String, Object> schema) {
+		return prop(name, schema);
+	}
+
+	public static Map<String, Object> stringForProvider(String description) {
+		return string(description);
+	}
+
+	public static Map<String, Object> optionalStringForProvider(String description) {
+		return optionalString(description);
+	}
+
+	public static Map<String, Object> enumStringForProvider(String description, List<String> values) {
+		return enumString(description, values);
+	}
+
 	private static JsonObject parseArguments(String raw) {
 		if (raw == null || raw.isBlank()) {
 			return new JsonObject();
@@ -196,6 +231,14 @@ public final class PlannerToolCatalog {
 		catch (RuntimeException exception) {
 			throw new JsonParseException("Invalid tool arguments", exception);
 		}
+	}
+
+	private static void validateArguments(String name, JsonObject arguments, PlannerToolRegistry toolRegistry) {
+		if (!isKnownTool(name)) {
+			Objects.requireNonNullElse(toolRegistry, PlannerToolRegistry.empty()).validateProviderArguments(name, arguments);
+			return;
+		}
+		validateArguments(name, arguments);
 	}
 
 	private static void validateArguments(String name, JsonObject arguments) {

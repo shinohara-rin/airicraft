@@ -59,4 +59,43 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("latest-request tool call"));
 		assertTrue(prompt.contains("tool follow-up"));
 	}
+
+	@Test
+	void systemPromptIncludesProviderInstructions() {
+		String prompt = PlannerPromptPolicy.systemPrompt(
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			PlannerToolRegistry.of(new PromptOnlyProvider("Use search_recipes for broad recipe-viewer searches before inventing recipe ids."))
+		);
+
+		assertTrue(prompt.contains("Use search_recipes for broad recipe-viewer searches"));
+		assertTrue(prompt.contains("Available tools:"));
+		assertTrue(prompt.contains("search_recipes"));
+	}
+
+	private record PromptOnlyProvider(String promptInstructions) implements PlannerToolProvider {
+		@Override
+		public String id() {
+			return "prompt_only";
+		}
+
+		@Override
+		public java.util.List<java.util.Map<String, Object>> openAiTools() {
+			return java.util.List.of(PlannerToolCatalog.toolForProvider(
+				"search_recipes",
+				"Search recipe-viewer recipes.",
+				PlannerToolCatalog.propertiesForProvider(),
+				java.util.List.of()
+			));
+		}
+
+		@Override
+		public boolean handles(String toolName) {
+			return false;
+		}
+
+		@Override
+		public java.util.concurrent.CompletableFuture<String> execute(PlannerToolCall toolCall) {
+			return java.util.concurrent.CompletableFuture.completedFuture("unused");
+		}
+	}
 }

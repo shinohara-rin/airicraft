@@ -154,6 +154,53 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void providerToolsAreExposedAndParsed() throws Exception {
+		PlannerToolRegistry registry = PlannerToolRegistry.of(new StubPlannerToolProvider(
+			"recipe_search",
+			"search_recipes",
+			"Search recipes through a provider.",
+			"Use search_recipes for recipe viewer searches.",
+			"Tool result for search_recipes: provider=stub"
+		));
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "role": "assistant",
+			        "content": null,
+			        "tool_calls": [
+			          {
+			            "id": "call_search",
+			            "type": "function",
+			            "function": {
+			              "name": "search_recipes",
+			              "arguments": "{\\"query\\":\\"oak planks\\",\\"mode\\":\\"output\\"}"
+			            }
+			          }
+			        ]
+			      }
+			    }
+			  ]
+			}
+			""")) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port()), registry);
+
+			PlannerResponse response = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent recipes for oak planks", LlmMessageKind.USER_TURN)
+			))).payload();
+
+			JsonObject body = JsonParser.parseString(bodyRef.get()).getAsJsonObject();
+			assertTrue(toolNames(body.getAsJsonArray("tools")).contains("search_recipes"));
+			assertEquals("search_recipes", response.toolCall().name());
+			assertEquals("oak planks", response.toolCall().arguments().get("query").getAsString());
+			assertEquals("output", response.toolCall().arguments().get("mode").getAsString());
+		}
+	}
+
+	@Test
 	void rejectsGivePlayerWithoutTargetPlayer() {
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("give_player", """
@@ -211,6 +258,37 @@ class PlannerToolCallInterfaceTest {
 		toolCall.addProperty("type", "function");
 		toolCall.add("function", function);
 		return toolCall;
+	}
+
+	private record StubPlannerToolProvider(
+		String id,
+		String toolName,
+		String description,
+		String promptInstructions,
+		String result
+	) implements PlannerToolProvider {
+		@Override
+		public List<java.util.Map<String, Object>> openAiTools() {
+			return List.of(PlannerToolCatalog.toolForProvider(
+				toolName,
+				description,
+				PlannerToolCatalog.propertiesForProvider(
+					PlannerToolCatalog.propForProvider("query", PlannerToolCatalog.stringForProvider("Item, recipe, or category query.")),
+					PlannerToolCatalog.propForProvider("mode", PlannerToolCatalog.enumStringForProvider("Search mode.", List.of("output", "input", "all")))
+				),
+				List.of("query")
+			));
+		}
+
+		@Override
+		public boolean handles(String toolName) {
+			return this.toolName.equals(PlannerToolCatalog.normalizeName(toolName));
+		}
+
+		@Override
+		public java.util.concurrent.CompletableFuture<String> execute(PlannerToolCall toolCall) {
+			return java.util.concurrent.CompletableFuture.completedFuture(result);
+		}
 	}
 
 	@Test

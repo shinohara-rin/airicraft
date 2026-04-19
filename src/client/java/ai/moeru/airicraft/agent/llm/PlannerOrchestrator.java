@@ -58,6 +58,7 @@ public final class PlannerOrchestrator {
 	private final AgentDebugRecorder debugRecorder;
 	private final PlannerActionToolExecutor actionToolExecutor;
 	private final PlannerToolNarrationSink narrationSink;
+	private final PlannerToolRegistry toolRegistry;
 
 	private final Map<Long, List<RecordedToolExchange>> toolExchangesByGeneration = new HashMap<>();
 
@@ -480,6 +481,48 @@ public final class PlannerOrchestrator {
 			PlannerActionToolExecutor actionToolExecutor,
 			PlannerToolNarrationSink narrationSink
 		) {
+		this(
+			plannerExecutor,
+			compactionService,
+			contextAggregator,
+			visionTool,
+			inventoryTool,
+			visionMode,
+			imageDetail,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			clock,
+			observability,
+			lifecycleListener,
+			debugRecorder,
+			actionToolExecutor,
+			narrationSink,
+			PlannerToolRegistry.empty()
+		);
+	}
+
+	public PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+			Clock clock,
+			AgentObservability observability,
+			PlannerLifecycleListener lifecycleListener,
+			AgentDebugRecorder debugRecorder,
+			PlannerActionToolExecutor actionToolExecutor,
+			PlannerToolNarrationSink narrationSink,
+			PlannerToolRegistry toolRegistry
+		) {
 		this.plannerExecutor = Objects.requireNonNull(plannerExecutor, "plannerExecutor");
 		this.compactionService = Objects.requireNonNull(compactionService, "compactionService");
 		this.contextAggregator = Objects.requireNonNull(contextAggregator, "contextAggregator");
@@ -504,6 +547,7 @@ public final class PlannerOrchestrator {
 		this.debugRecorder = Objects.requireNonNull(debugRecorder, "debugRecorder");
 		this.actionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
 		this.narrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
+		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
 	}
 
 	public boolean isConfigured() {
@@ -1030,7 +1074,14 @@ public final class PlannerOrchestrator {
 			case VISUAL_TOOL_NAME -> requestVisionTool(toolCall);
 			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
 			case RECIPES_TOOL_NAME -> inventoryTool.inspectRecipes(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
-			default -> actionToolExecutor.execute(toolCall).thenApply(TextToolExecutionOutcome::new);
+			default -> {
+				CompletableFuture<ToolExecutionOutcome> providerToolFuture = toolRegistry.providerFor(toolCall.name())
+					.map(provider -> provider.execute(toolCall).<ToolExecutionOutcome>thenApply(TextToolExecutionOutcome::new))
+					.orElse(null);
+				yield providerToolFuture == null
+					? actionToolExecutor.execute(toolCall).<ToolExecutionOutcome>thenApply(TextToolExecutionOutcome::new)
+					: providerToolFuture;
+			}
 		};
 	}
 
@@ -1221,7 +1272,7 @@ public final class PlannerOrchestrator {
 
 	private boolean isValidToolCall(PlannerToolCall toolCall) {
 		String name = normalizedToolName(toolCall);
-		if (!PlannerToolCatalog.isKnownTool(name)) {
+		if (!toolRegistry.isKnownTool(name)) {
 			return false;
 		}
 		return switch (name) {

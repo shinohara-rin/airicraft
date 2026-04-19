@@ -31,17 +31,27 @@ public final class OpenAiCompatibleChatClient {
 
 	private final AgentConfig.LlmConfig config;
 	private final AgentObservability observability;
+	private final PlannerToolRegistry toolRegistry;
 	private final HttpClient httpClient = HttpClient.newBuilder()
 		.version(HttpClient.Version.HTTP_1_1)
 		.build();
 
 	public OpenAiCompatibleChatClient(AgentConfig.LlmConfig config) {
-		this(config, NoopObservability.INSTANCE);
+		this(config, NoopObservability.INSTANCE, PlannerToolRegistry.empty());
+	}
+
+	public OpenAiCompatibleChatClient(AgentConfig.LlmConfig config, PlannerToolRegistry toolRegistry) {
+		this(config, NoopObservability.INSTANCE, toolRegistry);
 	}
 
 	public OpenAiCompatibleChatClient(AgentConfig.LlmConfig config, AgentObservability observability) {
+		this(config, observability, PlannerToolRegistry.empty());
+	}
+
+	public OpenAiCompatibleChatClient(AgentConfig.LlmConfig config, AgentObservability observability, PlannerToolRegistry toolRegistry) {
 		this.config = Objects.requireNonNull(config, "config");
 		this.observability = Objects.requireNonNull(observability, "observability");
+		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
 	}
 
 	LlmCallResult<String> complete(LlmConversation conversation) throws LlmBackendException {
@@ -174,7 +184,7 @@ public final class OpenAiCompatibleChatClient {
 			payload.put("response_format", Map.of("type", JSON_OBJECT_RESPONSE_FORMAT));
 		}
 		if (options.plannerTools()) {
-			payload.put("tools", PlannerToolCatalog.openAiTools());
+			payload.put("tools", toolRegistry.openAiTools());
 			payload.put("tool_choice", "auto");
 		}
 		payload.put("messages", compactRequestMessages(conversation.messages()));
