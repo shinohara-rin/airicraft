@@ -1,6 +1,6 @@
 # Airicraft
 
-Airicraft is a Fabric mod that exposes an in-game agent bridge and a CLI for automating common tasks. It targets Minecraft `1.21.11` with Java `21`, plus a `wrapper/` CLI subproject.
+Airicraft is a Fabric mod that exposes an in-game agent bridge and a CLI for automating common tasks. It targets Minecraft `1.21.8` with Java `21`, plus a `wrapper/` CLI subproject.
 
 ## Prerequisites
 
@@ -118,20 +118,55 @@ Suggested direction:
 
 </details>
 
-## Verify project build
+## Development And Verification
 
-Run these after Java is configured:
+Run these after Java is configured. Source `.envrc` before Gradle build, test, or run commands:
 
 ```shell
+source .envrc
 ./gradlew --version
 ./gradlew build
+./gradlew test wrapper:test --rerun-tasks
 ```
 
-For Minecraft dev client:
+### Normal dev client
+
+Use this for Airicraft-only development. It runs the Fabric dev client and opens JDWP on `127.0.0.1:5005`.
 
 ```shell
-./gradlew runClient
+source .envrc && ./gradlew runClient
+jdb -attach 127.0.0.1:5005
 ```
+
+### REI compatibility client
+
+Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar plus REI, Fabric API, Architectury, Cloth Config, and local runtime mods. It is still a debug launch: JDWP listens on `127.0.0.1:5006`.
+
+The helper keeps downloaded/runtime jars out of the repository in ignored `.airicraft-compat/`, and uses the shared dev game directory `run/`. That means normal `runClient` and REI compat runs read the same Airicraft config:
+
+```text
+run/config/airicraft
+```
+
+Common flow:
+
+```shell
+scripts/compat-rei config
+scripts/compat-rei setup
+scripts/compat-rei mods
+scripts/compat-rei run
+jdb -attach 127.0.0.1:5006
+wrapper/build/install/airicraft/bin/airicraft status
+```
+
+Expected smoke signal:
+
+- Minecraft starts without a remap crash.
+- Mod list includes `airicraft` and `roughlyenoughitems`.
+- REI resources load without missing-dependency or remap errors.
+- Wrapper status reports `available: true` and `bridgeAvailable: true`.
+
+Do not copy REI into `run/mods` or vendor it into this repository. Let `scripts/compat-rei` sync the external jars into `.airicraft-compat/`.
 
 ### Live JVM debugging with Arthas
 
@@ -212,7 +247,11 @@ The default mode is vendor-neutral OTLP; if you want W&B Weave, you only need to
 
 Airicraft writes/reads:
 
-`config/airicraft/agent.yml`
+`config/airicraft/agent.yml` under the active Minecraft game directory.
+
+For local development, both `runClient` and `scripts/compat-rei run` use:
+
+`run/config/airicraft/agent.yml`
 
 The file is based on `src/client/resources/config/airicraft/agent.yml.example`.
 

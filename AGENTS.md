@@ -17,6 +17,14 @@
 - Override JDWP settings with Gradle properties, for example:
   - `./gradlew runClient -Pairicraft.jdwp.port=5006`
   - `./gradlew runClient -Pairicraft.jdwp.suspend=y`
+- REI compat smoke:
+  - Use `scripts/compat-rei run`, not plain `runClient`.
+  - Why: external REI jar is production/intermediary; dev remap path can conflict.
+  - Debug port: JDWP `127.0.0.1:5006`.
+  - Config shared with normal dev: `run/config/airicraft`.
+  - Jar cache ignored: `.airicraft-compat/`; never vendor REI or copy into `run/mods`.
+  - Setup/list jars: `scripts/compat-rei setup`, `scripts/compat-rei mods`.
+  - Verify live: mod list has `airicraft` + `roughlyenoughitems`; `airicraft status` says `available: true`, `bridgeAvailable: true`.
 - Arthas CLI live-debug:
   - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.
   - Manual start: `source .envrc && ./gradlew runClient`
