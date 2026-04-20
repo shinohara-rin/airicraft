@@ -4,6 +4,7 @@ import me.shedaniel.rei.api.client.registry.category.CategoryRegistry;
 import me.shedaniel.rei.api.client.registry.display.DisplayCategory;
 import me.shedaniel.rei.api.client.registry.display.DisplayRegistry;
 import me.shedaniel.rei.api.client.registry.entry.EntryRegistry;
+import me.shedaniel.rei.api.client.view.ViewSearchBuilder;
 import me.shedaniel.rei.api.common.category.CategoryIdentifier;
 import me.shedaniel.rei.api.common.display.Display;
 import me.shedaniel.rei.api.common.entry.EntryIngredient;
@@ -12,6 +13,8 @@ import me.shedaniel.rei.api.common.util.EntryStacks;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,11 +60,12 @@ final class ReiRuntimeRecipeSearchBackend implements RecipeSearchBackend {
 
 		LinkedHashMap<String, RecipeSearchResult> results = new LinkedHashMap<>();
 		for (EntryStack<?> matchedItem : matchedItems) {
-			for (Map.Entry<CategoryIdentifier<?>, List<Display>> categoryDisplays : DisplayRegistry.getInstance().getAll().entrySet()) {
-				if (results.size() >= safeRequest.maxResults()) {
-					break;
-				}
-				searchCategory(categoryDisplays.getKey(), categoryDisplays.getValue(), matchedItem, safeRequest, results);
+			if (safeRequest.mode() == RecipeSearchMode.ALL || safeRequest.mode() == RecipeSearchMode.OUTPUT) {
+				searchRole("output", matchedItem, safeRequest, results);
+			}
+			if (results.size() < safeRequest.maxResults()
+				&& (safeRequest.mode() == RecipeSearchMode.ALL || safeRequest.mode() == RecipeSearchMode.INPUT)) {
+				searchRole("input", matchedItem, safeRequest, results);
 			}
 			if (results.size() >= safeRequest.maxResults()) {
 				break;
@@ -89,24 +93,69 @@ final class ReiRuntimeRecipeSearchBackend implements RecipeSearchBackend {
 			|| normalize(entryName(stack)).contains(normalizedQuery);
 	}
 
-	private static void searchCategory(
-		CategoryIdentifier<?> categoryId,
-		List<Display> displays,
+	private static void searchRole(
+		String role,
 		EntryStack<?> matchedItem,
 		RecipeSearchRequest request,
 		Map<String, RecipeSearchResult> results
 	) {
-		for (Display display : displays) {
+		if (results.size() >= request.maxResults()) {
+			return;
+		}
+		DisplayRegistry displayRegistry = DisplayRegistry.getInstance();
+		for (Display display : displaysFor(role, matchedItem)) {
 			if (results.size() >= request.maxResults()) {
 				return;
 			}
-			if (request.mode() == RecipeSearchMode.ALL || request.mode() == RecipeSearchMode.OUTPUT) {
-				addMatch("output", categoryId, display, matchedItem, results);
-			}
-			if (request.mode() == RecipeSearchMode.ALL || request.mode() == RecipeSearchMode.INPUT) {
-				addMatch("input", categoryId, display, matchedItem, results);
+			if (displayRegistry.isDisplayVisible(display)) {
+				addMatch(role, display.getCategoryIdentifier(), display, matchedItem, results);
 			}
 		}
+	}
+
+	private static Iterable<Display> displaysFor(String role, EntryStack<?> matchedItem) {
+		return cachedDisplaysFor(role, matchedItem).orElseGet(() -> viewSearchDisplaysFor(role, matchedItem));
+	}
+
+	private static Optional<Iterable<Display>> cachedDisplaysFor(String role, EntryStack<?> matchedItem) {
+		try {
+			Object registry = DisplayRegistry.getInstance();
+			Method cacheMethod = registry.getClass().getMethod("cache");
+			cacheMethod.setAccessible(true);
+			Object cache = cacheMethod.invoke(registry);
+			String methodName = switch (role) {
+				case "output" -> "getAllDisplaysByOutputs";
+				case "input" -> "getAllDisplaysByInputs";
+				default -> throw new IllegalArgumentException("unsupported REI display role: " + role);
+			};
+			Method lookupMethod = cache.getClass().getMethod(methodName, List.class);
+			lookupMethod.setAccessible(true);
+			Object displays = lookupMethod.invoke(cache, List.of(matchedItem));
+			if (!(displays instanceof Iterable<?> iterable)) {
+				return Optional.empty();
+			}
+			@SuppressWarnings("unchecked")
+			Iterable<Display> typedDisplays = (Iterable<Display>) iterable;
+			return Optional.of(typedDisplays);
+		}
+		catch (NoSuchMethodException | IllegalAccessException | ClassCastException | SecurityException exception) {
+			return Optional.empty();
+		}
+		catch (InvocationTargetException exception) {
+			throw new IllegalStateException("rei_cache_lookup_failed", exception.getCause());
+		}
+	}
+
+	private static Iterable<Display> viewSearchDisplaysFor(String role, EntryStack<?> matchedItem) {
+		ViewSearchBuilder builder = ViewSearchBuilder.builder().mergingDisplays(false);
+		switch (role) {
+			case "output" -> builder.addRecipesFor(matchedItem);
+			case "input" -> builder.addUsagesFor(matchedItem);
+			default -> throw new IllegalArgumentException("unsupported REI display role: " + role);
+		}
+		return builder.streamDisplays()
+			.map(displaySpec -> displaySpec.provideInternalDisplay())
+			.toList();
 	}
 
 	private static void addMatch(
