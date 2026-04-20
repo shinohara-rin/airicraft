@@ -30,7 +30,7 @@ import java.util.concurrent.CompletionException;
 public final class PlannerOrchestrator {
 	private static final String VISUAL_TOOL_NAME = "take_a_look";
 	private static final String INVENTORY_TOOL_NAME = "inspect_inventory";
-	private static final String RECIPES_TOOL_NAME = "inspect_recipes";
+	private static final String CRAFTABLES_TOOL_NAME = "check_craftables";
 	private static final String INVENTORY_BOOTSTRAP_TOOL_CALL_ID = "bootstrap_inspect_inventory";
 	private static final String INVENTORY_BOOTSTRAP_PROMPT = "startup inventory context";
 	private static final String NATIVE_TOOL_RESULT_TEXT = "Tool result for take_a_look: current first-person view attached.";
@@ -1073,7 +1073,7 @@ public final class PlannerOrchestrator {
 		return switch (normalizedToolName(toolCall)) {
 			case VISUAL_TOOL_NAME -> requestVisionTool(toolCall);
 			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
-			case RECIPES_TOOL_NAME -> inventoryTool.inspectRecipes(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
+			case CRAFTABLES_TOOL_NAME -> inventoryTool.checkCraftables(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
 			default -> {
 				CompletableFuture<ToolExecutionOutcome> providerToolFuture = toolRegistry.providerFor(toolCall.name())
 					.map(provider -> provider.execute(toolCall).<ToolExecutionOutcome>thenApply(TextToolExecutionOutcome::new))

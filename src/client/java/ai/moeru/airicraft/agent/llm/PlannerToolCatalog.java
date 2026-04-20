@@ -17,7 +17,7 @@ import java.util.Optional;
 public final class PlannerToolCatalog {
 	public static final String TAKE_A_LOOK = "take_a_look";
 	public static final String INSPECT_INVENTORY = "inspect_inventory";
-	public static final String INSPECT_RECIPES = "inspect_recipes";
+	public static final String CHECK_CRAFTABLES = "check_craftables";
 	public static final String FOLLOW_PLAYER = "follow_player";
 	public static final String NAVIGATE_TO = "navigate_to";
 	public static final String MINE_BLOCKS = "mine_blocks";
@@ -42,7 +42,7 @@ public final class PlannerToolCatalog {
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional inventory question."))
 			), List.of()),
-			tool(INSPECT_RECIPES, "Inspect current 2x2 crafting opportunities.", properties(
+			tool(CHECK_CRAFTABLES, "Check currently executable crafting options.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional crafting question."))
 			), List.of()),
@@ -67,9 +67,9 @@ public final class PlannerToolCatalog {
 				prop("resourceKind", enumString("Resource kind.", List.of("WOOD_LOGS"))),
 				prop("quantity", integer("Quantity to collect."))
 			), List.of("resourceKind", "quantity")),
-			tool(CRAFT_RECIPE, "Run a listed 2x2 crafting recipe.", properties(
+			tool(CRAFT_RECIPE, "Run a listed crafting recipe, including automatic crafting-table setup for 3x3 recipes.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("recipeId", string("Exact recipe id from inspect_recipes.")),
+				prop("recipeId", string("Exact recipe id from check_craftables.")),
 				prop("times", integer("Recipe run count."))
 			), List.of("recipeId", "times")),
 			tool(DROP_ITEMS, "Drop exact items from current inventory at the current position.", properties(
@@ -156,7 +156,7 @@ public final class PlannerToolCatalog {
 
 	public static boolean isReadTool(String name) {
 		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, INSPECT_RECIPES -> true;
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES -> true;
 			default -> false;
 		};
 	}
@@ -165,7 +165,7 @@ public final class PlannerToolCatalog {
 		return switch (normalizeName(name)) {
 			case TAKE_A_LOOK,
 				INSPECT_INVENTORY,
-				INSPECT_RECIPES,
+				CHECK_CRAFTABLES,
 				FOLLOW_PLAYER,
 				NAVIGATE_TO,
 				MINE_BLOCKS,
@@ -243,7 +243,7 @@ public final class PlannerToolCatalog {
 
 	private static void validateArguments(String name, JsonObject arguments) {
 		switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, INSPECT_RECIPES, CLEAR_GOAL -> {
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CLEAR_GOAL -> {
 			}
 			case FOLLOW_PLAYER -> requireString(arguments, "targetPlayer");
 			case NAVIGATE_TO -> {

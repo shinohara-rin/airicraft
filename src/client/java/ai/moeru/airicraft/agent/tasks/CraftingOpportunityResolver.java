@@ -4,6 +4,7 @@ import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.NetworkRecipeId;
 import net.minecraft.recipe.RecipeDisplayEntry;
@@ -28,6 +29,7 @@ import java.util.TreeMap;
 
 public final class CraftingOpportunityResolver {
 	private static final int PLAYER_GRID_INPUT_COUNT = PlayerScreenHandler.CRAFTING_INPUT_COUNT;
+	private static final int WORKBENCH_GRID_INPUT_COUNT = 9;
 
 	private CraftingOpportunityResolver() {
 	}
@@ -78,6 +80,7 @@ public final class CraftingOpportunityResolver {
 					option.outputItem(),
 					option.opportunity().outputCount(),
 					times,
+					option.gridKind(),
 					option.placements()
 				);
 			}
@@ -86,14 +89,61 @@ public final class CraftingOpportunityResolver {
 		return CraftingRecipeResolution.failure("recipe_not_found");
 	}
 
+	static CraftingRecipeResolution resolveCraftingTable(ClientPlayerEntity player) {
+		if (player == null) {
+			return CraftingRecipeResolution.failure("crafting_table_missing_materials");
+		}
+		return resolveCraftingTable(player.getRecipeBook().getOrderedResults(), recipeFinder(player), inventoryCounts(player));
+	}
+
+	static CraftingRecipeResolution resolveCraftingTable(List<RecipeResultCollection> collections, RecipeFinder finder, Map<Item, Integer> availableItems) {
+		for (ResolvedCraftingOption option : resolvedOptions(collections, finder, availableItems)) {
+			if (option.gridKind() == CraftingGridKind.PLAYER_2X2 && option.outputItem() == Items.CRAFTING_TABLE) {
+				return CraftingRecipeResolution.success(
+					option.networkRecipeId(),
+					option.outputItem(),
+					option.opportunity().outputCount(),
+					1,
+					option.gridKind(),
+					option.placements()
+				);
+			}
+		}
+		return CraftingRecipeResolution.failure("crafting_table_missing_materials");
+	}
+
 	static boolean fitsPlayerGrid(RecipeDisplay display) {
+		return gridKind(display) == CraftingGridKind.PLAYER_2X2;
+	}
+
+	static CraftingGridKind gridKind(RecipeDisplay display) {
 		if (display instanceof ShapedCraftingRecipeDisplay shaped) {
-			return shaped.width() <= 2 && shaped.height() <= 2;
+			return gridKindForShapedRecipe(shaped.width(), shaped.height());
 		}
 		if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
-			return shapeless.ingredients().size() <= PLAYER_GRID_INPUT_COUNT;
+			return gridKindForIngredientCount(shapeless.ingredients().size());
 		}
-		return false;
+		return null;
+	}
+
+	static CraftingGridKind gridKindForShapedRecipe(int width, int height) {
+		if (width <= 2 && height <= 2) {
+			return CraftingGridKind.PLAYER_2X2;
+		}
+		if (width <= 3 && height <= 3) {
+			return CraftingGridKind.WORKBENCH_3X3;
+		}
+		return null;
+	}
+
+	static CraftingGridKind gridKindForIngredientCount(int size) {
+		if (size <= PLAYER_GRID_INPUT_COUNT) {
+			return CraftingGridKind.PLAYER_2X2;
+		}
+		if (size <= WORKBENCH_GRID_INPUT_COUNT) {
+			return CraftingGridKind.WORKBENCH_3X3;
+		}
+		return null;
 	}
 
 	static ItemStack resultStack(RecipeDisplay display) {
@@ -135,16 +185,17 @@ public final class CraftingOpportunityResolver {
 		Map<Item, Integer> safeAvailableItems = availableItems == null ? Map.of() : availableItems;
 		List<ResolvedCraftingOption> options = new ArrayList<>();
 		for (RecipeResultCollection collection : collections) {
-			collection.populateRecipes(finder, CraftingOpportunityResolver::fitsPlayerGrid);
+			collection.populateRecipes(finder, display -> gridKind(display) != null);
 			for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
 				if (!collection.isCraftable(entry.id())) {
 					continue;
 				}
 				ItemStack result = resultStack(entry.display());
-				if (result.isEmpty() || !fitsPlayerGrid(entry.display())) {
+				CraftingGridKind gridKind = gridKind(entry.display());
+				if (result.isEmpty() || gridKind == null) {
 					continue;
 				}
-				for (List<CraftingIngredientPlacement> placements : concretePlacements(ingredientPlacements(entry), safeAvailableItems)) {
+				for (List<CraftingIngredientPlacement> placements : concretePlacements(ingredientPlacements(entry, gridKind), safeAvailableItems)) {
 					if (placements.isEmpty()) {
 						continue;
 					}
@@ -156,33 +207,35 @@ public final class CraftingOpportunityResolver {
 						recipeId(inputItemIds, outputItemId),
 						outputItemId,
 						result.getCount(),
-						inputItemIds
+						inputItemIds,
+						gridKind
 					);
-					options.add(new ResolvedCraftingOption(entry.id(), result.getItem(), opportunity, placements));
+					options.add(new ResolvedCraftingOption(entry.id(), result.getItem(), gridKind, opportunity, placements));
 				}
 			}
 		}
 		return List.copyOf(options);
 	}
 
-	private static List<IngredientPlacement> ingredientPlacements(RecipeDisplayEntry entry) {
+	private static List<IngredientPlacement> ingredientPlacements(RecipeDisplayEntry entry, CraftingGridKind gridKind) {
 		if (entry.craftingRequirements().isEmpty()) {
 			return List.of();
 		}
 		List<Ingredient> requirements = entry.craftingRequirements().get();
 		if (entry.display() instanceof ShapedCraftingRecipeDisplay shaped) {
-			return shapedIngredientPlacements(shaped, requirements);
+			return shapedIngredientPlacements(shaped, gridKind, requirements);
 		}
 		if (entry.display() instanceof ShapelessCraftingRecipeDisplay) {
-			return shapelessIngredientPlacements(requirements);
+			return shapelessIngredientPlacements(gridKind, requirements);
 		}
 		return List.of();
 	}
 
-	private static List<IngredientPlacement> shapedIngredientPlacements(ShapedCraftingRecipeDisplay shaped, List<Ingredient> requirements) {
+	private static List<IngredientPlacement> shapedIngredientPlacements(ShapedCraftingRecipeDisplay shaped, CraftingGridKind gridKind, List<Ingredient> requirements) {
 		List<IngredientPlacement> placements = new ArrayList<>();
 		List<SlotDisplay> slots = shaped.ingredients();
 		int requirementIndex = 0;
+		int gridWidth = gridWidth(gridKind);
 		for (int row = 0; row < shaped.height(); row++) {
 			for (int column = 0; column < shaped.width(); column++) {
 				int displayIndex = row * shaped.width() + column;
@@ -194,21 +247,21 @@ public final class CraftingOpportunityResolver {
 				}
 				Ingredient requirement = requirements.get(requirementIndex++);
 				if (!requirement.isEmpty()) {
-					placements.add(new IngredientPlacement(row * 2 + column, requirement));
+					placements.add(new IngredientPlacement(row * gridWidth + column, requirement));
 				}
 			}
 		}
 		return placements;
 	}
 
-	private static List<IngredientPlacement> shapelessIngredientPlacements(List<Ingredient> requirements) {
+	private static List<IngredientPlacement> shapelessIngredientPlacements(CraftingGridKind gridKind, List<Ingredient> requirements) {
 		List<IngredientPlacement> placements = new ArrayList<>();
 		for (Ingredient requirement : requirements) {
 			if (!requirement.isEmpty()) {
 				placements.add(new IngredientPlacement(placements.size(), requirement));
 			}
 		}
-		return placements.size() <= PLAYER_GRID_INPUT_COUNT ? List.copyOf(placements) : List.of();
+		return placements.size() <= gridInputCount(gridKind) ? List.copyOf(placements) : List.of();
 	}
 
 	private static boolean isEmptySlot(SlotDisplay display) {
@@ -279,20 +332,29 @@ public final class CraftingOpportunityResolver {
 		return id == null ? "" : id.toString();
 	}
 
+	static int gridInputCount(CraftingGridKind gridKind) {
+		return gridKind == CraftingGridKind.WORKBENCH_3X3 ? WORKBENCH_GRID_INPUT_COUNT : PLAYER_GRID_INPUT_COUNT;
+	}
+
+	private static int gridWidth(CraftingGridKind gridKind) {
+		return gridKind == CraftingGridKind.WORKBENCH_3X3 ? 3 : 2;
+	}
+
 	static record CraftingRecipeResolution(
 		NetworkRecipeId networkRecipeId,
 		Item outputItem,
 		int outputCount,
 		int requestedTimes,
+		CraftingGridKind gridKind,
 		List<CraftingIngredientPlacement> placements,
 		String failureReason
 	) {
-		private static CraftingRecipeResolution success(NetworkRecipeId networkRecipeId, Item outputItem, int outputCount, int requestedTimes, List<CraftingIngredientPlacement> placements) {
-			return new CraftingRecipeResolution(networkRecipeId, outputItem, outputCount, requestedTimes, List.copyOf(placements), null);
+		private static CraftingRecipeResolution success(NetworkRecipeId networkRecipeId, Item outputItem, int outputCount, int requestedTimes, CraftingGridKind gridKind, List<CraftingIngredientPlacement> placements) {
+			return new CraftingRecipeResolution(networkRecipeId, outputItem, outputCount, requestedTimes, gridKind, List.copyOf(placements), null);
 		}
 
 		private static CraftingRecipeResolution failure(String reason) {
-			return new CraftingRecipeResolution(null, null, 0, 0, List.of(), reason);
+			return new CraftingRecipeResolution(null, null, 0, 0, null, List.of(), reason);
 		}
 	}
 
@@ -303,8 +365,8 @@ public final class CraftingOpportunityResolver {
 	) {
 		CraftingIngredientPlacement {
 			Objects.requireNonNull(item, "item");
-			if (gridIndex < 0 || gridIndex >= PLAYER_GRID_INPUT_COUNT) {
-				throw new IllegalArgumentException("gridIndex outside player crafting grid");
+			if (gridIndex < 0 || gridIndex >= WORKBENCH_GRID_INPUT_COUNT) {
+				throw new IllegalArgumentException("gridIndex outside crafting grid");
 			}
 			if (itemId == null || itemId.isBlank()) {
 				throw new IllegalArgumentException("itemId must not be blank");
@@ -318,6 +380,7 @@ public final class CraftingOpportunityResolver {
 	private record ResolvedCraftingOption(
 		NetworkRecipeId networkRecipeId,
 		Item outputItem,
+		CraftingGridKind gridKind,
 		CraftingOpportunity opportunity,
 		List<CraftingIngredientPlacement> placements
 	) {

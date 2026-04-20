@@ -73,7 +73,7 @@ final class ReiRuntimeRecipeSearchBackend implements RecipeSearchBackend {
 			+ ", mode=" + safeRequest.mode().toolValue()
 			+ ", matchedItems=" + matchedItems.stream().map(ReiRuntimeRecipeSearchBackend::entryId).toList()
 			+ ", results=" + results.values().stream().map(RecipeSearchResult::compact).toList()
-			+ ", note=REI results are recipe-viewer knowledge, not current craftability. Use inspect_recipes before craft_recipe.";
+			+ ", note=REI results are recipe-viewer knowledge, not current craftability. Use check_craftables before craft_recipe.";
 	}
 
 	private static List<EntryStack<?>> matchedItems(String query) {

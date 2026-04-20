@@ -123,7 +123,7 @@ class PlannerOrchestratorTest {
 		assertEquals("You have 5 jungle logs.", result.response().replyText());
 		assertEquals("Tool result for inspect_inventory: itemCounts={minecraft:jungle_log=5}", result.request().toolResult());
 		assertEquals(1, inventoryTool.inventoryRequestCount());
-		assertEquals(0, inventoryTool.recipeRequestCount());
+		assertEquals(0, inventoryTool.craftablesRequestCount());
 	}
 
 	@Test
@@ -151,7 +151,7 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 		assertTrue(result.succeeded());
 		assertEquals(1, inventoryTool.inventoryRequestCount());
-		assertEquals(0, inventoryTool.recipeRequestCount());
+		assertEquals(0, inventoryTool.craftablesRequestCount());
 	}
 
 	@Test
@@ -248,7 +248,7 @@ class PlannerOrchestratorTest {
 		backend.injectMockResponse(new PlannerResponse(
 			"",
 			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("inspect_recipes", null)
+			new PlannerToolRequest("check_craftables", null)
 		));
 		backend.injectMockResponse(new PlannerResponse(
 			"You can craft jungle planks.",
@@ -256,7 +256,7 @@ class PlannerOrchestratorTest {
 		));
 		StubInventoryTool inventoryTool = new StubInventoryTool(
 			"unused",
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks"
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks"
 		);
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
@@ -272,11 +272,11 @@ class PlannerOrchestratorTest {
 		assertTrue(result.succeeded());
 		assertEquals("You can craft jungle planks.", result.response().replyText());
 		assertEquals(
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks",
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks",
 			result.request().toolResult()
 		);
 		assertEquals(0, inventoryTool.inventoryRequestCount());
-		assertEquals(1, inventoryTool.recipeRequestCount());
+		assertEquals(1, inventoryTool.craftablesRequestCount());
 	}
 
 	@Test
@@ -1209,7 +1209,7 @@ class PlannerOrchestratorTest {
 		RecordingBackend backend = new RecordingBackend();
 		StubInventoryTool inventoryTool = new StubInventoryTool(
 			"unused",
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*birch_wood} to 4*birch_planks]: birch_wood_to_birch_planks"
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: [From {1*birch_wood} to 4*birch_planks]: birch_wood_to_birch_planks"
 		);
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
@@ -1223,13 +1223,13 @@ class PlannerOrchestratorTest {
 		backend.succeed(0, new PlannerResponse(
 			"",
 			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("inspect_recipes", null),
+			new PlannerToolRequest("check_craftables", null),
 			null,
 			JsonParser.parseString("""
 				[
 				  {
 				    "type": "text",
-				    "text": "{\\"replyText\\":\\"\\",\\"intent\\":{\\"type\\":\\"none\\"},\\"toolRequest\\":{\\"type\\":\\"inspect_recipes\\",\\"prompt\\":null}}"
+				    "text": "{\\"replyText\\":\\"\\",\\"intent\\":{\\"type\\":\\"none\\"},\\"toolRequest\\":{\\"type\\":\\"check_craftables\\",\\"prompt\\":null}}"
 				  }
 				]
 				""")
@@ -1249,7 +1249,7 @@ class PlannerOrchestratorTest {
 			LlmConversation secondPrompt = backend.conversation(2);
 			LlmChatMessage replayedToolRequest = secondPrompt.messages().stream()
 				.filter(message -> "assistant".equals(message.role()) && message.hasToolCalls())
-				.filter(message -> message.toolCalls().stream().anyMatch(toolCall -> "inspect_recipes".equals(toolCall.name())))
+				.filter(message -> message.toolCalls().stream().anyMatch(toolCall -> "check_craftables".equals(toolCall.name())))
 				.findFirst()
 				.orElseThrow();
 			assertNotNull(replayedToolRequest);
@@ -1882,13 +1882,13 @@ class PlannerOrchestratorTest {
 
 	private static final class StubInventoryTool implements CurrentInventoryTool {
 		private final String inventoryResult;
-		private final String recipeResult;
+		private final String craftablesResult;
 		private int inventoryRequestCount;
-		private int recipeRequestCount;
+		private int craftablesRequestCount;
 
-		private StubInventoryTool(String inventoryResult, String recipeResult) {
+		private StubInventoryTool(String inventoryResult, String craftablesResult) {
 			this.inventoryResult = inventoryResult;
-			this.recipeResult = recipeResult;
+			this.craftablesResult = craftablesResult;
 		}
 
 		@Override
@@ -1898,17 +1898,17 @@ class PlannerOrchestratorTest {
 		}
 
 		@Override
-		public CompletableFuture<String> inspectRecipes(String prompt) {
-			recipeRequestCount++;
-			return CompletableFuture.completedFuture(recipeResult);
+		public CompletableFuture<String> checkCraftables(String prompt) {
+			craftablesRequestCount++;
+			return CompletableFuture.completedFuture(craftablesResult);
 		}
 
 		private int inventoryRequestCount() {
 			return inventoryRequestCount;
 		}
 
-		private int recipeRequestCount() {
-			return recipeRequestCount;
+		private int craftablesRequestCount() {
+			return craftablesRequestCount;
 		}
 	}
 

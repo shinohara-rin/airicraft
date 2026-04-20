@@ -22,16 +22,16 @@ public final class PlannerPromptPolicy {
 		};
 		String toolInstruction = visionInstruction + """
 			If you need current inventory item counts, call inspect_inventory.
-			If you need current 2x2 crafting opportunities, call inspect_recipes.
-			For questions like "what can you craft?", use inspect_recipes unless fresh availableCrafts evidence is already present.
+			If you need current crafting options, call check_craftables.
+			For questions like "what can you craft?", use check_craftables unless fresh craftability evidence is already present.
 			For questions like "what do you have?" or "do you have logs?", use inspect_inventory unless fresh itemCounts evidence is already present.
-			After inspect_recipes, copy exact recipeId values from exactRecipeIds when calling craft_recipe.
+			After check_craftables, copy exact recipeId values from exactRecipeIds when calling craft_recipe.
 			Before drop_items or give_player, call inspect_inventory unless fresh itemCounts evidence is already present.
 			Only call one tool in a response.
 			Every tool has optional narration. Put short visible pre-action chat in the tool narration argument.
 			Do not write narration as assistant content. "I'm checking my inventory" must be inspect_inventory.narration, not a plaintext reply.
 			After your own latest-request tool call returns a result in tool follow-up, answer in plaintext and do not call another tool.
-			A startup inspect_inventory tool result may appear before the current user request. It is current inventory context and may satisfy itemCounts needs; it does not prevent calling another required tool such as inspect_recipes or take_a_look.
+			A startup inspect_inventory tool result may appear before the current user request. It is current inventory context and may satisfy itemCounts needs; it does not prevent calling another required tool such as check_craftables or take_a_look.
 			An accepted action tool result only means the job was queued; it does not mean the action completed. Wait for a TASK UPDATE before claiming completion.
 			""";
 		return """
@@ -67,14 +67,13 @@ public final class PlannerPromptPolicy {
 			Use drop_items to drop items at your current position. Use give_player only when the user asks to give items to a named nearby player.
 			Use itemId values exactly as shown in inspect_inventory itemCounts; never use display names or unqualified ids for item dropping.
 			An accepted action tool result does not mean the action completed; wait for TASK UPDATE state=COMPLETED before saying items were dropped.
-			Use craft_recipe only for recipeId values currently shown in availableCrafts or exactRecipeIds. times is recipe run count, not desired output item count.
+			Use craft_recipe only for recipeId values currently shown in check_craftables exactRecipeIds. times is recipe run count, not desired output item count.
 			If the user asks for an output item count, choose the smallest times value that produces at least that many items using the listed output amount.
 			A craft_recipe job is for the user's current request only. After one completed craft request, stop and wait for the next user instruction unless the user explicitly requested a multi-step craft and the next job is for a different item.
-			availableCrafts and exactRecipeIds are the source of truth for 2x2 player-inventory crafting. Do not invent recipe ids.
-			When calling craft_recipe, copy the exact recipeId from availableCrafts or exactRecipeIds. Never use display names, plural names, item ids, or unqualified ids such as "sticks".
-			When asked what you can craft, answer only from availableCrafts; every listed craft is currently craftable even if the recipe uses interchangeable ingredient tags.
-			3x3 workbench-grid recipes such as tools, furnace, and chest are not supported yet; reply that you cannot craft those yet and do not call craft_recipe.
-			The item crafting_table is a 2x2 player-inventory recipe and is supported when it appears in availableCrafts.
+			check_craftables exactRecipeIds are the source of truth for crafting. Do not invent recipe ids.
+			When calling craft_recipe, copy the exact recipeId from check_craftables. Never use display names, plural names, item ids, or unqualified ids such as "sticks".
+			When asked what you can craft, answer only from check_craftables; every exactRecipeIds entry is executable, including 3x3 recipes that need automatic crafting-table setup.
+			For 3x3 workbench recipes, craft_recipe automatically tries an open table, a nearby table within 10 blocks, a placed table from inventory, then crafting a table from planks.
 			Ask in plaintext when a required decision or missing information cannot be safely inferred.
 			Do not create a job to mean idle, ready, or waiting for the next task; reply in plaintext or call clear_goal.
 			Legacy JSON fields such as intent.type, activeJob, toolRequest, taskLedger, taskSpec, set_goal, and submit_task are not valid normal output.

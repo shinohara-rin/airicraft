@@ -364,11 +364,11 @@ class PlannerContextAggregatorTest {
 				[
 				  {
 				    "type": "text",
-				    "text": "{\\"replyText\\":\\"\\",\\"intent\\":{\\"type\\":\\"none\\"},\\"toolRequest\\":{\\"type\\":\\"inspect_recipes\\"}}"
+				    "text": "{\\"replyText\\":\\"\\",\\"intent\\":{\\"type\\":\\"none\\"},\\"toolRequest\\":{\\"type\\":\\"check_craftables\\"}}"
 				  }
 				]
 				"""),
-			"Tool result for inspect_recipes: availableCrafts=Available 2x2 crafts: [From {1*birch_wood} to 4*birch_planks]: birch_wood_to_birch_planks",
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: [From {1*birch_wood} to 4*birch_planks]: birch_wood_to_birch_planks",
 			20L,
 			1_000L
 		);
@@ -384,7 +384,7 @@ class PlannerContextAggregatorTest {
 			.filter(message -> "assistant".equals(message.role()) && message.rawContentOverride() != null)
 			.findFirst()
 			.orElseThrow();
-		assertTrue(toolRequest.rawContentOverride().toString().contains("inspect_recipes"));
+		assertTrue(toolRequest.rawContentOverride().toString().contains("check_craftables"));
 
 		LlmChatMessage toolResult = laterConversation.messages().stream()
 			.filter(message -> message.kind() == LlmMessageKind.TOOL_RESULT)

@@ -9,8 +9,13 @@ public record CraftingOpportunity(
 	String recipeId,
 	String outputItemId,
 	int outputCount,
-	List<String> inputItemIds
+	List<String> inputItemIds,
+	CraftingGridKind gridKind
 ) {
+	public CraftingOpportunity(String recipeId, String outputItemId, int outputCount, List<String> inputItemIds) {
+		this(recipeId, outputItemId, outputCount, inputItemIds, CraftingGridKind.PLAYER_2X2);
+	}
+
 	public CraftingOpportunity {
 		if (recipeId == null || recipeId.isBlank()) {
 			throw new IllegalArgumentException("recipeId must not be blank");
@@ -30,6 +35,7 @@ public record CraftingOpportunity(
 			}
 		}
 		inputItemIds = List.copyOf(inputItemIds);
+		gridKind = gridKind == null ? CraftingGridKind.PLAYER_2X2 : gridKind;
 	}
 
 	public String compactDescription() {

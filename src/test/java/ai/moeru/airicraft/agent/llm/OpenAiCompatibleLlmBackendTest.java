@@ -146,7 +146,7 @@ class OpenAiCompatibleLlmBackendTest {
 			        "content": null,
 			        "tool_calls": [
 			          {"id":"call_1","type":"function","function":{"name":"inspect_inventory","arguments":"{}"}},
-			          {"id":"call_2","type":"function","function":{"name":"inspect_recipes","arguments":"{}"}}
+			          {"id":"call_2","type":"function","function":{"name":"check_craftables","arguments":"{}"}}
 			        ]
 			      }
 			    }

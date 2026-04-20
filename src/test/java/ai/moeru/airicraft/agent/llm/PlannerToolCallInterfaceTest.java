@@ -154,6 +154,18 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void exposesCheckCraftablesInsteadOfInspectRecipes() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+
+		assertTrue(toolNames(tools).contains("check_craftables"));
+		assertFalse(toolNames(tools).contains("inspect_recipes"));
+		assertEquals("check_craftables", PlannerToolCatalog.parseToolCall(toolCall("check_craftables", "{}")).name());
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_recipes", "{}"))
+		);
+	}
+
+	@Test
 	void providerToolsAreExposedAndParsed() throws Exception {
 		PlannerToolRegistry registry = PlannerToolRegistry.of(new StubPlannerToolProvider(
 			"recipe_search",
@@ -220,7 +232,7 @@ class PlannerToolCallInterfaceTest {
 			        "role": "assistant",
 			        "tool_calls": [
 			          {"id":"call_1","type":"function","function":{"name":"inspect_inventory","arguments":"{}"}},
-			          {"id":"call_2","type":"function","function":{"name":"inspect_recipes","arguments":"{}"}}
+			          {"id":"call_2","type":"function","function":{"name":"check_craftables","arguments":"{}"}}
 			        ]
 			      }
 			    }

@@ -56,4 +56,24 @@ class CraftingOpportunityResolverTest {
 			CraftingOpportunityResolver.resolve(List.of(RecipeResultCollection.EMPTY), new RecipeFinder(), "not an id", 1).failureReason()
 		);
 	}
+
+	@Test
+	void gridKindDistinguishesPlayerAndWorkbenchRecipes() {
+		assertEquals(
+			CraftingGridKind.PLAYER_2X2,
+			CraftingOpportunityResolver.gridKindForShapedRecipe(2, 2)
+		);
+		assertEquals(
+			CraftingGridKind.WORKBENCH_3X3,
+			CraftingOpportunityResolver.gridKindForShapedRecipe(3, 3)
+		);
+		assertEquals(
+			CraftingGridKind.PLAYER_2X2,
+			CraftingOpportunityResolver.gridKindForIngredientCount(4)
+		);
+		assertEquals(
+			CraftingGridKind.WORKBENCH_3X3,
+			CraftingOpportunityResolver.gridKindForIngredientCount(9)
+		);
+	}
 }

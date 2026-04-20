@@ -5,7 +5,7 @@ import java.util.concurrent.CompletableFuture;
 public interface CurrentInventoryTool {
 	CompletableFuture<String> inspectInventory(String prompt);
 
-	CompletableFuture<String> inspectRecipes(String prompt);
+	CompletableFuture<String> checkCraftables(String prompt);
 
 	static CurrentInventoryTool disabled() {
 		return new CurrentInventoryTool() {
@@ -15,8 +15,8 @@ public interface CurrentInventoryTool {
 			}
 
 			@Override
-			public CompletableFuture<String> inspectRecipes(String prompt) {
-				return CompletableFuture.completedFuture("RECIPES_UNAVAILABLE: inventory_tool_disabled");
+			public CompletableFuture<String> checkCraftables(String prompt) {
+				return CompletableFuture.completedFuture("CRAFTABLES_UNAVAILABLE: inventory_tool_disabled");
 			}
 		};
 	}

@@ -186,7 +186,7 @@ public final class ClientRuntimeController {
 	private EmbodiedAgentRuntime createRuntime(AiricraftConfig airicraftConfig, AgentConfig agentConfig) {
 		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(
 			new BaritoneTaskExecutor(baritoneFacade),
-			new CraftingTaskExecutor()
+			new CraftingTaskExecutor(baritoneFacade)
 		);
 		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor);
 	}
