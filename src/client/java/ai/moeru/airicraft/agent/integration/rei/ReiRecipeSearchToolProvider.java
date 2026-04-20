@@ -100,12 +100,17 @@ public final class ReiRecipeSearchToolProvider implements PlannerToolProvider {
 			throw new JsonParseException(exception.getMessage(), exception);
 		}
 		if (arguments != null && arguments.has("maxResults")) {
-			if (!arguments.get("maxResults").isJsonPrimitive()) {
+			JsonElement maxResultsElem = arguments.get("maxResults");
+			if (!maxResultsElem.isJsonPrimitive()) {
 				throw new JsonParseException("maxResults must be an integer");
 			}
-			int maxResults = arguments.get("maxResults").getAsInt();
-			if (maxResults <= 0 || maxResults > 48) {
-				throw new JsonParseException("maxResults must be between 1 and 48");
+			try {
+				int maxResults = maxResultsElem.getAsInt();
+				if (maxResults <= 0 || maxResults > 48) {
+					throw new JsonParseException("maxResults must be between 1 and 48");
+				}
+			} catch (RuntimeException e) {
+				throw new JsonParseException("maxResults must be an integer", e);
 			}
 		}
 	}
