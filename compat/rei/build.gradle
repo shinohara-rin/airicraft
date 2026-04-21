@@ -1,0 +1,151 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = "airicraft-rei-compat"
+}
+
+repositories {
+	maven {
+		name = 'Shedaniel'
+		url = uri('https://maven.shedaniel.me/')
+		content {
+			includeGroup 'me.shedaniel'
+			includeGroup 'me.shedaniel.cloth'
+		}
+	}
+	maven {
+		name = 'Architectury'
+		url = uri('https://maven.architectury.dev')
+		content {
+			includeGroup 'dev.architectury'
+		}
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"airicraft-rei-compat" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+configurations {
+	reiCompatMods {
+		canBeConsumed = false
+		canBeResolved = true
+		transitive = false
+	}
+
+	reiCompatLibraries {
+		canBeConsumed = false
+		canBeResolved = true
+		transitive = true
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	clientCompileOnly rootProject.sourceSets.main.output
+	clientCompileOnly rootProject.sourceSets.client.output
+	modCompileOnly "me.shedaniel:RoughlyEnoughItems-api-fabric:${project.rei_version}"
+	modRuntimeOnly "me.shedaniel:RoughlyEnoughItems-fabric:${project.rei_version}"
+	modRuntimeOnly "dev.architectury:architectury-fabric:${project.architectury_version}"
+	modRuntimeOnly "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}"
+
+	reiCompatMods "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	reiCompatMods "me.shedaniel:RoughlyEnoughItems-fabric:${project.rei_version}"
+	reiCompatMods "dev.architectury:architectury-fabric:${project.architectury_version}"
+	reiCompatMods "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}"
+	reiCompatLibraries "org.yaml:snakeyaml:2.4"
+	reiCompatLibraries "io.opentelemetry:opentelemetry-api:1.60.1"
+	reiCompatLibraries "io.opentelemetry:opentelemetry-sdk:1.60.1"
+	reiCompatLibraries "io.opentelemetry:opentelemetry-exporter-otlp:1.60.1"
+
+	testImplementation platform("org.junit:junit-bom:5.11.4")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+processResources {
+	inputs.property "version", project.version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": inputs.properties.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
+def reiCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/rei")
+def reiCompatModsDir = reiCompatCacheDir.dir("mods")
+def reiCompatLibrariesDir = reiCompatCacheDir.dir("libraries")
+
+tasks.register("syncReiCompatMods", Sync) {
+	group = "airicraft compatibility"
+	description = "Copies Airicraft, Airicraft REI compat, REI, and local runtime mods into .airicraft-compat/rei/mods."
+	dependsOn rootProject.tasks.named("remapJar")
+	dependsOn tasks.named("remapJar")
+
+	into(reiCompatModsDir)
+	from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+	from(tasks.named("remapJar").flatMap { it.archiveFile })
+	from(configurations.reiCompatMods)
+	from(rootProject.layout.projectDirectory.files(
+		"libs/baritone-unoptimized-fabric-1.15.0.jar",
+		"libs/nether-pathfinder-1.4.1.jar"
+	))
+}
+
+tasks.register("syncReiCompatLibraries", Sync) {
+	group = "airicraft compatibility"
+	description = "Copies Airicraft non-mod runtime libraries into .airicraft-compat/rei/libraries."
+	from(configurations.reiCompatLibraries)
+	into(reiCompatLibrariesDir)
+}
+
+tasks.register("runClientReiCompat", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	group = "airicraft compatibility"
+	description = "Runs a debug production-style Fabric client with Airicraft REI compat."
+	dependsOn tasks.named("syncReiCompatMods")
+	dependsOn tasks.named("syncReiCompatLibraries")
+	outputs.upToDateWhen { false }
+
+	mods.from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+	mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
+	mods.from(configurations.reiCompatMods)
+	mods.from(rootProject.layout.projectDirectory.files(
+		"libs/baritone-unoptimized-fabric-1.15.0.jar",
+		"libs/nether-pathfinder-1.4.1.jar"
+	))
+	classpath.from(configurations.reiCompatLibraries)
+	runDir = sharedDevRunDir.asFile
+	javaLauncher = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+	jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5006")
+}

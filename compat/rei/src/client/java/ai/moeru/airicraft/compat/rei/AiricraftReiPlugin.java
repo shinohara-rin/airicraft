@@ -1,5 +1,6 @@
-package ai.moeru.airicraft.agent.integration.rei;
+package ai.moeru.airicraft.compat.rei;
 
+import ai.moeru.airicraft.agent.integration.rei.ReiRecipeSearchBridge;
 import me.shedaniel.rei.api.client.plugins.REIClientPlugin;
 import me.shedaniel.rei.api.common.plugins.PluginManager;
 import me.shedaniel.rei.api.common.registry.ReloadStage;

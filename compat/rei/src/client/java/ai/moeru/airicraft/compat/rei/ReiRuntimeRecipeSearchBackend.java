@@ -1,5 +1,8 @@
-package ai.moeru.airicraft.agent.integration.rei;
+package ai.moeru.airicraft.compat.rei;
 
+import ai.moeru.airicraft.agent.integration.rei.RecipeSearchBackend;
+import ai.moeru.airicraft.agent.integration.rei.RecipeSearchMode;
+import ai.moeru.airicraft.agent.integration.rei.RecipeSearchRequest;
 import me.shedaniel.rei.api.client.registry.category.CategoryRegistry;
 import me.shedaniel.rei.api.client.registry.display.DisplayCategory;
 import me.shedaniel.rei.api.client.registry.display.DisplayRegistry;

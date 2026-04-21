@@ -7,7 +7,7 @@ public enum RecipeSearchMode {
 	OUTPUT,
 	INPUT;
 
-	static RecipeSearchMode parse(String raw) {
+	public static RecipeSearchMode parse(String raw) {
 		if (raw == null || raw.isBlank()) {
 			return ALL;
 		}
@@ -19,7 +19,7 @@ public enum RecipeSearchMode {
 		};
 	}
 
-	String toolValue() {
+	public String toolValue() {
 		return name().toLowerCase(Locale.ROOT);
 	}
 }

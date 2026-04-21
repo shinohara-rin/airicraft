@@ -15,12 +15,12 @@ dependencyResolutionManagement {
 			name = 'Fabric'
 			url = 'https://maven.fabricmc.net/'
 		}
-		maven {
-			name = 'Architectury'
-			url = 'https://maven.architectury.dev'
-		}
 		mavenCentral()
 	}
 }
 
 include("wrapper")
+
+if (gradle.startParameter.projectProperties.get("airicraft.includeReiCompat") == "true") {
+	include("compat:rei")
+}
