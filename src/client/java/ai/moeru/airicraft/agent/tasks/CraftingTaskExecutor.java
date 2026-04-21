@@ -246,7 +246,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				waitTicks = 0;
 				return WorkbenchReadiness.notReadyState();
 			}
-			return waitForWorkbench(request, "crafting_table_place_failed");
+			return waitForWorkbench(request, player, "crafting_table_place_failed");
 		}
 
 		if (phase == CraftPhase.NAVIGATING_TO_TABLE) {
@@ -263,7 +263,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				return WorkbenchReadiness.notReadyState();
 			}
 			if (tableTarget.standPosition() == null || baritoneFacade == null || !baritoneFacade.isLoaded()) {
-				return WorkbenchReadiness.failed("crafting_table_not_reachable");
+				return fallBackToPortableCraftingTable(request, player);
 			}
 			if (!navigationStarted) {
 				baritoneFacade.startNavigate(tableTarget.standPosition());
@@ -273,7 +273,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			}
 			Optional<String> pathEvent = baritoneFacade.pollPathEvent();
 			if (pathEvent.isPresent() && "CALC_FAILED".equalsIgnoreCase(pathEvent.get())) {
-				return WorkbenchReadiness.failed("crafting_table_not_reachable");
+				return fallBackToPortableCraftingTable(request, player);
 			}
 			if (baritoneFacade.navigationGoalReached(tableTarget.standPosition()) || withinInteractionRange(player, tableTarget.tablePos())) {
 				phase = CraftPhase.OPENING_TABLE;
@@ -294,7 +294,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				return WorkbenchReadiness.failed("crafting_table_not_found");
 			}
 			if (!openCraftingTable(client, player, tableTarget.tablePos())) {
-				return WorkbenchReadiness.failed("crafting_table_open_failed");
+				return fallBackToPortableCraftingTable(request, player);
 			}
 			phase = CraftPhase.WAITING_FOR_TABLE_SCREEN;
 			waitTicks = 0;
@@ -308,18 +308,38 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				waitTicks = 0;
 				return WorkbenchReadiness.readyState();
 			}
-			return waitForWorkbench(request, "crafting_table_open_failed");
+			return waitForWorkbench(request, player, "crafting_table_open_failed");
 		}
 
 		return WorkbenchReadiness.notReadyState();
 	}
 
-	private WorkbenchReadiness waitForWorkbench(WorldTaskRequest request, String reason) {
+	private WorkbenchReadiness waitForWorkbench(WorldTaskRequest request, ClientPlayerEntity player, String reason) {
 		waitTicks++;
 		if (waitTicks > WAIT_TIMEOUT_TICKS) {
+			if ("crafting_table_open_failed".equals(reason)) {
+				return fallBackToPortableCraftingTable(request, player);
+			}
 			return WorkbenchReadiness.failed(reason);
 		}
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_wait");
+		return WorkbenchReadiness.notReadyState();
+	}
+
+	private WorkbenchReadiness fallBackToPortableCraftingTable(WorldTaskRequest request, ClientPlayerEntity player) {
+		cancelNavigationIfStarted();
+		tableTarget = null;
+		placedTablePos = null;
+		waitTicks = 0;
+		if (hasCraftingTableItem(player, player.currentScreenHandler)) {
+			phase = CraftPhase.PLACING_TABLE;
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_fallback_to_inventory");
+			return WorkbenchReadiness.notReadyState();
+		}
+		phase = CraftPhase.CRAFTING_TABLE_INPUTS;
+		craftingTablePlan = null;
+		craftingTableProgressTracker.reset();
+		snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_fallback_to_planks");
 		return WorkbenchReadiness.notReadyState();
 	}
 
