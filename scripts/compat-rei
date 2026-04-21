@@ -15,20 +15,20 @@ fi
 
 case "$command" in
   setup | sync)
-    ./gradlew syncReiCompatMods syncReiCompatLibraries "$@"
+    ./gradlew -Pairicraft.includeReiCompat=true :compat:rei:syncReiCompatMods :compat:rei:syncReiCompatLibraries "$@"
     ;;
   run)
-    ./gradlew runClientReiCompat "$@"
+    ./gradlew -Pairicraft.includeReiCompat=true :compat:rei:runClientReiCompat "$@"
     ;;
   dry-run)
-    ./gradlew runClientReiCompat --dry-run "$@"
+    ./gradlew -Pairicraft.includeReiCompat=true :compat:rei:runClientReiCompat --dry-run "$@"
     ;;
   config)
     mkdir -p run/config/airicraft
     printf '%s\n' "$repo_root/run/config/airicraft"
     ;;
   mods | list)
-    ./gradlew -q syncReiCompatMods syncReiCompatLibraries
+    ./gradlew -Pairicraft.includeReiCompat=true -q :compat:rei:syncReiCompatMods :compat:rei:syncReiCompatLibraries
     find .airicraft-compat/rei/mods -maxdepth 1 -type f -name '*.jar' -print | sort
     find .airicraft-compat/rei/libraries -maxdepth 1 -type f -name '*.jar' -print | sort
     ;;

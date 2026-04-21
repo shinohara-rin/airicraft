@@ -3,6 +3,7 @@ package ai.moeru.airicraft.agent.integration.rei;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerToolCatalog;
 import ai.moeru.airicraft.agent.llm.PlannerToolProvider;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 
@@ -100,10 +101,17 @@ public final class ReiRecipeSearchToolProvider implements PlannerToolProvider {
 			throw new JsonParseException(exception.getMessage(), exception);
 		}
 		if (arguments != null && arguments.has("maxResults")) {
-			if (!arguments.get("maxResults").isJsonPrimitive()) {
+			JsonElement maxResultsElem = arguments.get("maxResults");
+			if (!maxResultsElem.isJsonPrimitive()) {
 				throw new JsonParseException("maxResults must be an integer");
 			}
-			int maxResults = arguments.get("maxResults").getAsInt();
+			int maxResults;
+			try {
+				maxResults = maxResultsElem.getAsInt();
+			}
+			catch (RuntimeException e) {
+				throw new JsonParseException("maxResults must be an integer", e);
+			}
 			if (maxResults <= 0 || maxResults > 48) {
 				throw new JsonParseException("maxResults must be between 1 and 48");
 			}

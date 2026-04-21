@@ -1,0 +1,25 @@
+{
+	"schemaVersion": 1,
+	"id": "airicraft-rei-compat",
+	"version": "${version}",
+	"name": "Airicraft REI Compatibility",
+	"description": "Optional REI recipe-search integration for Airicraft.",
+	"authors": [
+		"Airicraft"
+	],
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"rei_client": [
+			"ai.moeru.airicraft.compat.rei.AiricraftReiPlugin"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.8",
+		"java": ">=21",
+		"fabric-api": "*",
+		"airicraft": "*",
+		"roughlyenoughitems": "*"
+	}
+}

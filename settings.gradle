@@ -24,3 +24,7 @@ dependencyResolutionManagement {
 }
 
 include("wrapper")
+
+if (gradle.startParameter.projectProperties.get("airicraft.includeReiCompat") == "true") {
+	include("compat:rei")
+}
