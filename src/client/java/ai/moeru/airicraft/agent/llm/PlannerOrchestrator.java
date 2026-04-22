@@ -34,6 +34,7 @@ public final class PlannerOrchestrator {
 	private static final String INVENTORY_BOOTSTRAP_TOOL_CALL_ID = "bootstrap_inspect_inventory";
 	private static final String INVENTORY_BOOTSTRAP_PROMPT = "startup inventory context";
 	private static final String NATIVE_TOOL_RESULT_TEXT = "Tool result for take_a_look: current first-person view attached.";
+	private static final int MAX_TOOL_CALLS_PER_TOOL_PLAN = 2;
 	private static final int SESSION_MAX_ATTEMPTS = 2;
 	private static final long SESSION_RETRY_BACKOFF_MS = 250L;
 	private static final int SESSION_COALESCE_STEP_MS = 10;
@@ -702,14 +703,18 @@ public final class PlannerOrchestrator {
 			acceptGeneration(plannerResult);
 			return plannerResult;
 		}
-		if (plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP) {
-			// TODO: Support bounded multi-tool plans so the planner can request inventory and recipes in one goal.
-			PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested a tool more than once");
-			appendFailureCard(failure);
-			debugRecorder.recordPlannerCompletion(failure);
-			dropRecordedToolExchanges(plannerResult.generation());
-			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-				return failure;
+			if (plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP) {
+				if (completedToolCallCount(plannerResult.generation()) >= MAX_TOOL_CALLS_PER_TOOL_PLAN) {
+					PlannerExecutionResult failure = parseFailure(
+						plannerResult,
+						"Planner requested too many tools for one goal"
+					);
+					appendFailureCard(failure);
+					debugRecorder.recordPlannerCompletion(failure);
+					dropRecordedToolExchanges(plannerResult.generation());
+					sessionCoordinator.finishGeneration(plannerResult.generation(), true);
+					return failure;
+				}
 			}
 
 			if (plannerResult.response().toolCall() == null && !hasToolCompatibleIntent(plannerResult.response())) {
@@ -1202,6 +1207,10 @@ public final class PlannerOrchestrator {
 				);
 			}
 		}
+	}
+
+	private int completedToolCallCount(long generation) {
+		return toolExchangesByGeneration.getOrDefault(generation, List.of()).size();
 	}
 
 	private void dropRecordedToolExchanges(long generation) {

@@ -470,7 +470,7 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
-	void secondToolRequestReturnsParseFailure() {
+	void thirdToolRequestReturnsParseFailure() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		backend.injectMockResponse(new PlannerResponse(
 			"",
@@ -481,6 +481,11 @@ class PlannerOrchestratorTest {
 			"",
 			new PlannerIntent("none", null, null),
 			new PlannerToolRequest("take_a_look", "Describe the scene again.")
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerIntent("none", null, null),
+			new PlannerToolRequest("take_a_look", "Describe the scene once more.")
 		));
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
@@ -501,8 +506,55 @@ class PlannerOrchestratorTest {
 
 		assertNotNull(result);
 		assertEquals(LlmFailureType.PARSE_ERROR, result.failureType());
-		assertTrue(result.failureMessage().contains("more than once"));
+		assertTrue(result.failureMessage().contains("too many tools"));
 		assertNull(result.response());
+	}
+
+	@Test
+	void boundedTwoToolPlanCanRequestInventoryAndRecipesInOneGoal() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:jungle_log=5}",
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: [From {1*jungle_log} to 4*jungle_planks]: jungle_log_to_jungle_planks"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(baseRequest(null));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+
+		backend.succeed(
+			0,
+			new PlannerResponse(
+				"",
+				new PlannerIntent("none", null, null),
+				new PlannerToolRequest("inspect_inventory", null)
+			)
+		);
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+
+		backend.succeed(
+			1,
+			new PlannerResponse(
+				"",
+				new PlannerIntent("none", null, null),
+				new PlannerToolRequest("check_craftables", null)
+			)
+		);
+		awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(1));
+
+		backend.succeed(2, replyOnly("You can craft jungle planks."));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals("You can craft jungle planks.", result.response().replyText());
+		assertEquals(1, inventoryTool.inventoryRequestCount());
+		assertEquals(1, inventoryTool.craftablesRequestCount());
 	}
 
 	@Test
