@@ -228,6 +228,74 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void craftRecipeToolResultWarnsAcceptedIsOnlyQueued() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_craft",
+			"craft_recipe",
+			JsonParser.parseString("""
+				{"recipeId":"oak_planks_x2_to_stick","times":1}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertTrue(result.contains("does not mean completed"));
+		assertTrue(result.contains("TASK UPDATE"));
+	}
+
+	@Test
+	void craftRecipePrimitiveFailureEmitsFailureReasonToPlanner() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_craft",
+			"craft_recipe",
+			JsonParser.parseString("""
+				{"recipeId":"oak_planks_x2_to_stick","times":1}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			null,
+			TaskExecutionState.FAILED,
+			"missing_ingredients",
+			null
+		));
+		runtime.onClientTick(null);
+		runtime.onClientTick(null);
+
+		assertEquals(TaskState.FAILED, runtime.taskSnapshot().state());
+		assertEquals("missing_ingredients", runtime.taskSnapshot().lastFailure());
+		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.failed".equals(event.type())));
+		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
+			"system".equals(turn.speaker())
+				&& turn.text().contains("TASK UPDATE: state=FAILED")
+				&& turn.text().contains("activeStepKind=CRAFT_RECIPE")
+				&& turn.text().contains("failure=missing_ingredients")
+		));
+	}
+
+	@Test
 	void givePlayerToolRejectsMissingNearbyTargetBeforeQueuingTask() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
@@ -777,7 +845,7 @@ class EmbodiedAgentRuntimeTest {
 					terminalEvent.taskId(),
 					terminalEvent.goal(),
 					null,
-					terminalEvent.terminalState().name(),
+					terminalEvent.message(),
 					null,
 					terminalEvent.terminationCause()
 				);

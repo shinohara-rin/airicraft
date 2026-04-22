@@ -1026,7 +1026,7 @@ public final class EmbodiedAgentRuntime {
 					intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
 				);
 				applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
-				yield "Tool result for craft_recipe: accepted recipeId=" + craftRecipe.recipeId() + " times=" + craftRecipe.times();
+				yield queuedActionToolResult("craft_recipe", "recipeId=" + craftRecipe.recipeId() + " times=" + craftRecipe.times());
 			}
 			case PlannerToolCatalog.DROP_ITEMS -> {
 				DropItemsStepArgs dropItems = new DropItemsStepArgs(
