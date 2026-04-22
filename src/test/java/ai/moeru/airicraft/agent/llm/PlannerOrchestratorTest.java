@@ -470,23 +470,17 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
-	void thirdToolRequestReturnsParseFailure() {
+	void boundedToolPlanRejectsExcessiveToolRequests() {
+		int toolRequestCountLimit = 20;
+
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
-		backend.injectMockResponse(new PlannerResponse(
-			"",
-			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("take_a_look", "Describe the scene.")
-		));
-		backend.injectMockResponse(new PlannerResponse(
-			"",
-			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("take_a_look", "Describe the scene again.")
-		));
-		backend.injectMockResponse(new PlannerResponse(
-			"",
-			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("take_a_look", "Describe the scene once more.")
-		));
+		for (int index = 0; index <= toolRequestCountLimit; index++) {
+			backend.injectMockResponse(new PlannerResponse(
+				"",
+				new PlannerIntent("none", null, null),
+				new PlannerToolRequest("take_a_look", "Describe the scene " + index + ".")
+			));
+		}
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
 			new StubVisionTool(
