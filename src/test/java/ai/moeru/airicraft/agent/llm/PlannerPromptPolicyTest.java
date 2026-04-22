@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.llm;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlannerPromptPolicyTest {
@@ -70,6 +71,24 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("Use search_recipes for broad recipe-viewer searches"));
 		assertTrue(prompt.contains("Available tools:"));
 		assertTrue(prompt.contains("search_recipes"));
+	}
+
+	@Test
+	void systemPromptRendersMarkdownTemplatePlaceholders() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.NATIVE_TOOL_IMAGE);
+
+		assertTrue(prompt.startsWith("You are the planner for a Minecraft companion."));
+		assertTrue(prompt.contains("If you need visual information, call take_a_look."));
+		assertFalse(prompt.contains("{{"));
+	}
+
+	@Test
+	void compactionInstructionLoadsMarkdownTemplate() {
+		String prompt = PlannerPromptPolicy.compactionInstruction();
+
+		assertTrue(prompt.startsWith("COMPACTION TASK:"));
+		assertTrue(prompt.contains("\"forgettable_noise\": string[]"));
+		assertFalse(prompt.contains("{{"));
 	}
 
 	private record PromptOnlyProvider(String promptInstructions) implements PlannerToolProvider {
