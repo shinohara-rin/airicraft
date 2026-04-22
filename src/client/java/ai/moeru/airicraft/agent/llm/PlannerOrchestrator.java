@@ -34,7 +34,7 @@ public final class PlannerOrchestrator {
 	private static final String INVENTORY_BOOTSTRAP_TOOL_CALL_ID = "bootstrap_inspect_inventory";
 	private static final String INVENTORY_BOOTSTRAP_PROMPT = "startup inventory context";
 	private static final String NATIVE_TOOL_RESULT_TEXT = "Tool result for take_a_look: current first-person view attached.";
-	private static final int MAX_TOOL_CALLS_PER_TOOL_PLAN = 2;
+	private static final int MAX_TOOL_CALLS_PER_TOOL_PLAN = 20;
 	private static final int SESSION_MAX_ATTEMPTS = 2;
 	private static final long SESSION_RETRY_BACKOFF_MS = 250L;
 	private static final int SESSION_COALESCE_STEP_MS = 10;
