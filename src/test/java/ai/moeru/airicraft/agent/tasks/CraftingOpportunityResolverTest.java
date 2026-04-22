@@ -4,7 +4,9 @@ import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
 import net.minecraft.recipe.RecipeFinder;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -74,6 +76,27 @@ class CraftingOpportunityResolverTest {
 		assertEquals(
 			CraftingGridKind.WORKBENCH_3X3,
 			CraftingOpportunityResolver.gridKindForIngredientCount(9)
+		);
+	}
+
+	@Test
+	void boundedCombinationsStopsAtRecipeVariantLimit() {
+		List<List<String>> choices = Collections.nCopies(9, List.of("acacia", "birch", "cherry", "jungle", "oak"));
+		Map<String, Integer> availableItems = Map.of(
+			"acacia", 9,
+			"birch", 9,
+			"cherry", 9,
+			"jungle", 9,
+			"oak", 9
+		);
+
+		assertEquals(
+			CraftingOpportunityResolver.MAX_PLACEMENT_VARIANTS_PER_RECIPE,
+			CraftingOpportunityResolver.boundedCombinations(
+				choices,
+				availableItems,
+				CraftingOpportunityResolver.MAX_PLACEMENT_VARIANTS_PER_RECIPE
+			).size()
 		);
 	}
 }

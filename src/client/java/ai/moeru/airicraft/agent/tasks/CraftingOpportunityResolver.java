@@ -30,6 +30,7 @@ import java.util.TreeMap;
 public final class CraftingOpportunityResolver {
 	private static final int PLAYER_GRID_INPUT_COUNT = PlayerScreenHandler.CRAFTING_INPUT_COUNT;
 	private static final int WORKBENCH_GRID_INPUT_COUNT = 9;
+	static final int MAX_PLACEMENT_VARIANTS_PER_RECIPE = 24;
 
 	private CraftingOpportunityResolver() {
 	}
@@ -272,41 +273,75 @@ public final class CraftingOpportunityResolver {
 		if (placements.isEmpty()) {
 			return List.of();
 		}
+		Map<Item, Integer> safeAvailableItems = availableItems == null ? Map.of() : availableItems;
+		List<List<Item>> choicesByPlacement = new ArrayList<>();
+		for (IngredientPlacement placement : placements) {
+			List<Item> matchingItems = placement.ingredient().getMatchingItems()
+				.map(entry -> entry.value())
+				.distinct()
+				.filter(item -> safeAvailableItems.getOrDefault(item, 0) > 0)
+				.sorted(Comparator.comparing(CraftingOpportunityResolver::itemId))
+				.toList();
+			if (matchingItems.isEmpty()) {
+				return List.of();
+			}
+			choicesByPlacement.add(matchingItems);
+		}
+		List<List<Item>> itemVariants = boundedCombinations(choicesByPlacement, safeAvailableItems, MAX_PLACEMENT_VARIANTS_PER_RECIPE);
 		List<List<CraftingIngredientPlacement>> variants = new ArrayList<>();
-		backtrackConcretePlacements(placements, availableItems, 0, new HashMap<>(), new ArrayList<>(), variants);
-		return variants;
+		for (List<Item> itemVariant : itemVariants) {
+			List<CraftingIngredientPlacement> variant = new ArrayList<>();
+			for (int index = 0; index < itemVariant.size(); index++) {
+				Item item = itemVariant.get(index);
+				variant.add(new CraftingIngredientPlacement(placements.get(index).gridIndex(), item, itemId(item)));
+			}
+			variants.add(List.copyOf(variant));
+		}
+		return List.copyOf(variants);
 	}
 
-	private static void backtrackConcretePlacements(
-		List<IngredientPlacement> placements,
-		Map<Item, Integer> availableItems,
+	static <T> List<List<T>> boundedCombinations(List<List<T>> choices, Map<T, Integer> availableItems, int maxVariants) {
+		if (choices == null || choices.isEmpty() || maxVariants <= 0) {
+			return List.of();
+		}
+		List<List<T>> variants = new ArrayList<>();
+		backtrackBoundedCombinations(choices, availableItems == null ? Map.of() : availableItems, maxVariants, 0, new HashMap<>(), new ArrayList<>(), variants);
+		return List.copyOf(variants);
+	}
+
+	private static <T> void backtrackBoundedCombinations(
+		List<List<T>> choices,
+		Map<T, Integer> availableItems,
+		int maxVariants,
 		int index,
-		Map<Item, Integer> usedItems,
-		List<CraftingIngredientPlacement> current,
-		List<List<CraftingIngredientPlacement>> variants
+		Map<T, Integer> usedItems,
+		List<T> current,
+		List<List<T>> variants
 	) {
-		if (index >= placements.size()) {
+		if (variants.size() >= maxVariants) {
+			return;
+		}
+		if (index >= choices.size()) {
 			variants.add(List.copyOf(current));
 			return;
 		}
-		IngredientPlacement placement = placements.get(index);
-		List<Item> matchingItems = placement.ingredient().getMatchingItems()
-			.map(entry -> entry.value())
-			.distinct()
-			.filter(item -> availableItems.getOrDefault(item, 0) > usedItems.getOrDefault(item, 0))
-			.sorted(Comparator.comparing(CraftingOpportunityResolver::itemId))
-			.toList();
-		for (Item item : matchingItems) {
-			usedItems.merge(item, 1, Integer::sum);
-			current.add(new CraftingIngredientPlacement(placement.gridIndex(), item, itemId(item)));
-			backtrackConcretePlacements(placements, availableItems, index + 1, usedItems, current, variants);
+		for (T choice : choices.get(index)) {
+			if (variants.size() >= maxVariants) {
+				break;
+			}
+			if (availableItems.getOrDefault(choice, 0) <= usedItems.getOrDefault(choice, 0)) {
+				continue;
+			}
+			usedItems.merge(choice, 1, Integer::sum);
+			current.add(choice);
+			backtrackBoundedCombinations(choices, availableItems, maxVariants, index + 1, usedItems, current, variants);
 			current.remove(current.size() - 1);
-			int used = usedItems.getOrDefault(item, 0) - 1;
+			int used = usedItems.getOrDefault(choice, 0) - 1;
 			if (used <= 0) {
-				usedItems.remove(item);
+				usedItems.remove(choice);
 			}
 			else {
-				usedItems.put(item, used);
+				usedItems.put(choice, used);
 			}
 		}
 	}
