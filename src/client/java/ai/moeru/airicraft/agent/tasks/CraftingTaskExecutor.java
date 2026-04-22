@@ -175,7 +175,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				phase = CraftPhase.NAVIGATING_TO_TABLE;
 				waitTicks = 0;
 			}
-			else if (hasCraftingTableItem(player, player.currentScreenHandler)) {
+			else if (hasCraftingTableItem(player.currentScreenHandler)) {
 				phase = CraftPhase.PLACING_TABLE;
 				waitTicks = 0;
 			}
@@ -331,7 +331,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		tableTarget = null;
 		placedTablePos = null;
 		waitTicks = 0;
-		if (hasCraftingTableItem(player, player.currentScreenHandler)) {
+		if (hasCraftingTableItem(player.currentScreenHandler)) {
 			phase = CraftPhase.PLACING_TABLE;
 			snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_fallback_to_inventory");
 			return WorkbenchReadiness.notReadyState();
@@ -555,7 +555,8 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		if (placedTablePos == null) {
 			return false;
 		}
-		if (!selectHotbarItem(client, player, Items.CRAFTING_TABLE)) {
+		Hand placementHand = selectCraftingTablePlacementHand(client, player);
+		if (placementHand == null) {
 			return false;
 		}
 		BlockPos support = placedTablePos.down();
@@ -565,9 +566,9 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			support,
 			false
 		);
-		ActionResult result = client.interactionManager.interactBlock(player, Hand.MAIN_HAND, hitResult);
+		ActionResult result = client.interactionManager.interactBlock(player, placementHand, hitResult);
 		if (result.isAccepted()) {
-			player.swingHand(Hand.MAIN_HAND);
+			player.swingHand(placementHand);
 		}
 		return result.isAccepted();
 	}
@@ -618,8 +619,36 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		return !selected.isEmpty() && selected.isOf(item);
 	}
 
-	private static boolean hasCraftingTableItem(ClientPlayerEntity player, ScreenHandler handler) {
-		return handler != null && findInventorySlot(handler, CraftingGridSpec.PLAYER, Items.CRAFTING_TABLE) >= 0;
+	private static Hand selectCraftingTablePlacementHand(MinecraftClient client, ClientPlayerEntity player) {
+		if (player.getOffHandStack().isOf(Items.CRAFTING_TABLE)) {
+			return Hand.OFF_HAND;
+		}
+		return selectHotbarItem(client, player, Items.CRAFTING_TABLE) ? Hand.MAIN_HAND : null;
+	}
+
+	private static boolean hasCraftingTableItem(ScreenHandler handler) {
+		return findPortableCraftingTableSlot(handler) >= 0;
+	}
+
+	private static int findPortableCraftingTableSlot(ScreenHandler handler) {
+		if (!(handler instanceof PlayerScreenHandler)) {
+			return -1;
+		}
+		for (int slot = 0; slot < handler.slots.size(); slot++) {
+			if (!isPortableCraftingTableSourceSlot(slot)) {
+				continue;
+			}
+			ItemStack stack = handler.getSlot(slot).getStack();
+			if (!stack.isEmpty() && stack.isOf(Items.CRAFTING_TABLE)) {
+				return slot;
+			}
+		}
+		return -1;
+	}
+
+	static boolean isPortableCraftingTableSourceSlot(int slot) {
+		return (slot >= PlayerScreenHandler.INVENTORY_START && slot < PlayerScreenHandler.HOTBAR_END)
+			|| slot == PlayerScreenHandler.OFFHAND_ID;
 	}
 
 	private boolean openCraftingTable(MinecraftClient client, ClientPlayerEntity player, BlockPos pos) {
