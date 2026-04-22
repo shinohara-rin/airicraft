@@ -40,6 +40,7 @@ public final class PlannerOrchestrator {
 	private static final int SESSION_COALESCE_STEP_MS = 10;
 	private static final int SESSION_COALESCE_MIN_MS = 10;
 	private static final int SESSION_COALESCE_MAX_MS = 100;
+	private static final int DEFAULT_SESSION_MAX_CONCURRENT_ATTEMPTS = 3;
 	private static final int CONVERSATION_HISTORY_CARD_LIMIT = 48;
 
 	private final PlannerExecutor plannerExecutor;
@@ -94,7 +95,7 @@ public final class PlannerOrchestrator {
 				CurrentInventoryTool.disabled(),
 				visionMode,
 				imageDetail,
-				3,
+				DEFAULT_SESSION_MAX_CONCURRENT_ATTEMPTS,
 			SESSION_COALESCE_STEP_MS,
 			SESSION_COALESCE_MIN_MS,
 			SESSION_COALESCE_MAX_MS,
@@ -657,19 +658,11 @@ public final class PlannerOrchestrator {
 
 	public PlannerExecutionResult poll() {
 		if (compactionService.hasInFlight()) {
-			CompactionExecutionResult compactionResult = compactionService.poll();
-			if (compactionResult == null) {
-				return null;
-			}
-			completeCompaction(compactionResult);
-			if (compactionResult.succeeded() && pendingSubmitRequest != null && contextAggregator.hasQueuedTriggers()) {
-				startQueuedWorkIfPossible();
-			}
-			return null;
+			return pollCompaction();
 		}
 
 		if (pendingToolExecution != null) {
-			PlannerExecutionResult toolContinuation = continueAfterTool();
+			PlannerExecutionResult toolContinuation = pollToolContinuation();
 			if (toolContinuation != null) {
 				return toolContinuation;
 			}
@@ -677,103 +670,139 @@ public final class PlannerOrchestrator {
 
 		PlannerExecutionResult plannerResult = sessionCoordinator.poll();
 		if (plannerResult == null) {
-			if (coalescePending) {
-				startQueuedWorkIfPossible();
-			}
+			pollCoalescedQueue();
 			return null;
 		}
 		if (!plannerResult.succeeded()) {
-			appendFailureCard(plannerResult);
-			debugRecorder.recordPlannerCompletion(plannerResult);
-			observability.recordFailure(turnContext, plannerResult.failureType().name(), plannerResult.failureMessage(), null);
-			lifecycleListener.onPlannerExecutionFailed(plannerResult);
-			dropRecordedToolExchanges(plannerResult.generation());
-			sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-			endTurnSpan();
-			return plannerResult;
+			return finishFailedPlannerResult(plannerResult);
 		}
 
-			contextAggregator.recordUsage(plannerResult.usage());
-			lifecycleListener.onPlannerExecutionSucceeded(plannerResult);
-			PlannerToolCall toolCall = effectiveToolCall(plannerResult.response());
-			if (toolCall == null) {
-				appendAssistantOutcomeCard(plannerResult);
-				appendOperationCards(plannerResult);
-				debugRecorder.recordPlannerCompletion(plannerResult);
-			acceptGeneration(plannerResult);
-			return plannerResult;
+		return finishSuccessfulPlannerResult(plannerResult);
+	}
+
+	private PlannerExecutionResult pollCompaction() {
+		CompactionExecutionResult compactionResult = compactionService.poll();
+		if (compactionResult == null) {
+			return null;
 		}
-			if (plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP) {
-				if (completedToolCallCount(plannerResult.generation()) >= MAX_TOOL_CALLS_PER_TOOL_PLAN) {
-					PlannerExecutionResult failure = parseFailure(
-						plannerResult,
-						"Planner requested too many tools for one goal"
-					);
-					appendFailureCard(failure);
-					debugRecorder.recordPlannerCompletion(failure);
-					dropRecordedToolExchanges(plannerResult.generation());
-					sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-					return failure;
-				}
-			}
-
-			if (plannerResult.response().toolCall() == null && !hasToolCompatibleIntent(plannerResult.response())) {
-				String toolIntentType = toolIntentType(plannerResult.response());
-				Airicraft.LOGGER.warn(
-					"Planner returned invalid legacy tool response intentType={} toolCallName={} replyText={}",
-					toolIntentType,
-					toolCall.name(),
-					summarizeForLog(plannerResult.response().replyText())
-				);
-				PlannerExecutionResult failure = parseFailure(plannerResult, "Tool requests cannot set goal intents");
-			appendFailureCard(failure);
-			debugRecorder.recordPlannerCompletion(failure);
-			dropRecordedToolExchanges(plannerResult.generation());
-				sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-				return failure;
-			}
-			if (!isValidToolCall(toolCall)) {
-				Airicraft.LOGGER.warn(
-					"Planner returned invalid tool call name={} narration={}",
-					toolCall.name(),
-					summarizeForLog(toolCall.narration())
-				);
-				PlannerExecutionResult failure = parseFailure(plannerResult, "Planner requested an invalid tool");
-				appendFailureCard(failure);
-			debugRecorder.recordPlannerCompletion(failure);
-			dropRecordedToolExchanges(plannerResult.generation());
-				sessionCoordinator.finishGeneration(plannerResult.generation(), true);
-				return failure;
-			}
-			String toolIntentType = toolIntentType(plannerResult.response());
-			if (plannerResult.response().toolCall() == null && !"none".equals(toolIntentType)) {
-				Airicraft.LOGGER.info(
-					"Planner returned legacy tool request with non-none intent; ignoring intentType={} toolCallName={}",
-					toolIntentType,
-					toolCall.name()
-				);
-			}
-			if (plannerResult.response().replyText() != null && !plannerResult.response().replyText().isBlank()) {
-				Airicraft.LOGGER.info(
-					"Planner returned tool call with stray replyText; ignoring text={} toolCallName={}",
-					summarizeForLog(plannerResult.response().replyText()),
-					toolCall.name()
-				);
-			}
-
-			narrationSink.onToolNarration(toolCall);
-			appendToolRequestCard(plannerResult, toolCall);
-			debugRecorder.recordPlannerCompletion(plannerResult);
-			lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
-			sessionCoordinator.markToolWait(plannerResult.generation());
-			pendingToolExecution = new PendingToolExecution(
-				plannerResult.generation(),
-				toolCallSummary(toolCall),
-				requestPlannerTool(toolCall),
-				plannerResult.response().rawAssistantContent(),
-				toolCall
-			);
+		completeCompaction(compactionResult);
+		if (compactionResult.succeeded() && pendingSubmitRequest != null && contextAggregator.hasQueuedTriggers()) {
+			startQueuedWorkIfPossible();
+		}
 		return null;
+	}
+
+	private PlannerExecutionResult pollToolContinuation() {
+		return continueAfterTool();
+	}
+
+	private void pollCoalescedQueue() {
+		if (coalescePending) {
+			startQueuedWorkIfPossible();
+		}
+	}
+
+	private PlannerExecutionResult finishFailedPlannerResult(PlannerExecutionResult plannerResult) {
+		appendFailureCard(plannerResult);
+		debugRecorder.recordPlannerCompletion(plannerResult);
+		observability.recordFailure(turnContext, plannerResult.failureType().name(), plannerResult.failureMessage(), null);
+		lifecycleListener.onPlannerExecutionFailed(plannerResult);
+		dropRecordedToolExchanges(plannerResult.generation());
+		sessionCoordinator.finishGeneration(plannerResult.generation(), true);
+		endTurnSpan();
+		return plannerResult;
+	}
+
+	private PlannerExecutionResult finishSuccessfulPlannerResult(PlannerExecutionResult plannerResult) {
+		contextAggregator.recordUsage(plannerResult.usage());
+		lifecycleListener.onPlannerExecutionSucceeded(plannerResult);
+		PlannerToolCall toolCall = effectiveToolCall(plannerResult.response());
+		if (toolCall == null) {
+			acceptPlannerReply(plannerResult);
+			return plannerResult;
+		}
+
+		PlannerExecutionResult toolRequestFailure = validateToolRequest(plannerResult, toolCall);
+		if (toolRequestFailure != null) {
+			return toolRequestFailure;
+		}
+		startToolExecution(plannerResult, toolCall);
+		return null;
+	}
+
+	private void acceptPlannerReply(PlannerExecutionResult plannerResult) {
+		appendAssistantOutcomeCard(plannerResult);
+		appendOperationCards(plannerResult);
+		debugRecorder.recordPlannerCompletion(plannerResult);
+		acceptGeneration(plannerResult);
+	}
+
+	private PlannerExecutionResult validateToolRequest(PlannerExecutionResult plannerResult, PlannerToolCall toolCall) {
+		if (
+			plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP
+				&& completedToolCallCount(plannerResult.generation()) >= MAX_TOOL_CALLS_PER_TOOL_PLAN
+		) {
+			return rejectToolRequest(plannerResult, "Planner requested too many tools for one goal");
+		}
+		if (plannerResult.response().toolCall() == null && !hasToolCompatibleIntent(plannerResult.response())) {
+			String toolIntentType = toolIntentType(plannerResult.response());
+			Airicraft.LOGGER.warn(
+				"Planner returned invalid legacy tool response intentType={} toolCallName={} replyText={}",
+				toolIntentType,
+				toolCall.name(),
+				summarizeForLog(plannerResult.response().replyText())
+			);
+			return rejectToolRequest(plannerResult, "Tool requests cannot set goal intents");
+		}
+		if (!isValidToolCall(toolCall)) {
+			Airicraft.LOGGER.warn(
+				"Planner returned invalid tool call name={} narration={}",
+				toolCall.name(),
+				summarizeForLog(toolCall.narration())
+			);
+			return rejectToolRequest(plannerResult, "Planner requested an invalid tool");
+		}
+
+		String toolIntentType = toolIntentType(plannerResult.response());
+		if (plannerResult.response().toolCall() == null && !"none".equals(toolIntentType)) {
+			Airicraft.LOGGER.info(
+				"Planner returned legacy tool request with non-none intent; ignoring intentType={} toolCallName={}",
+				toolIntentType,
+				toolCall.name()
+			);
+		}
+		if (plannerResult.response().replyText() != null && !plannerResult.response().replyText().isBlank()) {
+			Airicraft.LOGGER.info(
+				"Planner returned tool call with stray replyText; ignoring text={} toolCallName={}",
+				summarizeForLog(plannerResult.response().replyText()),
+				toolCall.name()
+			);
+		}
+		return null;
+	}
+
+	private PlannerExecutionResult rejectToolRequest(PlannerExecutionResult plannerResult, String message) {
+		PlannerExecutionResult failure = parseFailure(plannerResult, message);
+		appendFailureCard(failure);
+		debugRecorder.recordPlannerCompletion(failure);
+		dropRecordedToolExchanges(plannerResult.generation());
+		sessionCoordinator.finishGeneration(plannerResult.generation(), true);
+		return failure;
+	}
+
+	private void startToolExecution(PlannerExecutionResult plannerResult, PlannerToolCall toolCall) {
+		narrationSink.onToolNarration(toolCall);
+		appendToolRequestCard(plannerResult, toolCall);
+		debugRecorder.recordPlannerCompletion(plannerResult);
+		lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
+		sessionCoordinator.markToolWait(plannerResult.generation());
+		pendingToolExecution = new PendingToolExecution(
+			plannerResult.generation(),
+			toolCallSummary(toolCall),
+			requestPlannerTool(toolCall),
+			plannerResult.response().rawAssistantContent(),
+			toolCall
+		);
 	}
 
 	public void injectMockResponse(PlannerResponse response) {
@@ -835,25 +864,17 @@ public final class PlannerOrchestrator {
 		cancelPendingTool();
 		sessionCoordinator.reset();
 		compactionService.reset();
-		contextAggregator.clear();
-		toolExchangesByGeneration.clear();
-		pendingSubmitRequest = null;
-		lastCompactionResult = null;
-		awaitingAcceptedReplyRecord = false;
-		pendingAcceptedAssistantRawContent = null;
-		inventoryBootstrapPending = true;
-		lastSubmittedConversation = PlannerConversationDebugSnapshot.empty();
-		lastVisibleConversation = PlannerConversationDebugSnapshot.empty();
-		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
-		clearCoalesceState();
-		endTurnSpan();
-		lifecycleListener.onReset("reset");
+		clearRuntimeState("reset");
 	}
 
 	public void shutdown() {
 		cancelPendingTool();
 		sessionCoordinator.shutdown();
 		compactionService.shutdown();
+		clearRuntimeState("shutdown");
+	}
+
+	private void clearRuntimeState(String reason) {
 		contextAggregator.clear();
 		toolExchangesByGeneration.clear();
 		pendingSubmitRequest = null;
@@ -866,7 +887,7 @@ public final class PlannerOrchestrator {
 		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
 		clearCoalesceState();
 		endTurnSpan();
-		lifecycleListener.onReset("shutdown");
+		lifecycleListener.onReset(reason);
 	}
 
 	private boolean startQueuedWorkIfPossible() {
@@ -884,36 +905,39 @@ public final class PlannerOrchestrator {
 			hasOverflowFlush = false;
 		}
 		if (hasRealTrigger && contextAggregator.compactionPending()) {
-			if (sessionCoordinator.hasInFlight() || pendingToolExecution != null) {
-				return true;
-			}
-			if (compactionService.hasInFlight()) {
-				return true;
-			}
-			return compactionService.submit(contextAggregator.buildCompactionConversation());
+			return startCompactionIfIdle();
 		}
 		if (!hasRealTrigger && hasOverflowFlush) {
-			if (sessionCoordinator.hasInFlight() || pendingToolExecution != null || compactionService.hasInFlight()) {
-				return true;
-			}
-			PlannerContextSnapshot overflowSnapshot = contextAggregator.freezeOverflowFlushSnapshot();
-			if (overflowSnapshot == null) {
-				return true;
-			}
-			sessionCoordinator.submit(overflowSnapshot);
-			return true;
+			return startOverflowFlushIfIdle();
 		}
 
+		return startTriggeredPlannerTurn();
+	}
+
+	private boolean startCompactionIfIdle() {
+		if (sessionCoordinator.hasInFlight() || pendingToolExecution != null || compactionService.hasInFlight()) {
+			return true;
+		}
+		return compactionService.submit(contextAggregator.buildCompactionConversation());
+	}
+
+	private boolean startOverflowFlushIfIdle() {
+		if (sessionCoordinator.hasInFlight() || pendingToolExecution != null || compactionService.hasInFlight()) {
+			return true;
+		}
+		PlannerContextSnapshot overflowSnapshot = contextAggregator.freezeOverflowFlushSnapshot();
+		if (overflowSnapshot == null) {
+			return true;
+		}
+		sessionCoordinator.submit(overflowSnapshot);
+		return true;
+	}
+
+	private boolean startTriggeredPlannerTurn() {
 		if (coalescePending && clock.millis() < coalesceReadyAtMs) {
 			return true;
 		}
-		if (coalescePending) {
-			contextAggregator.dropSupersededGeneration(coalesceSupersededSnapshot);
-			clearCoalesceState();
-		}
-		else {
-			contextAggregator.dropSupersededGeneration(sessionCoordinator.contextSnapshotFor(sessionCoordinator.activeGeneration()));
-		}
+		dropSupersededGenerationBeforeTriggeredSubmit();
 		PlannerContextSnapshot snapshot = contextAggregator.freezePlannerSnapshot(pendingSubmitRequest);
 		if (snapshot == null) {
 			return true;
@@ -921,6 +945,15 @@ public final class PlannerOrchestrator {
 		snapshot = withInventoryBootstrapIfAvailable(snapshot);
 		sessionCoordinator.submit(snapshot);
 		return true;
+	}
+
+	private void dropSupersededGenerationBeforeTriggeredSubmit() {
+		if (coalescePending) {
+			contextAggregator.dropSupersededGeneration(coalesceSupersededSnapshot);
+			clearCoalesceState();
+			return;
+		}
+		contextAggregator.dropSupersededGeneration(sessionCoordinator.contextSnapshotFor(sessionCoordinator.activeGeneration()));
 	}
 
 	private PlannerContextSnapshot withInventoryBootstrapIfAvailable(PlannerContextSnapshot snapshot) {
@@ -1056,19 +1089,19 @@ public final class PlannerOrchestrator {
 			return null;
 		}
 
-			PlannerRequest followUpRequest = snapshot.request().withToolResult(toolOutcome.toolResultText());
-			recordToolExchange(
-				toolExecution.generation(),
-				snapshot,
-				toolExecution.assistantRawContent(),
-				toolExecution.toolCall(),
-				toolOutcome.toolResultText()
-			);
-			sessionCoordinator.submitToolFollowUp(
-				toolExecution.generation(),
-				followUpRequest,
-				toolOutcome.appendFollowUp(contextAggregator, snapshot, toolExecution.assistantRawContent(), toolExecution.toolCall())
-			);
+		PlannerRequest followUpRequest = snapshot.request().withToolResult(toolOutcome.toolResultText());
+		recordToolExchange(
+			toolExecution.generation(),
+			snapshot,
+			toolExecution.assistantRawContent(),
+			toolExecution.toolCall(),
+			toolOutcome.toolResultText()
+		);
+		sessionCoordinator.submitToolFollowUp(
+			toolExecution.generation(),
+			followUpRequest,
+			toolOutcome.appendFollowUp(contextAggregator, snapshot, toolExecution.assistantRawContent(), toolExecution.toolCall())
+		);
 		lifecycleListener.onToolCompleted(toolExecution.generation(), toolOutcome.toolResultText(), toolOutcome instanceof ImageToolExecutionOutcome);
 		appendToolFollowUpCard(toolExecution);
 		return null;
@@ -1673,14 +1706,6 @@ public final class PlannerOrchestrator {
 			case "set_goal", "clear_goal", "reply_only", "none" -> null;
 			default -> "Applied intent: " + intent.type() + ".";
 		};
-	}
-
-	private static String toolRequestSummary(PlannerToolRequest toolRequest) {
-		if (toolRequest == null || toolRequest.type() == null || toolRequest.type().isBlank()) {
-			return null;
-		}
-		return "Tool call: " + toolRequest.type()
-			+ (toolRequest.prompt() == null || toolRequest.prompt().isBlank() ? "" : " | " + toolRequest.prompt());
 	}
 
 	private static String toolCallSummary(PlannerToolCall toolCall) {

@@ -22,12 +22,14 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	private static final int WAIT_TIMEOUT_TICKS = 20;
+	static final int TABLE_NAVIGATION_TIMEOUT_TICKS = 200;
 	private static final int TABLE_SEARCH_RADIUS = 10;
 	private static final double TABLE_INTERACTION_RANGE_SQUARED = 20.25D;
 
@@ -272,14 +274,22 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 				return WorkbenchReadiness.notReadyState();
 			}
 			Optional<String> pathEvent = baritoneFacade.pollPathEvent();
-			if (pathEvent.isPresent() && "CALC_FAILED".equalsIgnoreCase(pathEvent.get())) {
+			int elapsedNavigationTicks = waitTicks + 1;
+			TableNavigationOutcome navigationOutcome = tableNavigationOutcome(
+				pathEvent,
+				baritoneFacade.navigationGoalReached(tableTarget.standPosition()),
+				withinInteractionRange(player, tableTarget.tablePos()),
+				elapsedNavigationTicks
+			);
+			if (navigationOutcome == TableNavigationOutcome.FALLBACK) {
 				return fallBackToPortableCraftingTable(request, player);
 			}
-			if (baritoneFacade.navigationGoalReached(tableTarget.standPosition()) || withinInteractionRange(player, tableTarget.tablePos())) {
+			if (navigationOutcome == TableNavigationOutcome.OPEN_TABLE) {
 				phase = CraftPhase.OPENING_TABLE;
 				waitTicks = 0;
 			}
 			else {
+				waitTicks = elapsedNavigationTicks;
 				snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_navigating");
 			}
 			return WorkbenchReadiness.notReadyState();
@@ -341,6 +351,25 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		craftingTableProgressTracker.reset();
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, "crafting_table_fallback_to_planks");
 		return WorkbenchReadiness.notReadyState();
+	}
+
+	static TableNavigationOutcome tableNavigationOutcome(Optional<String> pathEvent, boolean goalReached, boolean withinInteractionRange, int elapsedTicks) {
+		if (pathEvent.isPresent()) {
+			String normalized = pathEvent.get().trim().toUpperCase(Locale.ROOT);
+			if ("AT_GOAL".equals(normalized)) {
+				return TableNavigationOutcome.OPEN_TABLE;
+			}
+			if ("CALC_FAILED".equals(normalized) || "CANCELED".equals(normalized) || "CANCELLED".equals(normalized)) {
+				return TableNavigationOutcome.FALLBACK;
+			}
+		}
+		if (goalReached || withinInteractionRange) {
+			return TableNavigationOutcome.OPEN_TABLE;
+		}
+		if (elapsedTicks > TABLE_NAVIGATION_TIMEOUT_TICKS) {
+			return TableNavigationOutcome.FALLBACK;
+		}
+		return TableNavigationOutcome.WAIT;
 	}
 
 	private CraftAdvanceResult advanceCrafting(
@@ -782,6 +811,12 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		PLACING_INPUTS,
 		WAITING_FOR_RESULT,
 		WAITING_FOR_TAKE
+	}
+
+	enum TableNavigationOutcome {
+		WAIT,
+		OPEN_TABLE,
+		FALLBACK
 	}
 
 	private record CraftingPlan(
