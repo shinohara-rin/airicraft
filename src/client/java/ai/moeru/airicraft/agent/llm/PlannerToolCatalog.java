@@ -18,6 +18,7 @@ public final class PlannerToolCatalog {
 	public static final String TAKE_A_LOOK = "take_a_look";
 	public static final String INSPECT_INVENTORY = "inspect_inventory";
 	public static final String CHECK_CRAFTABLES = "check_craftables";
+	public static final String INSPECT_NEARBY_ENTITIES = "inspect_nearby_entities";
 	public static final String FOLLOW_PLAYER = "follow_player";
 	public static final String NAVIGATE_TO = "navigate_to";
 	public static final String MINE_BLOCKS = "mine_blocks";
@@ -47,6 +48,10 @@ public final class PlannerToolCatalog {
 			tool(CHECK_CRAFTABLES, "Check currently executable crafting options.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional crafting question."))
+			), List.of()),
+			tool(INSPECT_NEARBY_ENTITIES, "List nearby loaded entities with exact selectors such as uuid, name, entityTypeId, distance, and health when available.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("prompt", string("Optional nearby-entity question."))
 			), List.of()),
 			tool(FOLLOW_PLAYER, "Follow a named player.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -171,7 +176,7 @@ public final class PlannerToolCatalog {
 
 	public static boolean isReadTool(String name) {
 		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES -> true;
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES -> true;
 			default -> false;
 		};
 	}
@@ -181,6 +186,7 @@ public final class PlannerToolCatalog {
 			case TAKE_A_LOOK,
 				INSPECT_INVENTORY,
 				CHECK_CRAFTABLES,
+				INSPECT_NEARBY_ENTITIES,
 				FOLLOW_PLAYER,
 				NAVIGATE_TO,
 				MINE_BLOCKS,
@@ -260,7 +266,7 @@ public final class PlannerToolCatalog {
 
 	private static void validateArguments(String name, JsonObject arguments) {
 		switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CLEAR_GOAL -> {
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
 			}
 			case FOLLOW_PLAYER -> requireString(arguments, "targetPlayer");
 			case NAVIGATE_TO -> {

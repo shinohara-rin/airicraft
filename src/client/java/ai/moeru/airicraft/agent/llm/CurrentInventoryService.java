@@ -3,8 +3,10 @@ package ai.moeru.airicraft.agent.llm;
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver;
 import ai.moeru.airicraft.agent.tasks.CraftingGridKind;
+import ai.moeru.airicraft.agent.tasks.EntitySelectorResolver;
 import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
 import ai.moeru.airicraft.agent.tasks.InventoryResourceCounter;
+import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -117,6 +119,22 @@ public final class CurrentInventoryService implements CurrentInventoryTool {
 		);
 	}
 
+	@Override
+	public CompletableFuture<String> inspectNearbyEntities(String prompt) {
+		MinecraftClient client = clientSupplier.get();
+		if (client == null || client.world == null || client.player == null) {
+			return CompletableFuture.completedFuture("NEARBY_ENTITIES_UNAVAILABLE: world_not_loaded");
+		}
+
+		List<NearbyEntityService.NearbyEntitySnapshot> nearbyEntities = NearbyEntityService.listNearbyEntities(client);
+		return CompletableFuture.completedFuture(
+			"Tool result for inspect_nearby_entities: "
+				+ "nearbyRadius=" + EntitySelectorResolver.DEFAULT_NEARBY_RADIUS_BLOCKS
+				+ ", entityCount=" + nearbyEntities.size()
+				+ ", entities=" + formatNearbyEntities(nearbyEntities)
+		);
+	}
+
 	private static String formatCrafts(List<CraftingOpportunity> opportunities) {
 		if (opportunities == null || opportunities.isEmpty()) {
 			return "none";
@@ -124,6 +142,15 @@ public final class CurrentInventoryService implements CurrentInventoryTool {
 		return opportunities.stream()
 			.map(CraftingOpportunity::compactDescription)
 			.collect(Collectors.joining("; ", "[", "]"));
+	}
+
+	static String formatNearbyEntities(List<NearbyEntityService.NearbyEntitySnapshot> nearbyEntities) {
+		if (nearbyEntities == null || nearbyEntities.isEmpty()) {
+			return "none";
+		}
+		return nearbyEntities.stream()
+			.map(NearbyEntityService.NearbyEntitySnapshot::compactDescription)
+			.collect(Collectors.joining(", ", "[", "]"));
 	}
 
 	private static CraftingTableAccess craftingTableAccess(MinecraftClient client, Map<String, Integer> itemCounts) {

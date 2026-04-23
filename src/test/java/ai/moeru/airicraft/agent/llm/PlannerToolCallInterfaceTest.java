@@ -173,6 +173,18 @@ class PlannerToolCallInterfaceTest {
 		assertEquals("minecraft:shears", useCall.arguments().get("itemId").getAsString());
 	}
 
+	@Test
+	void exposesAndParsesNearbyEntityInspectionTool() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+
+		assertTrue(toolNames(tools).contains("inspect_nearby_entities"));
+		PlannerToolCall inspectCall = PlannerToolCatalog.parseToolCall(toolCall("inspect_nearby_entities", """
+			{"prompt":"List nearby mobs I can interact with."}
+			"""));
+
+		assertEquals("inspect_nearby_entities", inspectCall.name());
+		assertEquals("List nearby mobs I can interact with.", inspectCall.arguments().get("prompt").getAsString());
+	}
 
 	@Test
 	void exposesCheckCraftablesInsteadOfInspectRecipes() {

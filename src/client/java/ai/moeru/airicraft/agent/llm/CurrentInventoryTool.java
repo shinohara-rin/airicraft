@@ -7,6 +7,8 @@ public interface CurrentInventoryTool {
 
 	CompletableFuture<String> checkCraftables(String prompt);
 
+	CompletableFuture<String> inspectNearbyEntities(String prompt);
+
 	static CurrentInventoryTool disabled() {
 		return new CurrentInventoryTool() {
 			@Override
@@ -17,6 +19,11 @@ public interface CurrentInventoryTool {
 			@Override
 			public CompletableFuture<String> checkCraftables(String prompt) {
 				return CompletableFuture.completedFuture("CRAFTABLES_UNAVAILABLE: inventory_tool_disabled");
+			}
+
+			@Override
+			public CompletableFuture<String> inspectNearbyEntities(String prompt) {
+				return CompletableFuture.completedFuture("NEARBY_ENTITIES_UNAVAILABLE: inventory_tool_disabled");
 			}
 		};
 	}

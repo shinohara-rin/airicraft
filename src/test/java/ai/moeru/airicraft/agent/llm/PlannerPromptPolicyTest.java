@@ -64,6 +64,16 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("TASK UPDATE"));
 	}
 
+	@Test
+	void systemPromptExplainsNearbyEntityInspectionTool() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("inspect_nearby_entities"));
+		assertTrue(prompt.contains("nearby entities"));
+		assertTrue(prompt.contains("uuid"));
+		assertTrue(prompt.contains("entityTypeId"));
+		assertTrue(prompt.contains("distance"));
+	}
 
 	@Test
 	void systemPromptDistinguishesStartupInventoryFromLatestToolFollowUp() {

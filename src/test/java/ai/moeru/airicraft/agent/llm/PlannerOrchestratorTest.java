@@ -127,6 +127,45 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void singleToolCallFeedsNearbyEntityInspectionBackIntoPlanner() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerIntent("none", null, null),
+			new PlannerToolRequest("inspect_nearby_entities", null)
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"There is a sheep nearby.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"unused",
+			"unused",
+			"Tool result for inspect_nearby_entities: nearbyRadius=32.0, entityCount=1, entities=[{uuid=sheep-1, name=Sheep, entityTypeId=minecraft:sheep, distance=3.0, alive=true, health=8.0, pos=1,64,1}]"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals("There is a sheep nearby.", result.response().replyText());
+		assertEquals(
+			"Tool result for inspect_nearby_entities: nearbyRadius=32.0, entityCount=1, entities=[{uuid=sheep-1, name=Sheep, entityTypeId=minecraft:sheep, distance=3.0, alive=true, health=8.0, pos=1,64,1}]",
+			result.request().toolResult()
+		);
+		assertEquals(0, inventoryTool.inventoryRequestCount());
+		assertEquals(0, inventoryTool.craftablesRequestCount());
+		assertEquals(1, inventoryTool.nearbyEntitiesRequestCount());
+	}
+
+	@Test
 	void freshInWorldPlannerSubmissionIncludesInventoryBootstrap() {
 		RecordingBackend backend = new RecordingBackend();
 		StubInventoryTool inventoryTool = new StubInventoryTool(
@@ -1938,12 +1977,19 @@ class PlannerOrchestratorTest {
 	private static final class StubInventoryTool implements CurrentInventoryTool {
 		private final String inventoryResult;
 		private final String craftablesResult;
+		private final String nearbyEntitiesResult;
 		private int inventoryRequestCount;
 		private int craftablesRequestCount;
+		private int nearbyEntitiesRequestCount;
 
 		private StubInventoryTool(String inventoryResult, String craftablesResult) {
+			this(inventoryResult, craftablesResult, "unused");
+		}
+
+		private StubInventoryTool(String inventoryResult, String craftablesResult, String nearbyEntitiesResult) {
 			this.inventoryResult = inventoryResult;
 			this.craftablesResult = craftablesResult;
+			this.nearbyEntitiesResult = nearbyEntitiesResult;
 		}
 
 		@Override
@@ -1958,12 +2004,22 @@ class PlannerOrchestratorTest {
 			return CompletableFuture.completedFuture(craftablesResult);
 		}
 
+		@Override
+		public CompletableFuture<String> inspectNearbyEntities(String prompt) {
+			nearbyEntitiesRequestCount++;
+			return CompletableFuture.completedFuture(nearbyEntitiesResult);
+		}
+
 		private int inventoryRequestCount() {
 			return inventoryRequestCount;
 		}
 
 		private int craftablesRequestCount() {
 			return craftablesRequestCount;
+		}
+
+		private int nearbyEntitiesRequestCount() {
+			return nearbyEntitiesRequestCount;
 		}
 	}
 
