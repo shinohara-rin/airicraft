@@ -5,6 +5,8 @@ import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.WorldTaskType;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
@@ -158,6 +160,34 @@ class ActiveJobRuntimeTest {
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.DROP_ITEMS, runtime.current().type());
 		assertEquals(dropItems, runtime.current().dropItems());
+	}
+
+	@Test
+	void attackEntityActiveJobProjectsWorldTaskRequest() {
+		ActiveJobRuntime runtime = new ActiveJobRuntime();
+		EntityInteractionStepArgs attack = new EntityInteractionStepArgs(
+			new EntitySelector(null, null, "minecraft:sheep"),
+			null
+		);
+
+		runtime.applyPlannerResponse(
+			new DialogueResponse(
+				"Attack the sheep.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.attackEntity(attack)),
+				1L
+			),
+			0,
+			"test",
+			1L
+		);
+
+		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
+
+		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
+		assertEquals(attack, request.entityInteraction());
+		assertNull(request.goal());
+		assertEquals(ActiveJobType.ATTACK_ENTITY, runtime.current().type());
+		assertEquals(attack, runtime.current().entityInteraction());
 	}
 
 	@Test

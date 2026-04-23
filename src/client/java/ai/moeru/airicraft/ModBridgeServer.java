@@ -9,6 +9,10 @@ import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 import ai.moeru.airicraft.agent.tasks.TaskType;
+import ai.moeru.airicraft.agent.tasks.EntitySelectorResolver;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntitySelector;
+import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -114,10 +118,13 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/servers", this::handleServers);
 			httpServer.createContext("/v1/servers/join", this::handleJoinServer);
 			httpServer.createContext("/v1/focus", exchange -> handleJson(exchange, this::createFocusResponse));
+			httpServer.createContext("/v1/player/nearby-entities", exchange -> handleJson(exchange, this::createNearbyEntitiesResponse));
 			httpServer.createContext("/v1/world-snapshot", exchange -> handleJson(exchange, () -> createWorldSnapshotResponse(exchange)));
 			httpServer.createContext("/v1/camera/screenshot", this::handleCameraScreenshot);
 			httpServer.createContext("/v1/vision/describe", this::handleVisionDescribe);
 			httpServer.createContext("/v1/player/look-at", this::handlePlayerLookAt);
+			httpServer.createContext("/v1/player/attack-entity", this::handlePlayerAttackEntity);
+			httpServer.createContext("/v1/player/use-entity", this::handlePlayerUseEntity);
 			httpServer.createContext("/v1/highlights", this::handleHighlights);
 			httpServer.createContext("/v1/agent/status", exchange -> handleJson(exchange, this::createAgentStatusResponse));
 			httpServer.createContext("/v1/agent/session", exchange -> handleJson(exchange, this::createAgentSessionResponse));
@@ -250,6 +257,30 @@ public final class ModBridgeServer {
 			catch (PlayerViewService.PlayerViewException exception) {
 				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
 			}
+		});
+	}
+
+	private void handlePlayerAttackEntity(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", EntityInteractionRequest.class, request -> {
+			EntityInteractionStepArgs entityInteraction = parseEntityInteractionRequest(request, false);
+			return onClientThread(() -> {
+				var client = getClient();
+				ensureWorldLoaded(client);
+				var task = agentRuntime().submitAttackEntity(entityInteraction, "bridge_player");
+				return entityInteractionResponse(task, entityInteraction);
+			});
+		});
+	}
+
+	private void handlePlayerUseEntity(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", EntityInteractionRequest.class, request -> {
+			EntityInteractionStepArgs entityInteraction = parseEntityInteractionRequest(request, true);
+			return onClientThread(() -> {
+				var client = getClient();
+				ensureWorldLoaded(client);
+				var task = agentRuntime().submitUseEntity(entityInteraction, "bridge_player");
+				return entityInteractionResponse(task, entityInteraction);
+			});
 		});
 	}
 
@@ -668,6 +699,39 @@ public final class ModBridgeServer {
 		return request.has("missionId") && request.has("missionType") && request.has("steps");
 	}
 
+	private EntityInteractionStepArgs parseEntityInteractionRequest(EntityInteractionRequest request, boolean allowItemId) {
+		if (request == null) {
+			throw new BridgeUnavailableException("invalid_request", "Missing entity interaction payload");
+		}
+		try {
+			return new EntityInteractionStepArgs(
+				new EntitySelector(request.uuid(), request.name(), request.entityTypeId()),
+				allowItemId ? request.itemId() : null
+			);
+		}
+		catch (IllegalArgumentException exception) {
+			throw new BridgeUnavailableException("invalid_request", exception.getMessage());
+		}
+	}
+
+	private Map<String, Object> entityInteractionResponse(ai.moeru.airicraft.agent.tasks.TaskSnapshot task, EntityInteractionStepArgs entityInteraction) {
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("available", true);
+		payload.put("accepted", true);
+		payload.put("selector", Map.of(
+			"uuid", entityInteraction.selector().uuid() == null ? "" : entityInteraction.selector().uuid(),
+			"name", entityInteraction.selector().name() == null ? "" : entityInteraction.selector().name(),
+			"entityTypeId", entityInteraction.selector().entityTypeId() == null ? "" : entityInteraction.selector().entityTypeId()
+		));
+		if (entityInteraction.itemId() != null) {
+			payload.put("itemId", entityInteraction.itemId());
+		}
+		payload.put("task", task);
+		payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
+		payload.put("missionExecution", agentRuntime().missionExecutionSnapshot());
+		return payload;
+	}
+
 
 	private void handleJson(HttpExchange exchange, Supplier<Object> supplier) throws IOException {
 		if (!authorize(exchange)) {
@@ -1043,6 +1107,21 @@ public final class ModBridgeServer {
 		});
 	}
 
+	private Object createNearbyEntitiesResponse() {
+		return onClientThread(() -> {
+			MinecraftClient client = getClient();
+			ensureWorldLoaded(client);
+			List<NearbyEntityService.NearbyEntitySnapshot> entities = NearbyEntityService.listNearbyEntities(client);
+			LinkedHashMap<String, Object> response = new LinkedHashMap<>();
+			response.put("available", true);
+			response.put("worldLoaded", true);
+			response.put("nearbyRadius", EntitySelectorResolver.DEFAULT_NEARBY_RADIUS_BLOCKS);
+			response.put("entityCount", entities.size());
+			response.put("entities", entities.stream().map(ModBridgeServer::nearbyEntityPayload).toList());
+			return response;
+		});
+	}
+
 	private Object createWorldSnapshotResponse(HttpExchange exchange) {
 		int x = getIntQuery(exchange, "x", Integer.MIN_VALUE);
 		int y = getIntQuery(exchange, "y", Integer.MIN_VALUE);
@@ -1208,6 +1287,29 @@ public final class ModBridgeServer {
 			"type", "miss",
 			"crosshair", Map.of("hitPos", vector(hitResult.getPos()))
 		);
+	}
+
+	private static Map<String, Object> nearbyEntityPayload(NearbyEntityService.NearbyEntitySnapshot entity) {
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("id", entity.entityId());
+		payload.put("uuid", entity.uuid());
+		payload.put("name", entity.name());
+		payload.put("entityTypeId", entity.entityTypeId());
+		payload.put("distance", entity.distance());
+		payload.put("alive", entity.alive());
+		payload.put("isPlayer", entity.isPlayer());
+		payload.put("pos", Map.of(
+			"x", entity.x(),
+			"y", entity.y(),
+			"z", entity.z()
+		));
+		if (entity.health() != null) {
+			payload.put("health", entity.health());
+		}
+		if (entity.maxHealth() != null) {
+			payload.put("maxHealth", entity.maxHealth());
+		}
+		return payload;
 	}
 
 	private static Map<String, Object> blockProperties(BlockState state) {
@@ -1535,6 +1637,9 @@ public final class ModBridgeServer {
 	}
 
 	private record LookAtRequest(Double x, Double y, Double z) {
+	}
+
+	private record EntityInteractionRequest(String uuid, String name, String entityTypeId, String itemId) {
 	}
 
 	private record VerificationRunRequest(String scenario) {

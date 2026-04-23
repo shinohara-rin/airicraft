@@ -17,6 +17,8 @@ import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
 import ai.moeru.airicraft.agent.tasks.EvidenceRequirement;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.FinishStepArgs;
 import ai.moeru.airicraft.agent.tasks.LedgerStep;
 import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
@@ -225,6 +227,132 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("TASK UPDATE"));
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
 		assertEquals(new DropItemsStepArgs("minecraft:oak_log", 2, null), request.dropItems());
+	}
+
+	@Test
+	void attackEntityToolRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_attack",
+			"attack_entity",
+			JsonParser.parseString("""
+				{"entityTypeId":"minecraft:sheep"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertTrue(result.contains("does not mean completed"));
+		assertTrue(result.contains("TASK UPDATE"));
+		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
+		assertEquals(new EntityInteractionStepArgs(
+			new EntitySelector(null, null, "minecraft:sheep"),
+			null
+		), request.entityInteraction());
+	}
+
+	@Test
+	void useEntityToolRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_use",
+			"use_entity",
+			JsonParser.parseString("""
+				{"name":"Dinner","itemId":"minecraft:shears"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertTrue(result.contains("does not mean completed"));
+		assertTrue(result.contains("TASK UPDATE"));
+		assertEquals(WorldTaskType.USE_ENTITY, request.type());
+		assertEquals(new EntityInteractionStepArgs(
+			new EntitySelector(null, "Dinner", null),
+			"minecraft:shears"
+		), request.entityInteraction());
+	}
+
+	@Test
+	void manualAttackEntitySubmitRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		runtime.submitAttackEntity(
+			new EntityInteractionStepArgs(new EntitySelector(null, null, "minecraft:sheep"), null),
+			"bridge_debug"
+		);
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
+		assertEquals(new EntityInteractionStepArgs(new EntitySelector(null, null, "minecraft:sheep"), null), request.entityInteraction());
+		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
+	}
+
+	@Test
+	void manualUseEntitySubmitRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		runtime.submitUseEntity(
+			new EntityInteractionStepArgs(new EntitySelector(null, "Dinner", null), "minecraft:shears"),
+			"bridge_debug"
+		);
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertEquals(WorldTaskType.USE_ENTITY, request.type());
+		assertEquals(new EntityInteractionStepArgs(new EntitySelector(null, "Dinner", null), "minecraft:shears"), request.entityInteraction());
+		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
 	@Test

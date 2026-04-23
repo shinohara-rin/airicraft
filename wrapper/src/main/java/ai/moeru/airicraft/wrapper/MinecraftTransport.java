@@ -11,6 +11,8 @@ interface MinecraftTransport {
 
 	Map<String, Object> getWorldSnapshot(Integer x, Integer y, Integer z, int radius);
 
+	Map<String, Object> listNearbyEntities();
+
 	CapturedImage captureScreenshot();
 
 	VisionDescriptionResult describeVision(String prompt);
@@ -24,6 +26,10 @@ interface MinecraftTransport {
 	Map<String, Object> joinServer(String serverId);
 
 	Map<String, Object> lookAt(double x, double y, double z);
+
+	Map<String, Object> attackEntity(String uuid, String name, String entityTypeId);
+
+	Map<String, Object> useEntity(String uuid, String name, String entityTypeId, String itemId);
 
 	Map<String, Object> createBlockHighlight(int x, int y, int z, String color, Long durationMs, String overlayText);
 

@@ -3,6 +3,7 @@ package ai.moeru.airicraft.agent.job;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 
 import java.util.Objects;
@@ -15,6 +16,7 @@ public record ActiveJob(
 	TaskSpec taskSpec,
 	CraftRecipeStepArgs craftRecipe,
 	DropItemsStepArgs dropItems,
+	EntityInteractionStepArgs entityInteraction,
 	String askPrompt,
 	long waitUntilTick,
 	int baselineResourceCount,
@@ -48,6 +50,44 @@ public record ActiveJob(
 			taskSpec,
 			craftRecipe,
 			null,
+			null,
+			askPrompt,
+			waitUntilTick,
+			baselineResourceCount,
+			collectedCount,
+			source,
+			blockedReason,
+			lastError,
+			updatedTick
+		);
+	}
+
+	public ActiveJob(
+		String jobId,
+		ActiveJobType type,
+		ActiveJobStatus status,
+		GoalSnapshot directGoal,
+		TaskSpec taskSpec,
+		CraftRecipeStepArgs craftRecipe,
+		DropItemsStepArgs dropItems,
+		String askPrompt,
+		long waitUntilTick,
+		int baselineResourceCount,
+		int collectedCount,
+		String source,
+		String blockedReason,
+		String lastError,
+		long updatedTick
+	) {
+		this(
+			jobId,
+			type,
+			status,
+			directGoal,
+			taskSpec,
+			craftRecipe,
+			dropItems,
+			null,
 			askPrompt,
 			waitUntilTick,
 			baselineResourceCount,
@@ -75,6 +115,7 @@ public record ActiveJob(
 			"job-idle",
 			ActiveJobType.IDLE,
 			ActiveJobStatus.IDLE,
+			null,
 			null,
 			null,
 			null,

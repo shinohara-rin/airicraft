@@ -5,5 +5,7 @@ public enum WorldTaskType {
 	NAVIGATE,
 	MINE,
 	CRAFT_RECIPE,
-	DROP_ITEMS
+	DROP_ITEMS,
+	ATTACK_ENTITY,
+	USE_ENTITY
 }

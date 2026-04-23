@@ -11,6 +11,7 @@ import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.LedgerStep;
 import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
 import ai.moeru.airicraft.agent.tasks.MissionExecutionSnapshot;
@@ -186,6 +187,7 @@ public final class ActiveJobRuntime {
 			activeJob.taskSpec(),
 			activeJob.craftRecipe(),
 			activeJob.dropItems(),
+			activeJob.entityInteraction(),
 			activeJob.askPrompt(),
 			activeJob.waitUntilTick(),
 			activeJob.baselineResourceCount(),
@@ -231,6 +233,7 @@ public final class ActiveJobRuntime {
 			case COLLECT_RESOURCE -> tickCollectResource(activeJob, lastPrimitiveExecution, lastEvidence, actuationAllowed, nearbyResourceTargetAvailable, tick);
 			case CRAFT_RECIPE -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case DROP_ITEMS -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, true, tick);
+			case ATTACK_ENTITY, USE_ENTITY -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case ASK_USER -> tickAskUser(activeJob, tick);
 			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS -> tickGoalJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case IDLE -> ActiveJob.idle();
@@ -259,6 +262,16 @@ public final class ActiveJobRuntime {
 		if (activeJob.type() == ActiveJobType.DROP_ITEMS && activeJob.dropItems() != null) {
 			clearCollectAttemptState();
 			desiredPrimitiveTask = WorldTaskRequest.dropItems(activeJob.jobId(), activeJob.jobId(), activeJob.dropItems());
+			return;
+		}
+		if (activeJob.type() == ActiveJobType.ATTACK_ENTITY && activeJob.entityInteraction() != null) {
+			clearCollectAttemptState();
+			desiredPrimitiveTask = WorldTaskRequest.attackEntity(activeJob.jobId(), activeJob.jobId(), activeJob.entityInteraction());
+			return;
+		}
+		if (activeJob.type() == ActiveJobType.USE_ENTITY && activeJob.entityInteraction() != null) {
+			clearCollectAttemptState();
+			desiredPrimitiveTask = WorldTaskRequest.useEntity(activeJob.jobId(), activeJob.jobId(), activeJob.entityInteraction());
 			return;
 		}
 		if (activeJob.type() != ActiveJobType.COLLECT_RESOURCE || activeJob.taskSpec() == null) {
@@ -410,11 +423,21 @@ public final class ActiveJobRuntime {
 	}
 
 	private static String primitiveFailureFallback(ActiveJobType type) {
-		return type == ActiveJobType.DROP_ITEMS ? "drop_items_failed" : "crafting_failed";
+		return switch (type) {
+			case DROP_ITEMS -> "drop_items_failed";
+			case ATTACK_ENTITY -> "attack_entity_failed";
+			case USE_ENTITY -> "use_entity_failed";
+			default -> "crafting_failed";
+		};
 	}
 
 	private static String primitiveCancelledFallback(ActiveJobType type) {
-		return type == ActiveJobType.DROP_ITEMS ? "drop_items_cancelled" : "crafting_cancelled";
+		return switch (type) {
+			case DROP_ITEMS -> "drop_items_cancelled";
+			case ATTACK_ENTITY -> "attack_entity_cancelled";
+			case USE_ENTITY -> "use_entity_cancelled";
+			default -> "crafting_cancelled";
+		};
 	}
 
 	private static ActiveJob tickGoalJob(
@@ -464,6 +487,8 @@ public final class ActiveJobRuntime {
 			);
 			case CRAFT_RECIPE -> fromCraftRecipeStep(ledger.missionId(), activeStep.args().craftRecipe(), source, tick);
 			case DROP_ITEMS -> fromDropItemsStep(ledger.missionId(), activeStep.args().dropItems(), source, tick);
+			case ATTACK_ENTITY -> fromEntityInteractionStep(ledger.missionId(), ActiveJobType.ATTACK_ENTITY, activeStep.args().entityInteraction(), source, tick);
+			case USE_ENTITY -> fromEntityInteractionStep(ledger.missionId(), ActiveJobType.USE_ENTITY, activeStep.args().entityInteraction(), source, tick);
 			case ASK_USER -> fromAskUserStep(ledger.missionId(), activeStep.args().askUser(), source, tick);
 			case FINISH -> new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, null, -1L, 0, 0, source, null, null, tick);
 			default -> new ActiveJob(ledger.missionId(), ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, null, "Unsupported step: " + activeStep.kind().name(), -1L, 0, 0, source, "unsupported_step", null, tick);
@@ -486,6 +511,19 @@ public final class ActiveJobRuntime {
 			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, -1L, 0, 0, source, null, "missing_drop_items_args", tick);
 		}
 		return new ActiveJob(jobId, ActiveJobType.DROP_ITEMS, ActiveJobStatus.QUEUED, null, null, null, dropItems, null, -1L, 0, 0, source, null, null, tick);
+	}
+
+	private static ActiveJob fromEntityInteractionStep(
+		String jobId,
+		ActiveJobType type,
+		EntityInteractionStepArgs entityInteraction,
+		String source,
+		long tick
+	) {
+		if (entityInteraction == null) {
+			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, null, -1L, 0, 0, source, null, "missing_entity_interaction_args", tick);
+		}
+		return new ActiveJob(jobId, type, ActiveJobStatus.QUEUED, null, null, null, null, entityInteraction, null, -1L, 0, 0, source, null, null, tick);
 	}
 
 	private ActiveJob fromCollectResourceStep(String jobId, CollectResourceStepArgs args, int currentResourceCount, String source, long tick) {
@@ -568,6 +606,8 @@ public final class ActiveJobRuntime {
 			);
 			case CRAFT_RECIPE -> fromCraftRecipeStep(newJobId(), proposal.craftRecipe(), source, tick);
 			case DROP_ITEMS -> fromDropItemsStep(newJobId(), proposal.dropItems(), source, tick);
+			case ATTACK_ENTITY -> fromEntityInteractionStep(newJobId(), ActiveJobType.ATTACK_ENTITY, proposal.entityInteraction(), source, tick);
+			case USE_ENTITY -> fromEntityInteractionStep(newJobId(), ActiveJobType.USE_ENTITY, proposal.entityInteraction(), source, tick);
 			case ASK_USER -> fromAskUserStep(newJobId(), new AskUserStepArgs(proposal.askPrompt()), source, tick);
 			case IDLE -> ActiveJob.idle();
 		};
@@ -587,6 +627,7 @@ public final class ActiveJobRuntime {
 				next.taskSpec(),
 				next.craftRecipe(),
 				next.dropItems(),
+				next.entityInteraction(),
 				next.askPrompt(),
 				next.waitUntilTick(),
 				activeJob.baselineResourceCount(),
@@ -616,6 +657,9 @@ public final class ActiveJobRuntime {
 		if (left.dropItems() != null || right.dropItems() != null) {
 			return Objects.equals(left.dropItems(), right.dropItems());
 		}
+		if (left.entityInteraction() != null || right.entityInteraction() != null) {
+			return Objects.equals(left.entityInteraction(), right.entityInteraction());
+		}
 		return Objects.equals(left.askPrompt(), right.askPrompt()) && left.waitUntilTick() == right.waitUntilTick();
 	}
 
@@ -627,6 +671,7 @@ public final class ActiveJobRuntime {
 			case COLLECT_RESOURCE -> MissionType.COLLECT_RESOURCE;
 			case CRAFT_RECIPE -> MissionType.CRAFT_ITEM;
 			case DROP_ITEMS -> MissionType.DELIVER_ITEM;
+			case ATTACK_ENTITY, USE_ENTITY -> MissionType.COLLECT_RESOURCE;
 			default -> MissionType.COLLECT_RESOURCE;
 		};
 		return new MissionSpec(activeJob.jobId(), missionType, goalText());
@@ -640,6 +685,8 @@ public final class ActiveJobRuntime {
 			case COLLECT_RESOURCE -> activeJob.taskSpec() == null ? "Collect resource" : "Collect " + activeJob.taskSpec().quantity() + " " + activeJob.taskSpec().resourceKind().name().toLowerCase();
 			case CRAFT_RECIPE -> activeJob.craftRecipe() == null ? "Craft recipe" : "Run recipe " + activeJob.craftRecipe().recipeId() + " x" + activeJob.craftRecipe().times();
 			case DROP_ITEMS -> activeJob.dropItems() == null ? "Drop items" : "Drop " + activeJob.dropItems().quantity() + " " + activeJob.dropItems().itemId();
+			case ATTACK_ENTITY -> activeJob.entityInteraction() == null ? "Attack entity" : "Attack " + activeJob.entityInteraction().selector();
+			case USE_ENTITY -> activeJob.entityInteraction() == null ? "Use entity" : "Use on " + activeJob.entityInteraction().selector();
 			case ASK_USER -> "Ask user";
 			case IDLE -> "";
 		};
@@ -652,6 +699,8 @@ public final class ActiveJobRuntime {
 			case COLLECT_RESOURCE -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_RESOURCE;
 			case CRAFT_RECIPE -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE;
 			case DROP_ITEMS -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.DROP_ITEMS;
+			case ATTACK_ENTITY -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.ATTACK_ENTITY;
+			case USE_ENTITY -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_ENTITY;
 			case ASK_USER -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
 			case IDLE -> null;
 		};
@@ -722,6 +771,7 @@ public final class ActiveJobRuntime {
 			job.taskSpec(),
 			job.craftRecipe(),
 			job.dropItems(),
+			job.entityInteraction(),
 			job.askPrompt(),
 			job.waitUntilTick(),
 			job.baselineResourceCount(),

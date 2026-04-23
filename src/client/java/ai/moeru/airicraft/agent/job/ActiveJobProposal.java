@@ -4,6 +4,7 @@ import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 
 import java.util.Objects;
@@ -16,6 +17,7 @@ public record ActiveJobProposal(
 	TaskSpec taskSpec,
 	CraftRecipeStepArgs craftRecipe,
 	DropItemsStepArgs dropItems,
+	EntityInteractionStepArgs entityInteraction,
 	String askPrompt
 ) {
 	public ActiveJobProposal(
@@ -25,9 +27,10 @@ public record ActiveJobProposal(
 		GoalMineSpec mineSpec,
 		TaskSpec taskSpec,
 		CraftRecipeStepArgs craftRecipe,
+		DropItemsStepArgs dropItems,
 		String askPrompt
 	) {
-		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, null, askPrompt);
+		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, dropItems, null, askPrompt);
 	}
 
 	public ActiveJobProposal {
@@ -37,30 +40,38 @@ public record ActiveJobProposal(
 	}
 
 	public static ActiveJobProposal followPlayer(String targetPlayer) {
-		return new ActiveJobProposal(ActiveJobType.FOLLOW_PLAYER, targetPlayer, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.FOLLOW_PLAYER, targetPlayer, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal navigateTo(GoalPosition position) {
-		return new ActiveJobProposal(ActiveJobType.NAVIGATE_TO, null, position, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.NAVIGATE_TO, null, position, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal mineBlocks(GoalMineSpec mineSpec) {
-		return new ActiveJobProposal(ActiveJobType.MINE_BLOCKS, null, null, mineSpec, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.MINE_BLOCKS, null, null, mineSpec, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal collectResource(TaskSpec taskSpec) {
-		return new ActiveJobProposal(ActiveJobType.COLLECT_RESOURCE, null, null, null, taskSpec, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.COLLECT_RESOURCE, null, null, null, taskSpec, null, null, null, null);
 	}
 
 	public static ActiveJobProposal craftRecipe(CraftRecipeStepArgs craftRecipe) {
-		return new ActiveJobProposal(ActiveJobType.CRAFT_RECIPE, null, null, null, null, craftRecipe, null, null);
+		return new ActiveJobProposal(ActiveJobType.CRAFT_RECIPE, null, null, null, null, craftRecipe, null, null, null);
 	}
 
 	public static ActiveJobProposal dropItems(DropItemsStepArgs dropItems) {
-		return new ActiveJobProposal(ActiveJobType.DROP_ITEMS, null, null, null, null, null, dropItems, null);
+		return new ActiveJobProposal(ActiveJobType.DROP_ITEMS, null, null, null, null, null, dropItems, null, null);
+	}
+
+	public static ActiveJobProposal attackEntity(EntityInteractionStepArgs entityInteraction) {
+		return new ActiveJobProposal(ActiveJobType.ATTACK_ENTITY, null, null, null, null, null, null, entityInteraction, null);
+	}
+
+	public static ActiveJobProposal useEntity(EntityInteractionStepArgs entityInteraction) {
+		return new ActiveJobProposal(ActiveJobType.USE_ENTITY, null, null, null, null, null, null, entityInteraction, null);
 	}
 
 	public static ActiveJobProposal askUser(String askPrompt) {
-		return new ActiveJobProposal(ActiveJobType.ASK_USER, null, null, null, null, null, null, askPrompt);
+		return new ActiveJobProposal(ActiveJobType.ASK_USER, null, null, null, null, null, null, null, askPrompt);
 	}
 }

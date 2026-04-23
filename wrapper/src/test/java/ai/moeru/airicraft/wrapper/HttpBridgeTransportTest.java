@@ -544,6 +544,61 @@ class HttpBridgeTransportTest {
 		}
 	}
 
+	@Test
+	void attackEntityPostsSelectorPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/player/attack-entity", 0, 200, """
+				{"accepted":true,"task":{"state":"QUEUED"}}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.attackEntity(null, null, "minecraft:sheep");
+
+			assertEquals(true, payload.get("accepted"));
+			assertEquals("POST", server.lastMethod("/v1/player/attack-entity"));
+			assertTrue(server.lastRequestBody("/v1/player/attack-entity").contains("\"entityTypeId\":\"minecraft:sheep\""));
+		}
+	}
+
+	@Test
+	void nearbyEntitiesUsesGetEndpoint(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/player/nearby-entities", 0, 200, """
+				{"entityCount":1,"entities":[{"entityTypeId":"minecraft:sheep","name":"Sheep"}]}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.listNearbyEntities();
+
+			assertEquals(1, payload.get("entityCount"));
+			assertEquals("GET", server.lastMethod("/v1/player/nearby-entities"));
+			assertEquals("", server.lastRequestBody("/v1/player/nearby-entities"));
+		}
+	}
+
+	@Test
+	void useEntityPostsSelectorAndItemPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/player/use-entity", 0, 200, """
+				{"accepted":true,"task":{"state":"QUEUED"}}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.useEntity(null, "Dinner", null, "minecraft:shears");
+
+			assertEquals(true, payload.get("accepted"));
+			assertEquals("POST", server.lastMethod("/v1/player/use-entity"));
+			assertTrue(server.lastRequestBody("/v1/player/use-entity").contains("\"name\":\"Dinner\""));
+			assertTrue(server.lastRequestBody("/v1/player/use-entity").contains("\"itemId\":\"minecraft:shears\""));
+		}
+	}
+
 	private static void writeBridgeState(Path tempDir) throws Exception {
 		writeBridgeState(tempDir, 1);
 	}

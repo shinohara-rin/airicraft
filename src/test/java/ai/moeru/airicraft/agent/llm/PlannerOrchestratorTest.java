@@ -328,6 +328,15 @@ class PlannerOrchestratorTest {
 		craftArgs.addProperty("times", 1);
 		assertActionToolRoute("craft_recipe", craftArgs);
 
+		JsonObject attackArgs = new JsonObject();
+		attackArgs.addProperty("entityTypeId", "minecraft:sheep");
+		assertActionToolRoute("attack_entity", attackArgs);
+
+		JsonObject useArgs = new JsonObject();
+		useArgs.addProperty("name", "Dinner");
+		useArgs.addProperty("itemId", "minecraft:shears");
+		assertActionToolRoute("use_entity", useArgs);
+
 		JsonObject cancelArgs = new JsonObject();
 		cancelArgs.addProperty("reason", "user changed plan");
 		assertActionToolRoute("cancel_task", cancelArgs);

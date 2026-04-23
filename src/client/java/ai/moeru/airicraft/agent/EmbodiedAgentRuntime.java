@@ -95,6 +95,8 @@ import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
 import ai.moeru.airicraft.agent.verification.VerificationRunner;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
@@ -928,6 +930,14 @@ public final class EmbodiedAgentRuntime {
 		return taskSnapshot;
 	}
 
+	public TaskSnapshot submitAttackEntity(EntityInteractionStepArgs entityInteraction, String source) {
+		return submitActiveJobProposal(ActiveJobProposal.attackEntity(entityInteraction), source, entityInteractionEventPayload(entityInteraction, "ATTACK_ENTITY", source));
+	}
+
+	public TaskSnapshot submitUseEntity(EntityInteractionStepArgs entityInteraction, String source) {
+		return submitActiveJobProposal(ActiveJobProposal.useEntity(entityInteraction), source, entityInteractionEventPayload(entityInteraction, "USE_ENTITY", source));
+	}
+
 	public TaskSnapshot cancelTask(String reason) {
 		TaskSnapshot previousTaskSnapshot = taskSnapshot;
 		activeJobRuntime.cancel(reason == null || reason.isBlank() ? "cancelled" : reason, tickCount);
@@ -936,6 +946,44 @@ public final class EmbodiedAgentRuntime {
 		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
 		recordSemanticTaskTransition(previousTaskSnapshot, taskSnapshot);
 		return taskSnapshot;
+	}
+
+	private TaskSnapshot submitActiveJobProposal(ActiveJobProposal proposal, String source, Map<String, Object> submittedPayload) {
+		Objects.requireNonNull(proposal, "proposal");
+		WorldEvidence worldEvidence = currentWorldEvidence(MinecraftClient.getInstance());
+		int currentResourceCount = worldEvidence.inventoryCounts().getOrDefault(TaskResourceKind.WOOD_LOGS, 0);
+		activeJobRuntime.applyPlannerResponse(
+			new DialogueResponse("", new DialogueIntent(DialogueIntentType.JOB_UPDATE, proposal), tickCount),
+			currentResourceCount,
+			source == null || source.isBlank() ? "bridge_debug" : source,
+			tickCount
+		);
+		taskSnapshot = activeJobRuntime.taskSnapshot();
+		missionExecutionSnapshot = activeJobRuntime.missionExecutionSnapshot();
+		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
+		eventBuffer.append(tickCount, "task.submitted", submittedPayload);
+		return taskSnapshot;
+	}
+
+	private Map<String, Object> entityInteractionEventPayload(EntityInteractionStepArgs entityInteraction, String type, String source) {
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", type);
+		payload.put("source", source == null || source.isBlank() ? "bridge_debug" : source);
+		if (entityInteraction != null && entityInteraction.selector() != null) {
+			if (entityInteraction.selector().uuid() != null) {
+				payload.put("uuid", entityInteraction.selector().uuid());
+			}
+			if (entityInteraction.selector().name() != null) {
+				payload.put("name", entityInteraction.selector().name());
+			}
+			if (entityInteraction.selector().entityTypeId() != null) {
+				payload.put("entityTypeId", entityInteraction.selector().entityTypeId());
+			}
+		}
+		if (entityInteraction != null && entityInteraction.itemId() != null) {
+			payload.put("itemId", entityInteraction.itemId());
+		}
+		return payload;
 	}
 
 	void injectDialogueResponseForTests(DialogueResponse response) {
@@ -1048,6 +1096,21 @@ public final class EmbodiedAgentRuntime {
 				applyPlannerJobTool(ActiveJobProposal.dropItems(dropItems));
 				yield queuedActionToolResult("give_player", "targetPlayer=" + targetPlayer + " itemId=" + dropItems.itemId() + " quantity=" + dropItems.quantity());
 			}
+			case PlannerToolCatalog.ATTACK_ENTITY -> {
+				EntityInteractionStepArgs entityInteraction = new EntityInteractionStepArgs(parseEntitySelectorArgs(args), null);
+				applyPlannerJobTool(ActiveJobProposal.attackEntity(entityInteraction));
+				yield queuedActionToolResult("attack_entity", describeEntitySelector(entityInteraction.selector()));
+			}
+			case PlannerToolCatalog.USE_ENTITY -> {
+				EntityInteractionStepArgs entityInteraction = new EntityInteractionStepArgs(
+					parseEntitySelectorArgs(args),
+					stringArg(args, "itemId").orElse(null)
+				);
+				applyPlannerJobTool(ActiveJobProposal.useEntity(entityInteraction));
+				String details = describeEntitySelector(entityInteraction.selector())
+					+ (entityInteraction.itemId() == null ? "" : " itemId=" + entityInteraction.itemId());
+				yield queuedActionToolResult("use_entity", details);
+			}
 			case PlannerToolCatalog.CANCEL_TASK -> {
 				String reason = stringArg(args, "reason").orElse("planner_tool_cancelled");
 				TaskSnapshot snapshot = cancelTask(reason);
@@ -1104,6 +1167,27 @@ public final class EmbodiedAgentRuntime {
 		if (selfPos.squaredDistanceTo(targetPos) > 16.0D) {
 			throw new IllegalStateException("target_not_nearby");
 		}
+	}
+
+	private static EntitySelector parseEntitySelectorArgs(JsonObject object) {
+		return new EntitySelector(
+			stringArg(object, "uuid").orElse(null),
+			stringArg(object, "name").orElse(null),
+			stringArg(object, "entityTypeId").orElse(null)
+		);
+	}
+
+	private static String describeEntitySelector(EntitySelector selector) {
+		if (selector == null) {
+			return "selector=missing";
+		}
+		if (selector.uuid() != null) {
+			return "uuid=" + selector.uuid();
+		}
+		if (selector.name() != null) {
+			return "name=" + selector.name();
+		}
+		return "entityTypeId=" + selector.entityTypeId();
 	}
 
 	private Vec3d currentPlayerPosition() {
@@ -1965,7 +2049,7 @@ public final class EmbodiedAgentRuntime {
 		}
 		return switch (intent.activeJob().type()) {
 			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS -> true;
-			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, ASK_USER -> false;
+			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, ATTACK_ENTITY, USE_ENTITY, ASK_USER -> false;
 		};
 	}
 
@@ -1979,6 +2063,8 @@ public final class EmbodiedAgentRuntime {
 		return snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_RESOURCE
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.DROP_ITEMS
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ATTACK_ENTITY
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_ENTITY
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
 	}
 

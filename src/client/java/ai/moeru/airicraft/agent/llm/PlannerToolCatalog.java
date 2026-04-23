@@ -25,6 +25,8 @@ public final class PlannerToolCatalog {
 	public static final String CRAFT_RECIPE = "craft_recipe";
 	public static final String DROP_ITEMS = "drop_items";
 	public static final String GIVE_PLAYER = "give_player";
+	public static final String ATTACK_ENTITY = "attack_entity";
+	public static final String USE_ENTITY = "use_entity";
 	public static final String CANCEL_TASK = "cancel_task";
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
@@ -83,6 +85,19 @@ public final class PlannerToolCatalog {
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
 			), List.of("targetPlayer", "itemId", "quantity")),
+			tool(ATTACK_ENTITY, "Attack one nearby entity selected by uuid, name, or entityTypeId.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("uuid", optionalString("Exact entity uuid when available.")),
+				prop("name", optionalString("Visible custom name or display name when available.")),
+				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep."))
+			), List.of()),
+			tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity selected by uuid, name, or entityTypeId.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("uuid", optionalString("Exact entity uuid when available.")),
+				prop("name", optionalString("Visible custom name or display name when available.")),
+				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
+				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:shears."))
+			), List.of()),
 			tool(CANCEL_TASK, "Cancel the current task or job.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("reason", string("Optional cancellation reason."))
@@ -173,6 +188,8 @@ public final class PlannerToolCatalog {
 				CRAFT_RECIPE,
 				DROP_ITEMS,
 				GIVE_PLAYER,
+				ATTACK_ENTITY,
+				USE_ENTITY,
 				CANCEL_TASK,
 				CLEAR_GOAL,
 				UPDATE_EVENT_POLICY -> true;
@@ -276,10 +293,26 @@ public final class PlannerToolCatalog {
 				requireString(arguments, "itemId");
 				requirePositiveInt(arguments, "quantity");
 			}
+			case ATTACK_ENTITY -> requireEntitySelector(arguments);
+			case USE_ENTITY -> {
+				requireEntitySelector(arguments);
+				if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
+					requireString(arguments, "itemId");
+				}
+			}
 			case CANCEL_TASK -> {
 			}
 			case UPDATE_EVENT_POLICY -> validatePolicyArguments(arguments);
 			default -> throw new JsonParseException("Unknown planner tool: " + name);
+		}
+	}
+
+	private static void requireEntitySelector(JsonObject arguments) {
+		boolean hasUuid = getString(arguments, "uuid").isPresent();
+		boolean hasName = getString(arguments, "name").isPresent();
+		boolean hasEntityTypeId = getString(arguments, "entityTypeId").isPresent();
+		if (!hasUuid && !hasName && !hasEntityTypeId) {
+			throw new JsonParseException("entity selector requires uuid, name, or entityTypeId");
 		}
 	}
 

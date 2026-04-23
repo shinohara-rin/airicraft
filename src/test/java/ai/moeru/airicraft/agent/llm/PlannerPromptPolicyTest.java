@@ -51,6 +51,21 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptExplainsEntityInteractionToolSelectors() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("attack_entity"));
+		assertTrue(prompt.contains("use_entity"));
+		assertTrue(prompt.contains("uuid"));
+		assertTrue(prompt.contains("name"));
+		assertTrue(prompt.contains("entityTypeId"));
+		assertTrue(prompt.contains("minecraft:shears"));
+		assertTrue(prompt.contains("accepted action tool"));
+		assertTrue(prompt.contains("TASK UPDATE"));
+	}
+
+
+	@Test
 	void systemPromptDistinguishesStartupInventoryFromLatestToolFollowUp() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 

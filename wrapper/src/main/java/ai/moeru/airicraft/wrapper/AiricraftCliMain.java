@@ -117,7 +117,10 @@ public final class AiricraftCliMain {
 		root.addSubcommand("player", new UsageCommand(out, "airicraft player", "Player-oriented commands"));
 		CommandLine player = root.getSubcommands().get("player");
 		player.addSubcommand(new PlayerFocusCommand(context));
+		player.addSubcommand(new PlayerNearbyEntitiesCommand(context));
 		player.addSubcommand(new PlayerLookAtCommand(context));
+		player.addSubcommand(new PlayerAttackEntityCommand(context));
+		player.addSubcommand(new PlayerUseEntityCommand(context));
 
 		root.addSubcommand("camera", new UsageCommand(out, "airicraft camera", "Camera capture commands"));
 		CommandLine camera = root.getSubcommands().get("camera");
@@ -792,6 +795,18 @@ public final class AiricraftCliMain {
 		}
 	}
 
+	@Command(name = "nearby-entities", mixinStandardHelpOptions = true, description = "List nearby loaded entities and their exact selectors.")
+	private static final class PlayerNearbyEntitiesCommand extends BaseCommand {
+		private PlayerNearbyEntitiesCommand(CliContext context) {
+			super(context, "player nearby-entities");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().listNearbyEntities();
+		}
+	}
+
 	@Command(name = "look-at", mixinStandardHelpOptions = true, description = "Rotate the player camera toward coordinates.")
 	private static final class PlayerLookAtCommand extends BaseCommand {
 		@Option(names = "--x", required = true)
@@ -810,6 +825,70 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return transport().lookAt(x, y, z);
+		}
+	}
+
+	private abstract static class PlayerEntitySelectorCommand extends BaseCommand {
+		@Option(names = "--uuid", description = "Exact entity UUID.")
+		private String uuid;
+
+		@Option(names = "--name", description = "Visible entity name.")
+		private String name;
+
+		@Option(names = "--entity-type-id", description = "Exact namespaced entity type id, for example minecraft:sheep.")
+		private String entityTypeId;
+
+		private PlayerEntitySelectorCommand(CliContext context, String commandPath) {
+			super(context, commandPath);
+		}
+
+		final String selectorUuid() {
+			return uuid;
+		}
+
+		final String selectorName() {
+			return name;
+		}
+
+		final String selectorEntityTypeId() {
+			return entityTypeId;
+		}
+
+		final void requireSelector() {
+			if ((uuid == null || uuid.isBlank())
+				&& (name == null || name.isBlank())
+				&& (entityTypeId == null || entityTypeId.isBlank())) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide at least one of --uuid, --name, or --entity-type-id");
+			}
+		}
+	}
+
+	@Command(name = "attack-entity", mixinStandardHelpOptions = true, description = "Attack a nearby entity selected by uuid, name, or entity type.")
+	private static final class PlayerAttackEntityCommand extends PlayerEntitySelectorCommand {
+		private PlayerAttackEntityCommand(CliContext context) {
+			super(context, "player attack-entity");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requireSelector();
+			return transport().attackEntity(selectorUuid(), selectorName(), selectorEntityTypeId());
+		}
+	}
+
+	@Command(name = "use-entity", mixinStandardHelpOptions = true, description = "Use current hand or an optional item on a nearby entity.")
+	private static final class PlayerUseEntityCommand extends PlayerEntitySelectorCommand {
+		@Option(names = "--item-id", description = "Optional exact namespaced item id to equip first.")
+		private String itemId;
+
+		private PlayerUseEntityCommand(CliContext context) {
+			super(context, "player use-entity");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requireSelector();
+			return transport().useEntity(selectorUuid(), selectorName(), selectorEntityTypeId(), itemId);
 		}
 	}
 

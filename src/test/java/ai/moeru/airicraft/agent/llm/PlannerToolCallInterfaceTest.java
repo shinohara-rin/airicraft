@@ -154,6 +154,27 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void exposesAndParsesEntityInteractionTools() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+
+		assertTrue(toolNames(tools).contains("attack_entity"));
+		assertTrue(toolNames(tools).contains("use_entity"));
+		PlannerToolCall attackCall = PlannerToolCatalog.parseToolCall(toolCall("attack_entity", """
+			{"entityTypeId":"minecraft:sheep"}
+			"""));
+		PlannerToolCall useCall = PlannerToolCatalog.parseToolCall(toolCall("use_entity", """
+			{"name":"Dinner","itemId":"minecraft:shears"}
+			"""));
+
+		assertEquals("attack_entity", attackCall.name());
+		assertEquals("minecraft:sheep", attackCall.arguments().get("entityTypeId").getAsString());
+		assertEquals("use_entity", useCall.name());
+		assertEquals("Dinner", useCall.arguments().get("name").getAsString());
+		assertEquals("minecraft:shears", useCall.arguments().get("itemId").getAsString());
+	}
+
+
+	@Test
 	void exposesCheckCraftablesInsteadOfInspectRecipes() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 
@@ -217,6 +238,15 @@ class PlannerToolCallInterfaceTest {
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("give_player", """
 				{"itemId":"minecraft:oak_log","quantity":2}
+				"""))
+		);
+	}
+
+	@Test
+	void rejectsEntityInteractionWithoutSelector() {
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("attack_entity", """
+				{}
 				"""))
 		);
 	}

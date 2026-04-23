@@ -67,6 +67,11 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> listNearbyEntities() {
+		return get("/v1/player/nearby-entities");
+	}
+
+	@Override
 	public CapturedImage captureScreenshot() {
 		Map<String, Object> payload = send("POST", "/v1/camera/screenshot", null);
 		try {
@@ -127,6 +132,16 @@ final class HttpBridgeTransport implements MinecraftTransport {
 			"y", y,
 			"z", z
 		));
+	}
+
+	@Override
+	public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId) {
+		return send("POST", "/v1/player/attack-entity", entitySelectorBody(uuid, name, entityTypeId, null));
+	}
+
+	@Override
+	public Map<String, Object> useEntity(String uuid, String name, String entityTypeId, String itemId) {
+		return send("POST", "/v1/player/use-entity", entitySelectorBody(uuid, name, entityTypeId, itemId));
 	}
 
 	@Override
@@ -357,6 +372,23 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	@Override
 	public Map<String, Object> runVerificationScenario(String scenario) {
 		return send("POST", "/v1/verification/run", Map.of("scenario", scenario));
+	}
+
+	private static Map<String, Object> entitySelectorBody(String uuid, String name, String entityTypeId, String itemId) {
+		LinkedHashMap<String, Object> body = new LinkedHashMap<>();
+		if (uuid != null && !uuid.isBlank()) {
+			body.put("uuid", uuid);
+		}
+		if (name != null && !name.isBlank()) {
+			body.put("name", name);
+		}
+		if (entityTypeId != null && !entityTypeId.isBlank()) {
+			body.put("entityTypeId", entityTypeId);
+		}
+		if (itemId != null && !itemId.isBlank()) {
+			body.put("itemId", itemId);
+		}
+		return body;
 	}
 
 	@Override
