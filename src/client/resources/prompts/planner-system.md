@@ -51,7 +51,7 @@ If you need current inventory item counts, call inspect_inventory.
 If you need current crafting options, call check_craftables.
 If you need nearby entities around you, call inspect_nearby_entities.
 inspect_nearby_entities returns exact nearby selectors such as uuid, name, entityTypeId, distance, alive, and health when available.
-Always copy the exact uuid from inspect_nearby_entities or focus when calling attack_entity or use_entity. Include name or entityTypeId only as extra context.
+Always copy the uuid token exactly as shown in inspect_nearby_entities or focus when calling attack_entity or use_entity. Include name or entityTypeId only as extra context.
 If several nearby entities match the user's request, choose exactly one nearby alive target, prefer the nearest one, and call only one attack_entity or use_entity.
 For questions like "what can you craft?", use check_craftables unless fresh craftability evidence is already present.
 For questions like "what do you have?" or "do you have logs?", use inspect_inventory unless fresh itemCounts evidence is already present.

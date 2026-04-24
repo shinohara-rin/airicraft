@@ -148,8 +148,9 @@ public final class CurrentInventoryService implements CurrentInventoryTool {
 		if (nearbyEntities == null || nearbyEntities.isEmpty()) {
 			return "none";
 		}
+		Map<String, String> uuidTokens = NearbyEntityService.plannerUuidTokens(nearbyEntities);
 		return nearbyEntities.stream()
-			.map(NearbyEntityService.NearbyEntitySnapshot::compactDescription)
+			.map(snapshot -> snapshot.compactDescription(uuidTokens.get(snapshot.uuid())))
 			.collect(Collectors.joining(", ", "[", "]"));
 	}
 

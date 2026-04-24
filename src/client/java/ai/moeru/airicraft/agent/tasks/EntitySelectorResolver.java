@@ -85,7 +85,7 @@ public final class EntitySelectorResolver {
 	}
 
 	private static boolean matches(EntitySelector selector, EntityCandidate candidate) {
-		if (selector.uuid() != null && !selector.uuid().equals(candidate.uuid())) {
+		if (selector.uuid() != null && !uuidMatches(selector.uuid(), candidate.uuid())) {
 			return false;
 		}
 		if (selector.name() != null && !selector.name().equalsIgnoreCase(candidate.name())) {
@@ -95,6 +95,19 @@ public final class EntitySelectorResolver {
 			return false;
 		}
 		return true;
+	}
+
+	private static boolean uuidMatches(String selectorUuid, String candidateUuid) {
+		String normalizedSelector = normalizedUuid(selectorUuid);
+		String normalizedCandidate = normalizedUuid(candidateUuid);
+		if (normalizedSelector == null || normalizedCandidate == null) {
+			return false;
+		}
+		return normalizedCandidate.startsWith(normalizedSelector);
+	}
+
+	private static String normalizedUuid(String uuid) {
+		return uuid == null ? null : uuid.trim().toLowerCase(Locale.ROOT);
 	}
 
 	private static String normalizedEntityTypeId(String entityTypeId) {

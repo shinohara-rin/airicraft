@@ -90,15 +90,15 @@ public final class PlannerToolCatalog {
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
 			), List.of("targetPlayer", "itemId", "quantity")),
-			tool(ATTACK_ENTITY, "Attack one nearby entity. Always copy the exact uuid from inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+			tool(ATTACK_ENTITY, "Attack one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("uuid", optionalString("Exact entity uuid when available.")),
+				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep."))
 			), List.of("uuid")),
-			tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity. Always copy the exact uuid from inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+			tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("uuid", optionalString("Exact entity uuid when available.")),
+				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
 				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:shears."))

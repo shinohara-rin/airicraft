@@ -8,12 +8,15 @@ import net.minecraft.registry.Registries;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 public final class NearbyEntityService {
 	public static final int DEFAULT_MAX_RESULTS = 32;
+	public static final int PLANNER_UUID_MIN_LENGTH = 8;
 
 	private NearbyEntityService() {
 	}
@@ -107,6 +110,63 @@ public final class NearbyEntityService {
 		return value == null ? "" : value;
 	}
 
+	public static String plannerUuidToken(String uuid) {
+		String trimmed = uuid == null ? null : uuid.trim();
+		if (trimmed == null || trimmed.isEmpty()) {
+			return "";
+		}
+		if (trimmed.length() <= PLANNER_UUID_MIN_LENGTH) {
+			return trimmed;
+		}
+		return trimmed.substring(0, PLANNER_UUID_MIN_LENGTH);
+	}
+
+	public static Map<String, String> plannerUuidTokens(List<NearbyEntitySnapshot> nearbyEntities) {
+		if (nearbyEntities == null || nearbyEntities.isEmpty()) {
+			return Map.of();
+		}
+		List<String> normalizedUuids = nearbyEntities.stream()
+			.map(NearbyEntitySnapshot::uuid)
+			.filter(Objects::nonNull)
+			.map(NearbyEntityService::normalizedUuid)
+			.filter(Objects::nonNull)
+			.distinct()
+			.toList();
+		LinkedHashMap<String, String> tokens = new LinkedHashMap<>();
+		for (NearbyEntitySnapshot snapshot : nearbyEntities) {
+			if (snapshot == null || snapshot.uuid() == null || tokens.containsKey(snapshot.uuid())) {
+				continue;
+			}
+			tokens.put(snapshot.uuid(), uniquePlannerUuidToken(snapshot.uuid(), normalizedUuids));
+		}
+		return Map.copyOf(tokens);
+	}
+
+	private static String uniquePlannerUuidToken(String uuid, List<String> normalizedUuids) {
+		String trimmed = uuid == null ? null : uuid.trim();
+		String normalized = normalizedUuid(trimmed);
+		if (trimmed == null || trimmed.isEmpty() || normalized == null) {
+			return "";
+		}
+		int length = Math.min(Math.max(PLANNER_UUID_MIN_LENGTH, 1), normalized.length());
+		while (length < normalized.length()) {
+			String prefix = normalized.substring(0, length);
+			long matches = normalizedUuids.stream()
+				.filter(candidate -> candidate.startsWith(prefix))
+				.count();
+			if (matches == 1L) {
+				return trimmed.substring(0, Math.min(length, trimmed.length()));
+			}
+			length++;
+		}
+		return trimmed;
+	}
+
+	private static String normalizedUuid(String uuid) {
+		String trimmed = uuid == null ? null : uuid.trim();
+		return trimmed == null || trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
+	}
+
 	public record NearbyEntitySnapshot(
 		int entityId,
 		String uuid,
@@ -122,8 +182,12 @@ public final class NearbyEntityService {
 		boolean isPlayer
 	) {
 		public String compactDescription() {
+			return compactDescription(plannerUuidToken(uuid));
+		}
+
+		public String compactDescription(String uuidToken) {
 			StringBuilder builder = new StringBuilder("{")
-				.append("uuid=").append(uuid)
+				.append("uuid=").append(uuidToken == null || uuidToken.isBlank() ? uuid : uuidToken)
 				.append(", name=").append(name)
 				.append(", entityTypeId=").append(entityTypeId)
 				.append(", distance=").append(format(distance))

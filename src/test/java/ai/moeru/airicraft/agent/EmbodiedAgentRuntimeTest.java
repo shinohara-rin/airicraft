@@ -267,6 +267,40 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void attackEntityToolResultUsesShortUuidToken() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_attack",
+			"attack_entity",
+			JsonParser.parseString("""
+				{"uuid":"12345678-aaaa-4d9d-8b9d-fb24b98cb81d"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("uuid=12345678"));
+		assertFalse(result.contains("uuid=12345678-aaaa-4d9d-8b9d-fb24b98cb81d"));
+		assertEquals(new EntityInteractionStepArgs(
+			new EntitySelector("12345678-aaaa-4d9d-8b9d-fb24b98cb81d", null, null),
+			null
+		), request.entityInteraction());
+	}
+
+	@Test
 	void useEntityToolRoutesWorldTaskRequest() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

@@ -84,6 +84,7 @@ import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
 import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
 import ai.moeru.airicraft.agent.tasks.InventoryResourceCounter;
 import ai.moeru.airicraft.agent.tasks.MissionExecutionSnapshot;
+import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskState;
@@ -1182,7 +1183,7 @@ public final class EmbodiedAgentRuntime {
 			return "selector=missing";
 		}
 		if (selector.uuid() != null) {
-			return "uuid=" + selector.uuid();
+			return "uuid=" + NearbyEntityService.plannerUuidToken(selector.uuid());
 		}
 		if (selector.name() != null) {
 			return "name=" + selector.name();
