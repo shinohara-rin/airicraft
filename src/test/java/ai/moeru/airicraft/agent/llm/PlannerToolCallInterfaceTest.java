@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.llm;
 
 import ai.moeru.airicraft.agent.AgentConfig;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
@@ -174,6 +175,16 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void entityInteractionToolSchemasRequireUuid() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject attackParameters = toolSchema(tools, "attack_entity");
+		JsonObject useParameters = toolSchema(tools, "use_entity");
+
+		assertRequiredUuid(attackParameters);
+		assertRequiredUuid(useParameters);
+	}
+
+	@Test
 	void exposesAndParsesNearbyEntityInspectionTool() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 
@@ -301,6 +312,23 @@ class PlannerToolCallInterfaceTest {
 		return tools.asList().stream()
 			.map(element -> element.getAsJsonObject().getAsJsonObject("function").get("name").getAsString())
 			.toList();
+	}
+
+	private static JsonObject toolSchema(JsonArray tools, String toolName) {
+		return tools.asList().stream()
+			.map(JsonElement::getAsJsonObject)
+			.map(tool -> tool.getAsJsonObject("function"))
+			.filter(function -> toolName.equals(function.get("name").getAsString()))
+			.map(function -> function.getAsJsonObject("parameters"))
+			.findFirst()
+			.orElseThrow();
+	}
+
+	private static void assertRequiredUuid(JsonObject parameters) {
+		JsonArray required = parameters.getAsJsonArray("required");
+		assertNotNull(required);
+		assertEquals(1, required.size());
+		assertEquals("uuid", required.get(0).getAsString());
 	}
 
 	private static JsonObject toolCall(String name, String arguments) {

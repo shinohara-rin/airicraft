@@ -64,6 +64,7 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("TASK UPDATE"));
 		assertTrue(prompt.contains("choose exactly one nearby alive target"));
 		assertTrue(prompt.contains("prefer the nearest one"));
+		assertTrue(prompt.contains("Always copy the exact uuid"));
 	}
 
 	@Test
