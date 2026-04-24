@@ -1,0 +1,41 @@
+version: 1
+actions:
+  obtain_wheat:
+    summary: Produce wheat in inventory.
+    params:
+      quantity:
+        type: integer
+        default: 1
+        min: 1
+
+    produces:
+      - fact: inventory.item
+        itemId: minecraft:wheat
+        countAtLeast:
+          expr: "params.quantity"
+
+    alternatives:
+      - id: already_have_wheat
+        cost: 0
+        guards:
+          - fact: inventory.item
+            itemId: minecraft:wheat
+            countAtLeast:
+              expr: "params.quantity"
+        steps: []
+
+      - id: harvest_loaded_mature_wheat
+        cost: 20
+        guards:
+          - fact: world.crop_group
+            cropId: minecraft:wheat
+            matureCountAtLeast:
+              expr: "params.quantity"
+        steps:
+          - id: harvest_wheat
+            primitive: mine_block
+            args:
+              blockIds:
+                - minecraft:wheat
+              quantity:
+                expr: "params.quantity"

@@ -2,6 +2,10 @@ package ai.moeru.airicraft.agent.actions;
 
 import org.yaml.snakeyaml.Yaml;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,6 +23,10 @@ public final class ActionsetParser {
 			return new ActionsetDocument(sourceName, Map.of());
 		}
 		return new ActionsetDocument(sourceName, typedMap(map));
+	}
+
+	public static ActionsetDocument parse(Path path) throws IOException {
+		return parse(path == null ? null : path.toString(), Files.readString(path, StandardCharsets.UTF_8));
 	}
 
 	private static Map<String, Object> typedMap(Map<?, ?> input) {

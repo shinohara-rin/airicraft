@@ -1,0 +1,55 @@
+version: 1
+actions:
+  make_bread:
+    summary: Produce bread in inventory.
+    params:
+      quantity:
+        type: integer
+        default: 1
+        min: 1
+
+    produces:
+      - fact: inventory.item
+        itemId: minecraft:bread
+        countAtLeast:
+          expr: "params.quantity"
+
+    alternatives:
+      - id: already_have_bread
+        cost: 0
+        guards:
+          - fact: inventory.item
+            itemId: minecraft:bread
+            countAtLeast:
+              expr: "params.quantity"
+        steps: []
+
+      - id: craft_from_inventory_wheat
+        cost: 10
+        guards:
+          - fact: inventory.item
+            itemId: minecraft:wheat
+            countAtLeast:
+              expr: "params.quantity * 3"
+        steps:
+          - id: craft_bread
+            primitive: craft_item
+            args:
+              itemId: minecraft:bread
+              quantity:
+                expr: "params.quantity"
+
+      - id: obtain_wheat_then_craft
+        cost: 40
+        needs:
+          - fact: inventory.item
+            itemId: minecraft:wheat
+            countAtLeast:
+              expr: "params.quantity * 3"
+        steps:
+          - id: craft_bread
+            primitive: craft_item
+            args:
+              itemId: minecraft:bread
+              quantity:
+                expr: "params.quantity"
