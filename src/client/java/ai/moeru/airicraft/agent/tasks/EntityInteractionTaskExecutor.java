@@ -1,5 +1,9 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import ai.moeru.airicraft.agent.control.LookController;
+import ai.moeru.airicraft.agent.control.MovementController;
+import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
+import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
@@ -11,6 +15,9 @@ import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.RaycastContext;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -20,32 +27,57 @@ import java.util.function.Supplier;
 
 public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	private static final int TARGET_OUT_OF_RANGE_GRACE_TICKS = 20;
+	private static final int BUSY_STATE_TIMEOUT_TICKS = 100;
+	private static final int CHASE_GOAL_REFRESH_TICKS = 10;
+	private static final int BARITONE_CHASE_RADIUS_BLOCKS = 3;
+	private static final double CHASE_GOAL_REFRESH_DISTANCE_BLOCKS = 2.0D;
+	private static final double DIRECT_CHASE_DISTANCE_BLOCKS = 10.0D;
 	private static final float ATTACK_READY_THRESHOLD = 0.92F;
+	private static final float LOOK_YAW_STEP = 12.0F;
+	private static final float LOOK_PITCH_STEP = 10.0F;
 
 	private final Supplier<MinecraftClient> clientSupplier;
+	private final BaritoneFacade navigationFacade;
+	private final LookController lookController = new LookController();
+	private final MovementController movementController = new MovementController();
 
 	private WorldTaskRequest appliedTask;
 	private boolean terminalEventEmitted;
+	private boolean landedAttack;
 	private int outOfRangeTicks;
+	private int busyStateTicks;
+	private GoalPosition chaseGoal;
+	private int chaseGoalRefreshTicks;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 
 	public EntityInteractionTaskExecutor() {
-		this(MinecraftClient::getInstance);
+		this(MinecraftClient::getInstance, null);
+	}
+
+	public EntityInteractionTaskExecutor(BaritoneFacade navigationFacade) {
+		this(MinecraftClient::getInstance, navigationFacade);
 	}
 
 	EntityInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier) {
+		this(clientSupplier, null);
+	}
+
+	EntityInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, BaritoneFacade navigationFacade) {
 		this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier");
+		this.navigationFacade = navigationFacade;
 	}
 
 	@Override
 	public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 		if (activeTask.isEmpty() || !isEntityInteractionTask(activeTask.get().type())) {
+			cancelApproach();
 			reset();
 			return Optional.empty();
 		}
 
 		WorldTaskRequest request = activeTask.get();
 		if (!sameTask(request, appliedTask)) {
+			cancelApproach();
 			reset();
 			appliedTask = request;
 		}
@@ -61,44 +93,65 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 			return fail(request, "world_unavailable");
 		}
 		if (dismissCurrentScreenIfSafe(client, player)) {
+			busyStateTicks = 0;
 			snapshot = snapshot(TaskExecutionState.RUNNING, request, "screen_dismissed");
 			return Optional.empty();
 		}
 		if (player.currentScreenHandler != player.playerScreenHandler || !player.currentScreenHandler.getCursorStack().isEmpty()) {
+			if (shouldWaitForBusyState(busyStateTicks)) {
+				busyStateTicks++;
+				snapshot = snapshot(TaskExecutionState.RUNNING, request, "interaction_busy");
+				return Optional.empty();
+			}
 			return fail(request, "interaction_busy");
 		}
+		busyStateTicks = 0;
 
 		Selection selection = resolveSelection(client, player, request.entityInteraction().selector());
 		if (selection.failureReason() != null) {
+			if (completedAfterLandedAttack(request, selection.failureReason())) {
+				return complete(request, "target_died");
+			}
 			return fail(request, selection.failureReason());
 		}
 		Entity target = selection.entity();
 		if (target == null) {
+			if (completedAfterLandedAttack(request, "target_not_found")) {
+				return complete(request, "target_died");
+			}
 			return fail(request, "target_not_found");
 		}
 		if (!target.isAlive()) {
+			if (completedAfterLandedAttack(request, "target_not_alive")) {
+				return complete(request, "target_died");
+			}
 			return fail(request, "target_not_alive");
 		}
-		if (!EntitySelectorResolver.isWithinInteractionRange(
+		lookAtTarget(client, target);
+		double distance = player.distanceTo(target);
+		boolean hasLineOfSight = hasBlockLineOfSight(client, player, target);
+		boolean withinInteractionRange = EntitySelectorResolver.isWithinInteractionRange(
 			player.getX(),
 			player.getY(),
 			player.getZ(),
 			target.getX(),
 			target.getY(),
 			target.getZ()
-		)) {
-			outOfRangeTicks++;
-			if (outOfRangeTicks <= TARGET_OUT_OF_RANGE_GRACE_TICKS) {
-				snapshot = snapshot(TaskExecutionState.RUNNING, request, "target_out_of_range");
-				return Optional.empty();
-			}
-			return fail(request, "target_out_of_range");
-		}
-		outOfRangeTicks = 0;
+		);
 
 		return switch (request.type()) {
-			case ATTACK_ENTITY -> attackEntity(client, player, request, target);
-			case USE_ENTITY -> useEntity(client, player, request, target);
+			case ATTACK_ENTITY -> {
+				if (withinInteractionRange && hasLineOfSight) {
+					yield attackEntity(client, player, request, target);
+				}
+				yield approachTarget(client, request, target, distance, hasLineOfSight, sessionSnapshot.tickCount());
+			}
+			case USE_ENTITY -> {
+				if (withinInteractionRange && hasLineOfSight) {
+					yield useEntity(client, player, request, target);
+				}
+				yield approachTarget(client, request, target, distance, hasLineOfSight, sessionSnapshot.tickCount());
+			}
 			default -> Optional.empty();
 		};
 	}
@@ -107,12 +160,28 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		return sessionSnapshot != null && sessionSnapshot.companionActuationAllowed();
 	}
 
+	static boolean shouldWaitForBusyState(int busyStateTicks) {
+		return busyStateTicks < BUSY_STATE_TIMEOUT_TICKS;
+	}
+
+	static boolean shouldRefreshChaseGoal(GoalPosition currentChaseGoal, GoalPosition nextChaseGoal, int ticksSinceRefresh) {
+		return currentChaseGoal == null
+			|| squaredBlockDistance(currentChaseGoal, nextChaseGoal) >= CHASE_GOAL_REFRESH_DISTANCE_BLOCKS * CHASE_GOAL_REFRESH_DISTANCE_BLOCKS
+			|| ticksSinceRefresh >= CHASE_GOAL_REFRESH_TICKS;
+	}
+
+	static boolean shouldUseDirectChase(double distance, boolean hasLineOfSight, boolean directMovementStuck) {
+		return distance <= DIRECT_CHASE_DISTANCE_BLOCKS && hasLineOfSight && !directMovementStuck;
+	}
+
 	private Optional<TaskTerminalEvent> attackEntity(
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		WorldTaskRequest request,
 		Entity target
 	) {
+		movementController.stop(client);
+		cancelBaritoneChase();
 		if (player.getAttackCooldownProgress(0.0F) < ATTACK_READY_THRESHOLD) {
 			snapshot = snapshot(TaskExecutionState.RUNNING, request, "attack_cooldown");
 			return Optional.empty();
@@ -120,6 +189,10 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 
 		client.interactionManager.attackEntity(player, target);
 		player.swingHand(Hand.MAIN_HAND);
+		landedAttack = true;
+		if (request.entityInteraction().attackMode() == EntityAttackMode.HIT_ONCE) {
+			return complete(request, "attack_landed");
+		}
 		if (!target.isAlive()) {
 			return complete(request, "target_died");
 		}
@@ -133,6 +206,8 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		WorldTaskRequest request,
 		Entity target
 	) {
+		movementController.stop(client);
+		cancelBaritoneChase();
 		Hand hand = resolveInteractionHand(client, player, request.entityInteraction().itemId());
 		if (hand == null) {
 			return fail(request, "required_item_missing");
@@ -143,6 +218,48 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		}
 		player.swingHand(hand);
 		return complete(request, "interaction_succeeded");
+	}
+
+	private Optional<TaskTerminalEvent> approachTarget(
+		MinecraftClient client,
+		WorldTaskRequest request,
+		Entity target,
+		double distance,
+		boolean hasLineOfSight,
+		long tick
+	) {
+		outOfRangeTicks++;
+		if (shouldUseDirectChase(distance, hasLineOfSight, movementController.snapshot().stuck())) {
+			cancelBaritoneChase();
+			lookAtTarget(client, target);
+			movementController.moveForward(client, true, false, tick);
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "direct_chase");
+			return Optional.empty();
+		}
+		if (navigationFacade != null && navigationFacade.isLoaded()) {
+			movementController.stop(client);
+			Optional<String> pathEvent = navigationFacade.pollPathEvent();
+			if (!landedAttack && isUnreachablePathEvent(pathEvent)) {
+				return fail(request, "target_unreachable");
+			}
+			GoalPosition nextChaseGoal = chaseGoalFor(target);
+			if (shouldRefreshChaseGoal(chaseGoal, nextChaseGoal, chaseGoalRefreshTicks)) {
+				navigationFacade.startNavigateNear(nextChaseGoal, BARITONE_CHASE_RADIUS_BLOCKS);
+				chaseGoal = nextChaseGoal;
+				chaseGoalRefreshTicks = 0;
+			}
+			else {
+				chaseGoalRefreshTicks++;
+			}
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "baritone_chase");
+			return Optional.empty();
+		}
+		movementController.stop(client);
+		if (outOfRangeTicks <= TARGET_OUT_OF_RANGE_GRACE_TICKS) {
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "target_out_of_range");
+			return Optional.empty();
+		}
+		return fail(request, "target_out_of_range");
 	}
 
 	private static Hand resolveInteractionHand(MinecraftClient client, ClientPlayerEntity player, String itemId) {
@@ -220,6 +337,54 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		};
 	}
 
+	private static GoalPosition chaseGoalFor(Entity target) {
+		var blockPos = target.getBlockPos();
+		return new GoalPosition(blockPos.getX(), blockPos.getY(), blockPos.getZ(), false);
+	}
+
+	private void lookAtTarget(MinecraftClient client, Entity target) {
+		lookController.lookAt(client, targetAimPoint(target), LOOK_YAW_STEP, LOOK_PITCH_STEP);
+	}
+
+	private static boolean hasBlockLineOfSight(MinecraftClient client, ClientPlayerEntity player, Entity target) {
+		if (client == null || client.world == null || player == null || target == null) {
+			return false;
+		}
+		Vec3d start = player.getEyePos();
+		Vec3d end = targetAimPoint(target);
+		HitResult hit = client.world.raycast(new RaycastContext(
+			start,
+			end,
+			RaycastContext.ShapeType.COLLIDER,
+			RaycastContext.FluidHandling.NONE,
+			player
+		));
+		if (hit == null || hit.getType() == HitResult.Type.MISS) {
+			return true;
+		}
+		return hit.getPos().squaredDistanceTo(start) + 0.25D >= end.squaredDistanceTo(start);
+	}
+
+	private static Vec3d targetAimPoint(Entity target) {
+		return target.getBoundingBox().getCenter();
+	}
+
+	private static double squaredBlockDistance(GoalPosition left, GoalPosition right) {
+		if (left == null || right == null) {
+			return Double.POSITIVE_INFINITY;
+		}
+		double dx = left.x() - right.x();
+		double dy = left.y() - right.y();
+		double dz = left.z() - right.z();
+		return (dx * dx) + (dy * dy) + (dz * dz);
+	}
+
+	private static boolean isUnreachablePathEvent(Optional<String> pathEvent) {
+		return pathEvent
+			.map(event -> "CALC_FAILED".equals(event.trim().toUpperCase(java.util.Locale.ROOT)))
+			.orElse(false);
+	}
+
 	private static boolean dismissCurrentScreenIfSafe(MinecraftClient client, ClientPlayerEntity player) {
 		if (!DropItemsTaskExecutor.shouldDismissBusyScreen(currentScreenName(client))) {
 			return false;
@@ -239,6 +404,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private Optional<TaskTerminalEvent> complete(WorldTaskRequest request, String message) {
+		cancelApproach();
 		snapshot = snapshot(TaskExecutionState.COMPLETED, request, message);
 		if (terminalEventEmitted) {
 			return Optional.empty();
@@ -248,6 +414,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private Optional<TaskTerminalEvent> fail(WorldTaskRequest request, String reason) {
+		cancelApproach();
 		snapshot = snapshot(TaskExecutionState.FAILED, request, reason);
 		if (terminalEventEmitted) {
 			return Optional.empty();
@@ -276,6 +443,14 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		return type == WorldTaskType.ATTACK_ENTITY || type == WorldTaskType.USE_ENTITY;
 	}
 
+	private boolean completedAfterLandedAttack(WorldTaskRequest request, String reason) {
+		return request != null
+			&& request.type() == WorldTaskType.ATTACK_ENTITY
+			&& request.entityInteraction().attackMode() == EntityAttackMode.KILL
+			&& landedAttack
+			&& ("target_not_found".equals(reason) || "target_not_alive".equals(reason));
+	}
+
 	@Override
 	public TaskExecutionSnapshot snapshot() {
 		return snapshot;
@@ -283,19 +458,38 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 
 	@Override
 	public void onWorldLeave() {
+		cancelApproach();
 		reset();
 	}
 
 	@Override
 	public void shutdown() {
+		cancelApproach();
 		reset();
 	}
 
 	private void reset() {
 		appliedTask = null;
 		terminalEventEmitted = false;
+		landedAttack = false;
 		outOfRangeTicks = 0;
+		busyStateTicks = 0;
+		chaseGoal = null;
+		chaseGoalRefreshTicks = 0;
 		snapshot = TaskExecutionSnapshot.idle();
+	}
+
+	private void cancelApproach() {
+		movementController.stop(clientSupplier.get());
+		cancelBaritoneChase();
+	}
+
+	private void cancelBaritoneChase() {
+		if (chaseGoal != null && navigationFacade != null && navigationFacade.isLoaded()) {
+			navigationFacade.cancel();
+		}
+		chaseGoal = null;
+		chaseGoalRefreshTicks = 0;
 	}
 
 	private record Selection(Entity entity, String failureReason) {

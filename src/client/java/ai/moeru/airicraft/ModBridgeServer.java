@@ -10,6 +10,7 @@ import ai.moeru.airicraft.agent.tasks.TaskLedger;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.EntitySelectorResolver;
+import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
@@ -267,7 +268,7 @@ public final class ModBridgeServer {
 				var client = getClient();
 				ensureWorldLoaded(client);
 				var task = agentRuntime().submitAttackEntity(entityInteraction, "bridge_player");
-				return entityInteractionResponse(task, entityInteraction);
+				return entityInteractionResponse(task, entityInteraction, true);
 			});
 		});
 	}
@@ -279,7 +280,7 @@ public final class ModBridgeServer {
 				var client = getClient();
 				ensureWorldLoaded(client);
 				var task = agentRuntime().submitUseEntity(entityInteraction, "bridge_player");
-				return entityInteractionResponse(task, entityInteraction);
+				return entityInteractionResponse(task, entityInteraction, false);
 			});
 		});
 	}
@@ -706,7 +707,8 @@ public final class ModBridgeServer {
 		try {
 			return new EntityInteractionStepArgs(
 				new EntitySelector(request.uuid(), request.name(), request.entityTypeId()),
-				allowItemId ? request.itemId() : null
+				allowItemId ? request.itemId() : null,
+				allowItemId ? EntityAttackMode.KILL : EntityAttackMode.fromWireValue(request.mode())
 			);
 		}
 		catch (IllegalArgumentException exception) {
@@ -714,7 +716,7 @@ public final class ModBridgeServer {
 		}
 	}
 
-	private Map<String, Object> entityInteractionResponse(ai.moeru.airicraft.agent.tasks.TaskSnapshot task, EntityInteractionStepArgs entityInteraction) {
+	private Map<String, Object> entityInteractionResponse(ai.moeru.airicraft.agent.tasks.TaskSnapshot task, EntityInteractionStepArgs entityInteraction, boolean includeMode) {
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
 		payload.put("accepted", true);
@@ -725,6 +727,9 @@ public final class ModBridgeServer {
 		));
 		if (entityInteraction.itemId() != null) {
 			payload.put("itemId", entityInteraction.itemId());
+		}
+		if (includeMode) {
+			payload.put("mode", entityInteraction.attackMode().wireValue());
 		}
 		payload.put("task", task);
 		payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
@@ -1639,7 +1644,7 @@ public final class ModBridgeServer {
 	private record LookAtRequest(Double x, Double y, Double z) {
 	}
 
-	private record EntityInteractionRequest(String uuid, String name, String entityTypeId, String itemId) {
+	private record EntityInteractionRequest(String uuid, String name, String entityTypeId, String itemId, String mode) {
 	}
 
 	private record VerificationRunRequest(String scenario) {

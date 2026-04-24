@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.llm;
 
+import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -90,11 +91,12 @@ public final class PlannerToolCatalog {
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
 			), List.of("targetPlayer", "itemId", "quantity")),
-			tool(ATTACK_ENTITY, "Attack one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+			tool(ATTACK_ENTITY, "Attack one nearby entity. Default mode kill keeps attacking until the target dies; hit_once stops after one landed hit. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
-				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep."))
+				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
+				prop("mode", enumString("Attack mode. Use kill unless the user asks for one hit.", List.of("kill", "hit_once")))
 			), List.of("uuid")),
 			tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -299,7 +301,12 @@ public final class PlannerToolCatalog {
 				requireString(arguments, "itemId");
 				requirePositiveInt(arguments, "quantity");
 			}
-			case ATTACK_ENTITY -> requireEntitySelector(arguments);
+			case ATTACK_ENTITY -> {
+				requireEntitySelector(arguments);
+				if (arguments.has("mode") && !arguments.get("mode").isJsonNull()) {
+					requireAttackMode(arguments);
+				}
+			}
 			case USE_ENTITY -> {
 				requireEntitySelector(arguments);
 				if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
@@ -319,6 +326,16 @@ public final class PlannerToolCatalog {
 		boolean hasEntityTypeId = getString(arguments, "entityTypeId").isPresent();
 		if (!hasUuid && !hasName && !hasEntityTypeId) {
 			throw new JsonParseException("entity selector requires uuid, name, or entityTypeId");
+		}
+	}
+
+	private static void requireAttackMode(JsonObject arguments) {
+		String mode = requireString(arguments, "mode");
+		try {
+			EntityAttackMode.fromWireValue(mode);
+		}
+		catch (IllegalArgumentException exception) {
+			throw new JsonParseException(exception.getMessage(), exception);
 		}
 	}
 

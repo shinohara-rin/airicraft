@@ -135,13 +135,13 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
-	public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId) {
-		return send("POST", "/v1/player/attack-entity", entitySelectorBody(uuid, name, entityTypeId, null));
+	public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId, String mode) {
+		return send("POST", "/v1/player/attack-entity", entitySelectorBody(uuid, name, entityTypeId, null, mode));
 	}
 
 	@Override
 	public Map<String, Object> useEntity(String uuid, String name, String entityTypeId, String itemId) {
-		return send("POST", "/v1/player/use-entity", entitySelectorBody(uuid, name, entityTypeId, itemId));
+		return send("POST", "/v1/player/use-entity", entitySelectorBody(uuid, name, entityTypeId, itemId, null));
 	}
 
 	@Override
@@ -374,7 +374,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 		return send("POST", "/v1/verification/run", Map.of("scenario", scenario));
 	}
 
-	private static Map<String, Object> entitySelectorBody(String uuid, String name, String entityTypeId, String itemId) {
+	private static Map<String, Object> entitySelectorBody(String uuid, String name, String entityTypeId, String itemId, String mode) {
 		LinkedHashMap<String, Object> body = new LinkedHashMap<>();
 		if (uuid != null && !uuid.isBlank()) {
 			body.put("uuid", uuid);
@@ -387,6 +387,9 @@ final class HttpBridgeTransport implements MinecraftTransport {
 		}
 		if (itemId != null && !itemId.isBlank()) {
 			body.put("itemId", itemId);
+		}
+		if (mode != null && !mode.isBlank()) {
+			body.put("mode", mode);
 		}
 		return body;
 	}

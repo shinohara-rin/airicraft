@@ -2,8 +2,13 @@ package ai.moeru.airicraft.agent.tasks;
 
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.agent.goals.GoalPosition;
+import ai.moeru.airicraft.agent.goals.GoalSnapshot;
+import ai.moeru.airicraft.agent.goals.GoalType;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -27,6 +32,36 @@ class DispatchingWorldTaskExecutorTest {
 		assertEquals(Optional.empty(), baritone.lastTask);
 		assertEquals(Optional.empty(), crafting.lastTask);
 		assertEquals(Optional.empty(), dropItems.lastTask);
+	}
+
+	@Test
+	void entityRequestsResetBaritoneOnlyOnTransition() {
+		RecordingExecutor baritone = new RecordingExecutor();
+		RecordingExecutor crafting = new RecordingExecutor();
+		RecordingExecutor dropItems = new RecordingExecutor();
+		RecordingExecutor entityInteraction = new RecordingExecutor();
+		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction);
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.NAVIGATE_TO,
+			null,
+			new GoalPosition(10, 64, 20, true),
+			null,
+			20L,
+			"test"
+		);
+		WorldTaskRequest attack = WorldTaskRequest.attackEntity(
+			"attack-task",
+			"job-2",
+			new EntityInteractionStepArgs(new EntitySelector("slime-1", "Slime", "minecraft:slime"), null)
+		);
+
+		executor.tick(snapshot(), Optional.of(WorldTaskRequest.direct("nav-task", goal)));
+		executor.tick(snapshot(), Optional.of(attack));
+		executor.tick(snapshot(), Optional.of(attack));
+
+		assertEquals(2, baritone.calls.size());
+		assertEquals(WorldTaskType.NAVIGATE, baritone.calls.get(0).orElseThrow().type());
+		assertEquals(Optional.empty(), baritone.calls.get(1));
 	}
 
 	@Test
@@ -55,10 +90,12 @@ class DispatchingWorldTaskExecutorTest {
 
 	private static final class RecordingExecutor implements WorldTaskExecutor {
 		private Optional<WorldTaskRequest> lastTask = Optional.empty();
+		private final List<Optional<WorldTaskRequest>> calls = new ArrayList<>();
 
 		@Override
 		public Optional<TaskTerminalEvent> tick(ai.moeru.airicraft.agent.session.SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 			lastTask = activeTask;
+			calls.add(activeTask);
 			return Optional.empty();
 		}
 

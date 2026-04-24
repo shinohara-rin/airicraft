@@ -330,6 +330,11 @@ class BaritoneTaskExecutorTest {
 		}
 
 		@Override
+		public void startNavigateNear(GoalPosition position, int radiusBlocks) {
+			navigateCalls.add(position);
+		}
+
+		@Override
 		public void startMine(GoalMineSpec spec) {
 			if (startMineFailure != null) {
 				throw startMineFailure;

@@ -64,6 +64,11 @@ public final class BehaviorTreeRuntime {
 			return;
 		}
 
+		if (taskOwnsMovement(taskExecutionSnapshot)) {
+			snapshot = new BehaviorTreeSnapshot(NodeStatus.RUNNING, List.of("Root", "EntityInteractionSubtree", "TaskOwnedMovement"), movementController.snapshot());
+			return;
+		}
+
 		movementController.stop(client);
 		if (activeGoal.isEmpty() || taskExecutionSnapshot == null || taskExecutionSnapshot.state() == TaskExecutionState.IDLE) {
 			snapshot = new BehaviorTreeSnapshot(NodeStatus.RUNNING, List.of("Root", "ObserveAndWait"), movementController.snapshot());
@@ -105,6 +110,14 @@ public final class BehaviorTreeRuntime {
 			case CANCELLED -> List.of("Root", subtree, "TaskCancelled");
 			case IDLE -> List.of("Root", "ObserveAndWait");
 		};
+	}
+
+	static boolean taskOwnsMovement(TaskExecutionSnapshot taskExecutionSnapshot) {
+		return taskExecutionSnapshot != null
+			&& taskExecutionSnapshot.state() == TaskExecutionState.RUNNING
+			&& "EntityInteraction".equals(taskExecutionSnapshot.processName())
+			&& ("direct_chase".equals(taskExecutionSnapshot.lastPathEvent())
+				|| "baritone_chase".equals(taskExecutionSnapshot.lastPathEvent()));
 	}
 
 	private static List<String> runningPathFor(GoalSnapshot activeGoal, FollowState followState, String subtree) {

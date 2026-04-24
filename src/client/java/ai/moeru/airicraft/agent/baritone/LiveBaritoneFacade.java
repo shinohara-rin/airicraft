@@ -8,6 +8,7 @@ import baritone.api.behavior.IPathingBehavior;
 import baritone.api.event.events.PathEvent;
 import baritone.api.event.listener.AbstractGameEventListener;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.pathing.goals.GoalNear;
 import baritone.api.process.IBaritoneProcess;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.BlockPos;
@@ -68,6 +69,18 @@ public final class LiveBaritoneFacade implements BaritoneFacade {
 		}
 		pathEvents.clear();
 		baritone.getCustomGoalProcess().setGoalAndPath(new GoalBlock(position.x(), position.y(), position.z()));
+	}
+
+	@Override
+	public void startNavigateNear(GoalPosition position, int radiusBlocks) {
+		if (!isLoaded() || position == null) {
+			return;
+		}
+		pathEvents.clear();
+		baritone.getCustomGoalProcess().setGoalAndPath(new GoalNear(
+			new BlockPos(position.x(), position.y(), position.z()),
+			Math.max(1, radiusBlocks)
+		));
 	}
 
 	@Override

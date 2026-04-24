@@ -865,6 +865,9 @@ public final class AiricraftCliMain {
 
 	@Command(name = "attack-entity", mixinStandardHelpOptions = true, description = "Attack a nearby entity selected by uuid, name, or entity type.")
 	private static final class PlayerAttackEntityCommand extends PlayerEntitySelectorCommand {
+		@Option(names = "--mode", description = "Attack mode: kill or hit_once. Defaults to kill.")
+		private String mode = "kill";
+
 		private PlayerAttackEntityCommand(CliContext context) {
 			super(context, "player attack-entity");
 		}
@@ -872,7 +875,7 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			requireSelector();
-			return transport().attackEntity(selectorUuid(), selectorName(), selectorEntityTypeId());
+			return transport().attackEntity(selectorUuid(), selectorName(), selectorEntityTypeId(), mode);
 		}
 	}
 

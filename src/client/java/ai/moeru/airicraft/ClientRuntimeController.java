@@ -8,6 +8,8 @@ import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
 import ai.moeru.airicraft.agent.tasks.BaritoneTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.CraftingTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.DispatchingWorldTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.DropItemsTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.EntityInteractionTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
@@ -186,7 +188,9 @@ public final class ClientRuntimeController {
 	private EmbodiedAgentRuntime createRuntime(AiricraftConfig airicraftConfig, AgentConfig agentConfig) {
 		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(
 			new BaritoneTaskExecutor(baritoneFacade),
-			new CraftingTaskExecutor(baritoneFacade)
+			new CraftingTaskExecutor(baritoneFacade),
+			new DropItemsTaskExecutor(),
+			new EntityInteractionTaskExecutor(baritoneFacade)
 		);
 		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor);
 	}

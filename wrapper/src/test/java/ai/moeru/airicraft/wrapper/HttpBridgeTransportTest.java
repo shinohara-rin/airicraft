@@ -554,11 +554,12 @@ class HttpBridgeTransportTest {
 			System.setProperty("user.home", tempDir.toString());
 
 			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.attackEntity(null, null, "minecraft:sheep");
+			Map<String, Object> payload = transport.attackEntity(null, null, "minecraft:sheep", "hit_once");
 
 			assertEquals(true, payload.get("accepted"));
 			assertEquals("POST", server.lastMethod("/v1/player/attack-entity"));
 			assertTrue(server.lastRequestBody("/v1/player/attack-entity").contains("\"entityTypeId\":\"minecraft:sheep\""));
+			assertTrue(server.lastRequestBody("/v1/player/attack-entity").contains("\"mode\":\"hit_once\""));
 		}
 	}
 

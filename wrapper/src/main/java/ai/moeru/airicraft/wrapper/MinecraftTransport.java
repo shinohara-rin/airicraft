@@ -27,7 +27,7 @@ interface MinecraftTransport {
 
 	Map<String, Object> lookAt(double x, double y, double z);
 
-	Map<String, Object> attackEntity(String uuid, String name, String entityTypeId);
+	Map<String, Object> attackEntity(String uuid, String name, String entityTypeId, String mode);
 
 	Map<String, Object> useEntity(String uuid, String name, String entityTypeId, String itemId);
 

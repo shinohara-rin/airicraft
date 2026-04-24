@@ -96,6 +96,7 @@ import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
@@ -984,6 +985,9 @@ public final class EmbodiedAgentRuntime {
 		if (entityInteraction != null && entityInteraction.itemId() != null) {
 			payload.put("itemId", entityInteraction.itemId());
 		}
+		if ("ATTACK_ENTITY".equals(type) && entityInteraction != null && entityInteraction.attackMode() != null) {
+			payload.put("mode", entityInteraction.attackMode().wireValue());
+		}
 		return payload;
 	}
 
@@ -1098,9 +1102,13 @@ public final class EmbodiedAgentRuntime {
 				yield queuedActionToolResult("give_player", "targetPlayer=" + targetPlayer + " itemId=" + dropItems.itemId() + " quantity=" + dropItems.quantity());
 			}
 			case PlannerToolCatalog.ATTACK_ENTITY -> {
-				EntityInteractionStepArgs entityInteraction = new EntityInteractionStepArgs(parseEntitySelectorArgs(args), null);
+				EntityInteractionStepArgs entityInteraction = new EntityInteractionStepArgs(
+					parseEntitySelectorArgs(args),
+					null,
+					EntityAttackMode.fromWireValue(stringArg(args, "mode").orElse(null))
+				);
 				applyPlannerJobTool(ActiveJobProposal.attackEntity(entityInteraction));
-				yield queuedActionToolResult("attack_entity", describeEntitySelector(entityInteraction.selector()));
+				yield queuedActionToolResult("attack_entity", describeEntitySelector(entityInteraction.selector()) + " mode=" + entityInteraction.attackMode().wireValue());
 			}
 			case PlannerToolCatalog.USE_ENTITY -> {
 				EntityInteractionStepArgs entityInteraction = new EntityInteractionStepArgs(

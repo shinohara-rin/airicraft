@@ -17,6 +17,7 @@ import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
 import ai.moeru.airicraft.agent.tasks.EvidenceRequirement;
+import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.FinishStepArgs;
@@ -247,7 +248,7 @@ class EmbodiedAgentRuntimeTest {
 			"call_attack",
 			"attack_entity",
 			JsonParser.parseString("""
-				{"entityTypeId":"minecraft:sheep"}
+				{"entityTypeId":"minecraft:sheep","mode":"hit_once"}
 				""").getAsJsonObject(),
 			null,
 			null
@@ -262,7 +263,8 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
 		assertEquals(new EntityInteractionStepArgs(
 			new EntitySelector(null, null, "minecraft:sheep"),
-			null
+			null,
+			EntityAttackMode.HIT_ONCE
 		), request.entityInteraction());
 	}
 

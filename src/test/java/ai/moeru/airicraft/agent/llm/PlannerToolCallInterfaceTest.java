@@ -161,7 +161,7 @@ class PlannerToolCallInterfaceTest {
 		assertTrue(toolNames(tools).contains("attack_entity"));
 		assertTrue(toolNames(tools).contains("use_entity"));
 		PlannerToolCall attackCall = PlannerToolCatalog.parseToolCall(toolCall("attack_entity", """
-			{"entityTypeId":"minecraft:sheep"}
+			{"entityTypeId":"minecraft:sheep","mode":"hit_once"}
 			"""));
 		PlannerToolCall useCall = PlannerToolCatalog.parseToolCall(toolCall("use_entity", """
 			{"name":"Dinner","itemId":"minecraft:shears"}
@@ -169,6 +169,7 @@ class PlannerToolCallInterfaceTest {
 
 		assertEquals("attack_entity", attackCall.name());
 		assertEquals("minecraft:sheep", attackCall.arguments().get("entityTypeId").getAsString());
+		assertEquals("hit_once", attackCall.arguments().get("mode").getAsString());
 		assertEquals("use_entity", useCall.name());
 		assertEquals("Dinner", useCall.arguments().get("name").getAsString());
 		assertEquals("minecraft:shears", useCall.arguments().get("itemId").getAsString());

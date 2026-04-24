@@ -44,6 +44,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		}
 
 		WorldTaskRequest request = activeTask.get();
+		WorldTaskType previousActiveType = activeType;
 		activeType = request.type();
 		if (request.type() == WorldTaskType.CRAFT_RECIPE) {
 			baritoneExecutor.tick(sessionSnapshot, Optional.empty());
@@ -58,7 +59,9 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			return dropItemsExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.ATTACK_ENTITY || request.type() == WorldTaskType.USE_ENTITY) {
-			baritoneExecutor.tick(sessionSnapshot, Optional.empty());
+			if (!isEntityInteractionType(previousActiveType)) {
+				baritoneExecutor.tick(sessionSnapshot, Optional.empty());
+			}
 			craftingExecutor.tick(sessionSnapshot, Optional.empty());
 			dropItemsExecutor.tick(sessionSnapshot, Optional.empty());
 			return entityInteractionExecutor.tick(sessionSnapshot, activeTask);
@@ -68,6 +71,10 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		dropItemsExecutor.tick(sessionSnapshot, Optional.empty());
 		entityInteractionExecutor.tick(sessionSnapshot, Optional.empty());
 		return baritoneExecutor.tick(sessionSnapshot, activeTask);
+	}
+
+	private static boolean isEntityInteractionType(WorldTaskType type) {
+		return type == WorldTaskType.ATTACK_ENTITY || type == WorldTaskType.USE_ENTITY;
 	}
 
 	@Override

@@ -14,6 +14,8 @@ public interface BaritoneFacade {
 
 	void startNavigate(GoalPosition position);
 
+	void startNavigateNear(GoalPosition position, int radiusBlocks);
+
 	void startMine(GoalMineSpec spec);
 
 	void cancel();

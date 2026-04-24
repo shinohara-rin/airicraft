@@ -9,6 +9,7 @@ import baritone.api.event.listener.AbstractGameEventListener;
 import baritone.api.event.listener.IEventBus;
 import baritone.api.pathing.calc.IPathingControlManager;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.pathing.goals.GoalNear;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IFollowProcess;
 import baritone.api.process.IMineProcess;
@@ -71,6 +72,22 @@ class LiveBaritoneFacadeTest {
 		assertEquals(8, harness.mineCalls.get(0)[0]);
 		assertArrayEquals(new String[] {"minecraft:oak_log"}, (String[]) harness.mineCalls.get(0)[1]);
 		assertTrue(harness.cancelEverythingCalled.get());
+	}
+
+	@Test
+	void startNavigateNearUsesGoalNearRadius() {
+		RecordingBaritoneHarness harness = new RecordingBaritoneHarness();
+		LiveBaritoneFacade facade = new LiveBaritoneFacade(harness.baritone(), () -> {
+		});
+
+		facade.startNavigateNear(new GoalPosition(12, 64, -8, false), 3);
+
+		assertEquals(1, harness.navigateCalls.size());
+		assertInstanceOf(GoalNear.class, harness.navigateCalls.get(0));
+		GoalNear goal = (GoalNear) harness.navigateCalls.get(0);
+		assertTrue(goal.isInGoal(12, 64, -8));
+		assertTrue(goal.isInGoal(14, 64, -8));
+		assertFalse(goal.isInGoal(16, 64, -8));
 	}
 
 	private static final class RecordingBaritoneHarness {

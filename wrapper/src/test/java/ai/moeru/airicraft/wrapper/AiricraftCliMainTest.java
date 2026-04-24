@@ -264,11 +264,12 @@ class AiricraftCliMainTest {
 		TestTransport transport = new TestTransport();
 		transport.playerAttackEntityPayload = linkedMap("accepted", true, "task", linkedMap("state", "QUEUED"));
 
-		CliResult result = execute(transport, "player", "attack-entity", "--entity-type-id", "minecraft:sheep");
+		CliResult result = execute(transport, "player", "attack-entity", "--entity-type-id", "minecraft:sheep", "--mode", "hit_once");
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: player attack-entity\n"));
 		assertEquals("minecraft:sheep", transport.lastAttackEntityTypeId);
+		assertEquals("hit_once", transport.lastAttackEntityMode);
 	}
 
 	@Test
@@ -925,6 +926,7 @@ class AiricraftCliMainTest {
 		private String lastAttackEntityUuid;
 		private String lastAttackEntityName;
 		private String lastAttackEntityTypeId;
+		private String lastAttackEntityMode;
 		private String lastUseEntityUuid;
 		private String lastUseEntityName;
 		private String lastUseEntityTypeId;
@@ -1008,10 +1010,11 @@ class AiricraftCliMainTest {
 		}
 
 		@Override
-		public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId) {
+		public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId, String mode) {
 			lastAttackEntityUuid = uuid;
 			lastAttackEntityName = name;
 			lastAttackEntityTypeId = entityTypeId;
+			lastAttackEntityMode = mode;
 			return playerAttackEntityPayload;
 		}
 
