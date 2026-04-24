@@ -53,7 +53,10 @@ public final class EntitySelectorResolver {
 			return new SelectionResult(SelectionStatus.TARGET_NOT_ALIVE, null, nearbyMatches.size());
 		}
 		if (aliveMatches.size() > 1) {
-			return new SelectionResult(SelectionStatus.TARGET_AMBIGUOUS, null, aliveMatches.size());
+			EntityCandidate nearest = aliveMatches.stream()
+				.min(EntityCandidate.nearestFirst(selfX, selfY, selfZ))
+				.orElse(aliveMatches.get(0));
+			return new SelectionResult(SelectionStatus.SELECTED, nearest, aliveMatches.size());
 		}
 		return new SelectionResult(SelectionStatus.SELECTED, aliveMatches.get(0), aliveMatches.size());
 	}

@@ -138,6 +138,9 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 			target.getY(),
 			target.getZ()
 		);
+		if (withinInteractionRange && hasLineOfSight) {
+			outOfRangeTicks = 0;
+		}
 
 		return switch (request.type()) {
 			case ATTACK_ENTITY -> {
@@ -307,10 +310,8 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	private static Selection resolveSelection(MinecraftClient client, ClientPlayerEntity player, EntitySelector selector) {
 		Map<Integer, Entity> entitiesById = new LinkedHashMap<>();
 		java.util.ArrayList<EntitySelectorResolver.EntityCandidate> candidates = new java.util.ArrayList<>();
-		for (Entity entity : client.world.getEntities()) {
-			if (entity == player) {
-				continue;
-			}
+		double radius = EntitySelectorResolver.DEFAULT_NEARBY_RADIUS_BLOCKS;
+		for (Entity entity : client.world.getOtherEntities(player, player.getBoundingBox().expand(radius))) {
 			entitiesById.put(entity.getId(), entity);
 			candidates.add(NearbyEntityService.toCandidate(entity));
 		}
