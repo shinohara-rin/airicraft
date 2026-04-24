@@ -15,19 +15,7 @@ import java.util.regex.Pattern;
 public final class ActionsetValidator {
 	private static final Pattern PARAM_REF = Pattern.compile("\\bparams\\.([A-Za-z_][A-Za-z0-9_]*)\\b");
 	private static final Pattern ALLOWED_EXPR = Pattern.compile("[A-Za-z0-9_\\.\\s+\\-*/()]+");
-	private static final Set<String> FACT_TYPES = Set.of(
-		"inventory.item",
-		"inventory.tool",
-		"world.block",
-		"world.crop",
-		"world.crop_group",
-		"world.site",
-		"world.entity",
-		"craft.recipe",
-		"watch.pending",
-		"watch.fulfilled",
-		"route.failure"
-	);
+	private static final Set<String> FACT_TYPES = ActionFactType.knownIds();
 
 	private final PrimitiveActionRegistry primitiveRegistry;
 
