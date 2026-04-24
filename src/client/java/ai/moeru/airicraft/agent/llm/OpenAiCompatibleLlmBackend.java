@@ -14,6 +14,8 @@ import io.opentelemetry.context.Context;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
 
@@ -58,7 +60,7 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		}
 
 		LlmCallResult<String> rawResponse = chatClient.complete(conversation, LlmRequestOptions.planner());
-		PlannerResponse plannerResponse = parsePlannerResponse(rawResponse.payload());
+		PlannerResponse plannerResponse = parsePlannerResponse(conversation, rawResponse);
 		observability.recordLlmResponse(Context.current(), rawResponse.statusCode(), rawResponse.responseModel(), rawResponse.usage(), plannerResponse);
 		return LlmCallResult.of(plannerResponse, rawResponse.usage(), rawResponse.statusCode(), rawResponse.responseModel());
 	}
@@ -78,7 +80,8 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		return config.isConfigured();
 	}
 
-	private PlannerResponse parsePlannerResponse(String responseBody) throws LlmBackendException {
+	private PlannerResponse parsePlannerResponse(LlmConversation conversation, LlmCallResult<String> rawResponse) throws LlmBackendException {
+		String responseBody = rawResponse == null ? "" : rawResponse.payload();
 		try {
 			JsonObject root = JsonParser.parseString(responseBody).getAsJsonObject();
 			JsonArray choices = root.getAsJsonArray("choices");
@@ -107,9 +110,18 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			return new PlannerResponse(replyText, null, rawAssistantContent);
 		}
 		catch (IllegalArgumentException | JsonParseException exception) {
+			String failureMessage = plannerParseFailureMessage(exception);
 			Airicraft.LOGGER.warn("Failed to parse planner response summary={}", TraceSanitizer.summarizeChatResponseForLog(responseBody), exception);
-			observability.recordFailure(Context.current(), LlmFailureType.PARSE_ERROR.name(), "Failed to parse planner response", exception);
-			throw new LlmBackendException(LlmFailureType.PARSE_ERROR, "Failed to parse planner response", exception);
+			observability.recordFailedLlmInput(Context.current(), conversation, rawResponse == null ? null : rawResponse.requestBody());
+			observability.recordLlmResponse(
+				Context.current(),
+				rawResponse == null ? null : rawResponse.statusCode(),
+				rawResponse == null ? config.model() : rawResponse.responseModel(),
+				rawResponse == null ? LlmUsageSnapshot.unknown() : rawResponse.usage(),
+				responseBody
+			);
+			observability.recordFailure(Context.current(), LlmFailureType.PARSE_ERROR.name(), failureMessage, exception);
+			throw new LlmBackendException(LlmFailureType.PARSE_ERROR, failureMessage, exception);
 		}
 	}
 
@@ -122,12 +134,97 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			return null;
 		}
 		if (toolCalls.size() > 1) {
-			throw new JsonParseException("Planner returned multiple tool calls");
+			PlannerToolCall selected = selectEntityActionToolCall(toolCalls);
+			if (selected != null) {
+				Airicraft.LOGGER.warn("Planner returned multiple tool calls names={} selected={}", summarizeToolCallNames(toolCalls), selected.name());
+				return selected;
+			}
+			throw new JsonParseException("Planner returned multiple tool calls: " + summarizeToolCallNames(toolCalls));
 		}
 		if (!toolCalls.get(0).isJsonObject()) {
 			throw new JsonParseException("Planner tool call must be an object");
 		}
 		return PlannerToolCatalog.parseToolCall(toolCalls.get(0).getAsJsonObject(), toolRegistry);
+	}
+
+	private PlannerToolCall selectEntityActionToolCall(JsonArray toolCalls) {
+		List<JsonObject> callObjects = toolCalls.asList().stream()
+			.filter(JsonElement::isJsonObject)
+			.map(JsonElement::getAsJsonObject)
+			.toList();
+		if (callObjects.size() != toolCalls.size()) {
+			return null;
+		}
+
+		List<JsonObject> entityActionCalls = callObjects.stream()
+			.filter(this::isEntityInteractionToolCall)
+			.toList();
+		if (entityActionCalls.isEmpty()) {
+			return null;
+		}
+
+		boolean onlyReadOrEntityActions = callObjects.stream().allMatch(call ->
+			isEntityInteractionToolCall(call) || PlannerToolCatalog.isReadTool(rawToolName(call))
+		);
+		if (!onlyReadOrEntityActions) {
+			return null;
+		}
+
+		long distinctEntityActionNames = entityActionCalls.stream()
+			.map(this::rawToolName)
+			.distinct()
+			.count();
+		if (distinctEntityActionNames != 1L) {
+			return null;
+		}
+
+		return PlannerToolCatalog.parseToolCall(entityActionCalls.getFirst(), toolRegistry);
+	}
+
+	private boolean isEntityInteractionToolCall(JsonObject toolCall) {
+		String name = rawToolName(toolCall);
+		return PlannerToolCatalog.ATTACK_ENTITY.equals(name) || PlannerToolCatalog.USE_ENTITY.equals(name);
+	}
+
+	private String rawToolName(JsonObject toolCall) {
+		if (toolCall == null || !toolCall.has("function") || !toolCall.get("function").isJsonObject()) {
+			return "";
+		}
+		JsonObject function = toolCall.getAsJsonObject("function");
+		if (!function.has("name") || function.get("name").isJsonNull()) {
+			return "";
+		}
+		return PlannerToolCatalog.normalizeName(function.get("name").getAsString());
+	}
+
+	private static String summarizeToolCallNames(JsonArray toolCalls) {
+		LinkedHashSet<String> names = new LinkedHashSet<>();
+		for (JsonElement toolCall : toolCalls) {
+			if (!toolCall.isJsonObject()) {
+				names.add("<non_object>");
+				continue;
+			}
+			JsonObject object = toolCall.getAsJsonObject();
+			if (!object.has("function") || !object.get("function").isJsonObject()) {
+				names.add("<missing_function>");
+				continue;
+			}
+			JsonObject function = object.getAsJsonObject("function");
+			if (!function.has("name") || function.get("name").isJsonNull()) {
+				names.add("<missing_name>");
+				continue;
+			}
+			names.add(PlannerToolCatalog.normalizeName(function.get("name").getAsString()));
+		}
+		return String.join(",", names);
+	}
+
+	private static String plannerParseFailureMessage(Exception exception) {
+		String detail = exception == null ? "" : exception.getMessage();
+		if (detail == null || detail.isBlank()) {
+			return "Failed to parse planner response";
+		}
+		return "Failed to parse planner response: " + detail;
 	}
 
 	static String stripMarkdownCodeFences(String text) {

@@ -62,6 +62,8 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("minecraft:shears"));
 		assertTrue(prompt.contains("accepted action tool"));
 		assertTrue(prompt.contains("TASK UPDATE"));
+		assertTrue(prompt.contains("choose exactly one nearby alive target"));
+		assertTrue(prompt.contains("prefer the nearest one"));
 	}
 
 	@Test

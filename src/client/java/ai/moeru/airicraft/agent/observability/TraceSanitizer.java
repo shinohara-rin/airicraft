@@ -259,6 +259,36 @@ public final class TraceSanitizer {
 		return sanitizeTraceText(response.replyText(), TRACE_TEXT_LIMIT);
 	}
 
+	public static String sanitizeChatResponseForTrace(String responseBody) {
+		if (responseBody == null || responseBody.isBlank()) {
+			return "";
+		}
+		try {
+			return TRACE_GSON.toJson(sanitizeJsonElement(JsonParser.parseString(responseBody)));
+		}
+		catch (IllegalStateException | JsonParseException exception) {
+			return sanitizeTraceText(responseBody, TRACE_LIMIT);
+		}
+	}
+
+	public static String sanitizeChatCompletionForGenAi(String responseBody) {
+		Optional<JsonObject> root = tryParseJsonObject(responseBody);
+		if (root.isEmpty()) {
+			return "";
+		}
+		if (root.get().has("choices")) {
+			JsonArray choices = root.get().getAsJsonArray("choices");
+			if (!choices.isEmpty() && choices.get(0).isJsonObject()) {
+				JsonObject choice = choices.get(0).getAsJsonObject();
+				JsonObject message = choice.getAsJsonObject("message");
+				if (message != null) {
+					return TRACE_GSON.toJson(sanitizeMessageObject(message, false));
+				}
+			}
+		}
+		return "";
+	}
+
 	public static String sanitizeVisionDescriptionForTrace(VisionDescription description) {
 		if (description == null) {
 			return "";

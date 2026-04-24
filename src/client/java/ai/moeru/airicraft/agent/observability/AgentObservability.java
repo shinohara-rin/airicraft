@@ -47,6 +47,8 @@ public interface AgentObservability extends AutoCloseable {
 		String requestBody
 	);
 
+	void recordFailedLlmInput(Context context, LlmConversation conversation, String requestBody);
+
 	void recordLlmRequest(
 		Context context,
 		String providerName,
@@ -59,6 +61,8 @@ public interface AgentObservability extends AutoCloseable {
 	);
 
 	void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, PlannerResponse plannerResponse);
+
+	void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, String rawResponseBody);
 
 	void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, CompactionCheckpoint checkpoint);
 

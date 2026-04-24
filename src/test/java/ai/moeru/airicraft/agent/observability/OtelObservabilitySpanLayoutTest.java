@@ -4,21 +4,29 @@ import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.llm.LlmChatMessage;
 import ai.moeru.airicraft.agent.llm.LlmConversation;
+import ai.moeru.airicraft.agent.llm.LlmBackendException;
 import ai.moeru.airicraft.agent.llm.LlmMessageKind;
 import ai.moeru.airicraft.agent.llm.LlmUsageSnapshot;
+import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.trace.data.SpanData;
 import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,10 +34,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OtelObservabilitySpanLayoutTest {
@@ -333,6 +344,181 @@ class OtelObservabilitySpanLayoutTest {
 		assertEquals("auto", promptContents.get(1).getAsJsonObject().get("detail").getAsString());
 	}
 
+	@Test
+	void parseFailureSpanRetainsRawPlannerResponseEvenWhenOutputsDisabled() throws Exception {
+		CollectingSpanExporter exporter = new CollectingSpanExporter();
+		OtelObservability observability = new OtelObservability(
+			new AgentConfig.ObservabilityConfig(
+				true,
+				"otlp_http",
+				"http://127.0.0.1:4318/v1/traces",
+				Map.of(),
+				Map.of(
+					"wandb.entity", "shinohara-rin",
+					"wandb.project", "airicraft"
+				),
+				"weave",
+				false,
+				true,
+				false,
+				false
+			),
+			SimpleSpanProcessor.create(exporter)
+		);
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		String responseBody = """
+			{
+			  "model": "planner-model",
+			  "choices": [
+			    {
+			      "message": {
+			        "content": null,
+			        "tool_calls": [
+			          {"id":"call_attack","type":"function","function":{"name":"attack_entity","arguments":"{\\"uuid\\":\\"slime-1\\"}"}},
+			          {"id":"call_clear","type":"function","function":{"name":"clear_goal","arguments":"{}"}}
+			        ]
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(llmConfig(server.port()), observability);
+			Context turnContext = observability.startTurnSpan(null, "session:test:speaker=rin");
+			Context plannerContext = observability.startChildSpan(AgentObservability.PLANNER_REQUEST_SPAN_NAME, turnContext);
+			try (Scope ignored = plannerContext.makeCurrent()) {
+				LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
+					backend.generate(LlmConversation.of(List.of(
+						LlmChatMessage.system("You are Airicraft."),
+						LlmChatMessage.user("Attack the slime.", LlmMessageKind.USER_TURN)
+					)))
+				);
+				assertTrue(exception.getMessage().contains("attack_entity"));
+				assertTrue(exception.getMessage().contains("clear_goal"));
+			}
+			finally {
+				observability.endSpan(plannerContext);
+				observability.endSpan(turnContext);
+				observability.shutdown();
+			}
+		}
+
+		List<SpanData> spans = exporter.finished();
+		SpanData plannerSpan = spans.stream()
+			.filter(span -> AgentObservability.PLANNER_REQUEST_SPAN_NAME.equals(span.getName()))
+			.findFirst()
+			.orElseThrow();
+		String outputValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("output.value"));
+		String completionValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("gen_ai.completion"));
+		String failureType = plannerSpan.getAttributes().get(AttributeKey.stringKey("airicraft.failure_type"));
+		assertNotNull(outputValue);
+		assertNotNull(completionValue);
+		assertTrue(outputValue.contains("attack_entity"));
+		assertTrue(outputValue.contains("clear_goal"));
+		assertTrue(completionValue.contains("attack_entity"));
+		assertEquals("PARSE_ERROR", failureType);
+		assertTrue(plannerSpan.getStatus().getDescription().contains("attack_entity"));
+		assertTrue(plannerSpan.getStatus().getDescription().contains("clear_goal"));
+	}
+
+	@Test
+	void parseFailureSpanRetainsPromptInputEvenWhenInputsDisabled() throws Exception {
+		CollectingSpanExporter exporter = new CollectingSpanExporter();
+		OtelObservability observability = new OtelObservability(
+			new AgentConfig.ObservabilityConfig(
+				true,
+				"otlp_http",
+				"http://127.0.0.1:4318/v1/traces",
+				Map.of(),
+				Map.of(
+					"wandb.entity", "shinohara-rin",
+					"wandb.project", "airicraft"
+				),
+				"weave",
+				false,
+				false,
+				false,
+				false
+			),
+			SimpleSpanProcessor.create(exporter)
+		);
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		String responseBody = """
+			{
+			  "model": "planner-model",
+			  "choices": [
+			    {
+			      "message": {
+			        "content": null,
+			        "tool_calls": [
+			          {"id":"call_attack","type":"function","function":{"name":"attack_entity","arguments":"{}"}}
+			        ]
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(llmConfig(server.port()), observability);
+			Context turnContext = observability.startTurnSpan(null, "session:test:speaker=rin");
+			Context plannerContext = observability.startChildSpan(AgentObservability.PLANNER_REQUEST_SPAN_NAME, turnContext);
+			try (Scope ignored = plannerContext.makeCurrent()) {
+				LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
+					backend.generate(LlmConversation.of(List.of(
+						LlmChatMessage.system("You are Airicraft."),
+						LlmChatMessage.user("Attack the nearby slime now.", LlmMessageKind.USER_TURN)
+					)))
+				);
+				assertTrue(exception.getMessage().contains("entity selector requires"));
+			}
+			finally {
+				observability.endSpan(plannerContext);
+				observability.endSpan(turnContext);
+				observability.shutdown();
+			}
+		}
+
+		List<SpanData> spans = exporter.finished();
+		SpanData plannerSpan = spans.stream()
+			.filter(span -> AgentObservability.PLANNER_REQUEST_SPAN_NAME.equals(span.getName()))
+			.findFirst()
+			.orElseThrow();
+		String inputValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("input.value"));
+		String promptValue = plannerSpan.getAttributes().get(AttributeKey.stringKey("gen_ai.prompt"));
+		assertNotNull(inputValue);
+		assertNotNull(promptValue);
+		assertTrue(inputValue.contains("Attack the nearby slime now."));
+		assertTrue(promptValue.contains("Attack the nearby slime now."));
+	}
+
+	private static AgentConfig.LlmConfig llmConfig(int port) {
+		return new AgentConfig.LlmConfig(
+			"http://127.0.0.1:" + port,
+			"planner-key",
+			"planner-model",
+			"https://api.openai.com/v1",
+			"",
+			"",
+			15_000,
+			10_000,
+			8,
+			65_536,
+			"low",
+			false,
+			false
+		);
+	}
+
 	private static final class CollectingSpanExporter implements SpanExporter {
 		private final CopyOnWriteArrayList<SpanData> spans = new CopyOnWriteArrayList<>();
 
@@ -354,6 +540,42 @@ class OtelObservabilitySpanLayoutTest {
 
 		List<SpanData> finished() {
 			return List.copyOf(spans);
+		}
+	}
+
+	private static final class TestServer implements AutoCloseable {
+		private final HttpServer server;
+		private final int port;
+
+		private TestServer(HttpServer server, int port) {
+			this.server = server;
+			this.port = port;
+		}
+
+		static TestServer start(AtomicReference<String> bodyRef, String responseBody) throws IOException {
+			HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0);
+			server.createContext("/chat/completions", exchange -> handle(exchange, bodyRef, responseBody));
+			server.setExecutor(Executors.newSingleThreadExecutor());
+			server.start();
+			return new TestServer(server, server.getAddress().getPort());
+		}
+
+		private static void handle(HttpExchange exchange, AtomicReference<String> bodyRef, String responseBody) throws IOException {
+			bodyRef.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+			byte[] bytes = responseBody.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().add("Content-Type", "application/json");
+			exchange.sendResponseHeaders(200, bytes.length);
+			exchange.getResponseBody().write(bytes);
+			exchange.close();
+		}
+
+		int port() {
+			return port;
+		}
+
+		@Override
+		public void close() {
+			server.stop(0);
 		}
 	}
 }

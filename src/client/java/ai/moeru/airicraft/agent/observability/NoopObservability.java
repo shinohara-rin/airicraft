@@ -54,6 +54,10 @@ public enum NoopObservability implements AgentObservability {
 	}
 
 	@Override
+	public void recordFailedLlmInput(Context context, LlmConversation conversation, String requestBody) {
+	}
+
+	@Override
 	public void recordLlmRequest(
 		Context context,
 		String providerName,
@@ -68,6 +72,10 @@ public enum NoopObservability implements AgentObservability {
 
 	@Override
 	public void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, PlannerResponse plannerResponse) {
+	}
+
+	@Override
+	public void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, String rawResponseBody) {
 	}
 
 	@Override

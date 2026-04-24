@@ -166,6 +166,76 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
+	void generatePrefersSingleEntityActionWhenMixedWithReadToolCalls() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": null,
+			        "tool_calls": [
+			          {"id":"call_scan","type":"function","function":{"name":"inspect_nearby_entities","arguments":"{\\"prompt\\":\\"Check nearby mobs\\"}"}},
+			          {"id":"call_attack","type":"function","function":{"name":"attack_entity","arguments":"{\\"uuid\\":\\"slime-1\\"}"}}
+			        ]
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
+
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
+
+			assertNotNull(result.payload().toolCall());
+			assertEquals("attack_entity", result.payload().toolCall().name());
+			assertEquals("slime-1", result.payload().toolCall().arguments().get("uuid").getAsString());
+		}
+	}
+
+	@Test
+	void generateIncludesToolNamesInMultipleToolCallParseErrors() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": null,
+			        "tool_calls": [
+			          {"id":"call_attack","type":"function","function":{"name":"attack_entity","arguments":"{\\"uuid\\":\\"slime-1\\"}"}},
+			          {"id":"call_clear","type":"function","function":{"name":"clear_goal","arguments":"{}"}}
+			        ]
+			      }
+			    }
+			  ],
+			  "usage": {
+			    "prompt_tokens": 1234,
+			    "completion_tokens": 56,
+			    "total_tokens": 1290
+			  }
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
+
+			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
+				backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))))
+			);
+
+			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+			assertTrue(exception.getMessage().contains("attack_entity"));
+			assertTrue(exception.getMessage().contains("clear_goal"));
+		}
+	}
+
+	@Test
 	void generateTreatsLegacyJsonContentAsPlaintext() throws Exception {
 		String legacyJson = "{\"replyText\":\"old\",\"intent\":{\"type\":\"set_goal\"}}";
 		AtomicReference<String> bodyRef = new AtomicReference<>();

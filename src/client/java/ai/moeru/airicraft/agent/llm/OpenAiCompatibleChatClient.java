@@ -90,7 +90,8 @@ public final class OpenAiCompatibleChatClient {
 			response.body(),
 			parseUsage(response.body()),
 			response.statusCode(),
-			responseModel(response.body()).orElse(config.model())
+			responseModel(response.body()).orElse(config.model()),
+			requestBody
 		);
 	}
 

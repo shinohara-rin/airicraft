@@ -355,6 +355,34 @@ final class OtelObservability implements AgentObservability {
 	}
 
 	@Override
+	public void recordFailedLlmInput(Context context, LlmConversation conversation, String requestBody) {
+		Span span = Span.fromContext(context);
+		String sanitizedRequestBody = TraceSanitizer.sanitizeRequestPayloadForTrace(requestBody, config.captureImages());
+		if (!sanitizedRequestBody.isBlank()) {
+			span.setAttribute(INPUT_VALUE, sanitizedRequestBody);
+		}
+		else if (conversation != null) {
+			span.setAttribute(INPUT_VALUE, TraceSanitizer.sanitizeConversationForTrace(conversation, config.captureImages()));
+		}
+
+		String prompt = TraceSanitizer.sanitizePromptFromRequestPayload(requestBody, config.captureImages());
+		if (!prompt.isBlank()) {
+			span.setAttribute(GEN_AI_PROMPT, prompt);
+		}
+		else if (conversation != null) {
+			span.setAttribute(GEN_AI_PROMPT, TraceSanitizer.sanitizeConversationPromptForGenAi(conversation, config.captureImages()));
+		}
+
+		String systemPrompt = TraceSanitizer.sanitizeSystemFromRequestPayload(requestBody);
+		if (systemPrompt.isBlank() && conversation != null) {
+			systemPrompt = TraceSanitizer.sanitizeConversationSystemPrompt(conversation);
+		}
+		if (!systemPrompt.isBlank()) {
+			span.setAttribute(GEN_AI_SYSTEM, systemPrompt);
+		}
+	}
+
+	@Override
 	public void recordLlmRequest(
 		Context context,
 		String providerName,
@@ -418,6 +446,22 @@ final class OtelObservability implements AgentObservability {
 		if (config.captureOutputs()) {
 			span.setAttribute(OUTPUT_VALUE, TraceSanitizer.sanitizePlannerResponseForTrace(plannerResponse));
 			span.setAttribute(GEN_AI_COMPLETION, TraceSanitizer.sanitizePlannerCompletionForGenAi(plannerResponse));
+		}
+	}
+
+	@Override
+	public void recordLlmResponse(Context context, Integer statusCode, String responseModel, LlmUsageSnapshot usage, String rawResponseBody) {
+		Span span = Span.fromContext(context);
+		recordResponseMetadata(span, statusCode, responseModel, usage);
+		// Failure paths still need the provider response body for parse debugging even when
+		// normal output capture is disabled.
+		String outputValue = TraceSanitizer.sanitizeChatResponseForTrace(rawResponseBody);
+		if (!outputValue.isBlank()) {
+			span.setAttribute(OUTPUT_VALUE, outputValue);
+		}
+		String completion = TraceSanitizer.sanitizeChatCompletionForGenAi(rawResponseBody);
+		if (!completion.isBlank()) {
+			span.setAttribute(GEN_AI_COMPLETION, completion);
 		}
 	}
 
