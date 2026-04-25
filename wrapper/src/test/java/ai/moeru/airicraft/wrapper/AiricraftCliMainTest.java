@@ -431,6 +431,51 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void agentActionsResolvePassesGoalAndAssumedInventory() {
+		TestTransport transport = new TestTransport();
+		transport.agentActionResolvePayload = linkedMap(
+			"available", true,
+			"resolved", true,
+			"goal", linkedMap("fact", "inventory.item", "itemId", "minecraft:bread", "countAtLeast", 1),
+			"route", linkedMap(
+				"cost", 10,
+				"steps", List.of(linkedMap(
+					"kind", "PRIMITIVE",
+					"actionId", "make_bread",
+					"alternativeId", "craft_from_inventory_wheat",
+					"stepId", "craft_bread",
+					"targetId", "craft_item"
+				))
+			),
+			"trace", List.of(
+				linkedMap("eventType", "goal_started"),
+				linkedMap("eventType", "route_selected", "actionId", "make_bread")
+			)
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "actions", "resolve",
+			"--item", "minecraft:bread",
+			"--quantity", "1",
+			"--assume-inventory", "minecraft:wheat=3",
+			"--verbose"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("minecraft:bread", transport.lastActionResolveItemId);
+		assertEquals(1, transport.lastActionResolveQuantity);
+		assertEquals(Map.of("minecraft:wheat", 3), transport.lastActionResolveAssumedInventory);
+		assertTrue(result.output().contains("command: agent actions resolve\n"));
+		assertTrue(result.output().contains("resolved: true\n"));
+		assertTrue(result.output().contains("routeCost: 10\n"));
+		assertTrue(result.output().contains("stepCount: 1\n"));
+		assertTrue(result.output().contains("traceEventCount: 2\n"));
+		assertTrue(result.output().contains("targetId: craft_item\n"));
+		assertTrue(result.output().contains("eventType: route_selected\n"));
+	}
+
+	@Test
 	void agentMissionSubmitPassesNormalizedMissionPayload() {
 		TestTransport transport = new TestTransport();
 		transport.agentMissionSubmitPayload = linkedMap(
@@ -882,6 +927,7 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentLedgerPayload = Map.of();
 		private Map<String, Object> agentEvidencePayload = Map.of();
 		private Map<String, Object> agentStepExecutionPayload = Map.of();
+		private Map<String, Object> agentActionResolvePayload = Map.of();
 		private Map<String, Object> agentTaskSubmitPayload = Map.of();
 		private Map<String, Object> agentMissionSubmitPayload = Map.of();
 		private Map<String, Object> agentEventsPayload = Map.of("events", List.of());
@@ -931,6 +977,9 @@ class AiricraftCliMainTest {
 		private String lastUseEntityName;
 		private String lastUseEntityTypeId;
 		private String lastUseEntityItemId;
+		private String lastActionResolveItemId;
+		private int lastActionResolveQuantity;
+		private Map<String, Integer> lastActionResolveAssumedInventory = Map.of();
 		private boolean playerNearbyEntitiesCalled;
 
 		private RuntimeException worldsJoinFailure;
@@ -1128,6 +1177,14 @@ class AiricraftCliMainTest {
 		@Override
 		public Map<String, Object> getAgentStepExecution() {
 			return agentStepExecutionPayload;
+		}
+
+		@Override
+		public Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory) {
+			lastActionResolveItemId = itemId;
+			lastActionResolveQuantity = quantity;
+			lastActionResolveAssumedInventory = assumedInventory;
+			return agentActionResolvePayload;
 		}
 
 		@Override

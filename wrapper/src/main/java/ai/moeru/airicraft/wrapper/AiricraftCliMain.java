@@ -64,6 +64,9 @@ public final class AiricraftCliMain {
 		agent.addSubcommand(new AgentLedgerCommand(context));
 		agent.addSubcommand(new AgentEvidenceCommand(context));
 		agent.addSubcommand(new AgentStepExecutionCommand(context));
+		agent.addSubcommand("actions", new UsageCommand(out, "airicraft agent actions", "Composable action graph debug commands"));
+		CommandLine agentActions = agent.getSubcommands().get("actions");
+		agentActions.addSubcommand(new AgentActionsResolveCommand(context));
 		agent.addSubcommand("mission", new UsageCommand(out, "airicraft agent mission", "Mission-level agent commands"));
 		CommandLine agentMission = agent.getSubcommands().get("mission");
 		agentMission.addSubcommand(new AgentMissionSubmitCommand(context));
@@ -338,6 +341,36 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.agentStepExecution(transport().getAgentStepExecution(), verbose());
+		}
+	}
+
+	@Command(name = "resolve", mixinStandardHelpOptions = true, description = "Dry-run resolve an inventory-item goal through the composable action graph.")
+	private static final class AgentActionsResolveCommand extends BaseCommand {
+		@Option(names = "--item", required = true, description = "Namespaced output item id, for example minecraft:bread.")
+		private String itemId;
+
+		@Option(names = "--quantity", defaultValue = "1", description = "Requested item count.")
+		private int quantity;
+
+		@Option(names = "--assume-inventory", split = ",", description = "Assumed inventory fact in item=count form. Can be repeated or comma-separated.")
+		private List<String> assumedInventory = new ArrayList<>();
+
+		private AgentActionsResolveCommand(CliContext context) {
+			super(context, "agent actions resolve");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			if (itemId == null || itemId.isBlank()) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "item must be non-empty");
+			}
+			if (quantity < 1) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "quantity must be positive");
+			}
+			return PayloadViews.agentActionResolve(
+				transport().resolveAgentActionGraph(itemId, quantity, parseInventoryAssumptions(assumedInventory, commandPath())),
+				verbose()
+			);
 		}
 	}
 
@@ -1389,6 +1422,31 @@ public final class AiricraftCliMain {
 			return view;
 		}
 
+		private static Map<String, Object> agentActionResolve(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "resolved", "failureCode", "message");
+			Map<String, Object> route = map(payload.get("route"));
+			List<Map<String, Object>> steps = maps(route.get("steps"));
+			List<Map<String, Object>> trace = maps(payload.get("trace"));
+			if (payload.containsKey("goal")) {
+				view.put("goal", payload.get("goal"));
+			}
+			if (route.containsKey("cost")) {
+				view.put("routeCost", route.get("cost"));
+			}
+			view.put("stepCount", steps.size());
+			view.put("traceEventCount", trace.size());
+			view.put("steps", filterItems(steps, verbose,
+				List.of("kind", "actionId", "alternativeId", "stepId", "targetId"),
+				List.of("args")
+			));
+			if (verbose) {
+				view.put("trace", trace);
+				copy(view, payload, "factSourceCounts", "actionsetDiagnostics");
+			}
+			return view;
+		}
+
 		private static Map<String, Object> agentDialogue(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
 			copy(view, payload, "available", "lastChatTick", "lastChatText");
@@ -1689,6 +1747,31 @@ public final class AiricraftCliMain {
 			throw new CliUsageException(commandPath, "invalid_arguments", "color must be a 6 or 8 digit hex value");
 		}
 		return color;
+	}
+
+	private static Map<String, Integer> parseInventoryAssumptions(List<String> values, String commandPath) {
+		LinkedHashMap<String, Integer> assumptions = new LinkedHashMap<>();
+		for (String value : values == null ? List.<String>of() : values) {
+			if (value == null || value.isBlank()) {
+				continue;
+			}
+			String[] parts = value.split("=", 2);
+			if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+				throw new CliUsageException(commandPath, "invalid_arguments", "assume-inventory must use item=count");
+			}
+			int count;
+			try {
+				count = Integer.parseInt(parts[1]);
+			}
+			catch (NumberFormatException exception) {
+				throw new CliUsageException(commandPath, "invalid_arguments", "assume-inventory count must be an integer");
+			}
+			if (count < 1) {
+				throw new CliUsageException(commandPath, "invalid_arguments", "assume-inventory count must be positive");
+			}
+			assumptions.put(parts[0], count);
+		}
+		return assumptions;
 	}
 
 	private static Map<String, Object> normalizeMap(Map<String, Object> source) {

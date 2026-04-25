@@ -251,6 +251,23 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory) {
+		LinkedHashMap<String, Object> body = new LinkedHashMap<>();
+		body.put("goal", Map.of(
+			"fact", "inventory.item",
+			"itemId", itemId,
+			"countAtLeast", quantity
+		));
+		body.put("assumedInventory", assumedInventory.entrySet().stream()
+			.map(entry -> Map.of(
+				"itemId", entry.getKey(),
+				"count", entry.getValue()
+			))
+			.toList());
+		return send("POST", "/v1/agent/action-graph/resolve", body);
+	}
+
+	@Override
 	public Map<String, Object> submitAgentTask(Map<String, Object> taskPayload) {
 		return send("POST", "/v1/agent/tasks", taskPayload);
 	}

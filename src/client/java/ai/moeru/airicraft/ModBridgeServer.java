@@ -1,6 +1,9 @@
 package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
+import ai.moeru.airicraft.agent.actions.ActionGraphDebugService;
+import ai.moeru.airicraft.agent.actions.ActionGraphResolveRequest;
+import ai.moeru.airicraft.agent.actions.ActionResolverContext;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
@@ -14,6 +17,7 @@ import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
+import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -85,6 +89,8 @@ public final class ModBridgeServer {
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
 	private final PlayerViewService playerViewService = new PlayerViewService();
+	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
+	private final ActionGraphDebugService actionGraphDebugService = new ActionGraphDebugService();
 
 	private volatile HttpServer server;
 	private volatile String token;
@@ -141,6 +147,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/ledger", exchange -> handleJson(exchange, this::createAgentLedgerResponse));
 			httpServer.createContext("/v1/agent/evidence", exchange -> handleJson(exchange, this::createAgentEvidenceResponse));
 			httpServer.createContext("/v1/agent/step-execution", exchange -> handleJson(exchange, this::createAgentStepExecutionResponse));
+			httpServer.createContext("/v1/agent/action-graph/resolve", this::handleAgentActionGraphResolve);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
 			httpServer.createContext("/v1/agent/debug/state", exchange -> handleJson(exchange, this::createAgentDebugStateResponse));
@@ -696,8 +703,63 @@ public final class ModBridgeServer {
 		}
 	}
 
+	private void handleAgentActionGraphResolve(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", ActionGraphResolveHttpRequest.class, request -> {
+			if (request == null || request.goal() == null) {
+				throw new BridgeUnavailableException("invalid_request", "Missing action graph goal");
+			}
+			if (!"inventory.item".equals(request.goal().fact())) {
+				throw new BridgeUnavailableException("invalid_request", "Only inventory.item goals are supported");
+			}
+			String itemId = request.goal().itemId();
+			if (itemId == null || itemId.isBlank()) {
+				throw new BridgeUnavailableException("invalid_request", "Missing goal itemId");
+			}
+			int quantity = request.goal().countAtLeast() == null ? 1 : request.goal().countAtLeast();
+			if (quantity < 1) {
+				throw new BridgeUnavailableException("invalid_request", "countAtLeast must be positive");
+			}
+			return onClientThread(() -> {
+				var client = getClient();
+				boolean worldLoaded = client.world != null && client.player != null;
+				String dimension = worldLoaded ? client.world.getRegistryKey().getValue().toString() : "minecraft:overworld";
+				long tick = worldLoaded ? client.world.getTime() : 0L;
+				Map<String, Integer> observedInventory = worldLoaded
+					? inventoryItemCounter.count(client.player.getInventory())
+					: Map.of();
+				Map<String, Object> payload = new LinkedHashMap<>(actionGraphDebugService.resolveInventoryItem(new ActionGraphResolveRequest(
+					itemId,
+					quantity,
+					assumedInventory(request.assumedInventory()),
+					observedInventory,
+					new ActionResolverContext("bridge-debug", "bot", dimension, tick)
+				)));
+				payload.put("sessionState", sessionState(client));
+				payload.put("worldLoaded", worldLoaded);
+				return payload;
+			});
+		});
+	}
+
 	private static boolean isMissionLedgerRequest(JsonObject request) {
 		return request.has("missionId") && request.has("missionType") && request.has("steps");
+	}
+
+	private static Map<String, Integer> assumedInventory(List<ActionGraphInventoryFactRequest> facts) {
+		if (facts == null || facts.isEmpty()) {
+			return Map.of();
+		}
+		LinkedHashMap<String, Integer> inventory = new LinkedHashMap<>();
+		for (ActionGraphInventoryFactRequest fact : facts) {
+			if (fact == null || fact.itemId() == null || fact.itemId().isBlank()) {
+				continue;
+			}
+			int count = fact.count() == null ? 0 : fact.count();
+			if (count > 0) {
+				inventory.put(fact.itemId(), count);
+			}
+		}
+		return inventory;
 	}
 
 	private EntityInteractionStepArgs parseEntityInteractionRequest(EntityInteractionRequest request, boolean allowItemId) {
@@ -1666,6 +1728,15 @@ public final class ModBridgeServer {
 	}
 
 	private record AgentTaskRequest(String type, String resourceKind, Integer quantity) {
+	}
+
+	private record ActionGraphResolveHttpRequest(ActionGraphGoalRequest goal, List<ActionGraphInventoryFactRequest> assumedInventory) {
+	}
+
+	private record ActionGraphGoalRequest(String fact, String itemId, Integer countAtLeast) {
+	}
+
+	private record ActionGraphInventoryFactRequest(String itemId, Integer count) {
 	}
 
 	private record DebugChatRequest(String senderName, String message) {

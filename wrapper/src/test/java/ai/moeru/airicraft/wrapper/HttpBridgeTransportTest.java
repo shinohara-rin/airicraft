@@ -368,6 +368,28 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
+	void resolveAgentActionGraphPostsGoalAndAssumptions(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/action-graph/resolve", 0, 200, """
+				{"available":true,"resolved":true,"route":{"cost":10,"steps":[]},"trace":[]}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.resolveAgentActionGraph("minecraft:bread", 1, Map.of("minecraft:wheat", 3));
+
+			assertEquals(true, payload.get("resolved"));
+			assertEquals(1, server.requestCount("/v1/agent/action-graph/resolve"));
+			assertEquals("POST", server.lastMethod("/v1/agent/action-graph/resolve"));
+			assertTrue(server.lastRequestBody("/v1/agent/action-graph/resolve").contains("\"itemId\":\"minecraft:bread\""));
+			assertTrue(server.lastRequestBody("/v1/agent/action-graph/resolve").contains("\"countAtLeast\":1"));
+			assertTrue(server.lastRequestBody("/v1/agent/action-graph/resolve").contains("\"itemId\":\"minecraft:wheat\""));
+			assertTrue(server.lastRequestBody("/v1/agent/action-graph/resolve").contains("\"count\":3"));
+		}
+	}
+
+	@Test
 	void submitAgentMissionPostsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
 			server.respondJson("/v1/agent/tasks", 0, 200, """
