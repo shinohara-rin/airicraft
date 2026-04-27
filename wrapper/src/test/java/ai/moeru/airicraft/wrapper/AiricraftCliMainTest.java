@@ -476,6 +476,49 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void agentActionsInspectRendersPrimitiveAndActionsetSummary() {
+		TestTransport transport = new TestTransport();
+		transport.agentActionInspectPayload = linkedMap(
+			"available", true,
+			"actionsetRoot", "actionsets",
+			"actionsetValid", true,
+			"primitiveCount", 11,
+			"actionsetCount", 2,
+			"diagnosticCount", 0,
+			"primitives", List.of(linkedMap(
+				"id", "craft_item",
+				"version", 1,
+				"summary", "Craft an item from available recipe evidence.",
+				"foregroundActuation", true,
+				"executorBinding", "WorldTaskRequest.CRAFT_RECIPE",
+				"capabilityTags", List.of("crafting")
+			)),
+			"actionsets", List.of(linkedMap(
+				"actionId", "make_bread",
+				"namespace", "builtin",
+				"sourceName", "builtin/make_bread.yml",
+				"summary", "Produce bread in inventory.",
+				"alternativeCount", 3,
+				"produces", List.of("inventory.item:minecraft:bread")
+			)),
+			"actionsetDiagnostics", List.of()
+		);
+
+		CliResult result = execute(transport, "agent", "actions", "inspect", "--verbose");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(transport.actionInspectCalled);
+		assertTrue(result.output().contains("command: agent actions inspect\n"));
+		assertTrue(result.output().contains("actionsetValid: true\n"));
+		assertTrue(result.output().contains("primitiveCount: 11\n"));
+		assertTrue(result.output().contains("actionsetCount: 2\n"));
+		assertTrue(result.output().contains("id: craft_item\n"));
+		assertTrue(result.output().contains("executorBinding: WorldTaskRequest.CRAFT_RECIPE\n"));
+		assertTrue(result.output().contains("actionId: make_bread\n"));
+		assertTrue(result.output().contains("sourceName: builtin/make_bread.yml\n"));
+	}
+
+	@Test
 	void agentMissionSubmitPassesNormalizedMissionPayload() {
 		TestTransport transport = new TestTransport();
 		transport.agentMissionSubmitPayload = linkedMap(
@@ -928,6 +971,7 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentEvidencePayload = Map.of();
 		private Map<String, Object> agentStepExecutionPayload = Map.of();
 		private Map<String, Object> agentActionResolvePayload = Map.of();
+		private Map<String, Object> agentActionInspectPayload = Map.of();
 		private Map<String, Object> agentTaskSubmitPayload = Map.of();
 		private Map<String, Object> agentMissionSubmitPayload = Map.of();
 		private Map<String, Object> agentEventsPayload = Map.of("events", List.of());
@@ -980,6 +1024,7 @@ class AiricraftCliMainTest {
 		private String lastActionResolveItemId;
 		private int lastActionResolveQuantity;
 		private Map<String, Integer> lastActionResolveAssumedInventory = Map.of();
+		private boolean actionInspectCalled;
 		private boolean playerNearbyEntitiesCalled;
 
 		private RuntimeException worldsJoinFailure;
@@ -1185,6 +1230,12 @@ class AiricraftCliMainTest {
 			lastActionResolveQuantity = quantity;
 			lastActionResolveAssumedInventory = assumedInventory;
 			return agentActionResolvePayload;
+		}
+
+		@Override
+		public Map<String, Object> inspectAgentActionGraph() {
+			actionInspectCalled = true;
+			return agentActionInspectPayload;
 		}
 
 		@Override

@@ -147,6 +147,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/ledger", exchange -> handleJson(exchange, this::createAgentLedgerResponse));
 			httpServer.createContext("/v1/agent/evidence", exchange -> handleJson(exchange, this::createAgentEvidenceResponse));
 			httpServer.createContext("/v1/agent/step-execution", exchange -> handleJson(exchange, this::createAgentStepExecutionResponse));
+			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, actionGraphDebugService::inspectActionGraph));
 			httpServer.createContext("/v1/agent/action-graph/resolve", this::handleAgentActionGraphResolve);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);

@@ -11,6 +11,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ActionGraphDebugServiceTest {
 	@Test
+	void inspectListsPrimitiveMetadataAndIndexedActionsets() {
+		ActionGraphDebugService service = new ActionGraphDebugService(Path.of("actionsets"));
+
+		Map<String, Object> payload = service.inspectActionGraph();
+
+		assertEquals(true, payload.get("available"));
+		assertEquals(true, payload.get("actionsetValid"));
+		assertTrue((Integer) payload.get("primitiveCount") >= 10);
+		assertTrue((Integer) payload.get("actionsetCount") >= 2);
+		assertTrue(list(payload.get("primitives")).stream()
+			.anyMatch(primitive -> "craft_item".equals(map(primitive).get("id"))
+				&& "WorldTaskRequest.CRAFT_RECIPE".equals(map(primitive).get("executorBinding"))));
+		assertTrue(list(payload.get("actionsets")).stream()
+			.anyMatch(actionset -> "make_bread".equals(map(actionset).get("actionId"))
+				&& "builtin".equals(map(actionset).get("namespace"))));
+	}
+
+	@Test
 	void resolvesInventoryItemGoalFromAssumedInventoryFacts() {
 		ActionGraphDebugService service = new ActionGraphDebugService(Path.of("actionsets"));
 

@@ -390,6 +390,25 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
+	void inspectAgentActionGraphGetsInspectionPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/action-graph/inspect", 0, 200, """
+				{"available":true,"actionsetValid":true,"primitiveCount":11,"actionsetCount":2}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.inspectAgentActionGraph();
+
+			assertEquals(true, payload.get("actionsetValid"));
+			assertEquals(1, server.requestCount("/v1/agent/action-graph/inspect"));
+			assertEquals("GET", server.lastMethod("/v1/agent/action-graph/inspect"));
+			assertEquals("", server.lastRequestBody("/v1/agent/action-graph/inspect"));
+		}
+	}
+
+	@Test
 	void submitAgentMissionPostsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
 			server.respondJson("/v1/agent/tasks", 0, 200, """
