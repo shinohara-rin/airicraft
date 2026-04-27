@@ -256,7 +256,16 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> executeAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory) {
+		return send("POST", "/v1/agent/action-graph/execute", actionGraphInventoryItemBody(itemId, quantity, assumedInventory));
+	}
+
+	@Override
 	public Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory) {
+		return send("POST", "/v1/agent/action-graph/resolve", actionGraphInventoryItemBody(itemId, quantity, assumedInventory));
+	}
+
+	private static Map<String, Object> actionGraphInventoryItemBody(String itemId, int quantity, Map<String, Integer> assumedInventory) {
 		LinkedHashMap<String, Object> body = new LinkedHashMap<>();
 		body.put("goal", Map.of(
 			"fact", "inventory.item",
@@ -269,7 +278,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 				"count", entry.getValue()
 			))
 			.toList());
-		return send("POST", "/v1/agent/action-graph/resolve", body);
+		return body;
 	}
 
 	@Override

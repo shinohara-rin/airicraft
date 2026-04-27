@@ -67,6 +67,7 @@ public final class AiricraftCliMain {
 		agent.addSubcommand("actions", new UsageCommand(out, "airicraft agent actions", "Composable action graph debug commands"));
 		CommandLine agentActions = agent.getSubcommands().get("actions");
 		agentActions.addSubcommand(new AgentActionsInspectCommand(context));
+		agentActions.addSubcommand(new AgentActionsExecuteCommand(context));
 		agentActions.addSubcommand(new AgentActionsResolveCommand(context));
 		agent.addSubcommand("mission", new UsageCommand(out, "airicraft agent mission", "Mission-level agent commands"));
 		CommandLine agentMission = agent.getSubcommands().get("mission");
@@ -384,6 +385,36 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.agentActionInspect(transport().inspectAgentActionGraph(), verbose());
+		}
+	}
+
+	@Command(name = "execute", mixinStandardHelpOptions = true, description = "Resolve and dispatch the first executable primitive for an inventory-item goal.")
+	private static final class AgentActionsExecuteCommand extends BaseCommand {
+		@Option(names = "--item", required = true, description = "Namespaced output item id, for example minecraft:bread.")
+		private String itemId;
+
+		@Option(names = "--quantity", defaultValue = "1", description = "Requested item count.")
+		private int quantity;
+
+		@Option(names = "--assume-inventory", split = ",", description = "Assumed inventory fact in item=count form. Can be repeated or comma-separated.")
+		private List<String> assumedInventory = new ArrayList<>();
+
+		private AgentActionsExecuteCommand(CliContext context) {
+			super(context, "agent actions execute");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			if (itemId == null || itemId.isBlank()) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "item must be non-empty");
+			}
+			if (quantity < 1) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "quantity must be positive");
+			}
+			return PayloadViews.agentActionExecute(
+				transport().executeAgentActionGraph(itemId, quantity, parseInventoryAssumptions(assumedInventory, commandPath())),
+				verbose()
+			);
 		}
 	}
 
@@ -1456,6 +1487,31 @@ public final class AiricraftCliMain {
 			if (verbose) {
 				view.put("trace", trace);
 				copy(view, payload, "factSourceCounts", "actionsetDiagnostics");
+			}
+			return view;
+		}
+
+		private static Map<String, Object> agentActionExecute(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "resolved", "accepted", "alreadySatisfied", "failureCode", "message");
+			Map<String, Object> route = map(payload.get("route"));
+			List<Map<String, Object>> steps = maps(route.get("steps"));
+			List<Map<String, Object>> trace = maps(payload.get("trace"));
+			if (route.containsKey("cost")) {
+				view.put("routeCost", route.get("cost"));
+			}
+			view.put("stepCount", steps.size());
+			view.put("traceEventCount", trace.size());
+			if (payload.containsKey("selectedStep")) {
+				view.put("selectedStep", payload.get("selectedStep"));
+			}
+			if (payload.containsKey("dispatch")) {
+				view.put("dispatch", payload.get("dispatch"));
+			}
+			copy(view, payload, "task", "taskExecution");
+			if (verbose) {
+				copy(view, payload, "goal", "factSourceCounts", "missionExecution", "actionsetDiagnostics");
+				view.put("trace", trace);
 			}
 			return view;
 		}

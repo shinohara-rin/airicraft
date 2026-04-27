@@ -44,6 +44,10 @@ public final class ActionGraphDebugService {
 	}
 
 	public Map<String, Object> resolveInventoryItem(ActionGraphResolveRequest request) {
+		return resolveInventoryItemResolution(request).payload();
+	}
+
+	public ActionGraphResolvedInventoryItem resolveInventoryItemResolution(ActionGraphResolveRequest request) {
 		ActionsetLoadResult loadResult = ActionsetLibraryLoader.defaults().load(actionsetRoot);
 		ActionFactStore facts = new ActionFactStore();
 		addInventoryFacts(facts, request, request.observedInventory(), ActionFactProvenance.OBSERVED);
@@ -76,7 +80,7 @@ public final class ActionGraphDebugService {
 		payload.put("trace", resolveResult.trace().stream()
 			.map(ActionGraphDebugService::tracePayload)
 			.toList());
-		return payload;
+		return new ActionGraphResolvedInventoryItem(resolveResult, payload);
 	}
 
 	private static void addInventoryFacts(

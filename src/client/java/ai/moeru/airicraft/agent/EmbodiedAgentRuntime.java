@@ -940,6 +940,16 @@ public final class EmbodiedAgentRuntime {
 		return submitActiveJobProposal(ActiveJobProposal.useEntity(entityInteraction), source, entityInteractionEventPayload(entityInteraction, "USE_ENTITY", source));
 	}
 
+	public TaskSnapshot submitActionGraphJob(ActiveJobProposal proposal, String source, Map<String, Object> dispatchPayload) {
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("type", proposal.type().name());
+		payload.put("source", source == null || source.isBlank() ? "action_graph_debug" : source);
+		if (dispatchPayload != null) {
+			payload.putAll(dispatchPayload);
+		}
+		return submitActiveJobProposal(proposal, source == null || source.isBlank() ? "action_graph_debug" : source, payload);
+	}
+
 	public TaskSnapshot cancelTask(String reason) {
 		TaskSnapshot previousTaskSnapshot = taskSnapshot;
 		activeJobRuntime.cancel(reason == null || reason.isBlank() ? "cancelled" : reason, tickCount);

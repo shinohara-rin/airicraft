@@ -169,6 +169,34 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void actionGraphJobSubmitRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs("wheat_wheat_wheat_to_bread", 1);
+
+		runtime.submitActionGraphJob(
+			ActiveJobProposal.craftRecipe(craftRecipe),
+			"action_graph_debug",
+			Map.of("jobType", "CRAFT_RECIPE")
+		);
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertEquals(WorldTaskType.CRAFT_RECIPE, request.type());
+		assertEquals(craftRecipe, request.craftRecipe());
+		assertEquals("action_graph_debug", runtime.taskSnapshot().source());
+	}
+
+	@Test
 	void dropItemsPlannerResponseRoutesWorldTaskRequest() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
