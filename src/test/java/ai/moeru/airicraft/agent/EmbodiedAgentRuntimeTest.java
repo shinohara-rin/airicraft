@@ -133,6 +133,11 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void actionGraphContextUsesRuntimeTickForBudgets() {
+		assertEquals(42L, EmbodiedAgentRuntime.actionGraphCurrentTickForContext(42L, 270_000L));
+	}
+
+	@Test
 	void taskExecutorPausesWhenSessionDoesNotAllowActuation() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

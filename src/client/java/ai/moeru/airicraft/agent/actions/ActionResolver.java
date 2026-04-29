@@ -23,6 +23,7 @@ public final class ActionResolver {
 	private final ActionResolverContext context;
 	private final int maxDepth;
 	private final Set<String> blockedAlternativeKeys;
+	private final boolean preferActionsetRoutes;
 
 	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context) {
 		this(index, facts, context, DEFAULT_MAX_DEPTH);
@@ -39,11 +40,23 @@ public final class ActionResolver {
 		int maxDepth,
 		Set<String> blockedAlternativeKeys
 	) {
+		this(index, facts, context, maxDepth, blockedAlternativeKeys, false);
+	}
+
+	public ActionResolver(
+		ActionsetIndex index,
+		ActionFactStore facts,
+		ActionResolverContext context,
+		int maxDepth,
+		Set<String> blockedAlternativeKeys,
+		boolean preferActionsetRoutes
+	) {
 		this.index = Objects.requireNonNull(index, "index");
 		this.facts = Objects.requireNonNull(facts, "facts");
 		this.context = Objects.requireNonNull(context, "context");
 		this.maxDepth = Math.max(1, maxDepth);
 		this.blockedAlternativeKeys = blockedAlternativeKeys == null ? Set.of() : Set.copyOf(blockedAlternativeKeys);
+		this.preferActionsetRoutes = preferActionsetRoutes;
 	}
 
 	public ActionResolveResult resolve(ActionGoal goal) {
@@ -78,12 +91,38 @@ public final class ActionResolver {
 			return Optional.of(ActionRoute.empty());
 		}
 
-		Optional<ActionRoute> providerRoute = resolveRecipeProviderGoal(goal, depth, resolving, trace);
-		if (providerRoute.isPresent()) {
-			resolving.remove(goal.normalizedKey());
-			return providerRoute;
+		if (!preferActionsetRoutes) {
+			Optional<ActionRoute> providerRoute = resolveRecipeProviderGoal(goal, depth, resolving, trace);
+			if (providerRoute.isPresent()) {
+				resolving.remove(goal.normalizedKey());
+				return providerRoute;
+			}
 		}
 
+		Optional<ActionRoute> actionsetRoute = resolveActionsetGoal(goal, depth, resolving, trace);
+		if (actionsetRoute.isPresent()) {
+			resolving.remove(goal.normalizedKey());
+			return actionsetRoute;
+		}
+
+		if (preferActionsetRoutes) {
+			Optional<ActionRoute> providerRoute = resolveRecipeProviderGoal(goal, depth, resolving, trace);
+			if (providerRoute.isPresent()) {
+				resolving.remove(goal.normalizedKey());
+				return providerRoute;
+			}
+		}
+
+		resolving.remove(goal.normalizedKey());
+		return Optional.empty();
+	}
+
+	private Optional<ActionRoute> resolveActionsetGoal(
+		ActionGoal goal,
+		int depth,
+		LinkedHashSet<String> resolving,
+		List<ActionTraceEvent> trace
+	) {
 		for (ActionsetEntry entry : matchingActionsets(goal)) {
 			Map<String, Integer> params = bindParams(entry.definition(), goal);
 			for (Map<String, Object> alternative : alternatives(entry)) {
@@ -113,13 +152,10 @@ public final class ActionResolver {
 				Optional<ActionRoute> expanded = expandAlternative(entry, alternative, params, depth, resolving, trace);
 				if (expanded.isPresent()) {
 					trace.add(event("route_selected", entry.actionId(), alternativeId, "", Map.of("goal", goal.normalizedKey())));
-					resolving.remove(goal.normalizedKey());
 					return expanded;
 				}
 			}
 		}
-
-		resolving.remove(goal.normalizedKey());
 		return Optional.empty();
 	}
 

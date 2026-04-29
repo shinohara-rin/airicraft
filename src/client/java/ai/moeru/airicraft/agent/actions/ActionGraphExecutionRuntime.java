@@ -22,6 +22,7 @@ public final class ActionGraphExecutionRuntime {
 
 	private final Supplier<ActionsetLoadResult> actionsetLoader;
 	private final ActionGraphPrimitiveDispatcher primitiveDispatcher;
+	private final boolean preferActionsetRoutes;
 
 	private ActionGraphExecutionState state = ActionGraphExecutionState.IDLE;
 	private String executionId = "";
@@ -49,16 +50,25 @@ public final class ActionGraphExecutionRuntime {
 	private int assumedInventoryFactCount;
 
 	public ActionGraphExecutionRuntime(Path actionsetRoot, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
-		this(() -> ActionsetLibraryLoader.defaults().load(actionsetRoot == null ? ActionsetLibraryPaths.defaultRoot() : actionsetRoot), primitiveDispatcher);
+		this(() -> ActionsetLibraryLoader.defaults().load(actionsetRoot == null ? ActionsetLibraryPaths.defaultRoot() : actionsetRoot), primitiveDispatcher, false);
 	}
 
 	public ActionGraphExecutionRuntime(ActionsetIndex index, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
-		this(() -> new ActionsetLoadResult(index, List.of()), primitiveDispatcher);
+		this(index, primitiveDispatcher, false);
 	}
 
-	private ActionGraphExecutionRuntime(Supplier<ActionsetLoadResult> actionsetLoader, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
+	public ActionGraphExecutionRuntime(ActionsetIndex index, ActionGraphPrimitiveDispatcher primitiveDispatcher, boolean preferActionsetRoutes) {
+		this(() -> new ActionsetLoadResult(index, List.of()), primitiveDispatcher, preferActionsetRoutes);
+	}
+
+	private ActionGraphExecutionRuntime(
+		Supplier<ActionsetLoadResult> actionsetLoader,
+		ActionGraphPrimitiveDispatcher primitiveDispatcher,
+		boolean preferActionsetRoutes
+	) {
 		this.actionsetLoader = Objects.requireNonNull(actionsetLoader, "actionsetLoader");
 		this.primitiveDispatcher = Objects.requireNonNull(primitiveDispatcher, "primitiveDispatcher");
+		this.preferActionsetRoutes = preferActionsetRoutes;
 	}
 
 	public synchronized ActionGraphExecutionSnapshot submit(
@@ -230,7 +240,7 @@ public final class ActionGraphExecutionRuntime {
 			fail("actionset_validation_failed", "Actionset library validation failed");
 			return;
 		}
-		ActionResolveResult result = new ActionResolver(loadResult.index(), facts, context, 8, blockedAlternatives).resolve(goal);
+		ActionResolveResult result = new ActionResolver(loadResult.index(), facts, context, 8, blockedAlternatives, preferActionsetRoutes).resolve(goal);
 		trace.addAll(result.trace());
 		if (!result.resolved()) {
 			fail(result.failureCode(), result.message());

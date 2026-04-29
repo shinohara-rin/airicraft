@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.actions;
 
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -110,13 +111,53 @@ class ActionsetDraftTrialRuntimeTest {
 		assertEquals(ActionsetDraftStatus.TRIAL_PASSED, service.draftSummary("craft_bread").status());
 	}
 
+	@Test
+	void trialExercisesDraftRouteEvenWhenRecipeProviderCanSatisfyGoal() throws IOException {
+		ActionsetAuthoringService service = new ActionsetAuthoringService(tempDir.resolve("actionsets"));
+		service.writeDraft("craft_bread", craftBreadDraft());
+		RecordingDispatcher dispatcher = new RecordingDispatcher();
+		ActionsetDraftTrialRuntime trial = new ActionsetDraftTrialRuntime(service, dispatcher);
+
+		trial.start(ActionsetTrialSpec.inventoryItem(
+			"craft_bread",
+			"minecraft:bread",
+			1,
+			Map.of("minecraft:wheat", 3),
+			true,
+			20
+		), CONTEXT, 100);
+		trial.tick(input(
+			Map.of("minecraft:wheat", 3),
+			null,
+			101,
+			List.of(new CraftingOpportunity(
+				"wheat_x3_to_bread",
+				"minecraft:bread",
+				1,
+				List.of("minecraft:wheat", "minecraft:wheat", "minecraft:wheat")
+			))
+		));
+
+		assertEquals("craft_bread", dispatcher.steps.getFirst().actionId());
+	}
+
 	private static ActionGraphExecutionInput input(Map<String, Integer> observedInventory, TaskTerminalEvent terminalEvent, long tick) {
+		return input(observedInventory, terminalEvent, tick, List.of());
+	}
+
+	private static ActionGraphExecutionInput input(
+		Map<String, Integer> observedInventory,
+		TaskTerminalEvent terminalEvent,
+		long tick,
+		List<CraftingOpportunity> availableCrafts
+	) {
 		return new ActionGraphExecutionInput(
 			new ActionResolverContext(CONTEXT.worldId(), CONTEXT.actorId(), CONTEXT.dimension(), tick),
 			observedInventory,
 			true,
 			true,
-			terminalEvent
+			terminalEvent,
+			availableCrafts
 		);
 	}
 

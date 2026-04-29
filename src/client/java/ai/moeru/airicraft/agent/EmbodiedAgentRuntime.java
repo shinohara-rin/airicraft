@@ -1089,10 +1089,14 @@ public final class EmbodiedAgentRuntime {
 				"client",
 				"bot",
 				client.world.getRegistryKey().getValue().toString(),
-				client.world.getTime()
+				actionGraphCurrentTickForContext(tickCount, client.world.getTime())
 			);
 		}
 		return new ActionResolverContext("client", "bot", "minecraft:overworld", tickCount);
+	}
+
+	static long actionGraphCurrentTickForContext(long runtimeTick, long worldTime) {
+		return runtimeTick;
 	}
 
 	private static Map<String, Object> taskPayload(TaskSnapshot task) {

@@ -33,7 +33,7 @@ public final class ActionsetDraftTrialRuntime {
 		if (!trialSpec.allowWorldMutation() && authoringService.draftUsesForegroundPrimitive(trialSpec.draftId())) {
 			return fail("world_mutation_denied", "draft uses foreground primitives; allowWorldMutation is required");
 		}
-		this.executionRuntime = new ActionGraphExecutionRuntime(authoringService.temporaryTrialIndex(trialSpec.draftId()), primitiveDispatcher);
+		this.executionRuntime = new ActionGraphExecutionRuntime(authoringService.temporaryTrialIndex(trialSpec.draftId()), primitiveDispatcher, true);
 		executionRuntime.submit(trialSpec.goal(), trialSpec.assumedInventory(), context, tick);
 		state = ActionsetTrialState.RUNNING;
 		return snapshot();
