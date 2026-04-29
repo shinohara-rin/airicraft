@@ -2,13 +2,8 @@ package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.actions.ActionGraphDebugService;
-import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveDispatch;
-import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveMapper;
 import ai.moeru.airicraft.agent.actions.ActionGraphResolveRequest;
-import ai.moeru.airicraft.agent.actions.ActionGraphResolvedInventoryItem;
-import ai.moeru.airicraft.agent.actions.ActionPlanStep;
 import ai.moeru.airicraft.agent.actions.ActionResolverContext;
-import ai.moeru.airicraft.agent.actions.ActionStepKind;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
@@ -23,7 +18,6 @@ import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
-import ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -155,6 +149,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/step-execution", exchange -> handleJson(exchange, this::createAgentStepExecutionResponse));
 			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, actionGraphDebugService::inspectActionGraph));
 			httpServer.createContext("/v1/agent/action-graph/execute", this::handleAgentActionGraphExecute);
+			httpServer.createContext("/v1/agent/action-graph/execution", this::handleAgentActionGraphExecution);
 			httpServer.createContext("/v1/agent/action-graph/resolve", this::handleAgentActionGraphResolve);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
@@ -771,51 +766,40 @@ public final class ModBridgeServer {
 				if (!worldLoaded) {
 					throw new BridgeUnavailableException("world_not_loaded", "A world must be loaded before executing an action graph route");
 				}
-				String dimension = client.world.getRegistryKey().getValue().toString();
-				long tick = client.world.getTime();
-				Map<String, Integer> observedInventory = inventoryItemCounter.count(client.player.getInventory());
-				ActionGraphResolvedInventoryItem resolution = actionGraphDebugService.resolveInventoryItemResolution(new ActionGraphResolveRequest(
-					itemId,
-					quantity,
-					assumedInventory(request.assumedInventory()),
-					observedInventory,
-					new ActionResolverContext("bridge-debug", "bot", dimension, tick)
-				));
-				Map<String, Object> payload = new LinkedHashMap<>(resolution.payload());
+				Map<String, Object> payload = new LinkedHashMap<>(agentRuntime()
+					.submitActionGraphExecution(itemId, quantity, assumedInventory(request.assumedInventory()))
+					.toPayload(true));
 				payload.put("sessionState", sessionState(client));
 				payload.put("worldLoaded", true);
-				payload.put("accepted", false);
-				if (!resolution.result().resolved()) {
-					return payload;
-				}
-				ActionPlanStep selectedStep = resolution.result().route().steps().stream()
-					.filter(step -> step.kind() == ActionStepKind.PRIMITIVE)
-					.findFirst()
-					.orElse(null);
-				if (selectedStep == null) {
-					payload.put("alreadySatisfied", true);
-					payload.put("message", "Goal already satisfied; no primitive dispatched");
-					return payload;
-				}
-				ActionGraphPrimitiveDispatch dispatch = ActionGraphPrimitiveMapper.map(
-					selectedStep,
-					CraftingOpportunityResolver.availableCrafts(client.player)
-				);
-				payload.put("selectedStep", actionGraphStepPayload(selectedStep));
-				if (!dispatch.dispatchable()) {
-					payload.put("failureCode", dispatch.failureCode());
-					payload.put("message", dispatch.message());
-					return payload;
-				}
-				payload.put("accepted", true);
-				payload.put("dispatch", dispatch.payload());
-				var task = agentRuntime().submitActionGraphJob(dispatch.proposal(), "action_graph_debug", dispatch.payload());
-				payload.put("task", task);
-				payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
 				payload.put("missionExecution", agentRuntime().missionExecutionSnapshot());
 				return payload;
 			});
 		});
+	}
+
+	private void handleAgentActionGraphExecution(HttpExchange exchange) throws IOException {
+		if (!authorize(exchange)) {
+			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
+			return;
+		}
+		try {
+			if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionGraphExecutionSnapshot().toPayload(true)));
+				return;
+			}
+			if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().cancelActionGraphExecution("bridge_cancelled").toPayload(true)));
+				return;
+			}
+			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+		}
+		catch (BridgeUnavailableException exception) {
+			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+		}
+		catch (Exception exception) {
+			Airicraft.LOGGER.warn("Bridge request failed", exception);
+			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
+		}
 	}
 
 	private static boolean isMissionLedgerRequest(JsonObject request) {
@@ -837,17 +821,6 @@ public final class ModBridgeServer {
 			}
 		}
 		return inventory;
-	}
-
-	private static Map<String, Object> actionGraphStepPayload(ActionPlanStep step) {
-		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
-		payload.put("kind", step.kind().name());
-		payload.put("actionId", step.actionId());
-		payload.put("alternativeId", step.alternativeId());
-		payload.put("stepId", step.stepId());
-		payload.put("targetId", step.targetId());
-		payload.put("args", step.args());
-		return payload;
 	}
 
 	private EntityInteractionStepArgs parseEntityInteractionRequest(EntityInteractionRequest request, boolean allowItemId) {

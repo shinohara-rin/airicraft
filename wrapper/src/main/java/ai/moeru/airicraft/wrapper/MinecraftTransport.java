@@ -71,6 +71,10 @@ interface MinecraftTransport {
 
 	Map<String, Object> executeAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory);
 
+	Map<String, Object> getAgentActionGraphExecution();
+
+	Map<String, Object> cancelAgentActionGraphExecution();
+
 	Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory);
 
 	Map<String, Object> submitAgentTask(Map<String, Object> taskPayload);

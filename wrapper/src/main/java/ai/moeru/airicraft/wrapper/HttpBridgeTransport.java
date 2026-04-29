@@ -261,6 +261,16 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> getAgentActionGraphExecution() {
+		return get("/v1/agent/action-graph/execution");
+	}
+
+	@Override
+	public Map<String, Object> cancelAgentActionGraphExecution() {
+		return send("DELETE", "/v1/agent/action-graph/execution", Map.of());
+	}
+
+	@Override
 	public Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory) {
 		return send("POST", "/v1/agent/action-graph/resolve", actionGraphInventoryItemBody(itemId, quantity, assumedInventory));
 	}

@@ -5,6 +5,16 @@ import ai.moeru.airicraft.AiricraftConfigLoader;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.SingleplayerWorldService;
+import ai.moeru.airicraft.agent.actions.ActionGraphExecutionInput;
+import ai.moeru.airicraft.agent.actions.ActionGraphExecutionRuntime;
+import ai.moeru.airicraft.agent.actions.ActionGraphExecutionSnapshot;
+import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveDispatch;
+import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveDispatchResult;
+import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveMapper;
+import ai.moeru.airicraft.agent.actions.ActionGoal;
+import ai.moeru.airicraft.agent.actions.ActionPlanStep;
+import ai.moeru.airicraft.agent.actions.ActionResolverContext;
+import ai.moeru.airicraft.agent.actions.ActionsetLibraryPaths;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeRuntime;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeSnapshot;
 import ai.moeru.airicraft.agent.chat.ChatService;
@@ -95,6 +105,7 @@ import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
@@ -173,6 +184,8 @@ public final class EmbodiedAgentRuntime {
 	private final NearbyPlayerTracker nearbyPlayerTracker;
 	private final PrimaryInteractionResolver primaryInteractionResolver = new PrimaryInteractionResolver(200L);
 	private final ActiveJobRuntime activeJobRuntime = new ActiveJobRuntime();
+	private final ActionGraphExecutionRuntime actionGraphExecutionRuntime =
+		new ActionGraphExecutionRuntime(ActionsetLibraryPaths.defaultRoot(), this::dispatchActionGraphPrimitive);
 	private final FollowCapability followCapability = new FollowCapability();
 	private final BehaviorTreeRuntime behaviorTreeRuntime = new BehaviorTreeRuntime();
 	private final ChatService chatService = new ChatService();
@@ -320,6 +333,7 @@ public final class EmbodiedAgentRuntime {
 		dialogueRuntime.clear();
 		worldTaskExecutor.onWorldLeave();
 		activeJobRuntime.clear();
+		actionGraphExecutionRuntime.clear();
 		followCapability.clear();
 		followState = FollowState.idle();
 		taskSnapshot = TaskSnapshot.idle();
@@ -399,6 +413,10 @@ public final class EmbodiedAgentRuntime {
 		boolean semanticTaskContext = hasSemanticTaskContext(previousTaskSnapshot, taskSnapshot);
 		recordTaskStateTransition(previousTaskExecutionSnapshot, taskExecutionSnapshot, semanticTaskContext);
 		terminalTaskEvent.ifPresent(event -> handleTerminalTaskEvent(event, semanticTaskContext));
+		if (actionGraphExecutionRuntime.active()) {
+			tickActionGraphExecution(client, terminalTaskEvent.orElse(null));
+			activeGoal = activeGoal();
+		}
 		behaviorTreeRuntime.tick(
 			client,
 			sessionSnapshot,
@@ -528,6 +546,31 @@ public final class EmbodiedAgentRuntime {
 
 	public MissionExecutionSnapshot missionExecutionSnapshot() {
 		return missionExecutionSnapshot;
+	}
+
+	public ActionGraphExecutionSnapshot actionGraphExecutionSnapshot() {
+		return actionGraphExecutionRuntime.snapshot();
+	}
+
+	public ActionGraphExecutionSnapshot submitActionGraphExecution(
+		String itemId,
+		int quantity,
+		Map<String, Integer> assumedInventory
+	) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		ActionResolverContext context = actionGraphContext(client);
+		actionGraphExecutionRuntime.submit(
+			ActionGoal.inventoryItem(itemId, quantity),
+			assumedInventory,
+			context,
+			tickCount
+		);
+		return tickActionGraphExecution(client, null);
+	}
+
+	public ActionGraphExecutionSnapshot cancelActionGraphExecution(String reason) {
+		cancelTask(reason == null || reason.isBlank() ? "action_graph_cancelled" : reason);
+		return actionGraphExecutionRuntime.cancel(reason, tickCount);
 	}
 
 	public Optional<DialogueResponse> lastDialogueResponse() {
@@ -950,6 +993,81 @@ public final class EmbodiedAgentRuntime {
 		return submitActiveJobProposal(proposal, source == null || source.isBlank() ? "action_graph_debug" : source, payload);
 	}
 
+	private ActionGraphExecutionSnapshot tickActionGraphExecution(MinecraftClient client, TaskTerminalEvent terminalEvent) {
+		boolean worldLoaded = client != null && client.world != null && client.player != null;
+		Map<String, Integer> observedInventory = worldLoaded
+			? inventoryItemCounter.count(client.player.getInventory())
+			: Map.of();
+		return actionGraphExecutionRuntime.tick(new ActionGraphExecutionInput(
+			actionGraphContext(client),
+			observedInventory,
+			worldLoaded,
+			sessionSnapshot.companionActuationAllowed(),
+			terminalEvent
+		));
+	}
+
+	private ActionGraphPrimitiveDispatchResult dispatchActionGraphPrimitive(ActionPlanStep step) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client == null || client.player == null || client.world == null) {
+			return ActionGraphPrimitiveDispatchResult.failed("world_not_loaded", "A world must be loaded before dispatching action graph primitives", Map.of());
+		}
+		ActionGraphPrimitiveDispatch dispatch = ActionGraphPrimitiveMapper.map(
+			step,
+			CraftingOpportunityResolver.availableCrafts(client.player)
+		);
+		if (!dispatch.dispatchable()) {
+			return ActionGraphPrimitiveDispatchResult.failed(dispatch.failureCode(), dispatch.message(), dispatch.payload());
+		}
+		TaskSnapshot task = submitActionGraphJob(dispatch.proposal(), "action_graph_execution", dispatch.payload());
+		String taskId = activeJobRuntime.activeTaskRequest()
+			.map(WorldTaskRequest::taskId)
+			.orElse(activeJobRuntime.current().jobId());
+		return ActionGraphPrimitiveDispatchResult.accepted(
+			taskId,
+			dispatch.payload(),
+			taskPayload(task),
+			taskExecutionPayload(taskExecutionSnapshot)
+		);
+	}
+
+	private ActionResolverContext actionGraphContext(MinecraftClient client) {
+		if (client != null && client.world != null) {
+			return new ActionResolverContext(
+				"client",
+				"bot",
+				client.world.getRegistryKey().getValue().toString(),
+				client.world.getTime()
+			);
+		}
+		return new ActionResolverContext("client", "bot", "minecraft:overworld", tickCount);
+	}
+
+	private static Map<String, Object> taskPayload(TaskSnapshot task) {
+		if (task == null) {
+			return Map.of();
+		}
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("state", task.state().name());
+		payload.put("source", task.source());
+		payload.put("lastFailure", task.lastFailure());
+		payload.put("activeStepId", task.activeStepId());
+		payload.put("updatedTick", task.updatedTick());
+		return payload;
+	}
+
+	private static Map<String, Object> taskExecutionPayload(TaskExecutionSnapshot taskExecution) {
+		if (taskExecution == null) {
+			return Map.of();
+		}
+		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+		payload.put("state", taskExecution.state().name());
+		payload.put("taskId", taskExecution.taskId());
+		payload.put("processName", taskExecution.processName());
+		payload.put("lastPathEvent", taskExecution.lastPathEvent());
+		return payload;
+	}
+
 	public TaskSnapshot cancelTask(String reason) {
 		TaskSnapshot previousTaskSnapshot = taskSnapshot;
 		activeJobRuntime.cancel(reason == null || reason.isBlank() ? "cancelled" : reason, tickCount);
@@ -970,6 +1088,7 @@ public final class EmbodiedAgentRuntime {
 			source == null || source.isBlank() ? "bridge_debug" : source,
 			tickCount
 		);
+		taskExecutionSnapshot = TaskExecutionSnapshot.idle();
 		taskSnapshot = activeJobRuntime.taskSnapshot();
 		missionExecutionSnapshot = activeJobRuntime.missionExecutionSnapshot();
 		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());

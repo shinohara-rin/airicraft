@@ -22,16 +22,28 @@ public final class ActionResolver {
 	private final ActionFactStore facts;
 	private final ActionResolverContext context;
 	private final int maxDepth;
+	private final Set<String> blockedAlternativeKeys;
 
 	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context) {
 		this(index, facts, context, DEFAULT_MAX_DEPTH);
 	}
 
 	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context, int maxDepth) {
+		this(index, facts, context, maxDepth, Set.of());
+	}
+
+	public ActionResolver(
+		ActionsetIndex index,
+		ActionFactStore facts,
+		ActionResolverContext context,
+		int maxDepth,
+		Set<String> blockedAlternativeKeys
+	) {
 		this.index = Objects.requireNonNull(index, "index");
 		this.facts = Objects.requireNonNull(facts, "facts");
 		this.context = Objects.requireNonNull(context, "context");
 		this.maxDepth = Math.max(1, maxDepth);
+		this.blockedAlternativeKeys = blockedAlternativeKeys == null ? Set.of() : Set.copyOf(blockedAlternativeKeys);
 	}
 
 	public ActionResolveResult resolve(ActionGoal goal) {
@@ -65,6 +77,16 @@ public final class ActionResolver {
 			Map<String, Integer> params = bindParams(entry.definition(), goal);
 			for (Map<String, Object> alternative : alternatives(entry)) {
 				String alternativeId = scalar(alternative.get("id"), "<unnamed>");
+				if (blockedAlternativeKeys.contains(entry.actionId() + ":" + alternativeId)) {
+					trace.add(event(
+						"route_candidate_blocked",
+						entry.actionId(),
+						alternativeId,
+						"",
+						Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
+					));
+					continue;
+				}
 				trace.add(event(
 					"route_candidate_built",
 					entry.actionId(),

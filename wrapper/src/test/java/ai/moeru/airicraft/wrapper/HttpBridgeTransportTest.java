@@ -431,6 +431,43 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
+	void getAgentActionGraphExecutionUsesExecutionEndpoint(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/action-graph/execution", 0, 200, """
+				{"available":true,"state":"WAITING_PRIMITIVE","executionId":"action-graph-1"}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.getAgentActionGraphExecution();
+
+			assertEquals("WAITING_PRIMITIVE", payload.get("state"));
+			assertEquals(1, server.requestCount("/v1/agent/action-graph/execution"));
+			assertEquals("GET", server.lastMethod("/v1/agent/action-graph/execution"));
+			assertEquals("", server.lastRequestBody("/v1/agent/action-graph/execution"));
+		}
+	}
+
+	@Test
+	void cancelAgentActionGraphExecutionDeletesExecutionEndpoint(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/action-graph/execution", 0, 200, """
+				{"available":true,"state":"CANCELLED","executionId":"action-graph-1"}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.cancelAgentActionGraphExecution();
+
+			assertEquals("CANCELLED", payload.get("state"));
+			assertEquals(1, server.requestCount("/v1/agent/action-graph/execution"));
+			assertEquals("DELETE", server.lastMethod("/v1/agent/action-graph/execution"));
+		}
+	}
+
+	@Test
 	void submitAgentMissionPostsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
 			server.respondJson("/v1/agent/tasks", 0, 200, """

@@ -571,6 +571,65 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void agentActionsStatusRendersCurrentExecution() {
+		TestTransport transport = new TestTransport();
+		transport.agentActionStatusPayload = linkedMap(
+			"available", true,
+			"executionId", "action-graph-1",
+			"state", "WAITING_PRIMITIVE",
+			"accepted", true,
+			"cursor", 0,
+			"stepAttempt", 1,
+			"replanCount", 0,
+			"watchCount", 0,
+			"activeTaskId", "task-1",
+			"currentStep", linkedMap(
+				"kind", "PRIMITIVE",
+				"stepId", "craft_bread",
+				"targetId", "craft_item"
+			),
+			"route", linkedMap("cost", 10, "steps", List.of()),
+			"trace", List.of(linkedMap("eventType", "primitive_dispatched")),
+			"recoveryHistory", List.of()
+		);
+
+		CliResult result = execute(transport, "agent", "actions", "status", "--verbose");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(transport.actionStatusCalled);
+		assertTrue(result.output().contains("command: agent actions status\n"));
+		assertTrue(result.output().contains("executionId: action-graph-1\n"));
+		assertTrue(result.output().contains("state: WAITING_PRIMITIVE\n"));
+		assertTrue(result.output().contains("activeTaskId: task-1\n"));
+		assertTrue(result.output().contains("targetId: craft_item\n"));
+		assertTrue(result.output().contains("traceEventCount: 1\n"));
+	}
+
+	@Test
+	void agentActionsCancelCancelsCurrentExecution() {
+		TestTransport transport = new TestTransport();
+		transport.agentActionCancelPayload = linkedMap(
+			"available", true,
+			"executionId", "action-graph-1",
+			"state", "CANCELLED",
+			"accepted", false,
+			"cursor", 0,
+			"stepAttempt", 0,
+			"replanCount", 0,
+			"watchCount", 0,
+			"route", linkedMap("cost", 0, "steps", List.of()),
+			"trace", List.of()
+		);
+
+		CliResult result = execute(transport, "agent", "actions", "cancel");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(transport.actionCancelCalled);
+		assertTrue(result.output().contains("command: agent actions cancel\n"));
+		assertTrue(result.output().contains("state: CANCELLED\n"));
+	}
+
+	@Test
 	void agentMissionSubmitPassesNormalizedMissionPayload() {
 		TestTransport transport = new TestTransport();
 		transport.agentMissionSubmitPayload = linkedMap(
@@ -1025,6 +1084,8 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentActionResolvePayload = Map.of();
 		private Map<String, Object> agentActionInspectPayload = Map.of();
 		private Map<String, Object> agentActionExecutePayload = Map.of();
+		private Map<String, Object> agentActionStatusPayload = Map.of();
+		private Map<String, Object> agentActionCancelPayload = Map.of();
 		private Map<String, Object> agentTaskSubmitPayload = Map.of();
 		private Map<String, Object> agentMissionSubmitPayload = Map.of();
 		private Map<String, Object> agentEventsPayload = Map.of("events", List.of());
@@ -1081,6 +1142,8 @@ class AiricraftCliMainTest {
 		private int lastActionExecuteQuantity;
 		private Map<String, Integer> lastActionExecuteAssumedInventory = Map.of();
 		private boolean actionInspectCalled;
+		private boolean actionStatusCalled;
+		private boolean actionCancelCalled;
 		private boolean playerNearbyEntitiesCalled;
 
 		private RuntimeException worldsJoinFailure;
@@ -1300,6 +1363,18 @@ class AiricraftCliMainTest {
 			lastActionExecuteQuantity = quantity;
 			lastActionExecuteAssumedInventory = assumedInventory;
 			return agentActionExecutePayload;
+		}
+
+		@Override
+		public Map<String, Object> getAgentActionGraphExecution() {
+			actionStatusCalled = true;
+			return agentActionStatusPayload;
+		}
+
+		@Override
+		public Map<String, Object> cancelAgentActionGraphExecution() {
+			actionCancelCalled = true;
+			return agentActionCancelPayload;
 		}
 
 		@Override

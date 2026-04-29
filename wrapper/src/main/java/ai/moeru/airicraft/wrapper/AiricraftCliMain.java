@@ -69,6 +69,8 @@ public final class AiricraftCliMain {
 		agentActions.addSubcommand(new AgentActionsInspectCommand(context));
 		agentActions.addSubcommand(new AgentActionsExecuteCommand(context));
 		agentActions.addSubcommand(new AgentActionsResolveCommand(context));
+		agentActions.addSubcommand(new AgentActionsStatusCommand(context));
+		agentActions.addSubcommand(new AgentActionsCancelCommand(context));
 		agent.addSubcommand("mission", new UsageCommand(out, "airicraft agent mission", "Mission-level agent commands"));
 		CommandLine agentMission = agent.getSubcommands().get("mission");
 		agentMission.addSubcommand(new AgentMissionSubmitCommand(context));
@@ -413,6 +415,36 @@ public final class AiricraftCliMain {
 			}
 			return PayloadViews.agentActionExecute(
 				transport().executeAgentActionGraph(itemId, quantity, parseInventoryAssumptions(assumedInventory, commandPath())),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Inspect the current persistent action graph execution.")
+	private static final class AgentActionsStatusCommand extends BaseCommand {
+		private AgentActionsStatusCommand(CliContext context) {
+			super(context, "agent actions status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionExecution(
+				transport().getAgentActionGraphExecution(),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "cancel", mixinStandardHelpOptions = true, description = "Cancel the current persistent action graph execution.")
+	private static final class AgentActionsCancelCommand extends BaseCommand {
+		private AgentActionsCancelCommand(CliContext context) {
+			super(context, "agent actions cancel");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionExecution(
+				transport().cancelAgentActionGraphExecution(),
 				verbose()
 			);
 		}
@@ -1492,8 +1524,25 @@ public final class AiricraftCliMain {
 		}
 
 		private static Map<String, Object> agentActionExecute(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = agentActionExecution(payload, verbose);
+			copy(view, payload, "resolved", "alreadySatisfied");
+			if (payload.containsKey("selectedStep") && !view.containsKey("selectedStep")) {
+				view.put("selectedStep", payload.get("selectedStep"));
+			}
+			if (payload.containsKey("dispatch")) {
+				view.put("dispatch", payload.get("dispatch"));
+			}
+			if (verbose) {
+				copy(view, payload, "goal", "factSourceCounts", "missionExecution", "actionsetDiagnostics");
+			}
+			return view;
+		}
+
+		private static LinkedHashMap<String, Object> agentActionExecution(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "resolved", "accepted", "alreadySatisfied", "failureCode", "message");
+			copy(view, payload,
+				"available", "executionId", "state", "accepted", "failureCode", "message",
+				"cursor", "stepAttempt", "replanCount", "watchCount", "pendingWatch", "activeTaskId");
 			Map<String, Object> route = map(payload.get("route"));
 			List<Map<String, Object>> steps = maps(route.get("steps"));
 			List<Map<String, Object>> trace = maps(payload.get("trace"));
@@ -1501,16 +1550,16 @@ public final class AiricraftCliMain {
 				view.put("routeCost", route.get("cost"));
 			}
 			view.put("stepCount", steps.size());
-			view.put("traceEventCount", trace.size());
-			if (payload.containsKey("selectedStep")) {
-				view.put("selectedStep", payload.get("selectedStep"));
+			view.put("traceEventCount", payload.containsKey("traceEventCount") ? payload.get("traceEventCount") : trace.size());
+			if (payload.containsKey("currentStep")) {
+				view.put("currentStep", payload.get("currentStep"));
 			}
-			if (payload.containsKey("dispatch")) {
-				view.put("dispatch", payload.get("dispatch"));
+			else if (payload.containsKey("selectedStep")) {
+				view.put("selectedStep", payload.get("selectedStep"));
 			}
 			copy(view, payload, "task", "taskExecution");
 			if (verbose) {
-				copy(view, payload, "goal", "factSourceCounts", "missionExecution", "actionsetDiagnostics");
+				copy(view, payload, "goal", "factSourceCounts", "recoveryHistory");
 				view.put("trace", trace);
 			}
 			return view;
