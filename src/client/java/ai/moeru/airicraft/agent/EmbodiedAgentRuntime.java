@@ -703,12 +703,12 @@ public final class EmbodiedAgentRuntime {
 
 	public boolean verificationAvailable() {
 		MinecraftClient client = MinecraftClient.getInstance();
-		return sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL
-			&& sessionSnapshot.worldLoaded()
-			&& client != null
-			&& client.player != null
-			&& client.isIntegratedServerRunning()
-			&& client.getServer() != null;
+		return integratedServerVerificationAvailable(
+			sessionSnapshot,
+			client != null && client.player != null,
+			client != null && client.isIntegratedServerRunning(),
+			client != null && client.getServer() != null
+		);
 	}
 
 	public long latestEventSeqNo() {
@@ -1828,6 +1828,19 @@ public final class EmbodiedAgentRuntime {
 		return senderName.equals(localPlayerName);
 	}
 
+	static boolean integratedServerVerificationAvailable(
+		SessionSnapshot snapshot,
+		boolean hasClientPlayer,
+		boolean integratedServerRunning,
+		boolean serverPresent
+	) {
+		return snapshot != null
+			&& snapshot.worldLoaded()
+			&& hasClientPlayer
+			&& integratedServerRunning
+			&& serverPresent;
+	}
+
 	private boolean isDuplicateSystemChat(String plainTextMessage, long currentTick) {
 		if (plainTextMessage == null || plainTextMessage.isBlank()) {
 			return true;
@@ -2750,15 +2763,17 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private void ensureVerificationSessionAvailable() {
-		if (sessionSnapshot.mode() != SessionMode.SINGLEPLAYER_LOCAL) {
-			throw new BridgeUnavailableException("unsupported_session_state", "Verification actions require a singleplayer local world");
-		}
 		if (!sessionSnapshot.worldLoaded()) {
 			throw new BridgeUnavailableException("verification_unavailable", "No singleplayer local world is loaded for verification");
 		}
 		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null || !client.isIntegratedServerRunning() || client.getServer() == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Integrated singleplayer verification controls are unavailable");
+		if (!integratedServerVerificationAvailable(
+			sessionSnapshot,
+			client != null && client.player != null,
+			client != null && client.isIntegratedServerRunning(),
+			client != null && client.getServer() != null
+		)) {
+			throw new BridgeUnavailableException("verification_unavailable", "Integrated server verification controls are unavailable");
 		}
 	}
 

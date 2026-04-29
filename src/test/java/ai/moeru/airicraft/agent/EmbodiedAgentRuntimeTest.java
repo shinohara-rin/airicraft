@@ -113,6 +113,26 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void verificationControlsAllowLanHostedIntegratedServer() {
+		assertTrue(EmbodiedAgentRuntime.integratedServerVerificationAvailable(
+			new SessionSnapshot(SessionMode.SINGLEPLAYER_LAN_HOST, true, true, "minecraft:overworld", true, 25565, 10L),
+			true,
+			true,
+			true
+		));
+	}
+
+	@Test
+	void verificationControlsStillRequireIntegratedServer() {
+		assertFalse(EmbodiedAgentRuntime.integratedServerVerificationAvailable(
+			new SessionSnapshot(SessionMode.REMOTE_MULTIPLAYER, true, true, "minecraft:overworld", false, 0, 10L),
+			true,
+			false,
+			false
+		));
+	}
+
+	@Test
 	void taskExecutorPausesWhenSessionDoesNotAllowActuation() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
