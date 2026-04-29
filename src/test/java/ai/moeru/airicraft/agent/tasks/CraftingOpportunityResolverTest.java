@@ -81,6 +81,27 @@ class CraftingOpportunityResolverTest {
 	}
 
 	@Test
+	void craftableClosureUsesInventoryAssumptionsAsInitialItems() {
+		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
+			List.of(
+				new CraftingOpportunity("oak_planks_to_oak_button", "minecraft:oak_button", 1, List.of("minecraft:oak_planks")),
+				new CraftingOpportunity("oak_planks_x4_to_crafting_table", "minecraft:crafting_table", 1, List.of(
+					"minecraft:oak_planks",
+					"minecraft:oak_planks",
+					"minecraft:oak_planks",
+					"minecraft:oak_planks"
+				))
+			),
+			Map.of(),
+			Map.of("minecraft:oak_planks", 4)
+		).stream()
+			.map(CraftingOpportunity::recipeId)
+			.toList();
+
+		assertEquals(List.of("oak_planks_to_oak_button", "oak_planks_x4_to_crafting_table"), recipeIds);
+	}
+
+	@Test
 	void craftableClosureDoesNotInventMissingRecipes() {
 		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
 			List.of(new CraftingOpportunity("birch_log_to_birch_planks", "minecraft:birch_planks", 4, List.of("minecraft:birch_log"))),

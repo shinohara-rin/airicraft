@@ -46,13 +46,17 @@ public final class CraftingOpportunityResolver {
 	}
 
 	public static List<CraftingOpportunity> craftableClosure(ClientPlayerEntity player) {
+		return craftableClosure(player, Map.of());
+	}
+
+	public static List<CraftingOpportunity> craftableClosure(ClientPlayerEntity player, Map<String, Integer> assumedInventory) {
 		if (player == null) {
 			return List.of();
 		}
 		Map<Item, Integer> inventory = inventoryCounts(player);
 		List<CraftingOpportunity> recipeKnowledge = new ArrayList<>(knownRecipeBookOpportunities(player.getRecipeBook().getOrderedResults()));
 		recipeKnowledge.addAll(ReiRecipeSearchBridge.backend().craftingOpportunities());
-		return craftableClosureFromKnownRecipes(recipeKnowledge, itemIdCounts(inventory));
+		return craftableClosureFromKnownRecipes(recipeKnowledge, itemIdCounts(inventory), assumedInventory);
 	}
 
 	static List<CraftingOpportunity> availableCrafts(List<RecipeResultCollection> collections, RecipeFinder finder) {
@@ -81,10 +85,18 @@ public final class CraftingOpportunityResolver {
 		List<CraftingOpportunity> recipeKnowledge,
 		Map<String, Integer> initialItems
 	) {
+		return craftableClosureFromKnownRecipes(recipeKnowledge, initialItems, Map.of());
+	}
+
+	static List<CraftingOpportunity> craftableClosureFromKnownRecipes(
+		List<CraftingOpportunity> recipeKnowledge,
+		Map<String, Integer> initialItems,
+		Map<String, Integer> assumedItems
+	) {
 		if (recipeKnowledge == null || recipeKnowledge.isEmpty()) {
 			return List.of();
 		}
-		Map<String, Integer> virtualItems = positiveStringCounts(initialItems);
+		Map<String, Integer> virtualItems = mergedInitialItems(initialItems, assumedItems);
 		if (virtualItems.isEmpty()) {
 			return List.of();
 		}
@@ -287,6 +299,12 @@ public final class CraftingOpportunityResolver {
 			}
 		}
 		return counts;
+	}
+
+	private static Map<String, Integer> mergedInitialItems(Map<String, Integer> observedItems, Map<String, Integer> assumedItems) {
+		Map<String, Integer> merged = positiveStringCounts(observedItems);
+		merged.putAll(positiveStringCounts(assumedItems));
+		return merged;
 	}
 
 	private static Map<String, Integer> itemIdCounts(Map<Item, Integer> items) {

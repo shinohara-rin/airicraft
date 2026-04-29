@@ -752,13 +752,14 @@ public final class ModBridgeServer {
 				Map<String, Integer> observedInventory = worldLoaded
 					? inventoryItemCounter.count(client.player.getInventory())
 					: Map.of();
+				Map<String, Integer> assumed = assumedInventory(request.assumedInventory());
 				ActionGraphDebugService debugService = new ActionGraphDebugService(agentRuntime().actionsetAuthoringService().root());
 				Map<String, Object> payload = new LinkedHashMap<>(debugService.resolveInventoryItem(new ActionGraphResolveRequest(
 					itemId,
 					quantity,
-					assumedInventory(request.assumedInventory()),
+					assumed,
 					observedInventory,
-					worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player) : List.of(),
+					worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player, assumed) : List.of(),
 					new ActionResolverContext("bridge-debug", "bot", dimension, tick)
 				)));
 				payload.put("sessionState", sessionState(client));
