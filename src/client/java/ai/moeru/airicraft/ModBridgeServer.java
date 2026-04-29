@@ -1678,15 +1678,21 @@ public final class ModBridgeServer {
 			return future.get(5, TimeUnit.SECONDS);
 		}
 		catch (ExecutionException exception) {
-			if (exception.getCause() instanceof BridgeUnavailableException bridgeUnavailableException) {
-				throw bridgeUnavailableException;
-			}
-
-			throw new IllegalStateException("Bridge request failed on Minecraft client thread", exception.getCause());
+			throw clientThreadFailure(exception.getCause());
 		}
 		catch (Exception exception) {
 			throw new IllegalStateException("Timed out waiting for Minecraft client thread", exception);
 		}
+	}
+
+	static RuntimeException clientThreadFailure(Throwable cause) {
+		if (cause instanceof BridgeUnavailableException bridgeUnavailableException) {
+			return bridgeUnavailableException;
+		}
+		if (cause instanceof ActionsetPromotionException actionsetPromotionException) {
+			return actionsetPromotionException;
+		}
+		return new IllegalStateException("Bridge request failed on Minecraft client thread", cause);
 	}
 
 	private MinecraftClient getClient() {
