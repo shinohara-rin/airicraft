@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import ai.moeru.airicraft.agent.integration.rei.ReiRecipeSearchBridge;
 import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
@@ -30,6 +31,7 @@ import java.util.TreeMap;
 public final class CraftingOpportunityResolver {
 	private static final int PLAYER_GRID_INPUT_COUNT = PlayerScreenHandler.CRAFTING_INPUT_COUNT;
 	private static final int WORKBENCH_GRID_INPUT_COUNT = 9;
+	private static final int MAX_CRAFTABLE_CLOSURE_PASSES = 8;
 	static final int MAX_PLACEMENT_VARIANTS_PER_RECIPE = 24;
 
 	private CraftingOpportunityResolver() {
@@ -43,6 +45,16 @@ public final class CraftingOpportunityResolver {
 		return availableCrafts(player.getRecipeBook().getOrderedResults(), finder, inventoryCounts(player));
 	}
 
+	public static List<CraftingOpportunity> craftableClosure(ClientPlayerEntity player) {
+		if (player == null) {
+			return List.of();
+		}
+		Map<Item, Integer> inventory = inventoryCounts(player);
+		List<CraftingOpportunity> recipeKnowledge = new ArrayList<>(knownRecipeBookOpportunities(player.getRecipeBook().getOrderedResults()));
+		recipeKnowledge.addAll(ReiRecipeSearchBridge.backend().craftingOpportunities());
+		return craftableClosureFromKnownRecipes(recipeKnowledge, itemIdCounts(inventory));
+	}
+
 	static List<CraftingOpportunity> availableCrafts(List<RecipeResultCollection> collections, RecipeFinder finder) {
 		return availableCrafts(collections, finder, Map.of());
 	}
@@ -54,6 +66,56 @@ public final class CraftingOpportunityResolver {
 		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
 		for (ResolvedCraftingOption option : resolvedOptions(collections, finder, availableItems)) {
 			opportunities.putIfAbsent(option.opportunity().recipeId(), option.opportunity());
+		}
+		return List.copyOf(opportunities.values());
+	}
+
+	static List<CraftingOpportunity> craftableClosure(List<RecipeResultCollection> collections, Map<Item, Integer> initialItems) {
+		if (collections == null || collections.isEmpty()) {
+			return List.of();
+		}
+		return craftableClosureFromKnownRecipes(knownRecipeBookOpportunities(collections), itemIdCounts(initialItems));
+	}
+
+	static List<CraftingOpportunity> craftableClosureFromKnownRecipes(
+		List<CraftingOpportunity> recipeKnowledge,
+		Map<String, Integer> initialItems
+	) {
+		if (recipeKnowledge == null || recipeKnowledge.isEmpty()) {
+			return List.of();
+		}
+		Map<String, Integer> virtualItems = positiveStringCounts(initialItems);
+		if (virtualItems.isEmpty()) {
+			return List.of();
+		}
+		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
+		for (int pass = 0; pass < MAX_CRAFTABLE_CLOSURE_PASSES; pass++) {
+			boolean changed = false;
+			Map<String, Integer> nextItems = new HashMap<>(virtualItems);
+			List<CraftingOpportunity> newlyReachable = new ArrayList<>();
+			for (CraftingOpportunity opportunity : recipeKnowledge) {
+				int craftRuns = craftableRunsForItemIds(opportunity, virtualItems);
+				if (craftRuns <= 0) {
+					continue;
+				}
+				if (!opportunities.containsKey(opportunity.recipeId())) {
+					newlyReachable.add(opportunity);
+					changed = true;
+				}
+				int reachableOutputCount = opportunity.outputCount() * craftRuns;
+				int previousOutputCount = nextItems.getOrDefault(opportunity.outputItemId(), 0);
+				if (reachableOutputCount > previousOutputCount) {
+					nextItems.put(opportunity.outputItemId(), reachableOutputCount);
+					changed = true;
+				}
+			}
+			if (!changed) {
+				break;
+			}
+			for (CraftingOpportunity opportunity : newlyReachable) {
+				opportunities.putIfAbsent(opportunity.recipeId(), opportunity);
+			}
+			virtualItems = nextItems;
 		}
 		return List.copyOf(opportunities.values());
 	}
@@ -127,7 +189,7 @@ public final class CraftingOpportunityResolver {
 		return null;
 	}
 
-	static CraftingGridKind gridKindForShapedRecipe(int width, int height) {
+	public static CraftingGridKind gridKindForShapedRecipe(int width, int height) {
 		if (width <= 2 && height <= 2) {
 			return CraftingGridKind.PLAYER_2X2;
 		}
@@ -137,7 +199,7 @@ public final class CraftingOpportunityResolver {
 		return null;
 	}
 
-	static CraftingGridKind gridKindForIngredientCount(int size) {
+	public static CraftingGridKind gridKindForIngredientCount(int size) {
 		if (size <= PLAYER_GRID_INPUT_COUNT) {
 			return CraftingGridKind.PLAYER_2X2;
 		}
@@ -180,6 +242,129 @@ public final class CraftingOpportunityResolver {
 			}
 		}
 		return counts;
+	}
+
+	private static Map<Item, Integer> positiveItemCounts(Map<Item, Integer> items) {
+		if (items == null || items.isEmpty()) {
+			return new HashMap<>();
+		}
+		Map<Item, Integer> counts = new HashMap<>();
+		for (Map.Entry<Item, Integer> entry : items.entrySet()) {
+			if (entry.getKey() != null && entry.getValue() != null && entry.getValue() > 0) {
+				counts.put(entry.getKey(), entry.getValue());
+			}
+		}
+		return counts;
+	}
+
+	private static int craftableRunsForItemIds(CraftingOpportunity opportunity, Map<String, Integer> availableItems) {
+		Map<String, Integer> required = new HashMap<>();
+		for (String inputItemId : opportunity.inputItemIds()) {
+			required.merge(inputItemId, 1, Integer::sum);
+		}
+		return craftableRuns(required, availableItems);
+	}
+
+	private static int craftableRuns(Map<String, Integer> required, Map<String, Integer> available) {
+		int runs = Integer.MAX_VALUE;
+		for (Map.Entry<String, Integer> entry : required.entrySet()) {
+			runs = Math.min(runs, available.getOrDefault(entry.getKey(), 0) / entry.getValue());
+		}
+		return runs == Integer.MAX_VALUE ? 0 : runs;
+	}
+
+	private static Map<String, Integer> positiveStringCounts(Map<String, Integer> items) {
+		if (items == null || items.isEmpty()) {
+			return new HashMap<>();
+		}
+		Map<String, Integer> counts = new HashMap<>();
+		for (Map.Entry<String, Integer> entry : items.entrySet()) {
+			if (entry.getKey() != null && !entry.getKey().isBlank() && entry.getValue() != null && entry.getValue() > 0) {
+				counts.put(entry.getKey(), entry.getValue());
+			}
+		}
+		return counts;
+	}
+
+	private static Map<String, Integer> itemIdCounts(Map<Item, Integer> items) {
+		Map<String, Integer> counts = new HashMap<>();
+		for (Map.Entry<Item, Integer> entry : positiveItemCounts(items).entrySet()) {
+			String itemId = itemId(entry.getKey());
+			if (!itemId.isBlank()) {
+				counts.merge(itemId, entry.getValue(), Integer::sum);
+			}
+		}
+		return counts;
+	}
+
+	private static List<CraftingOpportunity> knownRecipeBookOpportunities(List<RecipeResultCollection> collections) {
+		if (collections == null || collections.isEmpty()) {
+			return List.of();
+		}
+		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
+		for (RecipeResultCollection collection : collections) {
+			for (RecipeDisplayEntry entry : collection.getAllRecipes()) {
+				for (CraftingOpportunity opportunity : opportunitiesForRecipeDisplay(entry)) {
+					opportunities.putIfAbsent(opportunity.recipeId(), opportunity);
+				}
+			}
+		}
+		return List.copyOf(opportunities.values());
+	}
+
+	private static List<CraftingOpportunity> opportunitiesForRecipeDisplay(RecipeDisplayEntry entry) {
+		if (entry == null) {
+			return List.of();
+		}
+		ItemStack result = resultStack(entry.display());
+		CraftingGridKind gridKind = gridKind(entry.display());
+		if (result.isEmpty() || gridKind == null) {
+			return List.of();
+		}
+		List<IngredientPlacement> placements = ingredientPlacements(entry, gridKind);
+		if (placements.isEmpty()) {
+			return List.of();
+		}
+		List<List<String>> inputChoices = new ArrayList<>();
+		for (IngredientPlacement placement : placements) {
+			List<String> matchingItemIds = placement.ingredient().getMatchingItems()
+				.map(entryRef -> itemId(entryRef.value()))
+				.distinct()
+				.filter(itemId -> !itemId.isBlank())
+				.sorted()
+				.toList();
+			if (matchingItemIds.isEmpty()) {
+				return List.of();
+			}
+			inputChoices.add(matchingItemIds);
+		}
+
+		String outputItemId = itemId(result.getItem());
+		if (outputItemId.isBlank()) {
+			return List.of();
+		}
+		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
+		for (List<String> inputItemIds : boundedRecipeKnowledgeVariants(inputChoices)) {
+			CraftingOpportunity opportunity = new CraftingOpportunity(
+				recipeId(inputItemIds, outputItemId),
+				outputItemId,
+				result.getCount(),
+				inputItemIds,
+				gridKind
+			);
+			opportunities.putIfAbsent(opportunity.recipeId(), opportunity);
+		}
+		return List.copyOf(opportunities.values());
+	}
+
+	private static List<List<String>> boundedRecipeKnowledgeVariants(List<List<String>> choices) {
+		Map<String, Integer> availableForVariantExpansion = new HashMap<>();
+		for (List<String> choiceSet : choices) {
+			for (String choice : choiceSet) {
+				availableForVariantExpansion.put(choice, choices.size());
+			}
+		}
+		return boundedCombinations(choices, availableForVariantExpansion, MAX_PLACEMENT_VARIANTS_PER_RECIPE);
 	}
 
 	private static List<ResolvedCraftingOption> resolvedOptions(List<RecipeResultCollection> collections, RecipeFinder finder, Map<Item, Integer> availableItems) {
@@ -300,13 +485,41 @@ public final class CraftingOpportunityResolver {
 		return List.copyOf(variants);
 	}
 
-	static <T> List<List<T>> boundedCombinations(List<List<T>> choices, Map<T, Integer> availableItems, int maxVariants) {
+	public static <T> List<List<T>> boundedCombinations(List<List<T>> choices, Map<T, Integer> availableItems, int maxVariants) {
 		if (choices == null || choices.isEmpty() || maxVariants <= 0) {
 			return List.of();
 		}
 		List<List<T>> variants = new ArrayList<>();
-		backtrackBoundedCombinations(choices, availableItems == null ? Map.of() : availableItems, maxVariants, 0, new HashMap<>(), new ArrayList<>(), variants);
+		Map<T, Integer> safeAvailableItems = availableItems == null ? Map.of() : availableItems;
+		addHomogeneousCombinations(choices, safeAvailableItems, maxVariants, variants);
+		backtrackBoundedCombinations(choices, safeAvailableItems, maxVariants, 0, new HashMap<>(), new ArrayList<>(), variants);
 		return List.copyOf(variants);
+	}
+
+	private static <T> void addHomogeneousCombinations(
+		List<List<T>> choices,
+		Map<T, Integer> availableItems,
+		int maxVariants,
+		List<List<T>> variants
+	) {
+		for (T choice : choices.getFirst()) {
+			if (variants.size() >= maxVariants) {
+				return;
+			}
+			List<T> variant = new ArrayList<>();
+			boolean presentInEverySlot = true;
+			for (List<T> slotChoices : choices) {
+				if (!slotChoices.contains(choice)) {
+					presentInEverySlot = false;
+					break;
+				}
+				variant.add(choice);
+			}
+			if (!presentInEverySlot || availableItems.getOrDefault(choice, 0) < variant.size()) {
+				continue;
+			}
+			addVariantIfAbsent(variant, maxVariants, variants);
+		}
 	}
 
 	private static <T> void backtrackBoundedCombinations(
@@ -322,7 +535,7 @@ public final class CraftingOpportunityResolver {
 			return;
 		}
 		if (index >= choices.size()) {
-			variants.add(List.copyOf(current));
+			addVariantIfAbsent(current, maxVariants, variants);
 			return;
 		}
 		for (T choice : choices.get(index)) {
@@ -346,7 +559,17 @@ public final class CraftingOpportunityResolver {
 		}
 	}
 
-	static String recipeId(List<String> inputItemIds, String outputItemId) {
+	private static <T> void addVariantIfAbsent(List<T> variant, int maxVariants, List<List<T>> variants) {
+		if (variants.size() >= maxVariants) {
+			return;
+		}
+		List<T> copy = List.copyOf(variant);
+		if (!variants.contains(copy)) {
+			variants.add(copy);
+		}
+	}
+
+	public static String recipeId(List<String> inputItemIds, String outputItemId) {
 		Map<String, Integer> counts = new TreeMap<>();
 		for (String inputItemId : inputItemIds) {
 			counts.merge(inputItemId, 1, Integer::sum);

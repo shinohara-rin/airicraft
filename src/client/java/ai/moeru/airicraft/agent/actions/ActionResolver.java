@@ -73,6 +73,17 @@ public final class ActionResolver {
 			return Optional.empty();
 		}
 
+		if (goalSatisfied(goal, trace)) {
+			resolving.remove(goal.normalizedKey());
+			return Optional.of(ActionRoute.empty());
+		}
+
+		Optional<ActionRoute> providerRoute = resolveRecipeProviderGoal(goal, depth, resolving, trace);
+		if (providerRoute.isPresent()) {
+			resolving.remove(goal.normalizedKey());
+			return providerRoute;
+		}
+
 		for (ActionsetEntry entry : matchingActionsets(goal)) {
 			Map<String, Integer> params = bindParams(entry.definition(), goal);
 			for (Map<String, Object> alternative : alternatives(entry)) {
@@ -108,12 +119,98 @@ public final class ActionResolver {
 			}
 		}
 
-		if (goalSatisfied(goal, trace)) {
-			resolving.remove(goal.normalizedKey());
+		resolving.remove(goal.normalizedKey());
+		return Optional.empty();
+	}
+
+	private Optional<ActionRoute> resolveRecipeProviderGoal(
+		ActionGoal goal,
+		int depth,
+		LinkedHashSet<String> resolving,
+		List<ActionTraceEvent> trace
+	) {
+		if (goal.factType() != ActionFactType.INVENTORY_ITEM) {
+			return Optional.empty();
+		}
+		String outputItemId = goal.keys().getOrDefault("itemId", "");
+		if (outputItemId.isBlank()) {
+			return Optional.empty();
+		}
+		int targetCount = goal.minimum("countAtLeast", 1);
+		int deficitCount = Math.max(0, targetCount - existingGoalCount(goal));
+		if (deficitCount <= 0) {
 			return Optional.of(ActionRoute.empty());
 		}
 
-		resolving.remove(goal.normalizedKey());
+		Map<String, String> recipeQuery = new LinkedHashMap<>();
+		recipeQuery.put("worldId", context.worldId());
+		recipeQuery.put("actorId", context.actorId());
+		for (ActionFact recipe : facts.query(ActionFactType.CRAFT_RECIPE, recipeQuery).stream()
+			.filter(this::usableFact)
+			.filter(fact -> outputItemId.equals(scalar(fact.payload().get("outputItemId"), "")))
+			.sorted(Comparator.comparing(fact -> fact.identity().keys().getOrDefault("recipeId", "")))
+			.toList()) {
+			String recipeId = recipe.identity().keys().getOrDefault("recipeId", "");
+			String alternativeKey = "recipe_provider:" + recipeId;
+			if (blockedAlternativeKeys.contains(alternativeKey)) {
+				trace.add(event(
+					"route_candidate_blocked",
+					"recipe_provider",
+					recipeId,
+					"",
+					Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
+				));
+				continue;
+			}
+			Map<String, Integer> inputCounts = recipeInputCounts(recipe);
+			if (inputCounts.isEmpty()) {
+				continue;
+			}
+			int outputCount = Math.max(1, intPayload(recipe, "outputCount", 1));
+			int craftTimes = Math.max(1, (int) Math.ceil(deficitCount / (double) outputCount));
+			trace.add(event(
+				"route_candidate_built",
+				"recipe_provider",
+				recipeId,
+				"",
+				Map.of("goal", goal.normalizedKey(), "cost", 15, "outputItemId", outputItemId)
+			));
+
+			ArrayList<ActionPlanStep> steps = new ArrayList<>();
+			int routeCost = 15;
+			boolean inputsResolved = true;
+			for (Map.Entry<String, Integer> input : inputCounts.entrySet()) {
+				int requiredCount = input.getValue() * craftTimes;
+				if (requiredCount <= 0) {
+					continue;
+				}
+				Optional<ActionRoute> subRoute = resolveGoal(
+					ActionGoal.inventoryItem(input.getKey(), requiredCount),
+					depth + 1,
+					resolving,
+					trace
+				);
+				if (subRoute.isEmpty()) {
+					inputsResolved = false;
+					break;
+				}
+				steps.addAll(subRoute.get().steps());
+				routeCost += subRoute.get().cost();
+			}
+			if (!inputsResolved) {
+				continue;
+			}
+
+			LinkedHashMap<String, Object> args = new LinkedHashMap<>();
+			args.put("itemId", outputItemId);
+			args.put("recipeId", recipeId);
+			args.put("quantity", deficitCount);
+			steps.add(new ActionPlanStep(ActionStepKind.PRIMITIVE, "recipe_provider", recipeId, "craft_item", "craft_item", args));
+			trace.add(event("primitive_planned", "recipe_provider", recipeId, "craft_item", Map.of("primitive", "craft_item", "itemId", outputItemId)));
+			trace.add(event("route_selected", "recipe_provider", recipeId, "", Map.of("goal", goal.normalizedKey())));
+			return Optional.of(new ActionRoute(steps, routeCost));
+		}
+
 		return Optional.empty();
 	}
 
@@ -256,7 +353,7 @@ public final class ActionResolver {
 		return false;
 	}
 
-	private static Map<String, Integer> bindParams(Map<String, Object> action, ActionGoal goal) {
+	private Map<String, Integer> bindParams(Map<String, Object> action, ActionGoal goal) {
 		LinkedHashMap<String, Integer> params = new LinkedHashMap<>();
 		for (Map.Entry<String, Object> entry : objectMap(action.get("params")).entrySet()) {
 			Map<String, Object> definition = objectMap(entry.getValue());
@@ -268,7 +365,31 @@ public final class ActionResolver {
 		if (params.containsKey("quantity")) {
 			params.put("quantity", goal.minimum("countAtLeast", goal.minimum("matureCountAtLeast", params.get("quantity"))));
 		}
+		int targetCount = goal.minimum("countAtLeast", goal.minimum("matureCountAtLeast", params.getOrDefault("quantity", 1)));
+		int existingCount = existingGoalCount(goal);
+		params.put("goal.targetCount", targetCount);
+		params.put("goal.existingCount", existingCount);
+		params.put("goal.deficitCount", Math.max(0, targetCount - existingCount));
 		return Map.copyOf(params);
+	}
+
+	private int existingGoalCount(ActionGoal goal) {
+		if (goal.factType() != ActionFactType.INVENTORY_ITEM) {
+			return 0;
+		}
+		LinkedHashMap<String, String> queryKeys = new LinkedHashMap<>();
+		queryKeys.put("worldId", context.worldId());
+		queryKeys.put("actorId", context.actorId());
+		queryKeys.putAll(goal.keys());
+		return facts.query(goal.factType(), queryKeys).stream()
+			.filter(this::usableFact)
+			.map(ActionFact::payload)
+			.map(payload -> payload.get("count"))
+			.filter(Number.class::isInstance)
+			.map(Number.class::cast)
+			.mapToInt(Number::intValue)
+			.max()
+			.orElse(0);
 	}
 
 	private ActionGoal goalFromFactSpec(Map<String, Object> factSpec, Map<String, Integer> params) {
@@ -316,6 +437,41 @@ public final class ActionResolver {
 			minimums.put("matureCount", evaluateInt(factSpec.get("matureCountAtLeast"), params));
 		}
 		return new FactRequirement(factType, queryKeys, minimums);
+	}
+
+	private static Map<String, Integer> recipeInputCounts(ActionFact recipe) {
+		LinkedHashMap<String, Integer> counts = new LinkedHashMap<>();
+		Object inputCounts = recipe.payload().get("inputCounts");
+		if (inputCounts instanceof Map<?, ?> map) {
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				String itemId = String.valueOf(entry.getKey());
+				if (itemId.isBlank()) {
+					continue;
+				}
+				int count = entry.getValue() instanceof Number number ? number.intValue() : 0;
+				if (count > 0) {
+					counts.merge(itemId, count, Integer::sum);
+				}
+			}
+		}
+		if (!counts.isEmpty()) {
+			return Map.copyOf(counts);
+		}
+		Object inputItemIds = recipe.payload().get("inputItemIds");
+		if (inputItemIds instanceof List<?> list) {
+			for (Object item : list) {
+				String itemId = String.valueOf(item);
+				if (!itemId.isBlank()) {
+					counts.merge(itemId, 1, Integer::sum);
+				}
+			}
+		}
+		return Map.copyOf(counts);
+	}
+
+	private static int intPayload(ActionFact fact, String key, int fallback) {
+		Object value = fact.payload().get(key);
+		return value instanceof Number number ? number.intValue() : fallback;
 	}
 
 	private static List<Map<String, Object>> alternatives(ActionsetEntry entry) {
@@ -502,6 +658,10 @@ public final class ActionResolver {
 				index++;
 			}
 			String identifier = expression.substring(start, index);
+			Integer exact = params.get(identifier);
+			if (exact != null) {
+				return exact;
+			}
 			if (identifier.startsWith("params.")) {
 				String param = identifier.substring("params.".length());
 				Integer value = params.get(param);

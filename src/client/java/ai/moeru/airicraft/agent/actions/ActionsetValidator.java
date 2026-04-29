@@ -14,8 +14,10 @@ import java.util.regex.Pattern;
 
 public final class ActionsetValidator {
 	private static final Pattern PARAM_REF = Pattern.compile("\\bparams\\.([A-Za-z_][A-Za-z0-9_]*)\\b");
+	private static final Pattern GOAL_REF = Pattern.compile("\\bgoal\\.([A-Za-z_][A-Za-z0-9_]*)\\b");
 	private static final Pattern ALLOWED_EXPR = Pattern.compile("[A-Za-z0-9_\\.\\s+\\-*/()]+");
 	private static final Set<String> FACT_TYPES = ActionFactType.knownIds();
+	private static final Set<String> GOAL_BINDINGS = Set.of("targetCount", "existingCount", "deficitCount");
 
 	private final PrimitiveActionRegistry primitiveRegistry;
 
@@ -253,6 +255,12 @@ public final class ActionsetValidator {
 		while (matcher.find()) {
 			if (!params.contains(matcher.group(1))) {
 				errors.add(new ActionsetValidationError("unknown_param", path, "unknown parameter " + matcher.group(1)));
+			}
+		}
+		Matcher goalMatcher = GOAL_REF.matcher(expression);
+		while (goalMatcher.find()) {
+			if (!GOAL_BINDINGS.contains(goalMatcher.group(1))) {
+				errors.add(new ActionsetValidationError("unknown_goal_binding", path, "unknown goal binding " + goalMatcher.group(1)));
 			}
 		}
 	}

@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,67 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	void availableCraftFactsEnableGenericRecipeRoute() {
+		RecordingDispatcher dispatcher = new RecordingDispatcher();
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
+
+		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(
+			Map.of("minecraft:wheat", 3),
+			null,
+			101,
+			List.of(new CraftingOpportunity(
+				"wheat_wheat_wheat_to_bread",
+				"minecraft:bread",
+				1,
+				List.of("minecraft:wheat", "minecraft:wheat", "minecraft:wheat")
+			))
+		));
+
+		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, dispatched.state());
+		assertEquals(1, dispatcher.dispatchedSteps.size());
+		ActionPlanStep craft = dispatcher.dispatchedSteps.getFirst();
+		assertEquals("recipe_provider", craft.actionId());
+		assertEquals("craft_item", craft.targetId());
+		assertEquals("wheat_wheat_wheat_to_bread", craft.args().get("recipeId"));
+		assertEquals(1, craft.args().get("quantity"));
+	}
+
+	@Test
+	void nestedCraftingRouteDispatchesIngredientCraftFirst() {
+		RecordingDispatcher dispatcher = new RecordingDispatcher();
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		runtime.submit(ActionGoal.inventoryItem("minecraft:stick", 4), Map.of("minecraft:oak_log", 1), CONTEXT, 100);
+
+		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(
+			Map.of("minecraft:oak_log", 1),
+			null,
+			101,
+			List.of(
+				new CraftingOpportunity(
+					"oak_log_to_oak_planks",
+					"minecraft:oak_planks",
+					4,
+					List.of("minecraft:oak_log")
+				),
+				new CraftingOpportunity(
+					"oak_planks_x2_to_stick",
+					"minecraft:stick",
+					4,
+					List.of("minecraft:oak_planks", "minecraft:oak_planks")
+				)
+			)
+		));
+
+		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, dispatched.state());
+		assertEquals(1, dispatcher.dispatchedSteps.size());
+		ActionPlanStep firstCraft = dispatcher.dispatchedSteps.getFirst();
+		assertEquals("craft_item", firstCraft.targetId());
+		assertEquals("minecraft:oak_planks", firstCraft.args().get("itemId"));
+		assertEquals("oak_log_to_oak_planks", firstCraft.args().get("recipeId"));
+	}
+
+	@Test
 	void transientPrimitiveFailureRetriesThenFailsWithoutDispatchChurn() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
@@ -112,12 +174,22 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	private static ActionGraphExecutionInput input(Map<String, Integer> observedInventory, TaskTerminalEvent terminalEvent, long tick) {
+		return input(observedInventory, terminalEvent, tick, List.of());
+	}
+
+	private static ActionGraphExecutionInput input(
+		Map<String, Integer> observedInventory,
+		TaskTerminalEvent terminalEvent,
+		long tick,
+		List<CraftingOpportunity> availableCrafts
+	) {
 		return new ActionGraphExecutionInput(
 			new ActionResolverContext(CONTEXT.worldId(), CONTEXT.actorId(), CONTEXT.dimension(), tick),
 			observedInventory,
 			true,
 			true,
-			terminalEvent
+			terminalEvent,
+			availableCrafts
 		);
 	}
 

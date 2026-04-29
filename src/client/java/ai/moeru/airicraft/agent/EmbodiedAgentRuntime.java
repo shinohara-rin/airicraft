@@ -14,7 +14,12 @@ import ai.moeru.airicraft.agent.actions.ActionGraphPrimitiveMapper;
 import ai.moeru.airicraft.agent.actions.ActionGoal;
 import ai.moeru.airicraft.agent.actions.ActionPlanStep;
 import ai.moeru.airicraft.agent.actions.ActionResolverContext;
+import ai.moeru.airicraft.agent.actions.ActionsetAuthoringService;
+import ai.moeru.airicraft.agent.actions.ActionsetDraftTrialRuntime;
 import ai.moeru.airicraft.agent.actions.ActionsetLibraryPaths;
+import ai.moeru.airicraft.agent.actions.ActionsetNamespace;
+import ai.moeru.airicraft.agent.actions.ActionsetTrialSnapshot;
+import ai.moeru.airicraft.agent.actions.ActionsetTrialSpec;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeRuntime;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeSnapshot;
 import ai.moeru.airicraft.agent.chat.ChatService;
@@ -184,8 +189,12 @@ public final class EmbodiedAgentRuntime {
 	private final NearbyPlayerTracker nearbyPlayerTracker;
 	private final PrimaryInteractionResolver primaryInteractionResolver = new PrimaryInteractionResolver(200L);
 	private final ActiveJobRuntime activeJobRuntime = new ActiveJobRuntime();
+	private final ActionsetAuthoringService actionsetAuthoringService =
+		new ActionsetAuthoringService(ActionsetLibraryPaths.runtimeRoot());
 	private final ActionGraphExecutionRuntime actionGraphExecutionRuntime =
-		new ActionGraphExecutionRuntime(ActionsetLibraryPaths.defaultRoot(), this::dispatchActionGraphPrimitive);
+		new ActionGraphExecutionRuntime(actionsetAuthoringService.root(), this::dispatchActionGraphPrimitive);
+	private final ActionsetDraftTrialRuntime actionsetDraftTrialRuntime =
+		new ActionsetDraftTrialRuntime(actionsetAuthoringService, this::dispatchActionGraphPrimitive);
 	private final FollowCapability followCapability = new FollowCapability();
 	private final BehaviorTreeRuntime behaviorTreeRuntime = new BehaviorTreeRuntime();
 	private final ChatService chatService = new ChatService();
@@ -417,6 +426,10 @@ public final class EmbodiedAgentRuntime {
 			tickActionGraphExecution(client, terminalTaskEvent.orElse(null));
 			activeGoal = activeGoal();
 		}
+		if (actionsetDraftTrialRuntime.active()) {
+			tickActionsetDraftTrial(client, terminalTaskEvent.orElse(null));
+			activeGoal = activeGoal();
+		}
 		behaviorTreeRuntime.tick(
 			client,
 			sessionSnapshot,
@@ -552,11 +565,34 @@ public final class EmbodiedAgentRuntime {
 		return actionGraphExecutionRuntime.snapshot();
 	}
 
+	public ActionsetAuthoringService actionsetAuthoringService() {
+		return actionsetAuthoringService;
+	}
+
+	public ActionsetTrialSnapshot actionsetTrialSnapshot() {
+		return actionsetDraftTrialRuntime.snapshot();
+	}
+
+	public ActionsetTrialSnapshot submitActionsetTrial(ActionsetTrialSpec spec) {
+		if (actionGraphExecutionRuntime.active()) {
+			throw new BridgeUnavailableException("action_graph_busy", "An action graph execution is already active");
+		}
+		return actionsetDraftTrialRuntime.start(spec, actionGraphContext(MinecraftClient.getInstance()), tickCount);
+	}
+
+	public ActionsetTrialSnapshot cancelActionsetTrial(String reason) {
+		cancelTask(reason == null || reason.isBlank() ? "actionset_trial_cancelled" : reason);
+		return actionsetDraftTrialRuntime.cancel(reason, tickCount);
+	}
+
 	public ActionGraphExecutionSnapshot submitActionGraphExecution(
 		String itemId,
 		int quantity,
 		Map<String, Integer> assumedInventory
 	) {
+		if (actionsetDraftTrialRuntime.active()) {
+			throw new BridgeUnavailableException("actionset_trial_active", "An actionset draft trial is already active");
+		}
 		MinecraftClient client = MinecraftClient.getInstance();
 		ActionResolverContext context = actionGraphContext(client);
 		actionGraphExecutionRuntime.submit(
@@ -1003,7 +1039,23 @@ public final class EmbodiedAgentRuntime {
 			observedInventory,
 			worldLoaded,
 			sessionSnapshot.companionActuationAllowed(),
-			terminalEvent
+			terminalEvent,
+			worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player) : List.of()
+		));
+	}
+
+	private ActionsetTrialSnapshot tickActionsetDraftTrial(MinecraftClient client, TaskTerminalEvent terminalEvent) {
+		boolean worldLoaded = client != null && client.world != null && client.player != null;
+		Map<String, Integer> observedInventory = worldLoaded
+			? inventoryItemCounter.count(client.player.getInventory())
+			: Map.of();
+		return actionsetDraftTrialRuntime.tick(new ActionGraphExecutionInput(
+			actionGraphContext(client),
+			observedInventory,
+			worldLoaded,
+			sessionSnapshot.companionActuationAllowed(),
+			terminalEvent,
+			worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player) : List.of()
 		));
 	}
 
@@ -1265,6 +1317,59 @@ public final class EmbodiedAgentRuntime {
 					+ " removeRuleIds=" + changes.removeRuleIds().size()
 					+ " upserts=" + changes.upserts().size();
 			}
+			case PlannerToolCatalog.LIST_ACTIONSETS -> {
+				Map<String, Object> payload = actionsetAuthoringService.listPayload();
+				yield "Tool result for list_actionsets: drafts=" + payload.get("drafts")
+					+ " enabled=" + payload.get("enabled")
+					+ " diagnosticCount=" + payload.get("diagnosticCount");
+			}
+			case PlannerToolCatalog.READ_ACTIONSET -> {
+				ActionsetNamespace namespace = parseActionsetNamespace(stringArg(args, "namespace").orElseThrow(() -> new IllegalArgumentException("namespace is required")));
+				String file = stringArg(args, "file").orElseThrow(() -> new IllegalArgumentException("file is required"));
+				yield "Tool result for read_actionset: namespace=" + namespace.directoryName()
+					+ " file=" + file
+					+ "\n" + actionsetAuthoringService.readFile(namespace, file);
+			}
+			case PlannerToolCatalog.VALIDATE_ACTIONSET_YAML -> {
+				Map<String, Object> payload = actionsetAuthoringService.validatePayload(
+					stringArg(args, "sourceName").orElse("inline.yml"),
+					stringArg(args, "yaml").orElse("")
+				);
+				yield "Tool result for validate_actionset_yaml: valid=" + payload.get("valid")
+					+ " diagnosticCount=" + payload.get("diagnosticCount")
+					+ " diagnostics=" + payload.get("diagnostics");
+			}
+			case PlannerToolCatalog.WRITE_ACTIONSET_DRAFT -> {
+				var result = actionsetAuthoringService.writeDraft(
+					stringArg(args, "draftId").orElseThrow(() -> new IllegalArgumentException("draftId is required")),
+					stringArg(args, "yaml").orElseThrow(() -> new IllegalArgumentException("yaml is required"))
+				);
+				yield "Tool result for write_actionset_draft: draftId=" + result.draftId()
+					+ " status=" + result.status().name()
+					+ " diagnosticCount=" + result.diagnostics().size();
+			}
+			case PlannerToolCatalog.START_ACTIONSET_TRIAL -> {
+				ActionsetTrialSnapshot snapshot = submitActionsetTrial(ActionsetTrialSpec.inventoryItem(
+					stringArg(args, "draftId").orElseThrow(() -> new IllegalArgumentException("draftId is required")),
+					stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required")),
+					intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required")),
+					parseInventoryAssumptionArgs(optionalStringArrayArg(args, "assumedInventory")),
+					booleanArg(args, "allowWorldMutation").orElse(false),
+					intArg(args, "timeoutTicks").orElse(1200)
+				));
+				yield "Tool result for start_actionset_trial: state=" + snapshot.state().name()
+					+ " draftId=" + snapshot.draftId()
+					+ " failureCode=" + snapshot.failureCode()
+					+ ". Inspect later with inspect_actionset_trial.";
+			}
+			case PlannerToolCatalog.INSPECT_ACTIONSET_TRIAL -> {
+				ActionsetTrialSnapshot snapshot = actionsetTrialSnapshot();
+				yield "Tool result for inspect_actionset_trial: state=" + snapshot.state().name()
+					+ " draftId=" + snapshot.draftId()
+					+ " passed=" + snapshot.passed()
+					+ " failureCode=" + snapshot.failureCode()
+					+ " message=" + snapshot.message();
+			}
 			default -> "TOOL_ERROR: unknown_tool " + toolCall.name();
 		};
 	}
@@ -1449,6 +1554,44 @@ public final class EmbodiedAgentRuntime {
 			throw new IllegalArgumentException(key + " must not be empty");
 		}
 		return List.copyOf(values);
+	}
+
+	private static List<String> optionalStringArrayArg(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+			return List.of();
+		}
+		return stringArrayArg(object, key);
+	}
+
+	private static Map<String, Integer> parseInventoryAssumptionArgs(List<String> values) {
+		LinkedHashMap<String, Integer> assumptions = new LinkedHashMap<>();
+		for (String value : values == null ? List.<String>of() : values) {
+			String[] parts = value.split("=", 2);
+			if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+				throw new IllegalArgumentException("assumedInventory entries must use item=count");
+			}
+			int count;
+			try {
+				count = Integer.parseInt(parts[1]);
+			}
+			catch (NumberFormatException exception) {
+				throw new IllegalArgumentException("assumedInventory count must be an integer", exception);
+			}
+			if (count <= 0) {
+				throw new IllegalArgumentException("assumedInventory count must be positive");
+			}
+			assumptions.put(parts[0], count);
+		}
+		return assumptions;
+	}
+
+	private static ActionsetNamespace parseActionsetNamespace(String value) {
+		for (ActionsetNamespace namespace : ActionsetNamespace.values()) {
+			if (namespace.directoryName().equals(value) || namespace.name().equalsIgnoreCase(value)) {
+				return namespace;
+			}
+		}
+		throw new IllegalArgumentException("unknown actionset namespace: " + value);
 	}
 
 	private static TaskResourceKind resourceKindArg(JsonObject object, String key) {

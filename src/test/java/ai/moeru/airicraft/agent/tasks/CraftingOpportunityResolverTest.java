@@ -28,6 +28,48 @@ class CraftingOpportunityResolverTest {
 	}
 
 	@Test
+	void craftableClosureIncludesNestedCraftsUnlockedByOutputs() {
+		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
+			List.of(
+				new CraftingOpportunity("oak_log_to_oak_planks", "minecraft:oak_planks", 4, List.of("minecraft:oak_log")),
+				new CraftingOpportunity("oak_planks_x2_to_stick", "minecraft:stick", 4, List.of("minecraft:oak_planks", "minecraft:oak_planks"))
+			),
+			Map.of("minecraft:oak_log", 1)
+		).stream()
+			.map(CraftingOpportunity::recipeId)
+			.toList();
+
+		assertEquals(List.of("oak_log_to_oak_planks", "oak_planks_x2_to_stick"), recipeIds);
+	}
+
+	@Test
+	void craftableClosureFindsNestedCraftsWhenRecipeKnowledgeIsOutOfOrder() {
+		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
+			List.of(
+				new CraftingOpportunity("birch_planks_x2_to_stick", "minecraft:stick", 4, List.of("minecraft:birch_planks", "minecraft:birch_planks")),
+				new CraftingOpportunity("birch_log_to_birch_planks", "minecraft:birch_planks", 4, List.of("minecraft:birch_log"))
+			),
+			Map.of("minecraft:birch_log", 1)
+		).stream()
+			.map(CraftingOpportunity::recipeId)
+			.toList();
+
+		assertEquals(List.of("birch_log_to_birch_planks", "birch_planks_x2_to_stick"), recipeIds);
+	}
+
+	@Test
+	void craftableClosureDoesNotInventMissingRecipes() {
+		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
+			List.of(new CraftingOpportunity("birch_log_to_birch_planks", "minecraft:birch_planks", 4, List.of("minecraft:birch_log"))),
+			Map.of("minecraft:birch_log", 1)
+		).stream()
+			.map(CraftingOpportunity::recipeId)
+			.toList();
+
+		assertEquals(List.of("birch_log_to_birch_planks"), recipeIds);
+	}
+
+	@Test
 	void recipeIdMapsConcreteInputOutputPair() {
 		assertEquals(
 			List.of("birch_log_to_birch_planks", "birch_wood_to_birch_planks"),
@@ -99,4 +141,26 @@ class CraftingOpportunityResolverTest {
 			).size()
 		);
 	}
+
+	@Test
+	void boundedCombinationsKeepsHomogeneousTagVariantsUnderLimit() {
+		List<List<String>> choices = Collections.nCopies(2, List.of("acacia", "bamboo", "birch", "cherry", "oak"));
+		Map<String, Integer> availableItems = Map.of(
+			"acacia", 2,
+			"bamboo", 2,
+			"birch", 2,
+			"cherry", 2,
+			"oak", 2
+		);
+
+		assertEquals(
+			List.of(
+				List.of("acacia", "acacia"),
+				List.of("bamboo", "bamboo"),
+				List.of("birch", "birch")
+			),
+			CraftingOpportunityResolver.boundedCombinations(choices, availableItems, 3)
+		);
+	}
+
 }

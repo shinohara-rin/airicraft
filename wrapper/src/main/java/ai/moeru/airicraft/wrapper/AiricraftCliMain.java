@@ -71,6 +71,20 @@ public final class AiricraftCliMain {
 		agentActions.addSubcommand(new AgentActionsResolveCommand(context));
 		agentActions.addSubcommand(new AgentActionsStatusCommand(context));
 		agentActions.addSubcommand(new AgentActionsCancelCommand(context));
+		agentActions.addSubcommand(new AgentActionsReloadCommand(context));
+		agentActions.addSubcommand("actionsets", new UsageCommand(out, "airicraft agent actions actionsets", "Actionset authoring commands"));
+		CommandLine actionsets = agentActions.getSubcommands().get("actionsets");
+		actionsets.addSubcommand(new AgentActionsActionsetsListCommand(context));
+		actionsets.addSubcommand(new AgentActionsActionsetsShowCommand(context));
+		actionsets.addSubcommand(new AgentActionsActionsetsValidateCommand(context));
+		actionsets.addSubcommand("draft", new UsageCommand(out, "airicraft agent actions actionsets draft", "Planner draft actionset commands"));
+		actionsets.getSubcommands().get("draft").addSubcommand(new AgentActionsActionsetsDraftWriteCommand(context));
+		actionsets.addSubcommand(new AgentActionsActionsetsPromoteCommand(context));
+		actionsets.addSubcommand("trial", new UsageCommand(out, "airicraft agent actions actionsets trial", "Live draft trial commands"));
+		CommandLine actionsetTrial = actionsets.getSubcommands().get("trial");
+		actionsetTrial.addSubcommand(new AgentActionsActionsetsTrialStartCommand(context));
+		actionsetTrial.addSubcommand(new AgentActionsActionsetsTrialStatusCommand(context));
+		actionsetTrial.addSubcommand(new AgentActionsActionsetsTrialCancelCommand(context));
 		agent.addSubcommand("mission", new UsageCommand(out, "airicraft agent mission", "Mission-level agent commands"));
 		CommandLine agentMission = agent.getSubcommands().get("mission");
 		agentMission.addSubcommand(new AgentMissionSubmitCommand(context));
@@ -447,6 +461,166 @@ public final class AiricraftCliMain {
 				transport().cancelAgentActionGraphExecution(),
 				verbose()
 			);
+		}
+	}
+
+	@Command(name = "reload", mixinStandardHelpOptions = true, description = "Reload actionset authoring diagnostics.")
+	private static final class AgentActionsReloadCommand extends BaseCommand {
+		private AgentActionsReloadCommand(CliContext context) {
+			super(context, "agent actions reload");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsets(transport().reloadAgentActionGraph(), verbose());
+		}
+	}
+
+	@Command(name = "list", mixinStandardHelpOptions = true, description = "List actionset files, drafts, and diagnostics.")
+	private static final class AgentActionsActionsetsListCommand extends BaseCommand {
+		private AgentActionsActionsetsListCommand(CliContext context) {
+			super(context, "agent actions actionsets list");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsets(transport().listAgentActionsets(), verbose());
+		}
+	}
+
+	@Command(name = "show", mixinStandardHelpOptions = true, description = "Show one actionset YAML file.")
+	private static final class AgentActionsActionsetsShowCommand extends BaseCommand {
+		@Option(names = "--namespace", required = true, description = "Actionset namespace: builtin, operator, enabled, planner_drafts.")
+		private String namespace;
+
+		@Option(names = "--file", required = true, description = "Actionset file id without .yml extension.")
+		private String file;
+
+		private AgentActionsActionsetsShowCommand(CliContext context) {
+			super(context, "agent actions actionsets show");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetFile(transport().readAgentActionset(namespace, file), verbose());
+		}
+	}
+
+	@Command(name = "validate", mixinStandardHelpOptions = true, description = "Validate a local actionset YAML file against the live primitive registry.")
+	private static final class AgentActionsActionsetsValidateCommand extends BaseCommand {
+		@Option(names = "--file", required = true, description = "Local YAML file path.")
+		private Path file;
+
+		private AgentActionsActionsetsValidateCommand(CliContext context) {
+			super(context, "agent actions actionsets validate");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetValidation(transport().validateAgentActionset(file.toString(), readLocalFile(file)), verbose());
+		}
+	}
+
+	@Command(name = "write", mixinStandardHelpOptions = true, description = "Write or replace a planner draft actionset from a local YAML file.")
+	private static final class AgentActionsActionsetsDraftWriteCommand extends BaseCommand {
+		@Option(names = "--draft-id", required = true, description = "Draft id.")
+		private String draftId;
+
+		@Option(names = "--file", required = true, description = "Local YAML file path.")
+		private Path file;
+
+		private AgentActionsActionsetsDraftWriteCommand(CliContext context) {
+			super(context, "agent actions actionsets draft write");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetValidation(transport().writeAgentActionsetDraft(draftId, readLocalFile(file)), verbose());
+		}
+	}
+
+	@Command(name = "promote", mixinStandardHelpOptions = true, description = "Promote a valid draft into enabled actionsets.")
+	private static final class AgentActionsActionsetsPromoteCommand extends BaseCommand {
+		@Option(names = "--draft-id", required = true, description = "Draft id.")
+		private String draftId;
+
+		@Option(names = "--enabled-id", required = true, description = "Enabled file id.")
+		private String enabledId;
+
+		@Option(names = "--mark-functional", description = "Require a passing live trial for the current draft hash.")
+		private boolean markFunctional;
+
+		private AgentActionsActionsetsPromoteCommand(CliContext context) {
+			super(context, "agent actions actionsets promote");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetPromotion(transport().promoteAgentActionsetDraft(draftId, enabledId, markFunctional), verbose());
+		}
+	}
+
+	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a live trial for one planner draft actionset.")
+	private static final class AgentActionsActionsetsTrialStartCommand extends BaseCommand {
+		@Option(names = "--draft-id", required = true, description = "Draft id.")
+		private String draftId;
+
+		@Option(names = "--item", required = true, description = "Namespaced inventory item goal.")
+		private String itemId;
+
+		@Option(names = "--quantity", defaultValue = "1", description = "Requested item count.")
+		private int quantity;
+
+		@Option(names = "--assume-inventory", split = ",", description = "Assumed inventory fact in item=count form. Can be repeated or comma-separated.")
+		private List<String> assumedInventory = new ArrayList<>();
+
+		@Option(names = "--allow-world-mutation", description = "Permit foreground world primitives during the trial.")
+		private boolean allowWorldMutation;
+
+		@Option(names = "--timeout-ticks", defaultValue = "1200", description = "Trial timeout in game ticks.")
+		private long timeoutTicks;
+
+		private AgentActionsActionsetsTrialStartCommand(CliContext context) {
+			super(context, "agent actions actionsets trial start");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			if (quantity < 1) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "quantity must be positive");
+			}
+			return PayloadViews.agentActionsetTrial(transport().startAgentActionsetTrial(
+				draftId,
+				itemId,
+				quantity,
+				parseInventoryAssumptions(assumedInventory, commandPath()),
+				allowWorldMutation,
+				timeoutTicks
+			), verbose());
+		}
+	}
+
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Inspect the current actionset draft trial.")
+	private static final class AgentActionsActionsetsTrialStatusCommand extends BaseCommand {
+		private AgentActionsActionsetsTrialStatusCommand(CliContext context) {
+			super(context, "agent actions actionsets trial status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetTrial(transport().getAgentActionsetTrial(), verbose());
+		}
+	}
+
+	@Command(name = "cancel", mixinStandardHelpOptions = true, description = "Cancel the current actionset draft trial.")
+	private static final class AgentActionsActionsetsTrialCancelCommand extends BaseCommand {
+		private AgentActionsActionsetsTrialCancelCommand(CliContext context) {
+			super(context, "agent actions actionsets trial cancel");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.agentActionsetTrial(transport().cancelAgentActionsetTrial(), verbose());
 		}
 	}
 
@@ -1567,9 +1741,10 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentActionInspect(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "actionsetValid", "actionsetRoot", "primitiveCount", "actionsetCount", "diagnosticCount");
+			copy(view, payload, "available", "actionsetValid", "actionsetRoot", "worldLoaded", "primitiveCount", "actionsetCount", "domainProviderCount", "diagnosticCount", "liveCraftableClosureCount", "liveStickRecipeIds");
 			List<Map<String, Object>> primitives = maps(payload.get("primitives"));
 			List<Map<String, Object>> actionsets = maps(payload.get("actionsets"));
+			List<Map<String, Object>> domainProviders = maps(payload.get("domainProviders"));
 			List<Map<String, Object>> diagnostics = maps(payload.get("actionsetDiagnostics"));
 			view.put("primitives", filterItems(primitives, verbose,
 				List.of("id", "version", "summary", "foregroundActuation", "executorBinding"),
@@ -1579,8 +1754,48 @@ public final class AiricraftCliMain {
 				List.of("actionId", "namespace", "sourceName", "summary", "alternativeCount"),
 				List.of("paramCount", "produces", "alternatives")
 			));
+			view.put("domainProviders", filterItems(domainProviders, verbose,
+				List.of("id", "summary", "producedGoal"),
+				List.of("inputFacts")
+			));
 			if (verbose || !diagnostics.isEmpty()) {
 				view.put("actionsetDiagnostics", diagnostics);
+			}
+			return view;
+		}
+
+		private static Map<String, Object> agentActionsets(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "actionsetRoot", "valid", "diagnosticCount", "builtin", "operator", "enabled", "drafts");
+			if (verbose || !values(payload.get("diagnostics")).isEmpty()) {
+				view.put("diagnostics", payload.getOrDefault("diagnostics", List.of()));
+			}
+			return view;
+		}
+
+		private static Map<String, Object> agentActionsetFile(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "namespace", "file", "yaml");
+			return view;
+		}
+
+		private static Map<String, Object> agentActionsetValidation(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "draftId", "status", "valid", "contentHash", "diagnosticCount", "diagnostics");
+			return view;
+		}
+
+		private static Map<String, Object> agentActionsetPromotion(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "draftId", "enabledId", "status", "contentHash", "promoted");
+			return view;
+		}
+
+		private static Map<String, Object> agentActionsetTrial(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "state", "draftId", "contentHash", "passed", "failureCode", "message");
+			if (verbose) {
+				copy(view, payload, "execution");
 			}
 			return view;
 		}
@@ -1910,6 +2125,15 @@ public final class AiricraftCliMain {
 			assumptions.put(parts[0], count);
 		}
 		return assumptions;
+	}
+
+	private static String readLocalFile(Path path) {
+		try {
+			return Files.readString(path, StandardCharsets.UTF_8);
+		}
+		catch (java.io.IOException exception) {
+			throw new UncheckedIOException(exception);
+		}
 	}
 
 	private static Map<String, Object> normalizeMap(Map<String, Object> source) {

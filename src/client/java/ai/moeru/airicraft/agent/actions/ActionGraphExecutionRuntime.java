@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 
@@ -456,6 +457,38 @@ public final class ActionGraphExecutionRuntime {
 
 	private void ingestObservedFacts(ActionGraphExecutionInput input) {
 		addInventoryFacts(input.observedInventory(), ActionFactProvenance.OBSERVED, input.context(), true);
+		addCraftRecipeFacts(input.availableCrafts(), input.context());
+	}
+
+	private void addCraftRecipeFacts(List<CraftingOpportunity> availableCrafts, ActionResolverContext context) {
+		if (availableCrafts == null || availableCrafts.isEmpty()) {
+			return;
+		}
+		for (CraftingOpportunity opportunity : availableCrafts) {
+			LinkedHashMap<String, Integer> inputCounts = new LinkedHashMap<>();
+			for (String inputItemId : opportunity.inputItemIds()) {
+				inputCounts.merge(inputItemId, 1, Integer::sum);
+			}
+			facts.upsert(new ActionFact(
+				ActionFactIdentity.craftRecipe(context.worldId(), context.actorId(), opportunity.recipeId()),
+				Map.of(
+					"outputItemId", opportunity.outputItemId(),
+					"outputCount", opportunity.outputCount(),
+					"inputItemIds", opportunity.inputItemIds(),
+					"inputCounts", inputCounts,
+					"gridKind", opportunity.gridKind().name()
+				),
+				ActionFactProvenance.OBSERVED,
+				context.currentTick(),
+				context.currentTick() + 1
+			));
+			trace("fact_observed", "", "", "", Map.of(
+				"fact", ActionFactType.CRAFT_RECIPE.id(),
+				"recipeId", opportunity.recipeId(),
+				"outputItemId", opportunity.outputItemId(),
+				"provenance", ActionFactProvenance.OBSERVED.name()
+			));
+		}
 	}
 
 	private void addInventoryFacts(

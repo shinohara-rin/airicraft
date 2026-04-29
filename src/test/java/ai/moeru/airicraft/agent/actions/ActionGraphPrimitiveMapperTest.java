@@ -38,6 +38,33 @@ class ActionGraphPrimitiveMapperTest {
 	}
 
 	@Test
+	void honorsRecipeIdWhenCraftStepProvidesOne() {
+		ActionPlanStep step = primitive("craft_item", Map.of(
+			"itemId", "minecraft:bread",
+			"recipeId", "preferred_recipe",
+			"quantity", 1
+		));
+
+		ActionGraphPrimitiveDispatch dispatch = ActionGraphPrimitiveMapper.map(step, List.of(
+			new CraftingOpportunity(
+				"alternate_recipe",
+				"minecraft:bread",
+				1,
+				List.of("minecraft:wheat", "minecraft:wheat", "minecraft:wheat")
+			),
+			new CraftingOpportunity(
+				"preferred_recipe",
+				"minecraft:bread",
+				1,
+				List.of("minecraft:wheat", "minecraft:wheat", "minecraft:wheat")
+			)
+		));
+
+		assertTrue(dispatch.dispatchable());
+		assertEquals("preferred_recipe", dispatch.proposal().craftRecipe().recipeId());
+	}
+
+	@Test
 	void mapsMineBlockToMineGoal() {
 		ActionGraphPrimitiveDispatch dispatch = ActionGraphPrimitiveMapper.map(primitive("mine_block", Map.of(
 			"blockIds", List.of("minecraft:wheat"),

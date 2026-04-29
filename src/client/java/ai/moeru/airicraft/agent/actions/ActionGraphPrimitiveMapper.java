@@ -36,6 +36,7 @@ public final class ActionGraphPrimitiveMapper {
 
 	private static ActionGraphPrimitiveDispatch craftItem(ActionPlanStep step, List<CraftingOpportunity> craftingOpportunities) {
 		String itemId = stringArg(step, "itemId");
+		String recipeId = stringArg(step, "recipeId");
 		int quantity = intArg(step, "quantity", 1);
 		if (itemId.isBlank()) {
 			return ActionGraphPrimitiveDispatch.failed("invalid_step_args", "craft_item requires itemId", step);
@@ -45,10 +46,12 @@ public final class ActionGraphPrimitiveMapper {
 		}
 		CraftingOpportunity opportunity = safeCraftingOpportunities(craftingOpportunities).stream()
 			.filter(candidate -> itemId.equals(candidate.outputItemId()))
+			.filter(candidate -> recipeId.isBlank() || recipeId.equals(candidate.recipeId()))
 			.min(Comparator.comparing(CraftingOpportunity::recipeId))
 			.orElse(null);
 		if (opportunity == null) {
-			return ActionGraphPrimitiveDispatch.failed("recipe_not_found", "No currently craftable recipe produces " + itemId, step);
+			String detail = recipeId.isBlank() ? itemId : itemId + " with recipe " + recipeId;
+			return ActionGraphPrimitiveDispatch.failed("recipe_not_found", "No currently craftable recipe produces " + detail, step);
 		}
 		int times = Math.max(1, (int) Math.ceil(quantity / (double) opportunity.outputCount()));
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();

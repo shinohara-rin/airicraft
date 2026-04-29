@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.actions;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import net.fabricmc.loader.api.FabricLoader;
 
 public final class ActionsetLibraryPaths {
 	private ActionsetLibraryPaths() {
@@ -17,5 +18,14 @@ public final class ActionsetLibraryPaths {
 			}
 		}
 		return Path.of("actionsets");
+	}
+
+	public static Path runtimeRoot() {
+		try {
+			return FabricLoader.getInstance().getConfigDir().resolve("airicraft").resolve("actionsets");
+		}
+		catch (RuntimeException exception) {
+			return defaultRoot();
+		}
 	}
 }

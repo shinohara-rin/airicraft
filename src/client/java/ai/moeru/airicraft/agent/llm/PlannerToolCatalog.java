@@ -32,6 +32,12 @@ public final class PlannerToolCatalog {
 	public static final String CANCEL_TASK = "cancel_task";
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
+	public static final String LIST_ACTIONSETS = "list_actionsets";
+	public static final String READ_ACTIONSET = "read_actionset";
+	public static final String VALIDATE_ACTIONSET_YAML = "validate_actionset_yaml";
+	public static final String WRITE_ACTIONSET_DRAFT = "write_actionset_draft";
+	public static final String START_ACTIONSET_TRIAL = "start_actionset_trial";
+	public static final String INSPECT_ACTIONSET_TRIAL = "inspect_actionset_trial";
 
 	private PlannerToolCatalog() {
 	}
@@ -117,6 +123,36 @@ public final class PlannerToolCatalog {
 				prop("clearAll", bool("Clear all active planner policy rules.")),
 				prop("removeRuleIds", stringArray("Rule ids to remove.")),
 				prop("upserts", array("Policy rule upserts.", policyUpsertSchema()))
+			), List.of()),
+			tool(LIST_ACTIONSETS, "List actionset summaries, draft status, enabled files, and validation diagnostics.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed."))
+			), List.of()),
+			tool(READ_ACTIONSET, "Read one actionset YAML file after listing actionsets.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("namespace", enumString("Actionset namespace.", List.of("builtin", "operator", "enabled", "planner_drafts"))),
+				prop("file", string("Actionset file id without .yml."))
+			), List.of("namespace", "file")),
+			tool(VALIDATE_ACTIONSET_YAML, "Validate draft actionset YAML before writing it.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("sourceName", string("Debug source name, for example draft.yml.")),
+				prop("yaml", string("Full actionset YAML."))
+			), List.of("sourceName", "yaml")),
+			tool(WRITE_ACTIONSET_DRAFT, "Write a planner draft actionset. Drafts are never executable until promoted by the operator.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("draftId", string("Safe draft id using letters, numbers, underscore, or hyphen.")),
+				prop("yaml", string("Full actionset YAML."))
+			), List.of("draftId", "yaml")),
+			tool(START_ACTIONSET_TRIAL, "Start a live trial for one planner draft actionset.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("draftId", string("Draft id to trial.")),
+				prop("itemId", string("Inventory item goal, for example minecraft:bread.")),
+				prop("quantity", integer("Requested item count.")),
+				prop("assumedInventory", stringArray("Optional item=count assumptions, for example minecraft:wheat=3.")),
+				prop("allowWorldMutation", bool("Whether foreground world primitives may run during the trial.")),
+				prop("timeoutTicks", integer("Trial timeout in game ticks."))
+			), List.of("draftId", "itemId", "quantity", "allowWorldMutation")),
+			tool(INSPECT_ACTIONSET_TRIAL, "Inspect the current actionset draft trial snapshot.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed."))
 			), List.of())
 		);
 	}
@@ -178,7 +214,8 @@ public final class PlannerToolCatalog {
 
 	public static boolean isReadTool(String name) {
 		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES -> true;
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES,
+				LIST_ACTIONSETS, READ_ACTIONSET, VALIDATE_ACTIONSET_YAML, INSPECT_ACTIONSET_TRIAL -> true;
 			default -> false;
 		};
 	}
@@ -200,7 +237,13 @@ public final class PlannerToolCatalog {
 				USE_ENTITY,
 				CANCEL_TASK,
 				CLEAR_GOAL,
-				UPDATE_EVENT_POLICY -> true;
+				UPDATE_EVENT_POLICY,
+				LIST_ACTIONSETS,
+				READ_ACTIONSET,
+				VALIDATE_ACTIONSET_YAML,
+				WRITE_ACTIONSET_DRAFT,
+				START_ACTIONSET_TRIAL,
+				INSPECT_ACTIONSET_TRIAL -> true;
 			default -> false;
 		};
 	}
@@ -316,6 +359,32 @@ public final class PlannerToolCatalog {
 			case CANCEL_TASK -> {
 			}
 			case UPDATE_EVENT_POLICY -> validatePolicyArguments(arguments);
+			case LIST_ACTIONSETS, INSPECT_ACTIONSET_TRIAL -> {
+			}
+			case READ_ACTIONSET -> {
+				requireString(arguments, "namespace");
+				requireString(arguments, "file");
+			}
+			case VALIDATE_ACTIONSET_YAML -> {
+				requireString(arguments, "sourceName");
+				requireString(arguments, "yaml");
+			}
+			case WRITE_ACTIONSET_DRAFT -> {
+				requireString(arguments, "draftId");
+				requireString(arguments, "yaml");
+			}
+			case START_ACTIONSET_TRIAL -> {
+				requireString(arguments, "draftId");
+				requireString(arguments, "itemId");
+				requirePositiveInt(arguments, "quantity");
+				requireBoolean(arguments, "allowWorldMutation");
+				if (arguments.has("assumedInventory")) {
+					requireStringArray(arguments, "assumedInventory", true);
+				}
+				if (arguments.has("timeoutTicks") && !arguments.get("timeoutTicks").isJsonNull()) {
+					requirePositiveInt(arguments, "timeoutTicks");
+				}
+			}
 			default -> throw new JsonParseException("Unknown planner tool: " + name);
 		}
 	}

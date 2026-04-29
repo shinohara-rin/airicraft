@@ -77,6 +77,24 @@ interface MinecraftTransport {
 
 	Map<String, Object> resolveAgentActionGraph(String itemId, int quantity, Map<String, Integer> assumedInventory);
 
+	Map<String, Object> listAgentActionsets();
+
+	Map<String, Object> readAgentActionset(String namespace, String file);
+
+	Map<String, Object> validateAgentActionset(String sourceName, String yaml);
+
+	Map<String, Object> writeAgentActionsetDraft(String draftId, String yaml);
+
+	Map<String, Object> promoteAgentActionsetDraft(String draftId, String enabledId, boolean markFunctional);
+
+	Map<String, Object> startAgentActionsetTrial(String draftId, String itemId, int quantity, Map<String, Integer> assumedInventory, boolean allowWorldMutation, long timeoutTicks);
+
+	Map<String, Object> getAgentActionsetTrial();
+
+	Map<String, Object> cancelAgentActionsetTrial();
+
+	Map<String, Object> reloadAgentActionGraph();
+
 	Map<String, Object> submitAgentTask(Map<String, Object> taskPayload);
 
 	Map<String, Object> submitAgentMission(Map<String, Object> missionPayload);

@@ -27,6 +27,7 @@ public final class ActionGraphDebugService {
 			.sorted(Comparator.comparing(ActionsetEntry::actionId))
 			.map(ActionGraphDebugService::actionsetPayload)
 			.toList();
+		List<Map<String, Object>> domainProviders = domainProviders();
 
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
@@ -34,9 +35,11 @@ public final class ActionGraphDebugService {
 		payload.put("actionsetValid", loadResult.valid());
 		payload.put("primitiveCount", primitives.size());
 		payload.put("actionsetCount", actionsets.size());
+		payload.put("domainProviderCount", domainProviders.size());
 		payload.put("diagnosticCount", loadResult.diagnostics().size());
 		payload.put("primitives", primitives);
 		payload.put("actionsets", actionsets);
+		payload.put("domainProviders", domainProviders);
 		payload.put("actionsetDiagnostics", loadResult.diagnostics().stream()
 			.map(ActionGraphDebugService::diagnosticPayload)
 			.toList());
@@ -81,6 +84,15 @@ public final class ActionGraphDebugService {
 			.map(ActionGraphDebugService::tracePayload)
 			.toList());
 		return new ActionGraphResolvedInventoryItem(resolveResult, payload);
+	}
+
+	private static List<Map<String, Object>> domainProviders() {
+		return List.of(Map.of(
+			"id", "recipe_provider",
+			"summary", "Plans craft_item route fragments from observed craft.recipe facts.",
+			"inputFacts", List.of(ActionFactType.CRAFT_RECIPE.id(), ActionFactType.INVENTORY_ITEM.id()),
+			"producedGoal", ActionFactType.INVENTORY_ITEM.id()
+		));
 	}
 
 	private static void addInventoryFacts(

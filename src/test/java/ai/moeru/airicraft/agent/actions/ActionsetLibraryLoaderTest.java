@@ -151,7 +151,7 @@ class ActionsetLibraryLoaderTest {
 			      - fact: inventory.item
 			        itemId: minecraft:bread
 			        countAtLeast:
-			          expr: "params.quantity"
+			          expr: "goal.targetCount"
 			    alternatives:
 			      - id: craft_from_inventory_wheat
 			        cost: 10
@@ -159,14 +159,14 @@ class ActionsetLibraryLoaderTest {
 			          - fact: inventory.item
 			            itemId: minecraft:wheat
 			            countAtLeast:
-			              expr: "params.quantity * 3"
+			              expr: "goal.deficitCount * 3"
 			        steps:
 			          - id: craft_bread
 			            primitive: craft_item
 			            args:
 			              itemId: minecraft:bread
 			              quantity:
-			                expr: "params.quantity"
+			                expr: "goal.deficitCount"
 			""".formatted(actionId);
 	}
 

@@ -275,6 +275,68 @@ final class HttpBridgeTransport implements MinecraftTransport {
 		return send("POST", "/v1/agent/action-graph/resolve", actionGraphInventoryItemBody(itemId, quantity, assumedInventory));
 	}
 
+	@Override
+	public Map<String, Object> listAgentActionsets() {
+		return get("/v1/agent/action-graph/actionsets");
+	}
+
+	@Override
+	public Map<String, Object> readAgentActionset(String namespace, String file) {
+		return get("/v1/agent/action-graph/actionsets/file?namespace="
+			+ URLEncoder.encode(namespace, java.nio.charset.StandardCharsets.UTF_8)
+			+ "&file="
+			+ URLEncoder.encode(file, java.nio.charset.StandardCharsets.UTF_8));
+	}
+
+	@Override
+	public Map<String, Object> validateAgentActionset(String sourceName, String yaml) {
+		return send("POST", "/v1/agent/action-graph/actionsets/validate", Map.of(
+			"sourceName", sourceName,
+			"yaml", yaml
+		));
+	}
+
+	@Override
+	public Map<String, Object> writeAgentActionsetDraft(String draftId, String yaml) {
+		return send("PUT", "/v1/agent/action-graph/actionsets/draft", Map.of(
+			"draftId", draftId,
+			"yaml", yaml
+		));
+	}
+
+	@Override
+	public Map<String, Object> promoteAgentActionsetDraft(String draftId, String enabledId, boolean markFunctional) {
+		return send("POST", "/v1/agent/action-graph/actionsets/promote", Map.of(
+			"draftId", draftId,
+			"enabledId", enabledId,
+			"markFunctional", markFunctional
+		));
+	}
+
+	@Override
+	public Map<String, Object> startAgentActionsetTrial(String draftId, String itemId, int quantity, Map<String, Integer> assumedInventory, boolean allowWorldMutation, long timeoutTicks) {
+		LinkedHashMap<String, Object> body = new LinkedHashMap<>(actionGraphInventoryItemBody(itemId, quantity, assumedInventory));
+		body.put("draftId", draftId);
+		body.put("allowWorldMutation", allowWorldMutation);
+		body.put("timeoutTicks", timeoutTicks);
+		return send("POST", "/v1/agent/action-graph/actionsets/trial", body);
+	}
+
+	@Override
+	public Map<String, Object> getAgentActionsetTrial() {
+		return get("/v1/agent/action-graph/actionsets/trial");
+	}
+
+	@Override
+	public Map<String, Object> cancelAgentActionsetTrial() {
+		return send("DELETE", "/v1/agent/action-graph/actionsets/trial", Map.of());
+	}
+
+	@Override
+	public Map<String, Object> reloadAgentActionGraph() {
+		return send("POST", "/v1/agent/action-graph/reload", Map.of());
+	}
+
 	private static Map<String, Object> actionGraphInventoryItemBody(String itemId, int quantity, Map<String, Integer> assumedInventory) {
 		LinkedHashMap<String, Object> body = new LinkedHashMap<>();
 		body.put("goal", Map.of(

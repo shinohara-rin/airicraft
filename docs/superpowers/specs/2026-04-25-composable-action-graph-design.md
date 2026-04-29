@@ -7,7 +7,8 @@ Airicraft should move complex behavior out of planner micromanagement and into a
 The core product model is:
 
 - Java registers typed primitive actions that can mutate or inspect Minecraft state.
-- YAML actionsets compose primitives into higher-level reusable skills.
+- Runtime domain providers synthesize common capability routes from observed knowledge such as vanilla recipes, the recipe book, REI/JEI, inventory, and world scans.
+- YAML actionsets compose primitives into higher-level reusable skills when the behavior needs method choice, world interaction, async watches, or domain policy.
 - A resolver builds and executes dependency routes from desired facts.
 - The LLM planner chooses goals, reviews ambiguity, and can author or patch YAML actionsets through scoped tools.
 - The runtime remains the source of truth for facts, execution, watches, traces, and cancellation.
@@ -22,6 +23,8 @@ That test is intentionally hard enough to exercise inventory inspection, route a
 
 - Support complex behavior through reusable action primitives instead of one-off planner prompts.
 - Let high-level tasks such as farming, building, chopping, hunting, and exploration share the same primitive vocabulary.
+- Keep YAML as stateless as possible. Inventory deficits, existing counts, recipe expansion, and world state live in the resolver/fact layer, not in actionset files.
+- Auto-resolve ordinary crafting from recipe knowledge instead of requiring one YAML actionset per craftable item.
 - Allow the planner and operator tools to inspect, validate, create, and patch YAML actionsets without adding Java code for every new skill.
 - Preserve deterministic execution for world mutation: YAML may compose actions, but Java primitives remain the only actuation layer.
 - Track world state as typed runtime facts, not as planner memory.
@@ -35,6 +38,7 @@ That test is intentionally hard enough to exercise inventory inspection, route a
 - No attempt to solve all building, hunting, farming, and survival automation in the first implementation stage.
 - No replacement of existing primitive executors where they already work.
 - No requirement that every route is LLM-reviewed before execution.
+- No hand-maintained YAML catalog for every vanilla crafting recipe.
 
 ## Existing Architecture To Reuse
 
@@ -172,11 +176,35 @@ The planner may see summaries and may request detailed facts, but the planner is
 
 Actionset-declared `produces` facts are not truth by themselves. Route selection may create expected facts, but observed or executor-reported facts must confirm terminal state before goals succeed. Resolver ranking should prefer observed and executor-reported facts over inferred or expected facts.
 
+### Domain Provider
+
+A domain provider is runtime code that turns structured game knowledge into resolver candidates without requiring handwritten YAML.
+
+Initial provider families:
+
+- inventory provider: observed item/tool facts and aggregate counts
+- vanilla crafting provider: recipe-book or recipe-manager knowledge for item recipes
+- REI/JEI provider: richer recipe and usage graphs when an integration is installed
+- world scan provider: nearby blocks, crops, entities, and site aggregates
+- loot/trade provider later: chest, village, mob drop, and trade routes
+
+Provider output should use the same typed fact and route vocabulary as actionsets:
+
+- observed or inferred facts such as `craft.recipe`
+- candidate route fragments such as `craft_item(outputItemId, deficitCount)`
+- declared ingredient subgoals such as `inventory.item minecraft:wheat >= 3`
+- cost and confidence hints
+- failure codes and trace payloads
+
+This is the preferred ownership boundary for normal crafting. Producing bread from wheat should not require a special `make_bread` YAML once recipe providers can expose `minecraft:bread <- 3 * minecraft:wheat`. YAML can still describe higher-level behavior such as farming wheat, choosing a farm site, waiting for crop maturity, or deciding whether to bootstrap tools.
+
+Recipe provider facts should represent a reachable recipe closure, not an unfiltered recipe catalog. If the bot has logs, the provider may expose `logs -> planks` and `planks -> sticks` because the second recipe is reachable after the first. If there is no route to an ingredient, the resolver should fail naturally through the missing ingredient subgoal. At dispatch time, the primitive mapper still rechecks the selected recipe against currently craftable evidence, so nested routes execute as ordered crafts rather than pretending later recipes are immediately craftable.
+
 ### Actionset
 
 An actionset is a YAML document that defines reusable high-level actions.
 
-Actionsets are declarative graphs with guards, not arbitrary workflows. They can express:
+Actionsets are declarative graphs with guards, not arbitrary workflows. They should be mostly stateless: an actionset may describe how to perform a method, but it should not own live inventory math, existing output counts, recipe lookup, or world memory. They can express:
 
 - parameters
 - guards that must already hold for an alternative
@@ -202,6 +230,14 @@ Actionsets are an HTN/GOAP hybrid:
 
 Ordered steps are allowed. Full arbitrary workflow code is not. Long waits are represented as fact watches, and repeated progress is represented by resolver re-entry after facts change.
 
+Resolver-owned goal bindings are available to expressions:
+
+- `goal.targetCount`: requested terminal count for the current goal
+- `goal.existingCount`: currently usable count already satisfying the same goal identity
+- `goal.deficitCount`: `max(0, goal.targetCount - goal.existingCount)`
+
+Use these when a method operates on the missing amount. Do not add actionset params such as `missingQuantity`; that leaks runtime state into YAML and breaks reuse.
+
 Step kinds are explicit to avoid name collisions:
 
 ```yaml
@@ -215,7 +251,7 @@ steps:
       fact: inventory.item
       itemId: minecraft:wheat
       countAtLeast:
-        expr: "params.quantity * 3"
+        expr: "goal.deficitCount * 3"
 
   - id: prepare_site
     actionset: prepare_farmland_site
@@ -229,6 +265,7 @@ Stage 1 should use a small typed expression subset, not arbitrary string templat
 
 - integer literals
 - `params.<name>`
+- `goal.targetCount`, `goal.existingCount`, and `goal.deficitCount`
 - `steps.<stepId>.<outputName>`
 - `+`, `-`, `*`, `/`
 - optional `min()` / `max()` only if the implementation plan needs them
@@ -257,7 +294,7 @@ actions:
       - fact: inventory.item
         itemId: minecraft:bread
         countAtLeast:
-          expr: "params.quantity"
+          expr: "goal.targetCount"
     alternatives:
       - id: already_have_bread
         cost: 0
@@ -265,7 +302,7 @@ actions:
           - fact: inventory.item
             itemId: minecraft:bread
             countAtLeast:
-              expr: "params.quantity"
+              expr: "goal.targetCount"
         steps: []
       - id: craft_from_inventory_wheat
         cost: 10
@@ -273,29 +310,31 @@ actions:
           - fact: inventory.item
             itemId: minecraft:wheat
             countAtLeast:
-              expr: "params.quantity * 3"
+              expr: "goal.deficitCount * 3"
         steps:
           - id: craft_bread
             primitive: craft_item
             args:
               itemId: minecraft:bread
               quantity:
-                expr: "params.quantity"
+                expr: "goal.deficitCount"
       - id: obtain_wheat_then_craft
         cost: 40
         needs:
           - fact: inventory.item
             itemId: minecraft:wheat
             countAtLeast:
-              expr: "params.quantity * 3"
+              expr: "goal.deficitCount * 3"
         steps:
           - id: craft_bread
             primitive: craft_item
             args:
               itemId: minecraft:bread
               quantity:
-                expr: "params.quantity"
+                expr: "goal.deficitCount"
 ```
+
+This `make_bread` shape is a transition fixture for early vertical testing. The target direction is a generic crafting provider that creates the craft route from recipe facts, leaving YAML to describe `obtain_wheat` and later farming methods.
 
 Separate actionsets should handle subgoals such as `obtain_wheat`, `obtain_tool`, `prepare_farmland_site`, and `bootstrap_wheat_farm`.
 
@@ -411,7 +450,7 @@ watch:
   site:
     expr: "steps.prepare_site.siteId"
   matureCountAtLeast:
-    expr: "params.quantity * 3"
+    expr: "goal.deficitCount * 3"
   requiresLoadedArea: true
   poll:
     whenNearby: true
@@ -586,13 +625,14 @@ Deliverables:
 - YAML actionset parser and validator.
 - `airicraft actions primitives`, `actionsets list/show/validate`, and `facts list`.
 - Seeded `make_bread` actionset that validates but is not fully executable yet.
+- Goal binding expressions for target, existing, and deficit counts.
 
 Acceptance:
 
 - Actionset schema distinguishes `guards`, `needs`, `steps`, `produces`, and `consumes`.
 - Step references are explicit: `primitive`, `actionset`, `goal`, or `watch`.
 - Parameter expressions are typechecked.
-- Quantity expressions in `make_bread` validate `bread quantity -> wheat quantity * 3`.
+- Quantity expressions in `make_bread` validate `bread deficit -> wheat deficit * 3`.
 - Fact identity keys exist for each initial fact family.
 - Primitive docs include version, failure codes, foreground ownership, cancellability, timeout, and capability tags.
 - Validator reports JSONPath/YAMLPath-like error paths.
@@ -669,19 +709,23 @@ Acceptance:
 
 Goal:
 
-- Make `make_bread` work when required facts already exist.
+- Make inventory-item goals work when required existing facts or currently craftable recipes already exist.
 
 Deliverables:
 
-- `make_bread` routes for already-have-bread and craft-from-inventory-wheat.
-- Deterministic resolver tests for `quantity * 3` wheat needs.
+- Resolver-owned deficit math for partial inventory satisfaction.
+- Generic craft route provider for currently known recipes, starting with bread.
+- Transitional `make_bread` route only as a compatibility smoke fixture until generic recipe routes cover the case.
+- Deterministic resolver tests for `goal.deficitCount * 3` wheat needs.
 - `craft_item` primitive binding or wrapper over existing crafting support.
 - CLI trace output for selected route and terminal facts.
 
 Acceptance:
 
 - Final terminal condition is `inventory.item minecraft:bread >= requested quantity`.
-- `make_bread(quantity: 2)` requires six wheat before crafting.
+- If the target is two bread and one bread already exists, the route crafts only one additional bread and needs three wheat.
+- A generic recipe route can plan `craft_item minecraft:bread quantity=deficit` from recipe knowledge without item-specific YAML.
+- Nested craft routes work from reachable recipe facts, for example `oak_log -> oak_planks -> stick`.
 - Declared `produces` does not mark bread as observed until executor or inventory inspection confirms it.
 
 ### Stage 5B: Controlled Farm Watch, Harvest, And Craft
@@ -762,20 +806,22 @@ The bread proof should support these route families:
 
 Route ranking should initially prefer shorter and more certain routes. Planner review is only required when the resolver has low confidence, repeated failures, or competing high-cost routes.
 
-Bread quantity math is part of validation:
+Bread quantity math is resolver-owned goal binding:
 
 ```text
-requested bread quantity = N
-required wheat count = N * 3
+target bread count = N
+existing usable bread count = B
+craft deficit = max(0, N - B)
+required wheat count = craft deficit * 3
 ```
 
-The cleaner dependency graph is:
+The long-term cleaner dependency graph is provider + actionsets:
 
 ```text
-make_bread -> obtain_wheat -> harvest / existing farm / bootstrap farm
+inventory.item(bread) -> recipe_provider(bread) -> inventory.item(wheat) -> obtain_wheat -> harvest / existing farm / bootstrap farm
 ```
 
-Recommended `make_bread` skeleton:
+Transitional `make_bread` skeleton:
 
 ```yaml
 version: 1
@@ -792,7 +838,7 @@ actions:
       - fact: inventory.item
         itemId: minecraft:bread
         countAtLeast:
-          expr: "params.quantity"
+          expr: "goal.targetCount"
 
     alternatives:
       - id: already_have_bread
@@ -801,7 +847,7 @@ actions:
           - fact: inventory.item
             itemId: minecraft:bread
             countAtLeast:
-              expr: "params.quantity"
+              expr: "goal.targetCount"
         steps: []
 
       - id: craft_from_inventory_wheat
@@ -810,14 +856,14 @@ actions:
           - fact: inventory.item
             itemId: minecraft:wheat
             countAtLeast:
-              expr: "params.quantity * 3"
+              expr: "goal.deficitCount * 3"
         steps:
           - id: craft_bread
             primitive: craft_item
             args:
               itemId: minecraft:bread
               quantity:
-                expr: "params.quantity"
+                expr: "goal.deficitCount"
 
       - id: obtain_wheat_then_craft
         cost: 40
@@ -825,17 +871,19 @@ actions:
           - fact: inventory.item
             itemId: minecraft:wheat
             countAtLeast:
-              expr: "params.quantity * 3"
+              expr: "goal.deficitCount * 3"
         steps:
           - id: craft_bread
             primitive: craft_item
             args:
               itemId: minecraft:bread
               quantity:
-                expr: "params.quantity"
+                expr: "goal.deficitCount"
 ```
 
 `obtain_wheat` should be a separate actionset whose alternatives can cover mature crops, existing growing farms, villages/chests later, and fresh farm bootstrap.
+
+Once the recipe provider can expose bread recipes, `make_bread` should disappear from the core route set. `obtain_wheat` remains useful because wheat acquisition is world behavior, not a pure recipe transform.
 
 ## Open Design Items For Stage 1 Plan
 
@@ -872,11 +920,13 @@ The bread scenario should have both:
 - Use planner review only on ambiguity or failure.
 - Use typed facts, not free-form string predicates.
 - Use HTN-style YAML actionsets with typed facts, guarded alternatives, recursive needs, and ordered steps.
+- Keep actionsets stateless: use resolver goal bindings for target/existing/deficit math.
+- Use recipe/domain providers for ordinary crafting instead of per-item actionset YAML.
 - Use explicit step kinds: `primitive`, `actionset`, `goal`, and `watch`.
 - Use `guards` for facts that must already hold and `needs` for facts the resolver may satisfy recursively.
 - Use a small typed expression subset instead of arbitrary string templates.
 - Use world-scoped disk persistence for facts and watches.
-- Use seeded editable `make_bread` actionset for the first vertical slice.
+- Use bread as the first vertical slice, but treat seeded `make_bread` as a temporary compatibility fixture while generic recipe routes come online.
 - Use `ACTION_GRAPH` as a new parent job type rather than replacing current jobs immediately.
 - Keep one foreground actuation primitive at a time.
 - Keep many background watches and commitments.

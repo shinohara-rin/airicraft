@@ -4,6 +4,9 @@ import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.actions.ActionGraphDebugService;
 import ai.moeru.airicraft.agent.actions.ActionGraphResolveRequest;
 import ai.moeru.airicraft.agent.actions.ActionResolverContext;
+import ai.moeru.airicraft.agent.actions.ActionsetNamespace;
+import ai.moeru.airicraft.agent.actions.ActionsetPromotionException;
+import ai.moeru.airicraft.agent.actions.ActionsetTrialSpec;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
@@ -18,6 +21,8 @@ import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.InventoryItemCounter;
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -90,8 +95,6 @@ public final class ModBridgeServer {
 	private final SavedServerService savedServerService = new SavedServerService();
 	private final PlayerViewService playerViewService = new PlayerViewService();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
-	private final ActionGraphDebugService actionGraphDebugService = new ActionGraphDebugService();
-
 	private volatile HttpServer server;
 	private volatile String token;
 
@@ -147,7 +150,9 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/ledger", exchange -> handleJson(exchange, this::createAgentLedgerResponse));
 			httpServer.createContext("/v1/agent/evidence", exchange -> handleJson(exchange, this::createAgentEvidenceResponse));
 			httpServer.createContext("/v1/agent/step-execution", exchange -> handleJson(exchange, this::createAgentStepExecutionResponse));
-			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, actionGraphDebugService::inspectActionGraph));
+			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, this::createActionGraphInspectResponse));
+			httpServer.createContext("/v1/agent/action-graph/actionsets", this::handleAgentActionGraphActionsets);
+			httpServer.createContext("/v1/agent/action-graph/reload", this::handleAgentActionGraphReload);
 			httpServer.createContext("/v1/agent/action-graph/execute", this::handleAgentActionGraphExecute);
 			httpServer.createContext("/v1/agent/action-graph/execution", this::handleAgentActionGraphExecution);
 			httpServer.createContext("/v1/agent/action-graph/resolve", this::handleAgentActionGraphResolve);
@@ -623,6 +628,23 @@ public final class ModBridgeServer {
 		});
 	}
 
+	private Map<String, Object> createActionGraphInspectResponse() {
+		return onClientThread(() -> {
+			Map<String, Object> payload = new LinkedHashMap<>(new ActionGraphDebugService(agentRuntime().actionsetAuthoringService().root()).inspectActionGraph());
+			var client = getClient();
+			boolean worldLoaded = client.world != null && client.player != null;
+			List<CraftingOpportunity> liveCrafts = worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player) : List.of();
+			payload.put("worldLoaded", worldLoaded);
+			payload.put("liveCraftableClosureCount", liveCrafts.size());
+			payload.put("liveStickRecipeIds", liveCrafts.stream()
+				.filter(opportunity -> "minecraft:stick".equals(opportunity.outputItemId()))
+				.map(opportunity -> opportunity.recipeId())
+				.sorted()
+				.toList());
+			return payload;
+		});
+	}
+
 
 
 	private void handleAgentTasks(HttpExchange exchange) throws IOException {
@@ -730,7 +752,8 @@ public final class ModBridgeServer {
 				Map<String, Integer> observedInventory = worldLoaded
 					? inventoryItemCounter.count(client.player.getInventory())
 					: Map.of();
-				Map<String, Object> payload = new LinkedHashMap<>(actionGraphDebugService.resolveInventoryItem(new ActionGraphResolveRequest(
+				ActionGraphDebugService debugService = new ActionGraphDebugService(agentRuntime().actionsetAuthoringService().root());
+				Map<String, Object> payload = new LinkedHashMap<>(debugService.resolveInventoryItem(new ActionGraphResolveRequest(
 					itemId,
 					quantity,
 					assumedInventory(request.assumedInventory()),
@@ -800,6 +823,119 @@ public final class ModBridgeServer {
 			Airicraft.LOGGER.warn("Bridge request failed", exception);
 			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
 		}
+	}
+
+	private void handleAgentActionGraphReload(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", Object.class, request -> onClientThread(() -> agentRuntime().actionsetAuthoringService().listPayload()));
+	}
+
+	private void handleAgentActionGraphActionsets(HttpExchange exchange) throws IOException {
+		if (!authorize(exchange)) {
+			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
+			return;
+		}
+		try {
+			String path = exchange.getRequestURI().getPath();
+			String suffix = path.substring("/v1/agent/action-graph/actionsets".length());
+			String method = exchange.getRequestMethod();
+			if (suffix.isBlank() || "/".equals(suffix)) {
+				if (!"GET".equalsIgnoreCase(method)) {
+					writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+					return;
+				}
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionsetAuthoringService().listPayload()));
+				return;
+			}
+			if ("/file".equals(suffix) && "GET".equalsIgnoreCase(method)) {
+				String namespace = getQuery(exchange, "namespace");
+				String file = getQuery(exchange, "file");
+				writeJson(exchange, 200, onClientThread(() -> Map.of(
+					"available", true,
+					"namespace", namespace == null ? "" : namespace,
+					"file", file == null ? "" : file,
+					"yaml", agentRuntime().actionsetAuthoringService().readFile(parseActionsetNamespace(namespace), file)
+				)));
+				return;
+			}
+			if ("/draft".equals(suffix) && "PUT".equalsIgnoreCase(method)) {
+				ActionsetDraftWriteRequest request = readJson(exchange, ActionsetDraftWriteRequest.class);
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionsetAuthoringService()
+					.writeDraft(request.draftId(), request.yaml())
+					.toPayload()));
+				return;
+			}
+			if ("/validate".equals(suffix) && "POST".equalsIgnoreCase(method)) {
+				ActionsetValidateRequest request = readJson(exchange, ActionsetValidateRequest.class);
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionsetAuthoringService()
+					.validatePayload(request.sourceName(), request.yaml())));
+				return;
+			}
+			if ("/promote".equals(suffix) && "POST".equalsIgnoreCase(method)) {
+				ActionsetPromoteRequest request = readJson(exchange, ActionsetPromoteRequest.class);
+				writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionsetAuthoringService()
+					.promoteDraft(request.draftId(), request.enabledId(), request.markFunctional() != null && request.markFunctional())
+					.toPayload()));
+				return;
+			}
+			if ("/trial".equals(suffix)) {
+				handleAgentActionGraphActionsetTrial(exchange, method);
+				return;
+			}
+			writeJson(exchange, 404, Map.of("error", "not_found"));
+		}
+		catch (JsonSyntaxException exception) {
+			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
+		}
+		catch (BridgeUnavailableException exception) {
+			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+		}
+		catch (ActionsetPromotionException exception) {
+			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+		}
+		catch (Exception exception) {
+			Airicraft.LOGGER.warn("Bridge request failed", exception);
+			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
+		}
+	}
+
+	private void handleAgentActionGraphActionsetTrial(HttpExchange exchange, String method) throws IOException {
+		if ("GET".equalsIgnoreCase(method)) {
+			writeJson(exchange, 200, onClientThread(() -> agentRuntime().actionsetTrialSnapshot().toPayload(true)));
+			return;
+		}
+		if ("DELETE".equalsIgnoreCase(method)) {
+			writeJson(exchange, 200, onClientThread(() -> agentRuntime().cancelActionsetTrial("bridge_cancelled").toPayload(true)));
+			return;
+		}
+		if ("POST".equalsIgnoreCase(method)) {
+			ActionsetTrialStartRequest request = readJson(exchange, ActionsetTrialStartRequest.class);
+			if (request == null || request.draftId() == null || request.goal() == null) {
+				throw new BridgeUnavailableException("invalid_request", "Missing actionset trial request");
+			}
+			if (!"inventory.item".equals(request.goal().fact())) {
+				throw new BridgeUnavailableException("invalid_request", "Only inventory.item trial goals are supported");
+			}
+			String itemId = request.goal().itemId();
+			if (itemId == null || itemId.isBlank()) {
+				throw new BridgeUnavailableException("invalid_request", "Missing goal itemId");
+			}
+			int quantity = request.goal().countAtLeast() == null ? 1 : request.goal().countAtLeast();
+			if (quantity < 1) {
+				throw new BridgeUnavailableException("invalid_request", "countAtLeast must be positive");
+			}
+			boolean allowWorldMutation = request.allowWorldMutation() != null && request.allowWorldMutation();
+			long timeoutTicks = request.timeoutTicks() == null ? 1200L : request.timeoutTicks();
+			writeJson(exchange, 200, onClientThread(() -> agentRuntime().submitActionsetTrial(ActionsetTrialSpec.inventoryItem(
+				request.draftId(),
+				itemId,
+				quantity,
+				assumedInventory(request.assumedInventory()),
+				allowWorldMutation,
+				timeoutTicks
+			)).toPayload(true)));
+			return;
+		}
+		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
 	}
 
 	private static boolean isMissionLedgerRequest(JsonObject request) {
@@ -915,6 +1051,12 @@ public final class ModBridgeServer {
 		catch (Exception exception) {
 			Airicraft.LOGGER.warn("Bridge request failed", exception);
 			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
+		}
+	}
+
+	private static <T> T readJson(HttpExchange exchange, Class<T> requestType) throws IOException {
+		try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+			return GSON.fromJson(reader, requestType);
 		}
 	}
 
@@ -1591,6 +1733,18 @@ public final class ModBridgeServer {
 		return parseQuery(exchange.getRequestURI().getRawQuery()).get(key);
 	}
 
+	private static ActionsetNamespace parseActionsetNamespace(String value) {
+		if (value == null || value.isBlank()) {
+			throw new BridgeUnavailableException("invalid_request", "namespace is required");
+		}
+		for (ActionsetNamespace namespace : ActionsetNamespace.values()) {
+			if (namespace.directoryName().equals(value) || namespace.name().equalsIgnoreCase(value)) {
+				return namespace;
+			}
+		}
+		throw new BridgeUnavailableException("invalid_request", "Unknown actionset namespace: " + value);
+	}
+
 	private static Map<String, String> parseQuery(String rawQuery) {
 		Map<String, String> query = new HashMap<>();
 		if (rawQuery == null || rawQuery.isBlank()) {
@@ -1798,6 +1952,24 @@ public final class ModBridgeServer {
 	}
 
 	private record ActionGraphInventoryFactRequest(String itemId, Integer count) {
+	}
+
+	private record ActionsetDraftWriteRequest(String draftId, String yaml) {
+	}
+
+	private record ActionsetValidateRequest(String sourceName, String yaml) {
+	}
+
+	private record ActionsetPromoteRequest(String draftId, String enabledId, Boolean markFunctional) {
+	}
+
+	private record ActionsetTrialStartRequest(
+		String draftId,
+		ActionGraphGoalRequest goal,
+		List<ActionGraphInventoryFactRequest> assumedInventory,
+		Boolean allowWorldMutation,
+		Long timeoutTicks
+	) {
 	}
 
 	private record DebugChatRequest(String senderName, String message) {

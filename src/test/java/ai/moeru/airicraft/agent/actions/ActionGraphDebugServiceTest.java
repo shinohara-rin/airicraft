@@ -20,12 +20,15 @@ class ActionGraphDebugServiceTest {
 		assertEquals(true, payload.get("actionsetValid"));
 		assertTrue((Integer) payload.get("primitiveCount") >= 10);
 		assertTrue((Integer) payload.get("actionsetCount") >= 2);
+		assertEquals(1, payload.get("domainProviderCount"));
 		assertTrue(list(payload.get("primitives")).stream()
 			.anyMatch(primitive -> "craft_item".equals(map(primitive).get("id"))
 				&& "WorldTaskRequest.CRAFT_RECIPE".equals(map(primitive).get("executorBinding"))));
 		assertTrue(list(payload.get("actionsets")).stream()
 			.anyMatch(actionset -> "make_bread".equals(map(actionset).get("actionId"))
 				&& "builtin".equals(map(actionset).get("namespace"))));
+		assertTrue(list(payload.get("domainProviders")).stream()
+			.anyMatch(provider -> "recipe_provider".equals(map(provider).get("id"))));
 	}
 
 	@Test

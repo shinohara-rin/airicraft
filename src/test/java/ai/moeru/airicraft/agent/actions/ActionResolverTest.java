@@ -44,6 +44,116 @@ class ActionResolverTest {
 	}
 
 	@Test
+	void resolvesBreadDeficitWhenSomeBreadAlreadyExists() {
+		ActionFactStore facts = new ActionFactStore();
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:bread"),
+			Map.of("count", 1),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
+			Map.of("count", 5),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+
+		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 2));
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
+		ActionPlanStep craft = result.route().steps().getFirst();
+		assertEquals(1, craft.args().get("quantity"));
+		assertTrace(result.trace(), "route_selected", "make_bread", "craft_from_inventory_wheat");
+	}
+
+	@Test
+	void resolvesCraftingFromRecipeFactWithoutItemSpecificActionset() {
+		ActionFactStore facts = new ActionFactStore();
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:bread"),
+			Map.of("count", 1),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
+			Map.of("count", 5),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.craftRecipe("world-a", "bot", "wheat_wheat_wheat_to_bread"),
+			Map.of(
+				"outputItemId", "minecraft:bread",
+				"outputCount", 1,
+				"inputCounts", Map.of("minecraft:wheat", 3)
+			),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+
+		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, CONTEXT)
+			.resolve(ActionGoal.inventoryItem("minecraft:bread", 2));
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
+		ActionPlanStep craft = result.route().steps().getFirst();
+		assertEquals("recipe_provider", craft.actionId());
+		assertEquals("wheat_wheat_wheat_to_bread", craft.args().get("recipeId"));
+		assertEquals(1, craft.args().get("quantity"));
+		assertTrace(result.trace(), "route_selected", "recipe_provider", "wheat_wheat_wheat_to_bread");
+	}
+
+	@Test
+	void resolvesNestedCraftingRecipesFromLogToSticks() {
+		ActionFactStore facts = new ActionFactStore();
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:oak_log"),
+			Map.of("count", 1),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.craftRecipe("world-a", "bot", "oak_log_to_oak_planks"),
+			Map.of(
+				"outputItemId", "minecraft:oak_planks",
+				"outputCount", 4,
+				"inputCounts", Map.of("minecraft:oak_log", 1)
+			),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.craftRecipe("world-a", "bot", "oak_planks_x2_to_stick"),
+			Map.of(
+				"outputItemId", "minecraft:stick",
+				"outputCount", 4,
+				"inputCounts", Map.of("minecraft:oak_planks", 2)
+			),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+
+		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, CONTEXT)
+			.resolve(ActionGoal.inventoryItem("minecraft:stick", 4));
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertEquals(List.of("craft_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
+		assertEquals("oak_log_to_oak_planks", result.route().steps().get(0).args().get("recipeId"));
+		assertEquals("oak_planks_x2_to_stick", result.route().steps().get(1).args().get("recipeId"));
+	}
+
+	@Test
 	void recursivelyExpandsNeedsBeforeCurrentPrimitiveSteps() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(

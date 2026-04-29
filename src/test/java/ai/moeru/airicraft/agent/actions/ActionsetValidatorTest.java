@@ -24,7 +24,7 @@ class ActionsetValidatorTest {
 			      - fact: inventory.item
 			        itemId: minecraft:bread
 			        countAtLeast:
-			          expr: "params.quantity"
+			          expr: "goal.targetCount"
 			    alternatives:
 			      - id: already_have_bread
 			        cost: 0
@@ -32,7 +32,7 @@ class ActionsetValidatorTest {
 			          - fact: inventory.item
 			            itemId: minecraft:bread
 			            countAtLeast:
-			              expr: "params.quantity"
+			              expr: "goal.targetCount"
 			        steps: []
 			      - id: craft_from_inventory_wheat
 			        cost: 10
@@ -40,28 +40,28 @@ class ActionsetValidatorTest {
 			          - fact: inventory.item
 			            itemId: minecraft:wheat
 			            countAtLeast:
-			              expr: "params.quantity * 3"
+			              expr: "goal.deficitCount * 3"
 			        steps:
 			          - id: craft_bread
 			            primitive: craft_item
 			            args:
 			              itemId: minecraft:bread
 			              quantity:
-			                expr: "params.quantity"
+			                expr: "goal.deficitCount"
 			      - id: obtain_wheat_then_craft
 			        cost: 40
 			        needs:
 			          - fact: inventory.item
 			            itemId: minecraft:wheat
 			            countAtLeast:
-			              expr: "params.quantity * 3"
+			              expr: "goal.deficitCount * 3"
 			        steps:
 			          - id: craft_bread
 			            primitive: craft_item
 			            args:
 			              itemId: minecraft:bread
 			              quantity:
-			                expr: "params.quantity"
+			                expr: "goal.deficitCount"
 			""");
 
 		assertTrue(result.valid(), () -> result.errors().toString());
@@ -122,6 +122,22 @@ class ActionsetValidatorTest {
 
 		assertError(result, "type_mismatch", "$.actions.make_bread.params.quantity.default");
 		assertError(result, "unknown_param", "$.actions.make_bread.produces[0].countAtLeast.expr");
+	}
+
+	@Test
+	void rejectsUnknownGoalBindings() {
+		ActionsetValidationResult result = validate("""
+			version: 1
+			actions:
+			  make_bread:
+			    produces:
+			      - fact: inventory.item
+			        itemId: minecraft:bread
+			        countAtLeast:
+			          expr: "goal.missingQuantity"
+			""");
+
+		assertError(result, "unknown_goal_binding", "$.actions.make_bread.produces[0].countAtLeast.expr");
 	}
 
 	@Test

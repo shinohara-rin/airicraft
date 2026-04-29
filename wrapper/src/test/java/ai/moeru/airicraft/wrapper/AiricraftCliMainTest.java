@@ -484,6 +484,7 @@ class AiricraftCliMainTest {
 			"actionsetValid", true,
 			"primitiveCount", 11,
 			"actionsetCount", 2,
+			"domainProviderCount", 1,
 			"diagnosticCount", 0,
 			"primitives", List.of(linkedMap(
 				"id", "craft_item",
@@ -501,6 +502,12 @@ class AiricraftCliMainTest {
 				"alternativeCount", 3,
 				"produces", List.of("inventory.item:minecraft:bread")
 			)),
+			"domainProviders", List.of(linkedMap(
+				"id", "recipe_provider",
+				"summary", "Plans craft_item route fragments from observed craft.recipe facts.",
+				"producedGoal", "inventory.item",
+				"inputFacts", List.of("craft.recipe", "inventory.item")
+			)),
 			"actionsetDiagnostics", List.of()
 		);
 
@@ -512,10 +519,12 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("actionsetValid: true\n"));
 		assertTrue(result.output().contains("primitiveCount: 11\n"));
 		assertTrue(result.output().contains("actionsetCount: 2\n"));
+		assertTrue(result.output().contains("domainProviderCount: 1\n"));
 		assertTrue(result.output().contains("id: craft_item\n"));
 		assertTrue(result.output().contains("executorBinding: WorldTaskRequest.CRAFT_RECIPE\n"));
 		assertTrue(result.output().contains("actionId: make_bread\n"));
 		assertTrue(result.output().contains("sourceName: builtin/make_bread.yml\n"));
+		assertTrue(result.output().contains("id: recipe_provider\n"));
 	}
 
 	@Test
@@ -627,6 +636,36 @@ class AiricraftCliMainTest {
 		assertTrue(transport.actionCancelCalled);
 		assertTrue(result.output().contains("command: agent actions cancel\n"));
 		assertTrue(result.output().contains("state: CANCELLED\n"));
+	}
+
+	@Test
+	void agentActionsActionsetsListRendersAuthoringSummary() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(transport, "agent", "actions", "actionsets", "list");
+
+		assertEquals(0, result.exitCode(), result.output());
+		assertTrue(result.output().contains("command: agent actions actionsets list\n"));
+		assertTrue(result.output().contains("valid: true\n"));
+	}
+
+	@Test
+	void agentActionsActionsetsTrialStartRendersRunningTrial() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "actions", "actionsets", "trial", "start",
+			"--draft-id", "bread_patch",
+			"--item", "minecraft:bread",
+			"--quantity", "1",
+			"--assume-inventory", "minecraft:wheat=3",
+			"--allow-world-mutation"
+		);
+
+		assertEquals(0, result.exitCode(), result.output());
+		assertTrue(result.output().contains("command: agent actions actionsets trial start\n"));
+		assertTrue(result.output().contains("state: RUNNING\n"));
 	}
 
 	@Test
@@ -1375,6 +1414,51 @@ class AiricraftCliMainTest {
 		public Map<String, Object> cancelAgentActionGraphExecution() {
 			actionCancelCalled = true;
 			return agentActionCancelPayload;
+		}
+
+		@Override
+		public Map<String, Object> listAgentActionsets() {
+			return Map.of("available", true, "valid", true, "drafts", List.of(), "enabled", List.of(), "diagnosticCount", 0);
+		}
+
+		@Override
+		public Map<String, Object> readAgentActionset(String namespace, String file) {
+			return Map.of("available", true, "namespace", namespace, "file", file, "yaml", "version: 1\n");
+		}
+
+		@Override
+		public Map<String, Object> validateAgentActionset(String sourceName, String yaml) {
+			return Map.of("available", true, "valid", true, "contentHash", "hash", "diagnosticCount", 0, "diagnostics", List.of());
+		}
+
+		@Override
+		public Map<String, Object> writeAgentActionsetDraft(String draftId, String yaml) {
+			return Map.of("available", true, "draftId", draftId, "status", "VALID", "valid", true, "contentHash", "hash", "diagnostics", List.of());
+		}
+
+		@Override
+		public Map<String, Object> promoteAgentActionsetDraft(String draftId, String enabledId, boolean markFunctional) {
+			return Map.of("available", true, "draftId", draftId, "enabledId", enabledId, "status", "ENABLED", "promoted", true, "contentHash", "hash");
+		}
+
+		@Override
+		public Map<String, Object> startAgentActionsetTrial(String draftId, String itemId, int quantity, Map<String, Integer> assumedInventory, boolean allowWorldMutation, long timeoutTicks) {
+			return Map.of("available", true, "state", "RUNNING", "draftId", draftId, "passed", false, "contentHash", "hash");
+		}
+
+		@Override
+		public Map<String, Object> getAgentActionsetTrial() {
+			return Map.of("available", true, "state", "IDLE", "passed", false);
+		}
+
+		@Override
+		public Map<String, Object> cancelAgentActionsetTrial() {
+			return Map.of("available", true, "state", "CANCELLED", "passed", false);
+		}
+
+		@Override
+		public Map<String, Object> reloadAgentActionGraph() {
+			return Map.of("available", true, "valid", true, "drafts", List.of(), "enabled", List.of(), "diagnosticCount", 0);
 		}
 
 		@Override
