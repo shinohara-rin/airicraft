@@ -131,6 +131,35 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	void repeatedObservedFactsDoNotSpamTrace() {
+		RecordingDispatcher dispatcher = new RecordingDispatcher();
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		runtime.submit(ActionGoal.inventoryItem("minecraft:stick", 4), Map.of("minecraft:oak_log", 1), CONTEXT, 100);
+		List<CraftingOpportunity> crafts = List.of(
+			new CraftingOpportunity(
+				"oak_log_to_oak_planks",
+				"minecraft:oak_planks",
+				4,
+				List.of("minecraft:oak_log")
+			),
+			new CraftingOpportunity(
+				"oak_planks_x2_to_stick",
+				"minecraft:stick",
+				4,
+				List.of("minecraft:oak_planks", "minecraft:oak_planks")
+			)
+		);
+
+		ActionGraphExecutionSnapshot first = runtime.tick(input(Map.of("minecraft:oak_log", 1), null, 101, crafts));
+		long firstFactEvents = countTrace(first.trace(), "fact_observed");
+		ActionGraphExecutionSnapshot repeated = runtime.tick(input(Map.of("minecraft:oak_log", 1), null, 102, crafts));
+		ActionGraphExecutionSnapshot changed = runtime.tick(input(Map.of("minecraft:oak_log", 0), null, 103, crafts));
+
+		assertEquals(firstFactEvents, countTrace(repeated.trace(), "fact_observed"));
+		assertEquals(firstFactEvents + 1, countTrace(changed.trace(), "fact_observed"));
+	}
+
+	@Test
 	void transientPrimitiveFailureRetriesThenFailsWithoutDispatchChurn() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
@@ -231,6 +260,10 @@ class ActionGraphExecutionRuntimeTest {
 
 	private static void assertTrace(List<ActionTraceEvent> trace, String eventType) {
 		assertTrue(trace.stream().anyMatch(event -> eventType.equals(event.eventType())), () -> trace.toString());
+	}
+
+	private static long countTrace(List<ActionTraceEvent> trace, String eventType) {
+		return trace.stream().filter(event -> eventType.equals(event.eventType())).count();
 	}
 
 	private static final class RecordingDispatcher implements ActionGraphPrimitiveDispatcher {

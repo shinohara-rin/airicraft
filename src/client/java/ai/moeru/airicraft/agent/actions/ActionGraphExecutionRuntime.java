@@ -41,6 +41,7 @@ public final class ActionGraphExecutionRuntime {
 	private final List<Map<String, Object>> recoveryHistory = new ArrayList<>();
 	private final Set<String> blockedAlternatives = new LinkedHashSet<>();
 	private final Map<String, PendingWatch> watches = new LinkedHashMap<>();
+	private final Map<ActionFactIdentity, FactTraceFingerprint> tracedFactObservations = new LinkedHashMap<>();
 	private Map<String, Object> dispatchPayload = Map.of();
 	private Map<String, Object> taskPayload = Map.of();
 	private Map<String, Object> taskExecutionPayload = Map.of();
@@ -84,6 +85,7 @@ public final class ActionGraphExecutionRuntime {
 		this.recoveryHistory.clear();
 		this.blockedAlternatives.clear();
 		this.watches.clear();
+		this.tracedFactObservations.clear();
 		this.dispatchPayload = Map.of();
 		this.taskPayload = Map.of();
 		this.taskExecutionPayload = Map.of();
@@ -181,6 +183,7 @@ public final class ActionGraphExecutionRuntime {
 		recoveryHistory.clear();
 		blockedAlternatives.clear();
 		watches.clear();
+		tracedFactObservations.clear();
 		dispatchPayload = Map.of();
 		taskPayload = Map.of();
 		taskExecutionPayload = Map.of();
@@ -469,7 +472,7 @@ public final class ActionGraphExecutionRuntime {
 			for (String inputItemId : opportunity.inputItemIds()) {
 				inputCounts.merge(inputItemId, 1, Integer::sum);
 			}
-			facts.upsert(new ActionFact(
+			ActionFact fact = new ActionFact(
 				ActionFactIdentity.craftRecipe(context.worldId(), context.actorId(), opportunity.recipeId()),
 				Map.of(
 					"outputItemId", opportunity.outputItemId(),
@@ -481,8 +484,9 @@ public final class ActionGraphExecutionRuntime {
 				ActionFactProvenance.OBSERVED,
 				context.currentTick(),
 				context.currentTick() + 1
-			));
-			trace("fact_observed", "", "", "", Map.of(
+			);
+			facts.upsert(fact);
+			traceFactObservedIfChanged(fact, Map.of(
 				"fact", ActionFactType.CRAFT_RECIPE.id(),
 				"recipeId", opportunity.recipeId(),
 				"outputItemId", opportunity.outputItemId(),
@@ -506,15 +510,16 @@ public final class ActionGraphExecutionRuntime {
 				continue;
 			}
 			int itemCount = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
-			facts.upsert(new ActionFact(
+			ActionFact fact = new ActionFact(
 				ActionFactIdentity.inventoryItem(context.worldId(), context.actorId(), entry.getKey()),
 				Map.of("count", itemCount),
 				provenance,
 				context.currentTick(),
 				ActionFact.NEVER_STALE
-			));
+			);
+			facts.upsert(fact);
 			count++;
-			trace("fact_observed", "", "", "", Map.of(
+			traceFactObservedIfChanged(fact, Map.of(
 				"fact", ActionFactType.INVENTORY_ITEM.id(),
 				"itemId", entry.getKey(),
 				"count", itemCount,
@@ -616,6 +621,15 @@ public final class ActionGraphExecutionRuntime {
 		trace.add(new ActionTraceEvent(eventType, actionId, alternativeId, stepId, payload));
 	}
 
+	private void traceFactObservedIfChanged(ActionFact fact, Map<String, Object> payload) {
+		FactTraceFingerprint fingerprint = new FactTraceFingerprint(fact.provenance(), fact.payload());
+		if (fingerprint.equals(tracedFactObservations.get(fact.identity()))) {
+			return;
+		}
+		tracedFactObservations.put(fact.identity(), fingerprint);
+		trace("fact_observed", "", "", "", payload);
+	}
+
 	private static long longArg(Map<String, Object> args, String key, long defaultValue) {
 		Object value = args.get(key);
 		if (value instanceof Number number) {
@@ -651,6 +665,12 @@ public final class ActionGraphExecutionRuntime {
 	private record PendingWatch(String watchId, ActionPlanStep step, long startedTick, long timeoutTicks) {
 		long timeoutTick() {
 			return startedTick + Math.max(1L, timeoutTicks);
+		}
+	}
+
+	private record FactTraceFingerprint(ActionFactProvenance provenance, Map<String, Object> payload) {
+		FactTraceFingerprint {
+			payload = payload == null || payload.isEmpty() ? Map.of() : Map.copyOf(payload);
 		}
 	}
 }
