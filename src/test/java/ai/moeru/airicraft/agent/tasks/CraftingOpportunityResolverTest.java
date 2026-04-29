@@ -58,6 +58,29 @@ class CraftingOpportunityResolverTest {
 	}
 
 	@Test
+	void craftableClosureAddsOutputsToExistingInventory() {
+		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
+			List.of(
+				new CraftingOpportunity("birch_planks_x2_to_stick", "minecraft:stick", 4, List.of("minecraft:birch_planks", "minecraft:birch_planks")),
+				new CraftingOpportunity("stick_x7_to_ladder", "minecraft:ladder", 3, List.of(
+					"minecraft:stick",
+					"minecraft:stick",
+					"minecraft:stick",
+					"minecraft:stick",
+					"minecraft:stick",
+					"minecraft:stick",
+					"minecraft:stick"
+				))
+			),
+			Map.of("minecraft:birch_planks", 2, "minecraft:stick", 4)
+		).stream()
+			.map(CraftingOpportunity::recipeId)
+			.toList();
+
+		assertEquals(List.of("birch_planks_x2_to_stick", "stick_x7_to_ladder"), recipeIds);
+	}
+
+	@Test
 	void craftableClosureDoesNotInventMissingRecipes() {
 		List<String> recipeIds = CraftingOpportunityResolver.craftableClosureFromKnownRecipes(
 			List.of(new CraftingOpportunity("birch_log_to_birch_planks", "minecraft:birch_planks", 4, List.of("minecraft:birch_log"))),

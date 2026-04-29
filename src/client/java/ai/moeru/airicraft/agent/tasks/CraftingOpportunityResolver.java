@@ -89,20 +89,23 @@ public final class CraftingOpportunityResolver {
 			return List.of();
 		}
 		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
+		Map<String, Integer> appliedRecipeRuns = new HashMap<>();
 		for (int pass = 0; pass < MAX_CRAFTABLE_CLOSURE_PASSES; pass++) {
 			boolean changed = false;
 			Map<String, Integer> nextItems = new HashMap<>(virtualItems);
 			List<CraftingOpportunity> newlyReachable = new ArrayList<>();
 			for (CraftingOpportunity opportunity : recipeKnowledge) {
 				int craftRuns = craftableRunsForItemIds(opportunity, virtualItems);
-				if (craftRuns <= 0) {
+				int newCraftRuns = craftRuns - appliedRecipeRuns.getOrDefault(opportunity.recipeId(), 0);
+				if (newCraftRuns <= 0) {
 					continue;
 				}
 				if (!opportunities.containsKey(opportunity.recipeId())) {
 					newlyReachable.add(opportunity);
 					changed = true;
 				}
-				int reachableOutputCount = opportunity.outputCount() * craftRuns;
+				appliedRecipeRuns.put(opportunity.recipeId(), craftRuns);
+				int reachableOutputCount = nextItems.getOrDefault(opportunity.outputItemId(), 0) + opportunity.outputCount() * newCraftRuns;
 				int previousOutputCount = nextItems.getOrDefault(opportunity.outputItemId(), 0);
 				if (reachableOutputCount > previousOutputCount) {
 					nextItems.put(opportunity.outputItemId(), reachableOutputCount);
