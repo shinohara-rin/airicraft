@@ -1,7 +1,10 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
+
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -10,8 +13,19 @@ public record ActionGraphResolveRequest(
 	int quantity,
 	Map<String, Integer> assumedInventory,
 	Map<String, Integer> observedInventory,
+	List<CraftingOpportunity> availableCrafts,
 	ActionResolverContext context
 ) {
+	public ActionGraphResolveRequest(
+		String itemId,
+		int quantity,
+		Map<String, Integer> assumedInventory,
+		Map<String, Integer> observedInventory,
+		ActionResolverContext context
+	) {
+		this(itemId, quantity, assumedInventory, observedInventory, List.of(), context);
+	}
+
 	public ActionGraphResolveRequest {
 		if (itemId == null || itemId.isBlank()) {
 			throw new IllegalArgumentException("itemId is required");
@@ -21,6 +35,7 @@ public record ActionGraphResolveRequest(
 		}
 		assumedInventory = copyInventory(assumedInventory);
 		observedInventory = copyInventory(observedInventory);
+		availableCrafts = availableCrafts == null ? List.of() : List.copyOf(availableCrafts);
 		context = Objects.requireNonNull(context, "context");
 	}
 

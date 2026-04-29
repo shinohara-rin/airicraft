@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -66,6 +67,31 @@ class ActionGraphDebugServiceTest {
 
 		assertEquals(true, payload.get("resolved"));
 		assertEquals("craft_item", map(list(map(payload.get("route")).get("steps")).getFirst()).get("targetId"));
+	}
+
+	@Test
+	void resolvesInventoryItemGoalFromObservedCraftRecipeFacts() {
+		ActionGraphDebugService service = new ActionGraphDebugService(Path.of("actionsets"));
+
+		Map<String, Object> payload = service.resolveInventoryItem(new ActionGraphResolveRequest(
+			"minecraft:stick",
+			4,
+			Map.of(),
+			Map.of("minecraft:oak_planks", 2),
+			List.of(new CraftingOpportunity(
+				"oak_planks_x2_to_stick",
+				"minecraft:stick",
+				4,
+				List.of("minecraft:oak_planks", "minecraft:oak_planks")
+			)),
+			new ActionResolverContext("world-a", "bot", "minecraft:overworld", 100)
+		));
+
+		assertEquals(true, payload.get("resolved"));
+		assertEquals(15, map(payload.get("route")).get("cost"));
+		assertEquals(1, list(map(payload.get("route")).get("steps")).size());
+		assertEquals("recipe_provider", map(list(map(payload.get("route")).get("steps")).getFirst()).get("actionId"));
+		assertEquals(1, map(payload.get("factSourceCounts")).get("observedCraftRecipes"));
 	}
 
 	@Test

@@ -758,6 +758,7 @@ public final class ModBridgeServer {
 					quantity,
 					assumedInventory(request.assumedInventory()),
 					observedInventory,
+					worldLoaded ? CraftingOpportunityResolver.craftableClosure(client.player) : List.of(),
 					new ActionResolverContext("bridge-debug", "bot", dimension, tick)
 				)));
 				payload.put("sessionState", sessionState(client));

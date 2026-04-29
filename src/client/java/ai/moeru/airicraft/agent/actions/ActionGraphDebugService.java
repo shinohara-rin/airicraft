@@ -1,5 +1,7 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
+
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -55,6 +57,7 @@ public final class ActionGraphDebugService {
 		ActionFactStore facts = new ActionFactStore();
 		addInventoryFacts(facts, request, request.observedInventory(), ActionFactProvenance.OBSERVED);
 		addInventoryFacts(facts, request, request.assumedInventory(), ActionFactProvenance.EXECUTOR_REPORTED);
+		addCraftRecipeFacts(facts, request);
 
 		ActionResolveResult resolveResult = loadResult.valid()
 			? new ActionResolver(loadResult.index(), facts, request.context()).resolve(ActionGoal.inventoryItem(request.itemId(), request.quantity()))
@@ -74,6 +77,7 @@ public final class ActionGraphDebugService {
 		));
 		payload.put("factSourceCounts", Map.of(
 			"observedInventory", request.observedInventory().size(),
+			"observedCraftRecipes", request.availableCrafts().size(),
 			"assumedInventory", request.assumedInventory().size()
 		));
 		payload.put("resolved", resolveResult.resolved());
@@ -108,6 +112,28 @@ public final class ActionGraphDebugService {
 				provenance,
 				request.context().currentTick(),
 				ActionFact.NEVER_STALE
+			));
+		}
+	}
+
+	private static void addCraftRecipeFacts(ActionFactStore facts, ActionGraphResolveRequest request) {
+		for (CraftingOpportunity opportunity : request.availableCrafts()) {
+			LinkedHashMap<String, Integer> inputCounts = new LinkedHashMap<>();
+			for (String inputItemId : opportunity.inputItemIds()) {
+				inputCounts.merge(inputItemId, 1, Integer::sum);
+			}
+			facts.upsert(new ActionFact(
+				ActionFactIdentity.craftRecipe(request.context().worldId(), request.context().actorId(), opportunity.recipeId()),
+				Map.of(
+					"outputItemId", opportunity.outputItemId(),
+					"outputCount", opportunity.outputCount(),
+					"inputItemIds", opportunity.inputItemIds(),
+					"inputCounts", inputCounts,
+					"gridKind", opportunity.gridKind().name()
+				),
+				ActionFactProvenance.OBSERVED,
+				request.context().currentTick(),
+				request.context().currentTick() + 1
 			));
 		}
 	}
