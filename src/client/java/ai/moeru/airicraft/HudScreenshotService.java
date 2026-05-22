@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
 
+import java.awt.Rectangle;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.CompletableFuture;
 
@@ -13,6 +14,10 @@ public final class HudScreenshotService {
 	private CaptureJob activeJob;
 
 	public CompletableFuture<BufferedImage> requestTopRightMinimapCapture(MinecraftClient client) {
+		return requestMinimapCapture(client, null, false);
+	}
+
+	public CompletableFuture<BufferedImage> requestMinimapCapture(MinecraftClient client, Rectangle scaledBounds, boolean circleMask) {
 		if (client == null || client.world == null || client.player == null) {
 			throw new BridgeUnavailableException("world_not_loaded", "No world is currently loaded");
 		}
@@ -21,7 +26,13 @@ public final class HudScreenshotService {
 			if (activeJob != null) {
 				throw new BridgeUnavailableException("capture_in_progress", "A HUD screenshot capture is already in progress");
 			}
-			activeJob = new CaptureJob(new CompletableFuture<>());
+			activeJob = new CaptureJob(
+				new CompletableFuture<>(),
+				scaledBounds,
+				client.getWindow().getScaledWidth(),
+				client.getWindow().getScaledHeight(),
+				circleMask
+			);
 			return activeJob.future();
 		}
 	}
@@ -66,7 +77,13 @@ public final class HudScreenshotService {
 				activeJob = job.withPhase(CapturePhase.ENCODING);
 			}
 
-			BufferedImage croppedImage = HudMinimapCropper.cropTopRight(toBufferedImage(image));
+			BufferedImage croppedImage = HudMinimapCropper.cropScaledBounds(
+				toBufferedImage(image),
+				job.scaledBounds(),
+				job.scaledWidth(),
+				job.scaledHeight(),
+				job.circleMask()
+			);
 			synchronized (lock) {
 				if (activeJob != null && activeJob.future() == job.future()) {
 					activeJob = null;
@@ -104,13 +121,30 @@ public final class HudScreenshotService {
 		ENCODING
 	}
 
-	private record CaptureJob(CapturePhase phase, CompletableFuture<BufferedImage> future) {
-		private CaptureJob(CompletableFuture<BufferedImage> future) {
-			this(CapturePhase.PENDING, future);
+	private record CaptureJob(
+		CapturePhase phase,
+		CompletableFuture<BufferedImage> future,
+		Rectangle scaledBounds,
+		int scaledWidth,
+		int scaledHeight,
+		boolean circleMask
+	) {
+		private CaptureJob(
+			CompletableFuture<BufferedImage> future,
+			Rectangle scaledBounds,
+			int scaledWidth,
+			int scaledHeight,
+			boolean circleMask
+		) {
+			this(CapturePhase.PENDING, future, copy(scaledBounds), scaledWidth, scaledHeight, circleMask);
 		}
 
 		private CaptureJob withPhase(CapturePhase nextPhase) {
-			return new CaptureJob(nextPhase, future);
+			return new CaptureJob(nextPhase, future, copy(scaledBounds), scaledWidth, scaledHeight, circleMask);
+		}
+
+		private static Rectangle copy(Rectangle rectangle) {
+			return rectangle == null ? null : new Rectangle(rectangle);
 		}
 	}
 }

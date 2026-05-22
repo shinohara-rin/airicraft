@@ -23,6 +23,7 @@ import javax.imageio.ImageIO;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -146,8 +147,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 
 		if ("minimap".equals(kind)) {
 			try {
+				MinimapScreenBounds bounds = minimapScreenBounds();
 				return AiricraftClient.runtimeController().hudScreenshotService()
-					.requestTopRightMinimapCapture(client)
+					.requestMinimapCapture(client, bounds.rectangle(), bounds.circle())
 					.thenApply(image -> MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()))
 					.handle((capture, throwable) -> capture == null
 						? captureCachedMap(client, kind, safeRequest)
@@ -175,6 +177,59 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		catch (BridgeUnavailableException exception) {
 			return CompletableFuture.failedFuture(exception);
 		}
+	}
+
+	private static MinimapScreenBounds minimapScreenBounds() {
+		try {
+			Class<?> uiManagerClass = Class.forName("journeymap.client.ui.UIManager");
+			Object uiManager = uiManagerClass.getField("INSTANCE").get(null);
+			Object minimap = invoke(uiManager, "getMiniMap");
+			Object displayVars = invoke(minimap, "getDisplayVars");
+			if (displayVars == null) {
+				invoke(minimap, "updateDisplayVars", boolean.class, boolean.class, false, false);
+				displayVars = invoke(minimap, "getDisplayVars");
+			}
+			if (displayVars == null) {
+				throw new ReflectiveOperationException("DisplayVars unavailable");
+			}
+
+			int padding = 2;
+			int x = Math.max(0, Math.round(number(displayVars, "getTextureX")) - padding);
+			int y = Math.max(0, Math.round(number(displayVars, "getTextureY")) - padding);
+			int width = Math.max(1, Math.round(number(displayVars, "getMinimapWidth")) + padding * 2);
+			int height = Math.max(1, Math.round(number(displayVars, "getMinimapHeight")) + padding * 2);
+			Object shape = invoke(displayVars, "getShape");
+			boolean circle = shape != null && "Circle".equals(String.valueOf(shape));
+			return new MinimapScreenBounds(new Rectangle(x, y, width, height), circle);
+		}
+		catch (ReflectiveOperationException | LinkageError exception) {
+			return MinimapScreenBounds.fallback();
+		}
+	}
+
+	private static Object invoke(Object target, String methodName) throws ReflectiveOperationException {
+		return target.getClass().getMethod(methodName).invoke(target);
+	}
+
+	private static Object invoke(
+		Object target,
+		String methodName,
+		Class<?> firstParameterType,
+		Class<?> secondParameterType,
+		Object firstArgument,
+		Object secondArgument
+	) throws ReflectiveOperationException {
+		return target.getClass()
+			.getMethod(methodName, firstParameterType, secondParameterType)
+			.invoke(target, firstArgument, secondArgument);
+	}
+
+	private static float number(Object target, String methodName) throws ReflectiveOperationException {
+		Object value = invoke(target, methodName);
+		if (value instanceof Number number) {
+			return number.floatValue();
+		}
+		throw new ReflectiveOperationException("Non-numeric " + methodName);
 	}
 
 	static MapWaypoint toMapWaypoint(Waypoint waypoint) {
@@ -329,6 +384,12 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		}
 		catch (InvocationTargetException exception) {
 			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map path is unavailable");
+		}
+	}
+
+	private record MinimapScreenBounds(Rectangle rectangle, boolean circle) {
+		private static MinimapScreenBounds fallback() {
+			return new MinimapScreenBounds(null, false);
 		}
 	}
 }
