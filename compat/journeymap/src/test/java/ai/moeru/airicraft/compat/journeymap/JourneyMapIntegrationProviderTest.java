@@ -1,11 +1,22 @@
 package ai.moeru.airicraft.compat.journeymap;
 
+import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class JourneyMapIntegrationProviderTest {
+	@TempDir
+	private Path tempDir;
+
 	@Test
 	void convertsWaypointFieldsToAiricraftWaypoint() {
 		MapWaypoint converted = JourneyMapWaypointMapper.toMapWaypoint(
@@ -32,5 +43,47 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(true, converted.enabled());
 		assertEquals(true, converted.showOnMap());
 		assertEquals(false, converted.showInWorld());
+	}
+
+	@Test
+	void mapsChunksToJourneyMapRegionCoordinates() {
+		assertEquals(-1, JourneyMapIntegrationProvider.regionCoordinateForChunk(-1));
+		assertEquals(-1, JourneyMapIntegrationProvider.regionCoordinateForChunk(-32));
+		assertEquals(-2, JourneyMapIntegrationProvider.regionCoordinateForChunk(-33));
+		assertEquals(0, JourneyMapIntegrationProvider.regionCoordinateForChunk(0));
+		assertEquals(0, JourneyMapIntegrationProvider.regionCoordinateForChunk(31));
+		assertEquals(1, JourneyMapIntegrationProvider.regionCoordinateForChunk(32));
+	}
+
+	@Test
+	void stitchesCachedRegionImages() throws Exception {
+		writeTile("-1,-1.png", Color.RED);
+		writeTile("0,-1.png", Color.GREEN);
+		writeTile("-1,0.png", Color.BLUE);
+		writeTile("0,0.png", Color.WHITE);
+
+		BufferedImage stitched = JourneyMapIntegrationProvider.stitchCachedRegionImages(tempDir, -1, -1, 1);
+
+		assertEquals(1536, stitched.getWidth());
+		assertEquals(1536, stitched.getHeight());
+		assertEquals(Color.RED.getRGB(), stitched.getRGB(512, 512));
+		assertEquals(Color.GREEN.getRGB(), stitched.getRGB(1024, 512));
+		assertEquals(Color.BLUE.getRGB(), stitched.getRGB(512, 1024));
+		assertEquals(Color.WHITE.getRGB(), stitched.getRGB(1024, 1024));
+	}
+
+	@Test
+	void cachedRegionStitchFailsWhenNoImagesExist() {
+		assertThrows(BridgeUnavailableException.class, () -> JourneyMapIntegrationProvider.stitchCachedRegionImages(tempDir, 0, 0, 0));
+	}
+
+	private void writeTile(String name, Color color) throws Exception {
+		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
+		for (int z = 0; z < image.getHeight(); z++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				image.setRGB(x, z, color.getRGB());
+			}
+		}
+		ImageIO.write(image, "png", tempDir.resolve(name).toFile());
 	}
 }

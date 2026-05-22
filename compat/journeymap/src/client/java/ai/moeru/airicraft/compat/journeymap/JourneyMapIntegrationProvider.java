@@ -11,18 +11,26 @@ import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointQuery;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointWrite;
 import journeymap.api.v2.client.IClientAPI;
-import journeymap.api.v2.client.display.Context;
 import journeymap.api.v2.common.waypoint.Waypoint;
 import journeymap.api.v2.common.waypoint.WaypointFactory;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.texture.NativeImage;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
+import net.minecraft.world.World;
 
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.time.Instant;
-import java.util.List;
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public final class JourneyMapIntegrationProvider implements MapIntegrationProvider {
@@ -52,6 +60,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			MapCapability.READ_WAYPOINTS,
 			MapCapability.WRITE_WAYPOINTS,
 			MapCapability.DELETE_WAYPOINTS,
+			MapCapability.MINIMAP_IMAGE,
 			MapCapability.WORLDMAP_IMAGE
 		);
 	}
@@ -114,8 +123,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		MapImageRequest safeRequest = request == null
 			? new MapImageRequest(PROVIDER_ID, "worldmap", null, 8, 0, false)
 			: request;
-		if (!"worldmap".equalsIgnoreCase(Objects.requireNonNullElse(safeRequest.kind(), ""))) {
-			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_kind_unavailable", "JourneyMap worldmap capture is available, but minimap capture is not"));
+		String kind = Objects.requireNonNullElse(safeRequest.kind(), "worldmap").toLowerCase(Locale.ROOT);
+		if (!"worldmap".equals(kind) && !"minimap".equals(kind)) {
+			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_kind_unavailable", "JourneyMap cached map capture supports worldmap and minimap"));
 		}
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client == null || client.world == null || client.player == null) {
@@ -126,43 +136,17 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_dimension_unavailable", "JourneyMap capture currently requires the active dimension"));
 		}
 
-		CompletableFuture<MapImageCapture> future = new CompletableFuture<>();
 		ChunkPos centerChunk = client.player.getChunkPos();
-		int radiusChunks = Math.max(1, Math.min(16, safeRequest.radiusChunks()));
-		int zoom = Math.max(0, Math.min(8, safeRequest.zoom()));
-		ChunkPos startChunk = new ChunkPos(centerChunk.x - radiusChunks, centerChunk.z - radiusChunks);
-		ChunkPos endChunk = new ChunkPos(centerChunk.x + radiusChunks, centerChunk.z + radiusChunks);
-		jmAPI.requestMapTile(
-			AIRICRAFT_MOD_ID,
-			client.world.getRegistryKey(),
-			Context.MapType.Day,
-			startChunk,
-			endChunk,
-			null,
-			zoom,
-			safeRequest.grid(),
-			image -> completeMapCapture(future, image)
-		);
-		return future;
-	}
-
-	private static void completeMapCapture(CompletableFuture<MapImageCapture> future, NativeImage image) {
-		if (image == null) {
-			future.completeExceptionally(new BridgeUnavailableException("map_unavailable", "JourneyMap map tile is unavailable"));
-			return;
+		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
+		int regionRadius = "minimap".equals(kind) ? 0 : Math.max(0, (radiusChunks + 31) / 32);
+		try {
+			Path imageDir = journeyMapDimensionDir(client, client.world.getRegistryKey()).resolve("day");
+			BufferedImage image = stitchCachedRegionImages(imageDir, regionCoordinateForChunk(centerChunk.x), regionCoordinateForChunk(centerChunk.z), regionRadius);
+			return CompletableFuture.completedFuture(MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()));
 		}
-		try (image) {
-			future.complete(MapImageEncoder.encode(PROVIDER_ID, "worldmap", toBufferedImage(image), Instant.now().toEpochMilli()));
+		catch (BridgeUnavailableException exception) {
+			return CompletableFuture.failedFuture(exception);
 		}
-		catch (RuntimeException exception) {
-			future.completeExceptionally(exception);
-		}
-	}
-
-	private static BufferedImage toBufferedImage(NativeImage image) {
-		BufferedImage bufferedImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
-		bufferedImage.setRGB(0, 0, image.getWidth(), image.getHeight(), image.copyPixelsArgb(), 0, image.getWidth());
-		return bufferedImage;
 	}
 
 	static MapWaypoint toMapWaypoint(Waypoint waypoint) {
@@ -179,5 +163,71 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			waypoint.isEnabled(),
 			waypoint.isEnabled()
 		);
+	}
+
+	static int regionCoordinateForChunk(int chunkCoordinate) {
+		return Math.floorDiv(chunkCoordinate, 32);
+	}
+
+	static BufferedImage stitchCachedRegionImages(Path imageDir, int centerRegionX, int centerRegionZ, int regionRadius) {
+		if (imageDir == null || !Files.isDirectory(imageDir)) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map directory is unavailable");
+		}
+		int safeRadius = Math.max(0, regionRadius);
+		int regionCount = safeRadius * 2 + 1;
+		BufferedImage stitched = new BufferedImage(regionCount * 512, regionCount * 512, BufferedImage.TYPE_INT_ARGB);
+		boolean foundImage = false;
+		Graphics2D graphics = stitched.createGraphics();
+		try {
+			for (int dz = -safeRadius; dz <= safeRadius; dz++) {
+				for (int dx = -safeRadius; dx <= safeRadius; dx++) {
+					int regionX = centerRegionX + dx;
+					int regionZ = centerRegionZ + dz;
+					BufferedImage tile = readRegionImage(imageDir.resolve(regionX + "," + regionZ + ".png"));
+					if (tile != null) {
+						foundImage = true;
+						graphics.drawImage(tile, (dx + safeRadius) * 512, (dz + safeRadius) * 512, null);
+					}
+				}
+			}
+		}
+		finally {
+			graphics.dispose();
+		}
+		if (!foundImage) {
+			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
+		}
+		return stitched;
+	}
+
+	private static BufferedImage readRegionImage(Path path) {
+		if (!Files.isRegularFile(path)) {
+			return null;
+		}
+		try {
+			return ImageIO.read(path.toFile());
+		}
+		catch (IOException exception) {
+			throw new BridgeUnavailableException("map_capture_failed", "Failed to read JourneyMap cached region image");
+		}
+	}
+
+	private static Path journeyMapDimensionDir(MinecraftClient client, RegistryKey<World> dimension) {
+		try {
+			Class<?> fileHandler = Class.forName("journeymap.client.io.FileHandler");
+			Method getWorldDir = fileHandler.getMethod("getJMWorldDir", MinecraftClient.class);
+			File worldDir = (File) getWorldDir.invoke(null, client);
+			if (worldDir == null) {
+				throw new BridgeUnavailableException("map_unavailable", "JourneyMap world map directory is unavailable");
+			}
+			Method getDimPath = fileHandler.getMethod("getDimPath", File.class, RegistryKey.class);
+			return ((Path) getDimPath.invoke(null, worldDir, dimension)).normalize();
+		}
+		catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException exception) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map path API is unavailable");
+		}
+		catch (InvocationTargetException exception) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map path is unavailable");
+		}
 	}
 }
