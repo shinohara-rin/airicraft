@@ -9,9 +9,11 @@ import javax.imageio.ImageIO;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class JourneyMapIntegrationProviderTest {
 	@TempDir
@@ -92,6 +94,19 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(Color.GREEN.getRGB(), centered.getRGB(3, 2));
 		assertEquals(Color.BLUE.getRGB(), centered.getRGB(2, 3));
 		assertEquals(Color.WHITE.getRGB(), centered.getRGB(3, 3));
+	}
+
+	@Test
+	void centersLargeCachedMapWithoutPerPixelTileLookups() throws Exception {
+		writeTile("0,0.png", Color.MAGENTA);
+
+		BufferedImage centered = assertTimeoutPreemptively(Duration.ofMillis(500), () ->
+			JourneyMapIntegrationProvider.composeCenteredMapImage(tempDir, 0, 0, 6144, false, 0.0F)
+		);
+
+		assertEquals(6144, centered.getWidth());
+		assertEquals(6144, centered.getHeight());
+		assertEquals(Color.MAGENTA.getRGB(), centered.getRGB(3072, 3072));
 	}
 
 	@Test

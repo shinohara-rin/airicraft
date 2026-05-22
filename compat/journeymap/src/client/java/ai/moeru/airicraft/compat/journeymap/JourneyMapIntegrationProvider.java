@@ -30,9 +30,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -188,26 +186,44 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		}
 		int safeOutputSize = Math.max(1, outputSize);
 		int center = safeOutputSize / 2;
+		int minWorldX = playerBlockX - center;
+		int minWorldZ = playerBlockZ - center;
+		int maxWorldX = minWorldX + safeOutputSize - 1;
+		int maxWorldZ = minWorldZ + safeOutputSize - 1;
 		BufferedImage output = new BufferedImage(safeOutputSize, safeOutputSize, BufferedImage.TYPE_INT_ARGB);
-		Map<String, BufferedImage> tileCache = new HashMap<>();
-		boolean[] foundImage = { false };
 
-		for (int z = 0; z < safeOutputSize; z++) {
-			int worldZ = playerBlockZ + z - center;
-			int regionZ = Math.floorDiv(worldZ, JOURNEYMAP_REGION_PIXELS);
-			int regionPixelZ = Math.floorMod(worldZ, JOURNEYMAP_REGION_PIXELS);
-			for (int x = 0; x < safeOutputSize; x++) {
-				int worldX = playerBlockX + x - center;
-				int regionX = Math.floorDiv(worldX, JOURNEYMAP_REGION_PIXELS);
-				int regionPixelX = Math.floorMod(worldX, JOURNEYMAP_REGION_PIXELS);
-				BufferedImage tile = cachedRegionImage(imageDir, tileCache, regionX, regionZ, foundImage);
-				if (tile != null && regionPixelX < tile.getWidth() && regionPixelZ < tile.getHeight()) {
-					output.setRGB(x, z, tile.getRGB(regionPixelX, regionPixelZ));
+		boolean foundImage = false;
+		Graphics2D graphics = output.createGraphics();
+		try {
+			for (int regionZ = Math.floorDiv(minWorldZ, JOURNEYMAP_REGION_PIXELS);
+				 regionZ <= Math.floorDiv(maxWorldZ, JOURNEYMAP_REGION_PIXELS);
+				 regionZ++) {
+				for (int regionX = Math.floorDiv(minWorldX, JOURNEYMAP_REGION_PIXELS);
+					 regionX <= Math.floorDiv(maxWorldX, JOURNEYMAP_REGION_PIXELS);
+					 regionX++) {
+					BufferedImage tile = readRegionImage(imageDir.resolve(regionX + "," + regionZ + ".png"));
+					if (tile == null) {
+						continue;
+					}
+					foundImage = true;
+					drawIntersectingTile(
+						graphics,
+						tile,
+						regionX * JOURNEYMAP_REGION_PIXELS,
+						regionZ * JOURNEYMAP_REGION_PIXELS,
+						minWorldX,
+						minWorldZ,
+						maxWorldX,
+						maxWorldZ
+					);
 				}
 			}
 		}
+		finally {
+			graphics.dispose();
+		}
 
-		if (!foundImage[0]) {
+		if (!foundImage) {
 			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
 		}
 		if (drawMarker) {
@@ -247,16 +263,45 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		return stitched;
 	}
 
-	private static BufferedImage cachedRegionImage(Path imageDir, Map<String, BufferedImage> cache, int regionX, int regionZ, boolean[] foundImage) {
-		String key = regionX + "," + regionZ;
-		if (!cache.containsKey(key)) {
-			BufferedImage image = readRegionImage(imageDir.resolve(key + ".png"));
-			cache.put(key, image);
-			if (image != null) {
-				foundImage[0] = true;
-			}
+	private static void drawIntersectingTile(
+		Graphics2D graphics,
+		BufferedImage tile,
+		int tileWorldX,
+		int tileWorldZ,
+		int outputMinWorldX,
+		int outputMinWorldZ,
+		int outputMaxWorldX,
+		int outputMaxWorldZ
+	) {
+		int intersectionMinWorldX = Math.max(outputMinWorldX, tileWorldX);
+		int intersectionMinWorldZ = Math.max(outputMinWorldZ, tileWorldZ);
+		int intersectionMaxWorldX = Math.min(outputMaxWorldX, tileWorldX + tile.getWidth() - 1);
+		int intersectionMaxWorldZ = Math.min(outputMaxWorldZ, tileWorldZ + tile.getHeight() - 1);
+		if (intersectionMinWorldX > intersectionMaxWorldX || intersectionMinWorldZ > intersectionMaxWorldZ) {
+			return;
 		}
-		return cache.get(key);
+
+		int destinationX1 = intersectionMinWorldX - outputMinWorldX;
+		int destinationY1 = intersectionMinWorldZ - outputMinWorldZ;
+		int destinationX2 = intersectionMaxWorldX - outputMinWorldX + 1;
+		int destinationY2 = intersectionMaxWorldZ - outputMinWorldZ + 1;
+		int sourceX1 = intersectionMinWorldX - tileWorldX;
+		int sourceY1 = intersectionMinWorldZ - tileWorldZ;
+		int sourceX2 = intersectionMaxWorldX - tileWorldX + 1;
+		int sourceY2 = intersectionMaxWorldZ - tileWorldZ + 1;
+
+		graphics.drawImage(
+			tile,
+			destinationX1,
+			destinationY1,
+			destinationX2,
+			destinationY2,
+			sourceX1,
+			sourceY1,
+			sourceX2,
+			sourceY2,
+			null
+		);
 	}
 
 	private static void drawPlayerMarker(BufferedImage image, int centerX, int centerY, float yawDegrees) {
