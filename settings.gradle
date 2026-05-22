@@ -28,3 +28,7 @@ include("wrapper")
 if (gradle.startParameter.projectProperties.get("airicraft.includeReiCompat") == "true") {
 	include("compat:rei")
 }
+
+if (gradle.startParameter.projectProperties.get("airicraft.includeJourneyMapCompat") == "true") {
+	include("compat:journeymap")
+}

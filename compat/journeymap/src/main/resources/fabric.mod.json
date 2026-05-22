@@ -1,0 +1,25 @@
+{
+	"schemaVersion": 1,
+	"id": "airicraft-journeymap-compat",
+	"version": "${version}",
+	"name": "Airicraft JourneyMap Compatibility",
+	"description": "Optional JourneyMap map and waypoint integration for Airicraft.",
+	"authors": [
+		"Airicraft"
+	],
+	"license": "CC0-1.0",
+	"environment": "client",
+	"entrypoints": {
+		"journeymap": [
+			"ai.moeru.airicraft.compat.journeymap.AiricraftJourneyMapPlugin"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.8",
+		"java": ">=21",
+		"fabric-api": "*",
+		"airicraft": "*",
+		"journeymap": "*"
+	}
+}

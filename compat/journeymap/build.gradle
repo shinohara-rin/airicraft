@@ -1,0 +1,170 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = "airicraft-journeymap-compat"
+}
+
+repositories {
+	maven {
+		name = "JourneyMap"
+		url = uri("https://maven.blamejared.com")
+		content {
+			includeGroup "info.journeymap"
+		}
+	}
+	maven {
+		name = "Modrinth"
+		url = uri("https://api.modrinth.com/maven")
+		content {
+			includeGroup "maven.modrinth"
+		}
+	}
+	maven {
+		name = "Shedaniel"
+		url = uri("https://maven.shedaniel.me/")
+		content {
+			includeGroup "me.shedaniel"
+			includeGroup "me.shedaniel.cloth"
+		}
+	}
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"airicraft-journeymap-compat" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+configurations {
+	journeyMapCompatMods {
+		canBeConsumed = false
+		canBeResolved = true
+		transitive = false
+	}
+
+	journeyMapCompatLibraries {
+		canBeConsumed = false
+		canBeResolved = true
+		transitive = true
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	clientCompileOnly rootProject.sourceSets.main.output
+	clientCompileOnly rootProject.sourceSets.client.output
+	modCompileOnlyApi "info.journeymap:journeymap-api-fabric:${project.journeymap_api_version}"
+	modRuntimeOnly "maven.modrinth:journeymap:${project.journeymap_mod_version}"
+
+	journeyMapCompatMods "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	journeyMapCompatMods "maven.modrinth:journeymap:${project.journeymap_mod_version}"
+	journeyMapCompatLibraries "org.yaml:snakeyaml:2.4"
+	journeyMapCompatLibraries "io.opentelemetry:opentelemetry-api:1.60.1"
+	journeyMapCompatLibraries "io.opentelemetry:opentelemetry-sdk:1.60.1"
+	journeyMapCompatLibraries "io.opentelemetry:opentelemetry-exporter-otlp:1.60.1"
+
+	testImplementation platform("org.junit:junit-bom:5.11.4")
+	testImplementation "org.junit.jupiter:junit-jupiter"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+processResources {
+	inputs.property "version", project.version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": inputs.properties.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.named("test") {
+	useJUnitPlatform()
+}
+
+def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
+def journeyMapCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/journeymap")
+def journeyMapCompatModsDir = journeyMapCompatCacheDir.dir("mods")
+def journeyMapCompatLibrariesDir = journeyMapCompatCacheDir.dir("libraries")
+def reiCompatProject = rootProject.findProject(":compat:rei")
+
+tasks.register("syncJourneyMapCompatMods", Sync) {
+	group = "airicraft compatibility"
+	description = "Copies Airicraft, Airicraft JourneyMap compat, JourneyMap, REI when enabled, and local runtime mods into .airicraft-compat/journeymap/mods."
+	dependsOn rootProject.tasks.named("remapJar")
+	dependsOn tasks.named("remapJar")
+	if (reiCompatProject != null) {
+		dependsOn reiCompatProject.tasks.named("remapJar")
+	}
+
+	into(journeyMapCompatModsDir)
+	from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+	from(tasks.named("remapJar").flatMap { it.archiveFile })
+	from(configurations.journeyMapCompatMods)
+	if (reiCompatProject != null) {
+		from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		from(reiCompatProject.configurations.reiCompatMods)
+	}
+	from(rootProject.layout.projectDirectory.files(
+		"libs/baritone-unoptimized-fabric-1.15.0.jar",
+		"libs/nether-pathfinder-1.4.1.jar"
+	))
+}
+
+tasks.register("syncJourneyMapCompatLibraries", Sync) {
+	group = "airicraft compatibility"
+	description = "Copies Airicraft non-mod runtime libraries into .airicraft-compat/journeymap/libraries."
+	from(configurations.journeyMapCompatLibraries)
+	if (reiCompatProject != null) {
+		from(reiCompatProject.configurations.reiCompatLibraries)
+	}
+	into(journeyMapCompatLibrariesDir)
+}
+
+tasks.register("runClientJourneyMapCompat", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+	group = "airicraft compatibility"
+	description = "Runs a debug production-style Fabric client with Airicraft JourneyMap compat and REI when enabled."
+	dependsOn tasks.named("syncJourneyMapCompatMods")
+	dependsOn tasks.named("syncJourneyMapCompatLibraries")
+	outputs.upToDateWhen { false }
+
+	mods.from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+	mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
+	mods.from(configurations.journeyMapCompatMods)
+	if (reiCompatProject != null) {
+		mods.from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		mods.from(reiCompatProject.configurations.reiCompatMods)
+		classpath.from(reiCompatProject.configurations.reiCompatLibraries)
+	}
+	mods.from(rootProject.layout.projectDirectory.files(
+		"libs/baritone-unoptimized-fabric-1.15.0.jar",
+		"libs/nether-pathfinder-1.4.1.jar"
+	))
+	classpath.from(configurations.journeyMapCompatLibraries)
+	runDir = sharedDevRunDir.asFile
+	javaLauncher = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+	jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5007")
+}
