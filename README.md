@@ -168,6 +168,33 @@ Expected smoke signal:
 
 Do not copy REI into `run/mods` or vendor it into this repository. Let `scripts/compat-rei` sync the external jars into `.airicraft-compat/`.
 
+### JourneyMap compatibility client
+
+Use this for map-mod integration testing. It launches a production-style Fabric client with Airicraft, Airicraft JourneyMap compat, JourneyMap, and the existing REI compat stack together. Keeping REI in this smoke catches optional-provider collisions before adding more third-party adapters. JDWP listens on `127.0.0.1:5007`.
+
+Common flow:
+
+```shell
+scripts/compat-journeymap config
+scripts/compat-journeymap setup
+scripts/compat-journeymap mods
+scripts/compat-journeymap run
+jdb -attach 127.0.0.1:5007
+wrapper/build/install/airicraft/bin/airicraft status
+wrapper/build/install/airicraft/bin/airicraft map status
+wrapper/build/install/airicraft/bin/airicraft map image --kind worldmap --output /tmp/airicraft-worldmap.png
+```
+
+Expected smoke signal:
+
+- Minecraft starts without a remap crash.
+- Mod list includes `airicraft`, `airicraft-journeymap-compat`, `journeymap`, `airicraft-rei-compat`, and `roughlyenoughitems`.
+- `airicraft map status` reports `available: true` and `preferredProvider: journeymap`.
+- `search_recipes` remains available to the planner while map tools are also available.
+- `/tmp/airicraft-worldmap.png` exists and is non-empty after map image capture.
+
+Do not copy JourneyMap into `run/mods` or vendor it into this repository. Let `scripts/compat-journeymap` sync the external jars into `.airicraft-compat/journeymap`.
+
 ### Live JVM debugging with Arthas
 
 Airicraft includes dev-only Gradle helpers for attaching the Arthas CLI to the running Minecraft dev client. Arthas is external tooling: it does not add a mod dependency and does not replace the Airicraft bridge or JDWP.

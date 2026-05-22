@@ -25,6 +25,14 @@
   - Jar cache ignored: `.airicraft-compat/`; never vendor REI or copy into `run/mods`.
   - Setup/list jars: `scripts/compat-rei setup`, `scripts/compat-rei mods`.
   - Verify live: mod list has `airicraft` + `roughlyenoughitems`; `airicraft status` says `available: true`, `bridgeAvailable: true`.
+- JourneyMap compat smoke:
+  - Use `scripts/compat-journeymap run`, not plain `runClient`.
+  - Keep REI enabled during this smoke; the script passes both `-Pairicraft.includeJourneyMapCompat=true` and `-Pairicraft.includeReiCompat=true`.
+  - Debug port: JDWP `127.0.0.1:5007`.
+  - Config shared with normal dev: `run/config/airicraft`.
+  - Jar cache ignored: `.airicraft-compat/journeymap/`; never vendor JourneyMap or copy into `run/mods`.
+  - Setup/list jars: `scripts/compat-journeymap setup`, `scripts/compat-journeymap mods`.
+  - Verify live: mod list has `airicraft` + `airicraft-journeymap-compat` + `journeymap` + `airicraft-rei-compat` + `roughlyenoughitems`; `airicraft map status` says `available: true`, `preferredProvider: journeymap`; planner still exposes `search_recipes`.
 - Arthas CLI live-debug:
   - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.
   - Manual start: `source .envrc && ./gradlew runClient`
