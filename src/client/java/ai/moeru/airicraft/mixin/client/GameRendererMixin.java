@@ -20,4 +20,9 @@ public class GameRendererMixin {
 	private void airicraft$captureFirstPersonFrame(RenderTickCounter tickCounter, CallbackInfo ci) {
 		AiricraftClient.runtimeController().onFirstPersonFrameRendered();
 	}
+
+	@Inject(method = "render", at = @At("TAIL"))
+	private void airicraft$captureHudFrame(RenderTickCounter tickCounter, boolean tick, CallbackInfo ci) {
+		AiricraftClient.runtimeController().onFrameRendered();
+	}
 }

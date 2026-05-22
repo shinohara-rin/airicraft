@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.compat.journeymap;
 
+import ai.moeru.airicraft.AiricraftClient;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.agent.integration.map.MapCapabilities;
 import ai.moeru.airicraft.agent.integration.map.MapCapabilities.MapCapability;
@@ -143,6 +144,24 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_dimension_unavailable", "JourneyMap capture currently requires the active dimension"));
 		}
 
+		if ("minimap".equals(kind)) {
+			try {
+				return AiricraftClient.runtimeController().hudScreenshotService()
+					.requestTopRightMinimapCapture(client)
+					.thenApply(image -> MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()))
+					.handle((capture, throwable) -> capture == null
+						? captureCachedMap(client, kind, safeRequest)
+						: CompletableFuture.completedFuture(capture))
+					.thenCompose(future -> future);
+			}
+			catch (BridgeUnavailableException exception) {
+				return captureCachedMap(client, kind, safeRequest);
+			}
+		}
+		return captureCachedMap(client, kind, safeRequest);
+	}
+
+	private static CompletableFuture<MapImageCapture> captureCachedMap(MinecraftClient client, String kind, MapImageRequest safeRequest) {
 		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
 		int outputSize = "minimap".equals(kind)
 			? MINIMAP_IMAGE_SIZE

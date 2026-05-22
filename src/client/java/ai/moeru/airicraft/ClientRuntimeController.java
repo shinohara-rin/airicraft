@@ -26,6 +26,7 @@ public final class ClientRuntimeController {
 	private volatile AiricraftConfig config;
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
+	private final HudScreenshotService hudScreenshotService = new HudScreenshotService();
 	private final BaritoneFacade baritoneFacade = new LiveBaritoneFacade();
 	private volatile EmbodiedAgentRuntime agentRuntime;
 	private final ModBridgeServer bridgeServer;
@@ -65,6 +66,10 @@ public final class ClientRuntimeController {
 		return screenshotService;
 	}
 
+	public HudScreenshotService hudScreenshotService() {
+		return hudScreenshotService;
+	}
+
 	public void onClientStarted(MinecraftClient client) {
 		currentAgentRuntime().onClientStarted(client);
 		bridgeServer.start();
@@ -72,6 +77,7 @@ public final class ClientRuntimeController {
 
 	public void onWorldLeave() {
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		hudScreenshotService.failActiveCapture("map_capture_failed", "HUD screenshot capture was interrupted");
 		currentAgentRuntime().onWorldLeave();
 		highlightManager.clear();
 	}
@@ -148,6 +154,13 @@ public final class ClientRuntimeController {
 		}
 	}
 
+	public void onFrameRendered() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client != null) {
+			hudScreenshotService.onFrameRendered(client);
+		}
+	}
+
 	public synchronized ReloadResult reload() {
 		AiricraftConfig nextConfig;
 		AgentConfig nextAgentConfig;
@@ -160,6 +173,7 @@ public final class ClientRuntimeController {
 		}
 
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		hudScreenshotService.failActiveCapture("map_capture_failed", "HUD screenshot capture was interrupted");
 		EmbodiedAgentRuntime previousRuntime = currentAgentRuntime();
 		EmbodiedAgentRuntime nextRuntime = createRuntime(nextConfig, nextAgentConfig);
 		MinecraftClient client = MinecraftClient.getInstance();
@@ -175,6 +189,7 @@ public final class ClientRuntimeController {
 
 	public void shutdown() {
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		hudScreenshotService.failActiveCapture("map_capture_failed", "HUD screenshot capture was interrupted");
 		plannerDebugOverlay.setMode(PlannerDebugOverlayMode.OFF);
 		currentAgentRuntime().shutdown();
 		highlightManager.clear();
