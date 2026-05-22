@@ -70,7 +70,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		Objects.requireNonNull(request, "request");
 		String id = request.id();
 		Waypoint waypoint = id == null || id.isBlank()
-			? WaypointFactory.createWaypoint(
+			? WaypointFactory.createClientWaypoint(
 				AIRICRAFT_MOD_ID,
 				new BlockPos(request.x(), request.y(), request.z()),
 				request.name(),
@@ -79,7 +79,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			)
 			: jmAPI.getWaypoint(AIRICRAFT_MOD_ID, id);
 		if (waypoint == null) {
-			waypoint = WaypointFactory.createWaypoint(
+			waypoint = WaypointFactory.createClientWaypoint(
 				AIRICRAFT_MOD_ID,
 				new BlockPos(request.x(), request.y(), request.z()),
 				request.name(),
@@ -92,8 +92,6 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		waypoint.setPrimaryDimension(request.dimension());
 		waypoint.setColor(request.color() == null ? DEFAULT_WAYPOINT_COLOR : request.color());
 		waypoint.setEnabled(request.enabled());
-		waypoint.setShowOnMap(request.showOnMap());
-		waypoint.setShowInWorld(request.showInWorld());
 		jmAPI.addWaypoint(AIRICRAFT_MOD_ID, waypoint);
 		return toMapWaypoint(waypoint);
 	}
@@ -178,8 +176,8 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			waypoint.getZ(),
 			waypoint.getColor(),
 			waypoint.isEnabled(),
-			waypoint.showOnMap(),
-			waypoint.showInWorld()
+			waypoint.isEnabled(),
+			waypoint.isEnabled()
 		);
 	}
 }

@@ -3,7 +3,7 @@ package ai.moeru.airicraft.compat.journeymap;
 import ai.moeru.airicraft.agent.integration.map.MapIntegrationBridge;
 import journeymap.api.v2.client.IClientAPI;
 import journeymap.api.v2.client.IClientPlugin;
-import journeymap.api.v2.common.JourneyMapPlugin;
+import journeymap.api.v2.client.JourneyMapPlugin;
 
 import java.util.List;
 
