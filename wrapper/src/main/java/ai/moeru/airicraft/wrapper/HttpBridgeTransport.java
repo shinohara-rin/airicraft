@@ -106,6 +106,56 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> mapStatus() {
+		return get("/v1/map/status");
+	}
+
+	@Override
+	public Map<String, Object> listMapWaypoints(String providerId, String dimension) {
+		StringBuilder path = new StringBuilder("/v1/map/waypoints");
+		String separator = "?";
+		if (providerId != null && !providerId.isBlank()) {
+			path.append(separator).append("provider=").append(URLEncoder.encode(providerId, java.nio.charset.StandardCharsets.UTF_8));
+			separator = "&";
+		}
+		if (dimension != null && !dimension.isBlank()) {
+			path.append(separator).append("dimension=").append(URLEncoder.encode(dimension, java.nio.charset.StandardCharsets.UTF_8));
+		}
+		return get(path.toString());
+	}
+
+	@Override
+	public Map<String, Object> setMapWaypoint(Map<String, Object> request) {
+		return send("POST", "/v1/map/waypoints", request);
+	}
+
+	@Override
+	public Map<String, Object> deleteMapWaypoint(String waypointId) {
+		return send("DELETE", "/v1/map/waypoints?id=" + URLEncoder.encode(waypointId, java.nio.charset.StandardCharsets.UTF_8), null);
+	}
+
+	@Override
+	public CapturedImage captureMapImage(Map<String, Object> request) {
+		Map<String, Object> payload = send("POST", "/v1/map/image", request);
+		try {
+			int width = requiredInt(payload, "width");
+			int height = requiredInt(payload, "height");
+			return new CapturedImage(
+				Base64.getDecoder().decode(requiredString(payload, "imageBase64")),
+				requiredString(payload, "format"),
+				width,
+				height,
+				width,
+				height,
+				requiredLong(payload, "capturedAtMs")
+			);
+		}
+		catch (IllegalArgumentException exception) {
+			throw new BridgeUnavailableException("bridge_io_error", "Bridge returned an invalid map image payload");
+		}
+	}
+
+	@Override
 	public Map<String, Object> listWorlds() {
 		return get("/v1/worlds");
 	}
@@ -456,6 +506,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 		return switch (path) {
 			case "/v1/reload" -> RELOAD_REQUEST_TIMEOUT;
 			case "/v1/camera/screenshot" -> SCREENSHOT_REQUEST_TIMEOUT;
+			case "/v1/map/image" -> SCREENSHOT_REQUEST_TIMEOUT;
 			case "/v1/vision/describe" -> VISION_REQUEST_TIMEOUT;
 			case "/v1/worlds/join", "/v1/servers/join" -> JOIN_REQUEST_TIMEOUT;
 			case "/v1/agent/debug/compact" -> DEBUG_COMPACTION_REQUEST_TIMEOUT;

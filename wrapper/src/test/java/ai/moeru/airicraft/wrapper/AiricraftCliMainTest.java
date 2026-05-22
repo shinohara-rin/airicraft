@@ -788,6 +788,72 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void mapStatusPrintsProviderSummary() {
+		TestTransport transport = new TestTransport();
+		transport.mapStatusPayload = linkedMap(
+			"available", true,
+			"preferredProvider", "journeymap",
+			"providers", List.of(linkedMap("id", "journeymap", "available", true))
+		);
+
+		CliResult result = execute(transport, "map", "status");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("status: ok\n"));
+		assertTrue(result.output().contains("command: map status\n"));
+		assertTrue(result.output().contains("available: true\n"));
+		assertTrue(result.output().contains("preferredProvider: journeymap\n"));
+	}
+
+	@Test
+	void mapWaypointsListPrintsWaypoints() {
+		TestTransport transport = new TestTransport();
+		transport.mapWaypointsPayload = linkedMap(
+			"waypoints", List.of(linkedMap(
+				"id", "guid-1",
+				"name", "Home",
+				"dimension", "minecraft:overworld",
+				"x", 1,
+				"y", 64,
+				"z", 2
+			))
+		);
+
+		CliResult result = execute(transport, "map", "waypoints", "list");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("command: map waypoints list\n"));
+		assertTrue(result.output().contains("id: guid-1\n"));
+		assertTrue(result.output().contains("name: Home\n"));
+		assertTrue(result.output().contains("dimension: minecraft:overworld\n"));
+	}
+
+	@Test
+	void mapImageWritesFileAndPrintsMetadata(@TempDir Path tempDir) throws Exception {
+		TestTransport transport = new TestTransport();
+		transport.mapImage = new CapturedImage(
+			new byte[] {9, 8, 7},
+			"png",
+			512,
+			512,
+			512,
+			512,
+			123456789L
+		);
+		Path output = tempDir.resolve("captures/map.png");
+
+		CliResult result = execute(transport, "map", "image", "--kind", "worldmap", "--output", output.toString());
+
+		assertEquals(0, result.exitCode());
+		assertArrayEquals(new byte[] {9, 8, 7}, Files.readAllBytes(output));
+		assertTrue(result.output().contains("command: map image\n"));
+		assertTrue(result.output().contains("outputPath: " + output.toAbsolutePath().normalize() + "\n"));
+		assertTrue(result.output().contains("format: png\n"));
+		assertTrue(result.output().contains("width: 512\n"));
+		assertTrue(result.output().contains("height: 512\n"));
+	}
+
+	@Test
 	void cameraScreenshotRequiresOutputPath() {
 		CliResult result = execute(new TestTransport(), "camera", "screenshot");
 
@@ -896,12 +962,17 @@ class AiricraftCliMainTest {
 		private Map<String, Object> highlightsPayload = Map.of("highlights", List.of());
 		private Map<String, Object> clearHighlightPayload = Map.of("cleared", true);
 		private Map<String, Object> clearHighlightsPayload = Map.of("cleared", true, "clearedCount", 0);
+		private Map<String, Object> mapStatusPayload = Map.of("available", false, "providers", List.of());
+		private Map<String, Object> mapWaypointsPayload = Map.of("waypoints", List.of());
+		private Map<String, Object> mapWaypointSetPayload = Map.of("waypoint", Map.of("id", "guid-1"));
+		private Map<String, Object> mapWaypointDeletePayload = Map.of("deleted", true);
 		private Map<String, Object> worldsJoinPayload = Map.of("started", true);
 		private Map<String, Object> serversJoinPayload = Map.of("started", true);
 		private Map<String, Object> lookAtPayload = Map.of("started", true);
 		private Map<String, Object> playerAttackEntityPayload = Map.of("accepted", true);
 		private Map<String, Object> playerUseEntityPayload = Map.of("accepted", true);
 		private CapturedImage capturedImage = new CapturedImage(new byte[0], "png", 854, 480, 854, 480, 1L);
+		private CapturedImage mapImage = new CapturedImage(new byte[0], "png", 512, 512, 512, 512, 1L);
 		private VisionDescriptionResult visionDescriptionResult = new VisionDescriptionResult("text", 1L, "gpt-4.1-mini", "desc");
 		private String lastVisionPrompt;
 		private Long lastEventSince;
@@ -976,6 +1047,31 @@ class AiricraftCliMainTest {
 		public VisionDescriptionResult describeVision(String prompt) {
 			lastVisionPrompt = prompt;
 			return visionDescriptionResult;
+		}
+
+		@Override
+		public Map<String, Object> mapStatus() {
+			return mapStatusPayload;
+		}
+
+		@Override
+		public Map<String, Object> listMapWaypoints(String providerId, String dimension) {
+			return mapWaypointsPayload;
+		}
+
+		@Override
+		public Map<String, Object> setMapWaypoint(Map<String, Object> request) {
+			return mapWaypointSetPayload;
+		}
+
+		@Override
+		public Map<String, Object> deleteMapWaypoint(String waypointId) {
+			return mapWaypointDeletePayload;
+		}
+
+		@Override
+		public CapturedImage captureMapImage(Map<String, Object> request) {
+			return mapImage;
 		}
 
 		@Override

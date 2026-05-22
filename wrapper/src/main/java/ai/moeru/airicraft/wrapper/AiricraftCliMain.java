@@ -130,6 +130,16 @@ public final class AiricraftCliMain {
 		CommandLine vision = root.getSubcommands().get("vision");
 		vision.addSubcommand(new VisionDescribeCommand(context));
 
+		root.addSubcommand("map", new UsageCommand(out, "airicraft map", "Map integration commands"));
+		CommandLine map = root.getSubcommands().get("map");
+		map.addSubcommand(new MapStatusCommand(context));
+		map.addSubcommand("waypoints", new UsageCommand(out, "airicraft map waypoints", "Map waypoint commands"));
+		CommandLine mapWaypoints = map.getSubcommands().get("waypoints");
+		mapWaypoints.addSubcommand(new MapWaypointsListCommand(context));
+		mapWaypoints.addSubcommand(new MapWaypointsSetCommand(context));
+		mapWaypoints.addSubcommand(new MapWaypointsDeleteCommand(context));
+		map.addSubcommand(new MapImageCommand(context));
+
 		root.addSubcommand("world", new UsageCommand(out, "airicraft world", "World inspection commands"));
 		CommandLine world = root.getSubcommands().get("world");
 		world.addSubcommand(new WorldSnapshotCommand(context));
@@ -956,6 +966,158 @@ public final class AiricraftCliMain {
 		}
 	}
 
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Show map integration status.")
+	private static final class MapStatusCommand extends BaseCommand {
+		private MapStatusCommand(CliContext context) {
+			super(context, "map status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().mapStatus();
+		}
+	}
+
+	@Command(name = "list", mixinStandardHelpOptions = true, description = "List map waypoints.")
+	private static final class MapWaypointsListCommand extends BaseCommand {
+		@Option(names = "--provider", description = "Map provider id.")
+		private String provider;
+
+		@Option(names = "--dimension", description = "Dimension id.")
+		private String dimension;
+
+		private MapWaypointsListCommand(CliContext context) {
+			super(context, "map waypoints list");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().listMapWaypoints(provider, dimension);
+		}
+	}
+
+	@Command(name = "set", mixinStandardHelpOptions = true, description = "Create or update a map waypoint.")
+	private static final class MapWaypointsSetCommand extends BaseCommand {
+		@Option(names = "--provider", description = "Map provider id.")
+		private String provider;
+
+		@Option(names = "--waypoint-id", description = "Existing waypoint id to update.")
+		private String waypointId;
+
+		@Option(names = "--id", description = "Alias for --waypoint-id.")
+		private String id;
+
+		@Option(names = "--name", required = true)
+		private String name;
+
+		@Option(names = "--dimension", description = "Dimension id.")
+		private String dimension;
+
+		@Option(names = "--x", required = true)
+		private Integer x;
+
+		@Option(names = "--y", required = true)
+		private Integer y;
+
+		@Option(names = "--z", required = true)
+		private Integer z;
+
+		@Option(names = "--color", description = "Waypoint color as hex RGB.")
+		private String color;
+
+		private MapWaypointsSetCommand(CliContext context) {
+			super(context, "map waypoints set");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+			putIfPresent(request, "provider", provider);
+			putIfPresent(request, "id", waypointId == null || waypointId.isBlank() ? id : waypointId);
+			request.put("name", name);
+			putIfPresent(request, "dimension", dimension);
+			request.put("x", x);
+			request.put("y", y);
+			request.put("z", z);
+			if (color != null && !color.isBlank()) {
+				request.put("color", parseHexColor(commandPath(), color));
+			}
+			return transport().setMapWaypoint(request);
+		}
+	}
+
+	@Command(name = "delete", mixinStandardHelpOptions = true, description = "Delete a map waypoint.")
+	private static final class MapWaypointsDeleteCommand extends BaseCommand {
+		@Option(names = "--waypoint-id", required = true)
+		private String waypointId;
+
+		private MapWaypointsDeleteCommand(CliContext context) {
+			super(context, "map waypoints delete");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().deleteMapWaypoint(waypointId);
+		}
+	}
+
+	@Command(name = "image", mixinStandardHelpOptions = true, description = "Capture a map image.")
+	private static final class MapImageCommand implements Callable<Integer> {
+		private final CliContext context;
+
+		@Option(names = "--provider", description = "Map provider id.")
+		private String provider;
+
+		@Option(names = "--kind", defaultValue = "worldmap", description = "Map image kind.")
+		private String kind;
+
+		@Option(names = "--dimension", description = "Dimension id.")
+		private String dimension;
+
+		@Option(names = "--radius-chunks", description = "Radius in chunks.")
+		private Integer radiusChunks;
+
+		@Option(names = "--zoom", description = "JourneyMap zoom level.")
+		private Integer zoom;
+
+		@Option(names = "--grid", description = "Include grid overlay.")
+		private boolean grid;
+
+		@Option(names = "--output", required = true, description = "Path to write the map PNG.")
+		private Path output;
+
+		private MapImageCommand(CliContext context) {
+			this.context = context;
+		}
+
+		@Override
+		public Integer call() {
+			LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+			putIfPresent(request, "provider", provider);
+			putIfPresent(request, "kind", kind);
+			putIfPresent(request, "dimension", dimension);
+			if (radiusChunks != null) {
+				request.put("radiusChunks", radiusChunks);
+			}
+			if (zoom != null) {
+				request.put("zoom", zoom);
+			}
+			request.put("grid", grid);
+			CapturedImage capture = context.transport.captureMapImage(request);
+			Path outputPath = output.toAbsolutePath().normalize();
+			writeCapture(outputPath, capture.bytes());
+
+			LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+			payload.put("outputPath", outputPath.toString());
+			payload.put("format", capture.format());
+			payload.put("width", capture.width());
+			payload.put("height", capture.height());
+			payload.put("capturedAtMs", capture.capturedAtMs());
+			context.printer.printSuccess("map image", payload);
+			return 0;
+		}
+	}
+
 	@Command(name = "snapshot", mixinStandardHelpOptions = true, description = "Capture a snapshot of blocks around a position.")
 	private static final class WorldSnapshotCommand extends BaseCommand {
 		@Option(names = "--x")
@@ -1212,6 +1374,44 @@ public final class AiricraftCliMain {
 
 		private String code() {
 			return code;
+		}
+	}
+
+	private static void putIfPresent(Map<String, Object> map, String key, String value) {
+		if (value != null && !value.isBlank()) {
+			map.put(key, value);
+		}
+	}
+
+	private static int parseHexColor(String commandPath, String raw) {
+		String value = raw.trim();
+		if (value.startsWith("#")) {
+			value = value.substring(1);
+		}
+		if (value.startsWith("0x") || value.startsWith("0X")) {
+			value = value.substring(2);
+		}
+		if (value.length() != 6) {
+			throw new CliUsageException(commandPath, "invalid_arguments", "Color must be a 6-digit RGB hex value");
+		}
+		try {
+			return Integer.parseInt(value, 16);
+		}
+		catch (NumberFormatException exception) {
+			throw new CliUsageException(commandPath, "invalid_arguments", "Color must be a 6-digit RGB hex value");
+		}
+	}
+
+	private static void writeCapture(Path outputPath, byte[] bytes) {
+		try {
+			Path parent = outputPath.getParent();
+			if (parent != null) {
+				Files.createDirectories(parent);
+			}
+			Files.write(outputPath, bytes);
+		}
+		catch (java.io.IOException exception) {
+			throw new UncheckedIOException(exception);
 		}
 	}
 

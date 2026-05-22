@@ -17,6 +17,16 @@ interface MinecraftTransport {
 
 	VisionDescriptionResult describeVision(String prompt);
 
+	Map<String, Object> mapStatus();
+
+	Map<String, Object> listMapWaypoints(String providerId, String dimension);
+
+	Map<String, Object> setMapWaypoint(Map<String, Object> request);
+
+	Map<String, Object> deleteMapWaypoint(String waypointId);
+
+	CapturedImage captureMapImage(Map<String, Object> request);
+
 	Map<String, Object> listWorlds();
 
 	Map<String, Object> joinWorld(String worldId);
