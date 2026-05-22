@@ -77,6 +77,34 @@ class JourneyMapIntegrationProviderTest {
 		assertThrows(BridgeUnavailableException.class, () -> JourneyMapIntegrationProvider.stitchCachedRegionImages(tempDir, 0, 0, 0));
 	}
 
+	@Test
+	void centersCachedMapOnPlayerBlockAcrossRegionEdges() throws Exception {
+		writeTile("-1,-1.png", Color.RED);
+		writeTile("0,-1.png", Color.GREEN);
+		writeTile("-1,0.png", Color.BLUE);
+		writeTile("0,0.png", Color.WHITE);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(tempDir, -1, -1, 5, false, 0.0F);
+
+		assertEquals(5, centered.getWidth());
+		assertEquals(5, centered.getHeight());
+		assertEquals(Color.RED.getRGB(), centered.getRGB(2, 2));
+		assertEquals(Color.GREEN.getRGB(), centered.getRGB(3, 2));
+		assertEquals(Color.BLUE.getRGB(), centered.getRGB(2, 3));
+		assertEquals(Color.WHITE.getRGB(), centered.getRGB(3, 3));
+	}
+
+	@Test
+	void drawsPlayerMarkerAtCenteredMapPosition() throws Exception {
+		writeTile("-1,-1.png", Color.DARK_GRAY);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(tempDir, -104, -54, 65, true, 0.0F);
+
+		assertEquals(65, centered.getWidth());
+		assertEquals(65, centered.getHeight());
+		assertEquals(0xffff2d2d, centered.getRGB(32, 32));
+	}
+
 	private void writeTile(String name, Color color) throws Exception {
 		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
 		for (int z = 0; z < image.getHeight(); z++) {

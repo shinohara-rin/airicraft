@@ -16,11 +16,13 @@ import journeymap.api.v2.common.waypoint.WaypointFactory;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.World;
 
 import javax.imageio.ImageIO;
+import java.awt.BasicStroke;
+import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
@@ -28,7 +30,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -37,6 +41,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 	public static final String PROVIDER_ID = "journeymap";
 	private static final String AIRICRAFT_MOD_ID = "airicraft";
 	private static final int DEFAULT_WAYPOINT_COLOR = 0x33aaff;
+	private static final int JOURNEYMAP_REGION_PIXELS = 512;
+	private static final int MAX_WORLDMAP_REGION_RADIUS = 2;
+	private static final int MINIMAP_IMAGE_SIZE = 512;
 
 	private final IClientAPI jmAPI;
 
@@ -136,12 +143,14 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_dimension_unavailable", "JourneyMap capture currently requires the active dimension"));
 		}
 
-		ChunkPos centerChunk = client.player.getChunkPos();
 		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
-		int regionRadius = "minimap".equals(kind) ? 0 : Math.max(0, (radiusChunks + 31) / 32);
+		int outputSize = "minimap".equals(kind)
+			? MINIMAP_IMAGE_SIZE
+			: (Math.min(MAX_WORLDMAP_REGION_RADIUS, Math.max(0, (radiusChunks + 31) / 32)) * 2 + 1) * JOURNEYMAP_REGION_PIXELS;
 		try {
 			Path imageDir = journeyMapDimensionDir(client, client.world.getRegistryKey()).resolve("day");
-			BufferedImage image = stitchCachedRegionImages(imageDir, regionCoordinateForChunk(centerChunk.x), regionCoordinateForChunk(centerChunk.z), regionRadius);
+			BlockPos playerBlock = client.player.getBlockPos();
+			BufferedImage image = composeCenteredMapImage(imageDir, playerBlock.getX(), playerBlock.getZ(), outputSize, true, client.player.getYaw());
 			return CompletableFuture.completedFuture(MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()));
 		}
 		catch (BridgeUnavailableException exception) {
@@ -167,6 +176,40 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 
 	static int regionCoordinateForChunk(int chunkCoordinate) {
 		return Math.floorDiv(chunkCoordinate, 32);
+	}
+
+	static BufferedImage composeCenteredMapImage(Path imageDir, int playerBlockX, int playerBlockZ, int outputSize, boolean drawMarker, float yawDegrees) {
+		if (imageDir == null || !Files.isDirectory(imageDir)) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map directory is unavailable");
+		}
+		int safeOutputSize = Math.max(1, outputSize);
+		int center = safeOutputSize / 2;
+		BufferedImage output = new BufferedImage(safeOutputSize, safeOutputSize, BufferedImage.TYPE_INT_ARGB);
+		Map<String, BufferedImage> tileCache = new HashMap<>();
+		boolean[] foundImage = { false };
+
+		for (int z = 0; z < safeOutputSize; z++) {
+			int worldZ = playerBlockZ + z - center;
+			int regionZ = Math.floorDiv(worldZ, JOURNEYMAP_REGION_PIXELS);
+			int regionPixelZ = Math.floorMod(worldZ, JOURNEYMAP_REGION_PIXELS);
+			for (int x = 0; x < safeOutputSize; x++) {
+				int worldX = playerBlockX + x - center;
+				int regionX = Math.floorDiv(worldX, JOURNEYMAP_REGION_PIXELS);
+				int regionPixelX = Math.floorMod(worldX, JOURNEYMAP_REGION_PIXELS);
+				BufferedImage tile = cachedRegionImage(imageDir, tileCache, regionX, regionZ, foundImage);
+				if (tile != null && regionPixelX < tile.getWidth() && regionPixelZ < tile.getHeight()) {
+					output.setRGB(x, z, tile.getRGB(regionPixelX, regionPixelZ));
+				}
+			}
+		}
+
+		if (!foundImage[0]) {
+			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
+		}
+		if (drawMarker) {
+			drawPlayerMarker(output, center, center, yawDegrees);
+		}
+		return output;
 	}
 
 	static BufferedImage stitchCachedRegionImages(Path imageDir, int centerRegionX, int centerRegionZ, int regionRadius) {
@@ -198,6 +241,45 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
 		}
 		return stitched;
+	}
+
+	private static BufferedImage cachedRegionImage(Path imageDir, Map<String, BufferedImage> cache, int regionX, int regionZ, boolean[] foundImage) {
+		String key = regionX + "," + regionZ;
+		if (!cache.containsKey(key)) {
+			BufferedImage image = readRegionImage(imageDir.resolve(key + ".png"));
+			cache.put(key, image);
+			if (image != null) {
+				foundImage[0] = true;
+			}
+		}
+		return cache.get(key);
+	}
+
+	private static void drawPlayerMarker(BufferedImage image, int centerX, int centerY, float yawDegrees) {
+		Graphics2D graphics = image.createGraphics();
+		try {
+			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			graphics.setStroke(new BasicStroke(2.0F));
+			double headingRadians = Math.toRadians(yawDegrees);
+			int headingX = centerX + (int) Math.round(-Math.sin(headingRadians) * 14.0D);
+			int headingY = centerY + (int) Math.round(Math.cos(headingRadians) * 14.0D);
+			graphics.setColor(Color.WHITE);
+			graphics.drawLine(centerX, centerY, headingX, headingY);
+			graphics.fillOval(centerX - 6, centerY - 6, 12, 12);
+			graphics.setColor(Color.BLACK);
+			graphics.drawOval(centerX - 6, centerY - 6, 12, 12);
+			graphics.setColor(new Color(0xffff2d2d, true));
+			graphics.drawLine(centerX, centerY, headingX, headingY);
+			graphics.fillOval(centerX - 4, centerY - 4, 8, 8);
+			graphics.drawLine(centerX - 10, centerY, centerX - 7, centerY);
+			graphics.drawLine(centerX + 7, centerY, centerX + 10, centerY);
+			graphics.drawLine(centerX, centerY - 10, centerX, centerY - 7);
+			graphics.drawLine(centerX, centerY + 7, centerX, centerY + 10);
+		}
+		finally {
+			graphics.dispose();
+		}
+		image.setRGB(centerX, centerY, 0xffff2d2d);
 	}
 
 	private static BufferedImage readRegionImage(Path path) {
