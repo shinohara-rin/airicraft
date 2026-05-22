@@ -1,6 +1,14 @@
 package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
+import ai.moeru.airicraft.agent.integration.map.MapImageCapture;
+import ai.moeru.airicraft.agent.integration.map.MapImageRequest;
+import ai.moeru.airicraft.agent.integration.map.MapIntegrationBridge;
+import ai.moeru.airicraft.agent.integration.map.MapIntegrationProvider;
+import ai.moeru.airicraft.agent.integration.map.MapIntegrationRegistry;
+import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
+import ai.moeru.airicraft.agent.integration.map.MapWaypointQuery;
+import ai.moeru.airicraft.agent.integration.map.MapWaypointWrite;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
@@ -62,6 +70,7 @@ public final class ModBridgeServer {
 	private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final long SCREENSHOT_CAPTURE_TIMEOUT_MILLIS = 5_000L;
+	private static final long MAP_CAPTURE_TIMEOUT_MILLIS = 5_000L;
 	private static final long DEBUG_COMPACTION_DEFAULT_TIMEOUT_MILLIS = 30_000L;
 	private static final long DEBUG_COMPACTION_MAX_TIMEOUT_MILLIS = 120_000L;
 	private static final long DEBUG_COMPACTION_POLL_INTERVAL_MILLIS = 25L;
@@ -123,6 +132,9 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/world-snapshot", exchange -> handleJson(exchange, () -> createWorldSnapshotResponse(exchange)));
 			httpServer.createContext("/v1/camera/screenshot", this::handleCameraScreenshot);
 			httpServer.createContext("/v1/vision/describe", this::handleVisionDescribe);
+			httpServer.createContext("/v1/map/status", exchange -> handleJson(exchange, this::createMapStatusResponse));
+			httpServer.createContext("/v1/map/waypoints", this::handleMapWaypoints);
+			httpServer.createContext("/v1/map/image", this::handleMapImage);
 			httpServer.createContext("/v1/player/look-at", this::handlePlayerLookAt);
 			httpServer.createContext("/v1/player/attack-entity", this::handlePlayerAttackEntity);
 			httpServer.createContext("/v1/player/use-entity", this::handlePlayerUseEntity);
@@ -328,6 +340,120 @@ public final class ModBridgeServer {
 			catch (LlmBackendException exception) {
 				throw visionBridgeException(exception);
 			}
+		});
+	}
+
+	private Object createMapStatusResponse() {
+		return mapStatusPayload(MapIntegrationBridge.registry());
+	}
+
+	private void handleMapWaypoints(HttpExchange exchange) throws IOException {
+		if (!authorize(exchange)) {
+			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
+			return;
+		}
+
+		if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+			String providerId = getQuery(exchange, "provider");
+			String dimension = getQuery(exchange, "dimension");
+			try {
+				Map<String, Object> payload = onClientThread(() -> {
+					MapIntegrationProvider provider = mapProvider(providerId);
+					return mapWaypointsPayload(provider.listWaypoints(new MapWaypointQuery(provider.id(), dimension)));
+				});
+				writeJson(exchange, 200, payload);
+			}
+			catch (BridgeUnavailableException exception) {
+				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+			}
+			return;
+		}
+
+		if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+			try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+				MapWaypointRequest request = GSON.fromJson(reader, MapWaypointRequest.class);
+				if (request == null || request.name() == null || request.name().isBlank()
+					|| request.x() == null || request.y() == null || request.z() == null) {
+					throw new BridgeUnavailableException("invalid_request", "Missing waypoint payload");
+				}
+				Map<String, Object> payload = onClientThread(() -> {
+					var client = getClient();
+					ensureWorldLoaded(client);
+					MapIntegrationProvider provider = mapProvider(request.provider());
+					MapWaypoint waypoint = provider.upsertWaypoint(new MapWaypointWrite(
+						provider.id(),
+						request.id(),
+						request.name(),
+						request.dimension() == null || request.dimension().isBlank()
+							? client.world.getRegistryKey().getValue().toString()
+							: request.dimension(),
+						request.x(),
+						request.y(),
+						request.z(),
+						request.color(),
+						request.enabled() == null || request.enabled(),
+						request.showOnMap() == null || request.showOnMap(),
+						request.showInWorld() == null || request.showInWorld()
+					));
+					Map<String, Object> response = new LinkedHashMap<>();
+					response.put("waypoint", mapWaypointPayload(waypoint));
+					return response;
+				});
+				writeJson(exchange, 200, payload);
+				return;
+			}
+			catch (JsonSyntaxException exception) {
+				writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed waypoint request"));
+				return;
+			}
+			catch (BridgeUnavailableException exception) {
+				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+				return;
+			}
+		}
+
+		if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
+			String providerId = getQuery(exchange, "provider");
+			String waypointId = getQuery(exchange, "id");
+			if (waypointId == null || waypointId.isBlank()) {
+				writeJson(exchange, 400, Map.of("error", "invalid_request", "message", "Missing waypoint id"));
+				return;
+			}
+			try {
+				Map<String, Object> payload = onClientThread(() -> {
+					MapIntegrationProvider provider = mapProvider(providerId);
+					boolean deleted = provider.deleteWaypoint(waypointId);
+					if (!deleted) {
+						throw new BridgeUnavailableException("map_waypoint_not_found", "Map waypoint not found: " + waypointId);
+					}
+					return Map.of("deleted", true, "waypointId", waypointId);
+				});
+				writeJson(exchange, 200, payload);
+				return;
+			}
+			catch (BridgeUnavailableException exception) {
+				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
+				return;
+			}
+		}
+
+		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+	}
+
+	private void handleMapImage(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", MapImageRequestBody.class, request -> {
+			CompletableFuture<MapImageCapture> captureFuture = onClientThread(() -> {
+				MapIntegrationProvider provider = mapProvider(request == null ? null : request.provider());
+				return provider.captureMap(new MapImageRequest(
+					provider.id(),
+					request == null ? "worldmap" : request.kind(),
+					request == null ? null : request.dimension(),
+					request == null || request.radiusChunks() == null ? 8 : request.radiusChunks(),
+					request == null || request.zoom() == null ? 0 : request.zoom(),
+					request != null && Boolean.TRUE.equals(request.grid())
+				));
+			});
+			return mapImagePayload(awaitMapCapture(captureFuture));
 		});
 	}
 
@@ -823,6 +949,25 @@ public final class ModBridgeServer {
 		}
 	}
 
+	private MapImageCapture awaitMapCapture(CompletableFuture<MapImageCapture> captureFuture) {
+		try {
+			return captureFuture.get(MAP_CAPTURE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+		}
+		catch (TimeoutException exception) {
+			throw new BridgeUnavailableException("map_capture_timeout", "Map capture timed out");
+		}
+		catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			throw new BridgeUnavailableException("map_capture_failed", "Map capture was interrupted");
+		}
+		catch (ExecutionException exception) {
+			if (exception.getCause() instanceof BridgeUnavailableException bridgeUnavailableException) {
+				throw bridgeUnavailableException;
+			}
+			throw new BridgeUnavailableException("map_capture_failed", "Failed to capture map image");
+		}
+	}
+
 	private static Map<String, Object> cameraScreenshotPayload(FirstPersonScreenshotService.CapturedScreenshot screenshot) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("format", screenshot.format());
@@ -832,6 +977,57 @@ public final class ModBridgeServer {
 		payload.put("sourceHeight", screenshot.sourceHeight());
 		payload.put("capturedAtMs", screenshot.capturedAtMs());
 		payload.put("imageBase64", Base64.getEncoder().encodeToString(screenshot.imageBytes()));
+		return payload;
+	}
+
+	private static Map<String, Object> mapImagePayload(MapImageCapture capture) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("providerId", capture.providerId());
+		payload.put("kind", capture.kind());
+		payload.put("format", capture.format());
+		payload.put("width", capture.width());
+		payload.put("height", capture.height());
+		payload.put("capturedAtMs", capture.capturedAtMs());
+		payload.put("imageBase64", Base64.getEncoder().encodeToString(capture.imageBytes()));
+		return payload;
+	}
+
+	static Map<String, Object> mapStatusPayload(MapIntegrationRegistry registry) {
+		MapIntegrationRegistry effectiveRegistry = registry == null ? MapIntegrationRegistry.empty() : registry;
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("available", effectiveRegistry.preferred().isPresent());
+		payload.put("preferredProvider", effectiveRegistry.preferred().map(MapIntegrationProvider::id).orElse(null));
+		payload.put("providers", effectiveRegistry.providers().stream().map(ModBridgeServer::mapProviderPayload).toList());
+		return payload;
+	}
+
+	private static Map<String, Object> mapProviderPayload(MapIntegrationProvider provider) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("id", provider.id());
+		payload.put("available", provider.available());
+		payload.put("capabilities", provider.capabilities().values().stream().map(Enum::name).toList());
+		return payload;
+	}
+
+	static Map<String, Object> mapWaypointsPayload(List<MapWaypoint> waypoints) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("waypoints", waypoints == null ? List.of() : waypoints.stream().map(ModBridgeServer::mapWaypointPayload).toList());
+		return payload;
+	}
+
+	private static Map<String, Object> mapWaypointPayload(MapWaypoint waypoint) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("providerId", waypoint.providerId());
+		payload.put("id", waypoint.id());
+		payload.put("name", waypoint.name());
+		payload.put("dimension", waypoint.dimension());
+		payload.put("x", waypoint.x());
+		payload.put("y", waypoint.y());
+		payload.put("z", waypoint.z());
+		payload.put("color", waypoint.color());
+		payload.put("enabled", waypoint.enabled());
+		payload.put("showOnMap", waypoint.showOnMap());
+		payload.put("showInWorld", waypoint.showInWorld());
 		return payload;
 	}
 
@@ -1614,6 +1810,17 @@ public final class ModBridgeServer {
 		return Objects.requireNonNull(agentRuntimeSupplier.get(), "agentRuntime");
 	}
 
+	private MapIntegrationProvider mapProvider(String providerId) {
+		MapIntegrationRegistry registry = MapIntegrationBridge.registry();
+		if (providerId != null && !providerId.isBlank()) {
+			return registry.provider(providerId)
+				.filter(MapIntegrationProvider::available)
+				.orElseThrow(() -> new BridgeUnavailableException("map_provider_unavailable", "Map provider unavailable: " + providerId));
+		}
+		return registry.preferred()
+			.orElseThrow(() -> new BridgeUnavailableException("map_provider_unavailable", "No map provider is available"));
+	}
+
 	private FirstPersonScreenshotService screenshotService() {
 		return Objects.requireNonNull(screenshotServiceSupplier.get(), "screenshotService");
 	}
@@ -1663,6 +1870,31 @@ public final class ModBridgeServer {
 	}
 
 	private record VisionDescribeRequest(String prompt) {
+	}
+
+	private record MapWaypointRequest(
+		String provider,
+		String id,
+		String name,
+		String dimension,
+		Integer x,
+		Integer y,
+		Integer z,
+		Integer color,
+		Boolean enabled,
+		Boolean showOnMap,
+		Boolean showInWorld
+	) {
+	}
+
+	private record MapImageRequestBody(
+		String provider,
+		String kind,
+		String dimension,
+		Integer radiusChunks,
+		Integer zoom,
+		Boolean grid
+	) {
 	}
 
 	private record AgentTaskRequest(String type, String resourceKind, Integer quantity) {
