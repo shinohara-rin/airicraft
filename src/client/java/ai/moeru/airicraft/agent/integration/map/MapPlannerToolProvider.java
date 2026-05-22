@@ -76,7 +76,7 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 			),
 			PlannerToolCatalog.toolForProvider(
 				TAKE_MAP_LOOK,
-				"Attach a map image from the active map provider.",
+				"Attach a stable internal map image from the active map provider, independent of the current on-screen HUD size.",
 				PlannerToolCatalog.propertiesForProvider(
 					PlannerToolCatalog.propForProvider("provider", PlannerToolCatalog.optionalStringForProvider("Optional map provider id.")),
 					PlannerToolCatalog.propForProvider("kind", PlannerToolCatalog.enumStringForProvider("Map image kind.", List.of("worldmap", "minimap"))),
@@ -96,7 +96,7 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 		}
 		return """
 			If map waypoints or map images are useful, call inspect_map_waypoints, set_map_waypoint, delete_map_waypoint, or take_map_look.
-			take_map_look attaches a map image to the follow-up. Use it when spatial context is better seen than described.
+			take_map_look attaches a stable internal minimap/worldmap image to the follow-up. Use it for minimap or map questions instead of take_a_look; it is not a capture of the current on-screen HUD.
 			""";
 	}
 
