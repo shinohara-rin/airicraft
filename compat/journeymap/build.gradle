@@ -78,6 +78,9 @@ dependencies {
 
 	testImplementation platform("org.junit:junit-bom:5.11.4")
 	testImplementation "org.junit.jupiter:junit-jupiter"
+	testImplementation "info.journeymap:journeymap-api-fabric:${project.journeymap_api_version}"
+	testRuntimeOnly rootProject.sourceSets.main.output
+	testRuntimeOnly rootProject.sourceSets.client.output
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
