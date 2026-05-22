@@ -32,6 +32,13 @@ repositories {
 			includeGroup "me.shedaniel.cloth"
 		}
 	}
+	maven {
+		name = "Architectury"
+		url = uri("https://maven.architectury.dev")
+		content {
+			includeGroup "dev.architectury"
+		}
+	}
 }
 
 loom {
@@ -59,6 +66,8 @@ configurations {
 	}
 }
 
+def reiCompatProject = rootProject.findProject(":compat:rei")
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
@@ -71,6 +80,11 @@ dependencies {
 
 	journeyMapCompatMods "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 	journeyMapCompatMods "maven.modrinth:journeymap:${project.journeymap_mod_version}"
+	if (reiCompatProject != null) {
+		journeyMapCompatMods "me.shedaniel:RoughlyEnoughItems-fabric:${project.rei_version}"
+		journeyMapCompatMods "dev.architectury:architectury-fabric:${project.architectury_version}"
+		journeyMapCompatMods "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}"
+	}
 	journeyMapCompatLibraries "org.yaml:snakeyaml:2.4"
 	journeyMapCompatLibraries "io.opentelemetry:opentelemetry-api:1.60.1"
 	journeyMapCompatLibraries "io.opentelemetry:opentelemetry-sdk:1.60.1"
@@ -110,7 +124,6 @@ def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
 def journeyMapCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/journeymap")
 def journeyMapCompatModsDir = journeyMapCompatCacheDir.dir("mods")
 def journeyMapCompatLibrariesDir = journeyMapCompatCacheDir.dir("libraries")
-def reiCompatProject = rootProject.findProject(":compat:rei")
 
 tasks.register("syncJourneyMapCompatMods", Sync) {
 	group = "airicraft compatibility"
@@ -127,7 +140,6 @@ tasks.register("syncJourneyMapCompatMods", Sync) {
 	from(configurations.journeyMapCompatMods)
 	if (reiCompatProject != null) {
 		from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
-		from(reiCompatProject.configurations.reiCompatMods)
 	}
 	from(rootProject.layout.projectDirectory.files(
 		"libs/baritone-unoptimized-fabric-1.15.0.jar",
@@ -139,9 +151,6 @@ tasks.register("syncJourneyMapCompatLibraries", Sync) {
 	group = "airicraft compatibility"
 	description = "Copies Airicraft non-mod runtime libraries into .airicraft-compat/journeymap/libraries."
 	from(configurations.journeyMapCompatLibraries)
-	if (reiCompatProject != null) {
-		from(reiCompatProject.configurations.reiCompatLibraries)
-	}
 	into(journeyMapCompatLibrariesDir)
 }
 
@@ -157,8 +166,6 @@ tasks.register("runClientJourneyMapCompat", net.fabricmc.loom.task.prod.ClientPr
 	mods.from(configurations.journeyMapCompatMods)
 	if (reiCompatProject != null) {
 		mods.from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
-		mods.from(reiCompatProject.configurations.reiCompatMods)
-		classpath.from(reiCompatProject.configurations.reiCompatLibraries)
 	}
 	mods.from(rootProject.layout.projectDirectory.files(
 		"libs/baritone-unoptimized-fabric-1.15.0.jar",
