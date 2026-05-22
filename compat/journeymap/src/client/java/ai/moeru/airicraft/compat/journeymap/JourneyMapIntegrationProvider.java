@@ -1,18 +1,26 @@
 package ai.moeru.airicraft.compat.journeymap;
 
+import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.agent.integration.map.MapCapabilities;
 import ai.moeru.airicraft.agent.integration.map.MapCapabilities.MapCapability;
 import ai.moeru.airicraft.agent.integration.map.MapImageCapture;
+import ai.moeru.airicraft.agent.integration.map.MapImageEncoder;
 import ai.moeru.airicraft.agent.integration.map.MapImageRequest;
 import ai.moeru.airicraft.agent.integration.map.MapIntegrationProvider;
 import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointQuery;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointWrite;
 import journeymap.api.v2.client.IClientAPI;
+import journeymap.api.v2.client.display.Context;
 import journeymap.api.v2.common.waypoint.Waypoint;
 import journeymap.api.v2.common.waypoint.WaypointFactory;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.texture.NativeImage;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.ChunkPos;
 
+import java.awt.image.BufferedImage;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -105,7 +113,58 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 
 	@Override
 	public CompletableFuture<MapImageCapture> captureMap(MapImageRequest request) {
-		return CompletableFuture.failedFuture(new UnsupportedOperationException("JourneyMap map capture is not implemented yet"));
+		MapImageRequest safeRequest = request == null
+			? new MapImageRequest(PROVIDER_ID, "worldmap", null, 8, 0, false)
+			: request;
+		if (!"worldmap".equalsIgnoreCase(Objects.requireNonNullElse(safeRequest.kind(), ""))) {
+			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_kind_unavailable", "JourneyMap worldmap capture is available, but minimap capture is not"));
+		}
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client == null || client.world == null || client.player == null) {
+			return CompletableFuture.failedFuture(new BridgeUnavailableException("world_not_loaded", "No world is currently loaded"));
+		}
+		String currentDimension = client.world.getRegistryKey().getValue().toString();
+		if (safeRequest.dimension() != null && !safeRequest.dimension().isBlank() && !currentDimension.equals(safeRequest.dimension())) {
+			return CompletableFuture.failedFuture(new BridgeUnavailableException("map_dimension_unavailable", "JourneyMap capture currently requires the active dimension"));
+		}
+
+		CompletableFuture<MapImageCapture> future = new CompletableFuture<>();
+		ChunkPos centerChunk = client.player.getChunkPos();
+		int radiusChunks = Math.max(1, Math.min(16, safeRequest.radiusChunks()));
+		int zoom = Math.max(0, Math.min(8, safeRequest.zoom()));
+		ChunkPos startChunk = new ChunkPos(centerChunk.x - radiusChunks, centerChunk.z - radiusChunks);
+		ChunkPos endChunk = new ChunkPos(centerChunk.x + radiusChunks, centerChunk.z + radiusChunks);
+		jmAPI.requestMapTile(
+			AIRICRAFT_MOD_ID,
+			client.world.getRegistryKey(),
+			Context.MapType.Day,
+			startChunk,
+			endChunk,
+			null,
+			zoom,
+			safeRequest.grid(),
+			image -> completeMapCapture(future, image)
+		);
+		return future;
+	}
+
+	private static void completeMapCapture(CompletableFuture<MapImageCapture> future, NativeImage image) {
+		if (image == null) {
+			future.completeExceptionally(new BridgeUnavailableException("map_unavailable", "JourneyMap map tile is unavailable"));
+			return;
+		}
+		try (image) {
+			future.complete(MapImageEncoder.encode(PROVIDER_ID, "worldmap", toBufferedImage(image), Instant.now().toEpochMilli()));
+		}
+		catch (RuntimeException exception) {
+			future.completeExceptionally(exception);
+		}
+	}
+
+	private static BufferedImage toBufferedImage(NativeImage image) {
+		BufferedImage bufferedImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
+		bufferedImage.setRGB(0, 0, image.getWidth(), image.getHeight(), image.copyPixelsArgb(), 0, image.getWidth());
+		return bufferedImage;
 	}
 
 	static MapWaypoint toMapWaypoint(Waypoint waypoint) {
