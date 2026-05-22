@@ -29,8 +29,8 @@ public final class HudScreenshotService {
 			activeJob = new CaptureJob(
 				new CompletableFuture<>(),
 				scaledBounds,
-				client.getWindow().getScaledWidth(),
-				client.getWindow().getScaledHeight(),
+				client.getFramebuffer().viewportWidth,
+				client.getFramebuffer().viewportHeight,
 				circleMask
 			);
 			return activeJob.future();
