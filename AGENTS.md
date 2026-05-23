@@ -17,21 +17,14 @@
 - Override JDWP settings with Gradle properties, for example:
   - `./gradlew runClient -Pairicraft.jdwp.port=5006`
   - `./gradlew runClient -Pairicraft.jdwp.suspend=y`
-- REI compat smoke:
-  - Use `scripts/compat-rei run`, not plain `runClient`.
-  - Why: external REI jar is production/intermediary; dev remap path can conflict.
-  - Debug port: JDWP `127.0.0.1:5006`.
-  - Config shared with normal dev: `run/config/airicraft`.
-  - Jar cache ignored: `.airicraft-compat/`; never vendor REI or copy into `run/mods`.
-  - Setup/list jars: `scripts/compat-rei setup`, `scripts/compat-rei mods`.
-  - Verify live: mod list has `airicraft` + `roughlyenoughitems`; `airicraft status` says `available: true`, `bridgeAvailable: true`.
-- JourneyMap compat smoke:
-  - Use `scripts/compat-journeymap run`, not plain `runClient`.
-  - Keep REI enabled during this smoke; the script passes both `-Pairicraft.includeJourneyMapCompat=true` and `-Pairicraft.includeReiCompat=true`.
+- Compatibility smoke:
+  - Use `scripts/compat run`, not plain `runClient`.
+  - Why: external optional-mod jars are production/intermediary; dev remap path can conflict.
+  - It integrates all supported optional mods instead of testing them one at a time.
   - Debug port: JDWP `127.0.0.1:5007`.
   - Config shared with normal dev: `run/config/airicraft`.
-  - Jar cache ignored: `.airicraft-compat/journeymap/`; never vendor JourneyMap or copy into `run/mods`.
-  - Setup/list jars: `scripts/compat-journeymap setup`, `scripts/compat-journeymap mods`.
+  - Jar cache ignored: `.airicraft-compat/integration/`; never vendor optional-mod jars or copy them into `run/mods`.
+  - Setup/list jars: `scripts/compat setup`, `scripts/compat mods`.
   - Verify live: mod list has `airicraft` + `airicraft-journeymap-compat` + `journeymap` + `airicraft-rei-compat` + `roughlyenoughitems`; `airicraft map status` says `available: true`, `preferredProvider: journeymap`; planner still exposes `search_recipes`.
 - Arthas CLI live-debug:
   - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.

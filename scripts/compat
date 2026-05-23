@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+if [[ -f .envrc ]]; then
+  source .envrc
+fi
+
+command="${1:-run}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+gradle_base=(
+  ./gradlew
+  -Pairicraft.includeCompat=true
+)
+
+case "$command" in
+  setup | sync)
+    "${gradle_base[@]}" :syncCompatMods :syncCompatLibraries "$@"
+    ;;
+  run)
+    "${gradle_base[@]}" :runClientCompat "$@"
+    ;;
+  dry-run)
+    "${gradle_base[@]}" :runClientCompat --dry-run "$@"
+    ;;
+  config)
+    mkdir -p run/config/airicraft
+    printf '%s\n' "$repo_root/run/config/airicraft"
+    ;;
+  mods | list)
+    "${gradle_base[@]}" -q :syncCompatMods :syncCompatLibraries
+    find .airicraft-compat/integration/mods -maxdepth 1 -type f -name '*.jar' -print | sort
+    find .airicraft-compat/integration/libraries -maxdepth 1 -type f -name '*.jar' -print | sort
+    ;;
+  *)
+    cat >&2 <<'USAGE'
+usage: scripts/compat [setup|sync|run|dry-run|config|mods|list] [gradle args...]
+
+setup   build Airicraft and sync all compatibility smoke mods
+run     launch the debug production-style client with all compatibility mods
+dry-run print the Gradle task graph without launching Minecraft
+config  print the shared Airicraft config directory
+mods    sync and list the jars in .airicraft-compat/integration/{mods,libraries}
+USAGE
+    exit 2
+    ;;
+esac

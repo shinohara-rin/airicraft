@@ -121,13 +121,13 @@ tasks.named("test") {
 }
 
 def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
-def journeyMapCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/journeymap")
+def journeyMapCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/integration")
 def journeyMapCompatModsDir = journeyMapCompatCacheDir.dir("mods")
 def journeyMapCompatLibrariesDir = journeyMapCompatCacheDir.dir("libraries")
 
 tasks.register("syncJourneyMapCompatMods", Sync) {
 	group = "airicraft compatibility"
-	description = "Copies Airicraft, Airicraft JourneyMap compat, JourneyMap, REI when enabled, and local runtime mods into .airicraft-compat/journeymap/mods."
+	description = "Copies Airicraft, Airicraft JourneyMap compat, JourneyMap, REI when enabled, and local runtime mods into .airicraft-compat/integration/mods."
 	dependsOn rootProject.tasks.named("remapJar")
 	dependsOn tasks.named("remapJar")
 	if (reiCompatProject != null) {
@@ -149,7 +149,7 @@ tasks.register("syncJourneyMapCompatMods", Sync) {
 
 tasks.register("syncJourneyMapCompatLibraries", Sync) {
 	group = "airicraft compatibility"
-	description = "Copies Airicraft non-mod runtime libraries into .airicraft-compat/journeymap/libraries."
+	description = "Copies Airicraft non-mod runtime libraries into .airicraft-compat/integration/libraries."
 	from(configurations.journeyMapCompatLibraries)
 	into(journeyMapCompatLibrariesDir)
 }

@@ -195,3 +195,26 @@ publishing {
 		// retrieving dependencies.
 	}
 }
+
+gradle.projectsEvaluated {
+	def journeyMapCompatProject = findProject(":compat:journeymap")
+	if (journeyMapCompatProject != null) {
+		tasks.register("syncCompatMods") {
+			group = "airicraft compatibility"
+			description = "Copies Airicraft and all compatibility smoke mods into the shared compatibility cache."
+			dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatMods")
+		}
+
+		tasks.register("syncCompatLibraries") {
+			group = "airicraft compatibility"
+			description = "Copies Airicraft runtime libraries into the shared compatibility cache."
+			dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatLibraries")
+		}
+
+		tasks.register("runClientCompat") {
+			group = "airicraft compatibility"
+			description = "Runs a debug production-style Fabric client with all compatibility smoke mods."
+			dependsOn journeyMapCompatProject.tasks.named("runClientJourneyMapCompat")
+		}
+	}
+}

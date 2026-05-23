@@ -25,10 +25,12 @@ dependencyResolutionManagement {
 
 include("wrapper")
 
-if (gradle.startParameter.projectProperties.get("airicraft.includeReiCompat") == "true") {
+def includeAllCompat = gradle.startParameter.projectProperties.get("airicraft.includeCompat") == "true"
+
+if (includeAllCompat || gradle.startParameter.projectProperties.get("airicraft.includeReiCompat") == "true") {
 	include("compat:rei")
 }
 
-if (gradle.startParameter.projectProperties.get("airicraft.includeJourneyMapCompat") == "true") {
+if (includeAllCompat || gradle.startParameter.projectProperties.get("airicraft.includeJourneyMapCompat") == "true") {
 	include("compat:journeymap")
 }

@@ -138,11 +138,11 @@ source .envrc && ./gradlew runClient
 jdb -attach 127.0.0.1:5005
 ```
 
-### REI compatibility client
+### Compatibility client
 
-Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar plus REI, Fabric API, Architectury, Cloth Config, and local runtime mods. It is still a debug launch: JDWP listens on `127.0.0.1:5006`.
+Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar plus every supported optional-mod integration, currently JourneyMap and REI, plus Fabric API, Architectury, Cloth Config, and local runtime mods. It is still a debug launch: JDWP listens on `127.0.0.1:5007`.
 
-The helper keeps downloaded/runtime jars out of the repository in ignored `.airicraft-compat/`, and uses the shared dev game directory `run/`. That means normal `runClient` and REI compat runs read the same Airicraft config:
+The helper keeps downloaded/runtime jars out of the repository in ignored `.airicraft-compat/`, and uses the shared dev game directory `run/`. That means normal `runClient` and compatibility runs read the same Airicraft config:
 
 ```text
 run/config/airicraft
@@ -151,34 +151,10 @@ run/config/airicraft
 Common flow:
 
 ```shell
-scripts/compat-rei config
-scripts/compat-rei setup
-scripts/compat-rei mods
-scripts/compat-rei run
-jdb -attach 127.0.0.1:5006
-wrapper/build/install/airicraft/bin/airicraft status
-```
-
-Expected smoke signal:
-
-- Minecraft starts without a remap crash.
-- Mod list includes `airicraft` and `roughlyenoughitems`.
-- REI resources load without missing-dependency or remap errors.
-- Wrapper status reports `available: true` and `bridgeAvailable: true`.
-
-Do not copy REI into `run/mods` or vendor it into this repository. Let `scripts/compat-rei` sync the external jars into `.airicraft-compat/`.
-
-### JourneyMap compatibility client
-
-Use this for map-mod integration testing. It launches a production-style Fabric client with Airicraft, Airicraft JourneyMap compat, JourneyMap, and the existing REI compat stack together. Keeping REI in this smoke catches optional-provider collisions before adding more third-party adapters. JDWP listens on `127.0.0.1:5007`.
-
-Common flow:
-
-```shell
-scripts/compat-journeymap config
-scripts/compat-journeymap setup
-scripts/compat-journeymap mods
-scripts/compat-journeymap run
+scripts/compat config
+scripts/compat setup
+scripts/compat mods
+scripts/compat run
 jdb -attach 127.0.0.1:5007
 wrapper/build/install/airicraft/bin/airicraft status
 wrapper/build/install/airicraft/bin/airicraft map status
@@ -190,11 +166,12 @@ Expected smoke signal:
 
 - Minecraft starts without a remap crash.
 - Mod list includes `airicraft`, `airicraft-journeymap-compat`, `journeymap`, `airicraft-rei-compat`, and `roughlyenoughitems`.
+- Wrapper status reports `available: true` and `bridgeAvailable: true`.
 - `airicraft map status` reports `available: true` and `preferredProvider: journeymap`.
 - `search_recipes` remains available to the planner while map tools are also available.
 - `/tmp/airicraft-worldmap.png` exists and is non-empty after map image capture.
 
-Do not copy JourneyMap into `run/mods` or vendor it into this repository. Let `scripts/compat-journeymap` sync the external jars into `.airicraft-compat/journeymap`.
+Do not copy optional-mod jars into `run/mods` or vendor them into this repository. Let `scripts/compat` sync the external jars into `.airicraft-compat/integration/`.
 
 ### Live JVM debugging with Arthas
 
@@ -277,7 +254,7 @@ Airicraft writes/reads:
 
 `config/airicraft/agent.yml` under the active Minecraft game directory.
 
-For local development, both `runClient` and `scripts/compat-rei run` use:
+For local development, both `runClient` and `scripts/compat run` use:
 
 `run/config/airicraft/agent.yml`
 
