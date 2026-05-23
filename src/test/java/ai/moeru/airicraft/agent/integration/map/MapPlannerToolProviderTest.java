@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.integration.map;
 
+import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.agent.llm.LlmImageAttachment;
 import ai.moeru.airicraft.agent.llm.PlannerProviderToolResult;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
@@ -14,6 +15,7 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MapPlannerToolProviderTest {
@@ -60,6 +62,32 @@ class MapPlannerToolProviderTest {
 		assertEquals(-64, mapProvider.lastImageRequest.originZ());
 	}
 
+	@Test
+	void takeMapLookPassesZoomAndGrid() {
+		StubMapProvider mapProvider = new StubMapProvider();
+		MapPlannerToolProvider provider = new MapPlannerToolProvider(registrySupplier(mapProvider));
+		JsonObject args = new JsonObject();
+		args.addProperty("zoom", 2);
+		args.addProperty("grid", true);
+
+		provider.executeResult(new PlannerToolCall("call-map", "take_map_look", args, null, null)).join();
+
+		assertEquals(2, mapProvider.lastImageRequest.zoom());
+		assertEquals(true, mapProvider.lastImageRequest.grid());
+	}
+
+	@Test
+	void takeMapLookReturnsStableMapErrorForCaptureFailure() {
+		StubMapProvider mapProvider = new StubMapProvider();
+		mapProvider.captureFailure = new BridgeUnavailableException("world_not_loaded", "No world is currently loaded");
+		MapPlannerToolProvider provider = new MapPlannerToolProvider(registrySupplier(mapProvider));
+
+		PlannerProviderToolResult result = provider.executeResult(new PlannerToolCall("call-map", "take_map_look", new JsonObject(), null, null)).join();
+
+		assertEquals("MAP_UNAVAILABLE: world_not_loaded", result.text());
+		assertNull(result.imageAttachment());
+	}
+
 	private static Supplier<MapIntegrationRegistry> registrySupplier(MapIntegrationProvider provider) {
 		return () -> MapIntegrationRegistry.of(provider);
 	}
@@ -72,6 +100,7 @@ class MapPlannerToolProviderTest {
 
 	private static final class StubMapProvider implements MapIntegrationProvider {
 		private MapImageRequest lastImageRequest;
+		private RuntimeException captureFailure;
 
 		@Override
 		public String id() {
@@ -111,6 +140,9 @@ class MapPlannerToolProviderTest {
 		@Override
 		public CompletableFuture<MapImageCapture> captureMap(MapImageRequest request) {
 			lastImageRequest = request;
+			if (captureFailure != null) {
+				return CompletableFuture.failedFuture(captureFailure);
+			}
 			return CompletableFuture.completedFuture(new MapImageCapture(id(), "worldmap", "png", 1, 1, 100L, new byte[] {1, 2, 3}));
 		}
 	}

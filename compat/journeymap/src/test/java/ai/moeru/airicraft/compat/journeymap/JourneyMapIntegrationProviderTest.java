@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.compat.journeymap;
 
 import ai.moeru.airicraft.BridgeUnavailableException;
+import ai.moeru.airicraft.agent.integration.map.MapImageRequest;
 import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -203,11 +204,76 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(0xff33aaff, centered.getRGB(18, centered.getHeight() - 21));
 	}
 
+	@Test
+	void captureGeometryPreservesZoomAndGridRequest() {
+		JourneyMapIntegrationProvider.MapCaptureGeometry geometry = JourneyMapIntegrationProvider.captureGeometry(
+			"worldmap",
+			new MapImageRequest("journeymap", "worldmap", null, 8, 3, true)
+		);
+
+		assertEquals(1536, geometry.outputSize());
+		assertEquals(3, geometry.zoom());
+		assertEquals(true, geometry.grid());
+	}
+
+	@Test
+	void zoomNarrowsCachedMapWorldSpan() throws Exception {
+		writeSplitTile("0,0.png", Color.GREEN, Color.RED, 128);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(
+			tempDir,
+			256,
+			256,
+			512,
+			null,
+			null,
+			null,
+			List.of(),
+			1,
+			false
+		);
+
+		assertEquals(512, centered.getWidth());
+		assertEquals(Color.RED.getRGB(), centered.getRGB(0, 256));
+	}
+
+	@Test
+	void gridDrawsChunkOverlayWhenRequested() throws Exception {
+		writeTile("0,0.png", Color.WHITE);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(
+			tempDir,
+			32,
+			32,
+			64,
+			null,
+			null,
+			null,
+			List.of(),
+			0,
+			true
+		);
+
+		assertEquals(64, centered.getWidth());
+		assertEquals(0x88000000, centered.getRGB(0, 0));
+		assertEquals(0x88000000, centered.getRGB(16, 16));
+	}
+
 	private void writeTile(String name, Color color) throws Exception {
 		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
 		for (int z = 0; z < image.getHeight(); z++) {
 			for (int x = 0; x < image.getWidth(); x++) {
 				image.setRGB(x, z, color.getRGB());
+			}
+		}
+		ImageIO.write(image, "png", tempDir.resolve(name).toFile());
+	}
+
+	private void writeSplitTile(String name, Color left, Color right, int splitX) throws Exception {
+		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
+		for (int z = 0; z < image.getHeight(); z++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				image.setRGB(x, z, x < splitX ? left.getRGB() : right.getRGB());
 			}
 		}
 		ImageIO.write(image, "png", tempDir.resolve(name).toFile());

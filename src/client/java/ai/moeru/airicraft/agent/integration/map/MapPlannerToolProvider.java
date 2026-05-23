@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.integration.map;
 
+import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.agent.llm.LlmImageAttachment;
 import ai.moeru.airicraft.agent.llm.PlannerProviderToolResult;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 
 public final class MapPlannerToolProvider implements PlannerToolProvider {
@@ -83,6 +85,7 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 					PlannerToolCatalog.propForProvider("dimension", PlannerToolCatalog.optionalStringForProvider("Dimension id.")),
 					PlannerToolCatalog.propForProvider("radiusChunks", Map.of("type", "integer", "description", "Optional map radius in chunks.")),
 					PlannerToolCatalog.propForProvider("zoom", Map.of("type", "integer", "description", "Optional map zoom level.")),
+					PlannerToolCatalog.propForProvider("grid", Map.of("type", "boolean", "description", "Whether to include a chunk grid overlay.")),
 					PlannerToolCatalog.propForProvider("originX", Map.of("type", "integer", "description", "Optional map center block X.")),
 					PlannerToolCatalog.propForProvider("originZ", Map.of("type", "integer", "description", "Optional map center block Z."))
 				),
@@ -180,22 +183,33 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 	}
 
 	private CompletableFuture<PlannerProviderToolResult> takeMapLook(JsonObject args) {
-		MapIntegrationProvider provider = provider(stringArg(args, "provider"));
+		MapIntegrationProvider provider;
+		try {
+			provider = provider(stringArg(args, "provider"));
+		}
+		catch (RuntimeException exception) {
+			return CompletableFuture.completedFuture(PlannerProviderToolResult.text(mapFailureText(exception)));
+		}
 		return provider.captureMap(new MapImageRequest(
 			provider.id(),
 			stringArg(args, "kind", "worldmap"),
 			stringArg(args, "dimension"),
 			intArg(args, "radiusChunks", 8),
 			intArg(args, "zoom", 0),
-			false,
+			booleanArg(args, "grid", false),
 			nullableIntArg(args, "originX"),
 			nullableIntArg(args, "originZ")
-		)).thenApply(capture -> PlannerProviderToolResult.image(
-			"Tool result for take_map_look: provider=" + provider.id()
-				+ ", kind=" + capture.kind()
-				+ ", image attached.",
-			new LlmImageAttachment("image/" + capture.format().toLowerCase(java.util.Locale.ROOT), capture.imageBytes(), "auto")
-		));
+		)).handle((capture, throwable) -> {
+			if (throwable != null) {
+				return PlannerProviderToolResult.text(mapFailureText(throwable));
+			}
+			return PlannerProviderToolResult.image(
+				"Tool result for take_map_look: provider=" + provider.id()
+					+ ", kind=" + capture.kind()
+					+ ", image attached.",
+				new LlmImageAttachment("image/" + capture.format().toLowerCase(java.util.Locale.ROOT), capture.imageBytes(), "auto")
+			);
+		});
 	}
 
 	private MapIntegrationProvider provider(String providerId) {
@@ -257,10 +271,27 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 		return args.get(key).getAsInt();
 	}
 
+	private static boolean booleanArg(JsonObject args, String key, boolean fallback) {
+		if (args == null || !args.has(key) || !args.get(key).isJsonPrimitive()) {
+			return fallback;
+		}
+		return args.get(key).getAsBoolean();
+	}
+
 	private static Integer nullableIntArg(JsonObject args, String key) {
 		if (args == null || !args.has(key) || !args.get(key).isJsonPrimitive()) {
 			return null;
 		}
 		return args.get(key).getAsInt();
+	}
+
+	private static String mapFailureText(Throwable throwable) {
+		Throwable cause = throwable instanceof CompletionException completionException && completionException.getCause() != null
+			? completionException.getCause()
+			: throwable;
+		if (cause instanceof BridgeUnavailableException bridgeUnavailableException) {
+			return "MAP_UNAVAILABLE: " + bridgeUnavailableException.code();
+		}
+		return "MAP_UNAVAILABLE: map_capture_failed";
 	}
 }

@@ -151,10 +151,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		if (safeRequest.hasPartialOrigin()) {
 			return CompletableFuture.failedFuture(new BridgeUnavailableException("invalid_request", "Map image origin requires both originX and originZ"));
 		}
-		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
-		int outputSize = "minimap".equals(kind)
-			? MINIMAP_IMAGE_SIZE
-			: (Math.min(MAX_WORLDMAP_REGION_RADIUS, Math.max(0, (radiusChunks + 31) / 32)) * 2 + 1) * JOURNEYMAP_REGION_PIXELS;
+		MapCaptureGeometry geometry = captureGeometry(kind, safeRequest);
 		try {
 			Path imageDir = journeyMapDimensionDir(client, client.world.getRegistryKey()).resolve("day");
 			BlockPos playerBlock = client.player.getBlockPos();
@@ -165,17 +162,28 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 				imageDir,
 				originBlockX,
 				originBlockZ,
-				outputSize,
+				geometry.outputSize(),
 				playerBlock.getX(),
 				playerBlock.getZ(),
 				client.player.getYaw(),
-				listWaypoints(new MapWaypointQuery(PROVIDER_ID, dimension))
+				listWaypoints(new MapWaypointQuery(PROVIDER_ID, dimension)),
+				geometry.zoom(),
+				geometry.grid()
 			);
 			return CompletableFuture.completedFuture(MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()));
 		}
 		catch (BridgeUnavailableException exception) {
 			return CompletableFuture.failedFuture(exception);
 		}
+	}
+
+	static MapCaptureGeometry captureGeometry(String kind, MapImageRequest safeRequest) {
+		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
+		int outputSize = "minimap".equals(kind)
+			? MINIMAP_IMAGE_SIZE
+			: (Math.min(MAX_WORLDMAP_REGION_RADIUS, Math.max(0, (radiusChunks + 31) / 32)) * 2 + 1) * JOURNEYMAP_REGION_PIXELS;
+		int zoom = Math.max(0, Math.min(8, safeRequest.zoom()));
+		return new MapCaptureGeometry(outputSize, zoom, safeRequest.grid());
 	}
 
 	static MapWaypoint toMapWaypoint(Waypoint waypoint) {
@@ -592,6 +600,39 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		return cropped;
 	}
 
+	static BufferedImage composeCenteredMapImage(
+		Path imageDir,
+		int originBlockX,
+		int originBlockZ,
+		int outputSize,
+		Integer playerBlockX,
+		Integer playerBlockZ,
+		Float yawDegrees,
+		List<MapWaypoint> waypoints,
+		int zoom,
+		boolean grid
+	) {
+		int safeOutputSize = Math.max(1, outputSize);
+		int sourceWorldSize = sourceWorldSize(safeOutputSize, zoom);
+		BufferedImage image = composeCenteredMapImage(
+			imageDir,
+			originBlockX,
+			originBlockZ,
+			sourceWorldSize,
+			playerBlockX,
+			playerBlockZ,
+			yawDegrees,
+			waypoints
+		);
+		if (zoom > 0 && (image.getWidth() != safeOutputSize || image.getHeight() != safeOutputSize)) {
+			image = scaleImage(image, safeOutputSize, safeOutputSize);
+		}
+		if (grid) {
+			drawGridOverlay(image, originBlockX, originBlockZ, sourceWorldSize);
+		}
+		return image;
+	}
+
 	private static BufferedImage readRegionImage(Path path) {
 		if (!Files.isRegularFile(path)) {
 			return null;
@@ -601,6 +642,49 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		}
 		catch (IOException exception) {
 			throw new BridgeUnavailableException("map_capture_failed", "Failed to read JourneyMap cached region image");
+		}
+	}
+
+	private static int sourceWorldSize(int outputSize, int zoom) {
+		int safeOutputSize = Math.max(1, outputSize);
+		int safeZoom = Math.max(0, Math.min(8, zoom));
+		return Math.max(1, safeOutputSize >> safeZoom);
+	}
+
+	private static BufferedImage scaleImage(BufferedImage source, int width, int height) {
+		BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = scaled.createGraphics();
+		try {
+			graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+			graphics.drawImage(source, 0, 0, width, height, null);
+		}
+		finally {
+			graphics.dispose();
+		}
+		return scaled;
+	}
+
+	private static void drawGridOverlay(BufferedImage image, int originBlockX, int originBlockZ, int sourceWorldSize) {
+		int safeSourceWorldSize = Math.max(1, sourceWorldSize);
+		int minWorldX = originBlockX - safeSourceWorldSize / 2;
+		int minWorldZ = originBlockZ - safeSourceWorldSize / 2;
+		double pixelsPerBlockX = image.getWidth() / (double) safeSourceWorldSize;
+		double pixelsPerBlockZ = image.getHeight() / (double) safeSourceWorldSize;
+		for (int worldX = Math.floorDiv(minWorldX, 16) * 16; worldX <= minWorldX + safeSourceWorldSize; worldX += 16) {
+			int imageX = (int) Math.round((worldX - minWorldX) * pixelsPerBlockX);
+			if (imageX >= 0 && imageX < image.getWidth()) {
+				for (int y = 0; y < image.getHeight(); y++) {
+					image.setRGB(imageX, y, 0x88000000);
+				}
+			}
+		}
+		for (int worldZ = Math.floorDiv(minWorldZ, 16) * 16; worldZ <= minWorldZ + safeSourceWorldSize; worldZ += 16) {
+			int imageY = (int) Math.round((worldZ - minWorldZ) * pixelsPerBlockZ);
+			if (imageY >= 0 && imageY < image.getHeight()) {
+				for (int x = 0; x < image.getWidth(); x++) {
+					image.setRGB(x, imageY, 0x88000000);
+				}
+			}
 		}
 	}
 
@@ -663,5 +747,8 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		private int height() {
 			return maxY - minY + 1;
 		}
+	}
+
+	record MapCaptureGeometry(int outputSize, int zoom, boolean grid) {
 	}
 }
