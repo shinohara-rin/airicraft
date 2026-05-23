@@ -10,6 +10,7 @@ import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,6 +98,18 @@ class JourneyMapIntegrationProviderTest {
 	}
 
 	@Test
+	void cropsTransparentBordersAroundAvailableMapContent() throws Exception {
+		writeTile("0,0.png", Color.MAGENTA);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(tempDir, 0, 0, 1025, false, 0.0F);
+
+		assertEquals(512, centered.getWidth());
+		assertEquals(512, centered.getHeight());
+		assertEquals(Color.MAGENTA.getRGB(), centered.getRGB(0, 0));
+		assertEquals(Color.MAGENTA.getRGB(), centered.getRGB(511, 511));
+	}
+
+	@Test
 	void centersLargeCachedMapWithoutPerPixelTileLookups() throws Exception {
 		writeTile("0,0.png", Color.MAGENTA);
 
@@ -104,9 +117,9 @@ class JourneyMapIntegrationProviderTest {
 			JourneyMapIntegrationProvider.composeCenteredMapImage(tempDir, 0, 0, 6144, false, 0.0F)
 		);
 
-		assertEquals(6144, centered.getWidth());
-		assertEquals(6144, centered.getHeight());
-		assertEquals(Color.MAGENTA.getRGB(), centered.getRGB(3072, 3072));
+		assertEquals(512, centered.getWidth());
+		assertEquals(512, centered.getHeight());
+		assertEquals(Color.MAGENTA.getRGB(), centered.getRGB(0, 0));
 	}
 
 	@Test
@@ -118,6 +131,37 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(65, centered.getWidth());
 		assertEquals(65, centered.getHeight());
 		assertEquals(0xffff2d2d, centered.getRGB(32, 32));
+	}
+
+	@Test
+	void drawsVisibleWaypointsAtWorldCoordinates() throws Exception {
+		writeTile("0,0.png", Color.WHITE);
+		MapWaypoint waypoint = new MapWaypoint(
+			"journeymap",
+			"guid-1",
+			"Home",
+			"minecraft:overworld",
+			300,
+			64,
+			300,
+			0x3366ff,
+			true,
+			true,
+			true
+		);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(
+			tempDir,
+			256,
+			256,
+			512,
+			null,
+			null,
+			null,
+			List.of(waypoint)
+		);
+
+		assertEquals(0xff3366ff, centered.getRGB(300, 300));
 	}
 
 	private void writeTile(String name, Color color) throws Exception {

@@ -32,7 +32,8 @@ class MapPlannerToolProviderTest {
 
 	@Test
 	void takeMapLookReturnsImageAttachment() {
-		MapPlannerToolProvider provider = new MapPlannerToolProvider(registrySupplier(new StubMapProvider()));
+		StubMapProvider mapProvider = new StubMapProvider();
+		MapPlannerToolProvider provider = new MapPlannerToolProvider(registrySupplier(mapProvider));
 		JsonObject args = new JsonObject();
 		args.addProperty("kind", "worldmap");
 
@@ -43,6 +44,20 @@ class MapPlannerToolProviderTest {
 		assertNotNull(attachment);
 		assertEquals("image/png", attachment.mimeType());
 		assertEquals("auto", attachment.detail());
+	}
+
+	@Test
+	void takeMapLookPassesOriginCoordinates() {
+		StubMapProvider mapProvider = new StubMapProvider();
+		MapPlannerToolProvider provider = new MapPlannerToolProvider(registrySupplier(mapProvider));
+		JsonObject args = new JsonObject();
+		args.addProperty("originX", 128);
+		args.addProperty("originZ", -64);
+
+		provider.executeResult(new PlannerToolCall("call-map", "take_map_look", args, null, null)).join();
+
+		assertEquals(128, mapProvider.lastImageRequest.originX());
+		assertEquals(-64, mapProvider.lastImageRequest.originZ());
 	}
 
 	private static Supplier<MapIntegrationRegistry> registrySupplier(MapIntegrationProvider provider) {
@@ -56,6 +71,8 @@ class MapPlannerToolProviderTest {
 	}
 
 	private static final class StubMapProvider implements MapIntegrationProvider {
+		private MapImageRequest lastImageRequest;
+
 		@Override
 		public String id() {
 			return "journeymap";
@@ -93,6 +110,7 @@ class MapPlannerToolProviderTest {
 
 		@Override
 		public CompletableFuture<MapImageCapture> captureMap(MapImageRequest request) {
+			lastImageRequest = request;
 			return CompletableFuture.completedFuture(new MapImageCapture(id(), "worldmap", "png", 1, 1, 100L, new byte[] {1, 2, 3}));
 		}
 	}

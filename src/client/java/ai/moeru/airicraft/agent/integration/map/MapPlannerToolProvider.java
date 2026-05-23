@@ -82,7 +82,9 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 					PlannerToolCatalog.propForProvider("kind", PlannerToolCatalog.enumStringForProvider("Map image kind.", List.of("worldmap", "minimap"))),
 					PlannerToolCatalog.propForProvider("dimension", PlannerToolCatalog.optionalStringForProvider("Dimension id.")),
 					PlannerToolCatalog.propForProvider("radiusChunks", Map.of("type", "integer", "description", "Optional map radius in chunks.")),
-					PlannerToolCatalog.propForProvider("zoom", Map.of("type", "integer", "description", "Optional map zoom level."))
+					PlannerToolCatalog.propForProvider("zoom", Map.of("type", "integer", "description", "Optional map zoom level.")),
+					PlannerToolCatalog.propForProvider("originX", Map.of("type", "integer", "description", "Optional map center block X.")),
+					PlannerToolCatalog.propForProvider("originZ", Map.of("type", "integer", "description", "Optional map center block Z."))
 				),
 				List.of()
 			)
@@ -97,6 +99,7 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 		return """
 			If map waypoints or map images are useful, call inspect_map_waypoints, set_map_waypoint, delete_map_waypoint, or take_map_look.
 			take_map_look attaches a stable internal minimap/worldmap image to the follow-up. Use it for minimap or map questions instead of take_a_look; it is not a capture of the current on-screen HUD.
+			Pass originX and originZ when the map should be centered somewhere other than the player's current position.
 			""";
 	}
 
@@ -184,7 +187,9 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 			stringArg(args, "dimension"),
 			intArg(args, "radiusChunks", 8),
 			intArg(args, "zoom", 0),
-			false
+			false,
+			nullableIntArg(args, "originX"),
+			nullableIntArg(args, "originZ")
 		)).thenApply(capture -> PlannerProviderToolResult.image(
 			"Tool result for take_map_look: provider=" + provider.id()
 				+ ", kind=" + capture.kind()
@@ -248,6 +253,13 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 	private static int intArg(JsonObject args, String key, int fallback) {
 		if (args == null || !args.has(key) || !args.get(key).isJsonPrimitive()) {
 			return fallback;
+		}
+		return args.get(key).getAsInt();
+	}
+
+	private static Integer nullableIntArg(JsonObject args, String key) {
+		if (args == null || !args.has(key) || !args.get(key).isJsonPrimitive()) {
+			return null;
 		}
 		return args.get(key).getAsInt();
 	}

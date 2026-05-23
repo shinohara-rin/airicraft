@@ -183,6 +183,7 @@ jdb -attach 127.0.0.1:5007
 wrapper/build/install/airicraft/bin/airicraft status
 wrapper/build/install/airicraft/bin/airicraft map status
 wrapper/build/install/airicraft/bin/airicraft map image --kind worldmap --output /tmp/airicraft-worldmap.png
+wrapper/build/install/airicraft/bin/airicraft map image --kind worldmap --origin-x 128 --origin-z -64 --output /tmp/airicraft-worldmap-origin.png
 ```
 
 Expected smoke signal:

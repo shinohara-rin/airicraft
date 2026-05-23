@@ -30,9 +30,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public final class JourneyMapIntegrationProvider implements MapIntegrationProvider {
@@ -144,7 +144,10 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		return captureCachedMap(client, kind, safeRequest);
 	}
 
-	private static CompletableFuture<MapImageCapture> captureCachedMap(MinecraftClient client, String kind, MapImageRequest safeRequest) {
+	private CompletableFuture<MapImageCapture> captureCachedMap(MinecraftClient client, String kind, MapImageRequest safeRequest) {
+		if (safeRequest.hasPartialOrigin()) {
+			return CompletableFuture.failedFuture(new BridgeUnavailableException("invalid_request", "Map image origin requires both originX and originZ"));
+		}
 		int radiusChunks = Math.max(0, Math.min(96, safeRequest.radiusChunks()));
 		int outputSize = "minimap".equals(kind)
 			? MINIMAP_IMAGE_SIZE
@@ -152,7 +155,19 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		try {
 			Path imageDir = journeyMapDimensionDir(client, client.world.getRegistryKey()).resolve("day");
 			BlockPos playerBlock = client.player.getBlockPos();
-			BufferedImage image = composeCenteredMapImage(imageDir, playerBlock.getX(), playerBlock.getZ(), outputSize, true, client.player.getYaw());
+			int originBlockX = safeRequest.originX() == null ? playerBlock.getX() : safeRequest.originX();
+			int originBlockZ = safeRequest.originZ() == null ? playerBlock.getZ() : safeRequest.originZ();
+			String dimension = client.world.getRegistryKey().getValue().toString();
+			BufferedImage image = composeCenteredMapImage(
+				imageDir,
+				originBlockX,
+				originBlockZ,
+				outputSize,
+				playerBlock.getX(),
+				playerBlock.getZ(),
+				client.player.getYaw(),
+				listWaypoints(new MapWaypointQuery(PROVIDER_ID, dimension))
+			);
 			return CompletableFuture.completedFuture(MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()));
 		}
 		catch (BridgeUnavailableException exception) {
@@ -181,16 +196,39 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 	}
 
 	static BufferedImage composeCenteredMapImage(Path imageDir, int playerBlockX, int playerBlockZ, int outputSize, boolean drawMarker, float yawDegrees) {
+		return composeCenteredMapImage(
+			imageDir,
+			playerBlockX,
+			playerBlockZ,
+			outputSize,
+			drawMarker ? playerBlockX : null,
+			drawMarker ? playerBlockZ : null,
+			drawMarker ? yawDegrees : null,
+			List.of()
+		);
+	}
+
+	static BufferedImage composeCenteredMapImage(
+		Path imageDir,
+		int originBlockX,
+		int originBlockZ,
+		int outputSize,
+		Integer playerBlockX,
+		Integer playerBlockZ,
+		Float yawDegrees,
+		List<MapWaypoint> waypoints
+	) {
 		if (imageDir == null || !Files.isDirectory(imageDir)) {
 			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map directory is unavailable");
 		}
 		int safeOutputSize = Math.max(1, outputSize);
 		int center = safeOutputSize / 2;
-		int minWorldX = playerBlockX - center;
-		int minWorldZ = playerBlockZ - center;
+		int minWorldX = originBlockX - center;
+		int minWorldZ = originBlockZ - center;
 		int maxWorldX = minWorldX + safeOutputSize - 1;
 		int maxWorldZ = minWorldZ + safeOutputSize - 1;
 		BufferedImage output = new BufferedImage(safeOutputSize, safeOutputSize, BufferedImage.TYPE_INT_ARGB);
+		ImageBounds contentBounds = new ImageBounds();
 
 		boolean foundImage = false;
 		Graphics2D graphics = output.createGraphics();
@@ -205,8 +243,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 					if (tile == null) {
 						continue;
 					}
-					foundImage = true;
-					drawIntersectingTile(
+					foundImage = drawIntersectingTile(
 						graphics,
 						tile,
 						regionX * JOURNEYMAP_REGION_PIXELS,
@@ -214,8 +251,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 						minWorldX,
 						minWorldZ,
 						maxWorldX,
-						maxWorldZ
-					);
+						maxWorldZ,
+						contentBounds
+					) || foundImage;
 				}
 			}
 		}
@@ -226,10 +264,13 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		if (!foundImage) {
 			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
 		}
-		if (drawMarker) {
-			drawPlayerMarker(output, center, center, yawDegrees);
+		drawWaypointMarkers(output, minWorldX, minWorldZ, maxWorldX, maxWorldZ, waypoints, contentBounds);
+		if (playerBlockX != null && playerBlockZ != null && yawDegrees != null
+			&& playerBlockX >= minWorldX && playerBlockX <= maxWorldX
+			&& playerBlockZ >= minWorldZ && playerBlockZ <= maxWorldZ) {
+			drawPlayerMarker(output, playerBlockX - minWorldX, playerBlockZ - minWorldZ, yawDegrees, contentBounds);
 		}
-		return output;
+		return cropToBounds(output, contentBounds);
 	}
 
 	static BufferedImage stitchCachedRegionImages(Path imageDir, int centerRegionX, int centerRegionZ, int regionRadius) {
@@ -263,7 +304,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		return stitched;
 	}
 
-	private static void drawIntersectingTile(
+	private static boolean drawIntersectingTile(
 		Graphics2D graphics,
 		BufferedImage tile,
 		int tileWorldX,
@@ -271,40 +312,115 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		int outputMinWorldX,
 		int outputMinWorldZ,
 		int outputMaxWorldX,
-		int outputMaxWorldZ
+		int outputMaxWorldZ,
+		ImageBounds contentBounds
 	) {
 		int intersectionMinWorldX = Math.max(outputMinWorldX, tileWorldX);
 		int intersectionMinWorldZ = Math.max(outputMinWorldZ, tileWorldZ);
 		int intersectionMaxWorldX = Math.min(outputMaxWorldX, tileWorldX + tile.getWidth() - 1);
 		int intersectionMaxWorldZ = Math.min(outputMaxWorldZ, tileWorldZ + tile.getHeight() - 1);
 		if (intersectionMinWorldX > intersectionMaxWorldX || intersectionMinWorldZ > intersectionMaxWorldZ) {
-			return;
+			return false;
 		}
 
 		int destinationX1 = intersectionMinWorldX - outputMinWorldX;
 		int destinationY1 = intersectionMinWorldZ - outputMinWorldZ;
-		int destinationX2 = intersectionMaxWorldX - outputMinWorldX + 1;
-		int destinationY2 = intersectionMaxWorldZ - outputMinWorldZ + 1;
 		int sourceX1 = intersectionMinWorldX - tileWorldX;
 		int sourceY1 = intersectionMinWorldZ - tileWorldZ;
 		int sourceX2 = intersectionMaxWorldX - tileWorldX + 1;
 		int sourceY2 = intersectionMaxWorldZ - tileWorldZ + 1;
+		ImageBounds sourceBounds = nonTransparentBounds(tile, sourceX1, sourceY1, sourceX2, sourceY2);
+		if (sourceBounds.isEmpty()) {
+			return false;
+		}
+		int visibleDestinationX1 = destinationX1 + sourceBounds.minX() - sourceX1;
+		int visibleDestinationY1 = destinationY1 + sourceBounds.minY() - sourceY1;
+		int visibleDestinationX2 = visibleDestinationX1 + sourceBounds.width();
+		int visibleDestinationY2 = visibleDestinationY1 + sourceBounds.height();
 
 		graphics.drawImage(
 			tile,
-			destinationX1,
-			destinationY1,
-			destinationX2,
-			destinationY2,
-			sourceX1,
-			sourceY1,
-			sourceX2,
-			sourceY2,
+			visibleDestinationX1,
+			visibleDestinationY1,
+			visibleDestinationX2,
+			visibleDestinationY2,
+			sourceBounds.minX(),
+			sourceBounds.minY(),
+			sourceBounds.maxX() + 1,
+			sourceBounds.maxY() + 1,
 			null
 		);
+		contentBounds.include(visibleDestinationX1, visibleDestinationY1, visibleDestinationX2 - 1, visibleDestinationY2 - 1);
+		return true;
 	}
 
-	private static void drawPlayerMarker(BufferedImage image, int centerX, int centerY, float yawDegrees) {
+	private static void drawWaypointMarkers(
+		BufferedImage image,
+		int outputMinWorldX,
+		int outputMinWorldZ,
+		int outputMaxWorldX,
+		int outputMaxWorldZ,
+		List<MapWaypoint> waypoints,
+		ImageBounds contentBounds
+	) {
+		if (waypoints == null || waypoints.isEmpty()) {
+			return;
+		}
+		for (MapWaypoint waypoint : waypoints) {
+			if (waypoint == null || !waypoint.enabled() || !waypoint.showOnMap()) {
+				continue;
+			}
+			if (waypoint.x() < outputMinWorldX || waypoint.x() > outputMaxWorldX
+				|| waypoint.z() < outputMinWorldZ || waypoint.z() > outputMaxWorldZ) {
+				continue;
+			}
+			drawWaypointMarker(image, waypoint.x() - outputMinWorldX, waypoint.z() - outputMinWorldZ, waypoint, contentBounds);
+		}
+	}
+
+	private static void drawWaypointMarker(BufferedImage image, int centerX, int centerY, MapWaypoint waypoint, ImageBounds contentBounds) {
+		int color = 0xff000000 | (waypoint.color() & 0x00ffffff);
+		Graphics2D graphics = image.createGraphics();
+		try {
+			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			graphics.setStroke(new BasicStroke(2.0F));
+			graphics.setColor(Color.WHITE);
+			graphics.fillOval(centerX - 6, centerY - 6, 12, 12);
+			graphics.setColor(Color.BLACK);
+			graphics.drawOval(centerX - 6, centerY - 6, 12, 12);
+			graphics.setColor(new Color(color, true));
+			graphics.fillOval(centerX - 4, centerY - 4, 8, 8);
+			contentBounds.include(centerX - 7, centerY - 7, centerX + 7, centerY + 7);
+			drawWaypointLabel(graphics, image, centerX, centerY, waypoint.name(), contentBounds);
+		}
+		finally {
+			graphics.dispose();
+		}
+		if (isInside(image, centerX, centerY)) {
+			image.setRGB(centerX, centerY, color);
+		}
+	}
+
+	private static void drawWaypointLabel(Graphics2D graphics, BufferedImage image, int centerX, int centerY, String name, ImageBounds contentBounds) {
+		if (image.getWidth() < 96 || image.getHeight() < 32 || name == null || name.isBlank()) {
+			return;
+		}
+		String label = name.length() > 24 ? name.substring(0, 21) + "..." : name;
+		var metrics = graphics.getFontMetrics();
+		int width = metrics.stringWidth(label);
+		if (width > image.getWidth() - 2) {
+			return;
+		}
+		int labelX = Math.max(1, Math.min(image.getWidth() - width - 1, centerX + 9));
+		int labelY = Math.max(metrics.getAscent() + 1, Math.min(image.getHeight() - metrics.getDescent() - 1, centerY - 7));
+		graphics.setColor(new Color(0xaa000000, true));
+		graphics.drawString(label, labelX + 1, labelY + 1);
+		graphics.setColor(Color.WHITE);
+		graphics.drawString(label, labelX, labelY);
+		contentBounds.include(labelX, labelY - metrics.getAscent(), labelX + width + 1, labelY + metrics.getDescent() + 1);
+	}
+
+	private static void drawPlayerMarker(BufferedImage image, int centerX, int centerY, float yawDegrees, ImageBounds contentBounds) {
 		Graphics2D graphics = image.createGraphics();
 		try {
 			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -328,7 +444,48 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		finally {
 			graphics.dispose();
 		}
-		image.setRGB(centerX, centerY, 0xffff2d2d);
+		if (isInside(image, centerX, centerY)) {
+			image.setRGB(centerX, centerY, 0xffff2d2d);
+		}
+		contentBounds.include(centerX - 16, centerY - 16, centerX + 16, centerY + 16);
+	}
+
+	private static boolean isInside(BufferedImage image, int x, int y) {
+		return x >= 0 && y >= 0 && x < image.getWidth() && y < image.getHeight();
+	}
+
+	private static ImageBounds nonTransparentBounds(BufferedImage image, int minX, int minY, int maxXExclusive, int maxYExclusive) {
+		ImageBounds bounds = new ImageBounds();
+		for (int y = minY; y < maxYExclusive; y++) {
+			for (int x = minX; x < maxXExclusive; x++) {
+				if (((image.getRGB(x, y) >>> 24) & 0xff) != 0) {
+					bounds.include(x, y, x, y);
+				}
+			}
+		}
+		return bounds;
+	}
+
+	private static BufferedImage cropToBounds(BufferedImage image, ImageBounds bounds) {
+		if (bounds.isEmpty()) {
+			return image;
+		}
+		int minX = Math.max(0, bounds.minX());
+		int minY = Math.max(0, bounds.minY());
+		int maxX = Math.min(image.getWidth() - 1, bounds.maxX());
+		int maxY = Math.min(image.getHeight() - 1, bounds.maxY());
+		if (minX == 0 && minY == 0 && maxX == image.getWidth() - 1 && maxY == image.getHeight() - 1) {
+			return image;
+		}
+		BufferedImage cropped = new BufferedImage(maxX - minX + 1, maxY - minY + 1, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = cropped.createGraphics();
+		try {
+			graphics.drawImage(image, 0, 0, cropped.getWidth(), cropped.getHeight(), minX, minY, maxX + 1, maxY + 1, null);
+		}
+		finally {
+			graphics.dispose();
+		}
+		return cropped;
 	}
 
 	private static BufferedImage readRegionImage(Path path) {
@@ -362,4 +519,45 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		}
 	}
 
+	private static final class ImageBounds {
+		private int minX = Integer.MAX_VALUE;
+		private int minY = Integer.MAX_VALUE;
+		private int maxX = Integer.MIN_VALUE;
+		private int maxY = Integer.MIN_VALUE;
+
+		private void include(int includedMinX, int includedMinY, int includedMaxX, int includedMaxY) {
+			minX = Math.min(minX, includedMinX);
+			minY = Math.min(minY, includedMinY);
+			maxX = Math.max(maxX, includedMaxX);
+			maxY = Math.max(maxY, includedMaxY);
+		}
+
+		private boolean isEmpty() {
+			return minX > maxX || minY > maxY;
+		}
+
+		private int minX() {
+			return minX;
+		}
+
+		private int minY() {
+			return minY;
+		}
+
+		private int maxX() {
+			return maxX;
+		}
+
+		private int maxY() {
+			return maxY;
+		}
+
+		private int width() {
+			return maxX - minX + 1;
+		}
+
+		private int height() {
+			return maxY - minY + 1;
+		}
+	}
 }

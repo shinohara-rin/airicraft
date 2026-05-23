@@ -1083,6 +1083,12 @@ public final class AiricraftCliMain {
 		@Option(names = "--grid", description = "Include grid overlay.")
 		private boolean grid;
 
+		@Option(names = {"--origin-x", "--x"}, description = "Map center block X. Defaults to the player position.")
+		private Integer originX;
+
+		@Option(names = {"--origin-z", "--z"}, description = "Map center block Z. Defaults to the player position.")
+		private Integer originZ;
+
 		@Option(names = "--output", required = true, description = "Path to write the map PNG.")
 		private Path output;
 
@@ -1092,6 +1098,9 @@ public final class AiricraftCliMain {
 
 		@Override
 		public Integer call() {
+			if ((originX == null) != (originZ == null)) {
+				throw new CliUsageException("map image", "invalid_arguments", "origin-x and origin-z must be provided together");
+			}
 			LinkedHashMap<String, Object> request = new LinkedHashMap<>();
 			putIfPresent(request, "provider", provider);
 			putIfPresent(request, "kind", kind);
@@ -1103,6 +1112,10 @@ public final class AiricraftCliMain {
 				request.put("zoom", zoom);
 			}
 			request.put("grid", grid);
+			if (originX != null) {
+				request.put("originX", originX);
+				request.put("originZ", originZ);
+			}
 			CapturedImage capture = context.transport.captureMapImage(request);
 			Path outputPath = output.toAbsolutePath().normalize();
 			writeCapture(outputPath, capture.bytes());

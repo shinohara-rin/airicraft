@@ -450,7 +450,9 @@ public final class ModBridgeServer {
 					request == null ? null : request.dimension(),
 					request == null || request.radiusChunks() == null ? 8 : request.radiusChunks(),
 					request == null || request.zoom() == null ? 0 : request.zoom(),
-					request != null && Boolean.TRUE.equals(request.grid())
+					request != null && Boolean.TRUE.equals(request.grid()),
+					request == null ? null : request.originX(),
+					request == null ? null : request.originZ()
 				));
 			});
 			return mapImagePayload(awaitMapCapture(captureFuture));
@@ -1893,7 +1895,9 @@ public final class ModBridgeServer {
 		String dimension,
 		Integer radiusChunks,
 		Integer zoom,
-		Boolean grid
+		Boolean grid,
+		Integer originX,
+		Integer originZ
 	) {
 	}
 

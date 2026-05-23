@@ -854,6 +854,28 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void mapImagePassesOriginCoordinates(@TempDir Path tempDir) {
+		TestTransport transport = new TestTransport();
+		Path output = tempDir.resolve("map.png");
+
+		CliResult result = execute(
+			transport,
+			"map",
+			"image",
+			"--origin-x",
+			"128",
+			"--origin-z",
+			"-64",
+			"--output",
+			output.toString()
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals(128, transport.lastMapImageRequest.get("originX"));
+		assertEquals(-64, transport.lastMapImageRequest.get("originZ"));
+	}
+
+	@Test
 	void cameraScreenshotRequiresOutputPath() {
 		CliResult result = execute(new TestTransport(), "camera", "screenshot");
 
@@ -966,6 +988,7 @@ class AiricraftCliMainTest {
 		private Map<String, Object> mapWaypointsPayload = Map.of("waypoints", List.of());
 		private Map<String, Object> mapWaypointSetPayload = Map.of("waypoint", Map.of("id", "guid-1"));
 		private Map<String, Object> mapWaypointDeletePayload = Map.of("deleted", true);
+		private Map<String, Object> lastMapImageRequest = Map.of();
 		private Map<String, Object> worldsJoinPayload = Map.of("started", true);
 		private Map<String, Object> serversJoinPayload = Map.of("started", true);
 		private Map<String, Object> lookAtPayload = Map.of("started", true);
@@ -1071,6 +1094,7 @@ class AiricraftCliMainTest {
 
 		@Override
 		public CapturedImage captureMapImage(Map<String, Object> request) {
+			lastMapImageRequest = request;
 			return mapImage;
 		}
 
