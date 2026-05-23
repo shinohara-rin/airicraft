@@ -186,9 +186,26 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 			waypoint.getZ(),
 			waypoint.getColor(),
 			waypoint.isEnabled(),
-			waypoint.isEnabled(),
-			waypoint.isEnabled()
+			visibilityFlag(waypoint, "showOnMap", waypoint.isEnabled()),
+			visibilityFlag(waypoint, "showInWorld", waypoint.isEnabled())
 		);
+	}
+
+	static boolean visibilityFlag(Object waypoint, String methodName, boolean fallback) {
+		if (waypoint == null || methodName == null || methodName.isBlank()) {
+			return fallback;
+		}
+		try {
+			Method method = waypoint.getClass().getMethod(methodName);
+			if (!method.canAccess(waypoint)) {
+				method.setAccessible(true);
+			}
+			Object value = method.invoke(waypoint);
+			return value instanceof Boolean flag ? flag : fallback;
+		}
+		catch (ReflectiveOperationException | SecurityException exception) {
+			return fallback;
+		}
 	}
 
 	static int regionCoordinateForChunk(int chunkCoordinate) {

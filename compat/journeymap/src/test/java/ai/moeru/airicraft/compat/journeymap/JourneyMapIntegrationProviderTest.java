@@ -49,6 +49,12 @@ class JourneyMapIntegrationProviderTest {
 	}
 
 	@Test
+	void preservesJourneyMapWaypointVisibilityFlags() {
+		assertEquals(false, JourneyMapIntegrationProvider.visibilityFlag(new VisibilityFlagWaypoint(false, true), "showOnMap", true));
+		assertEquals(true, JourneyMapIntegrationProvider.visibilityFlag(new VisibilityFlagWaypoint(false, true), "showInWorld", false));
+	}
+
+	@Test
 	void mapsChunksToJourneyMapRegionCoordinates() {
 		assertEquals(-1, JourneyMapIntegrationProvider.regionCoordinateForChunk(-1));
 		assertEquals(-1, JourneyMapIntegrationProvider.regionCoordinateForChunk(-32));
@@ -172,5 +178,8 @@ class JourneyMapIntegrationProviderTest {
 			}
 		}
 		ImageIO.write(image, "png", tempDir.resolve(name).toFile());
+	}
+
+	private record VisibilityFlagWaypoint(boolean showOnMap, boolean showInWorld) {
 	}
 }
