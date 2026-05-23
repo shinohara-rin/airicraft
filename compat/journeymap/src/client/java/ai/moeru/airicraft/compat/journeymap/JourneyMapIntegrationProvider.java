@@ -21,7 +21,9 @@ import net.minecraft.world.World;
 import javax.imageio.ImageIO;
 import java.awt.BasicStroke;
 import java.awt.Color;
+import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -42,6 +44,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 	private static final int JOURNEYMAP_REGION_PIXELS = 512;
 	private static final int MAX_WORLDMAP_REGION_RADIUS = 2;
 	private static final int MINIMAP_IMAGE_SIZE = 512;
+	private static final int PLAYER_MARKER_COLOR = 0xffff2d2d;
 
 	private final IClientAPI jmAPI;
 
@@ -281,13 +284,17 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		if (!foundImage) {
 			throw new BridgeUnavailableException("map_unavailable", "No JourneyMap cached region images are available");
 		}
-		drawWaypointMarkers(output, minWorldX, minWorldZ, maxWorldX, maxWorldZ, waypoints, contentBounds);
+		boolean drewWaypoints = drawWaypointMarkers(output, minWorldX, minWorldZ, maxWorldX, maxWorldZ, waypoints, contentBounds);
+		boolean drewPlayer = false;
 		if (playerBlockX != null && playerBlockZ != null && yawDegrees != null
 			&& playerBlockX >= minWorldX && playerBlockX <= maxWorldX
 			&& playerBlockZ >= minWorldZ && playerBlockZ <= maxWorldZ) {
 			drawPlayerMarker(output, playerBlockX - minWorldX, playerBlockZ - minWorldZ, yawDegrees, contentBounds);
+			drewPlayer = true;
 		}
-		return cropToBounds(output, contentBounds);
+		BufferedImage cropped = cropToBounds(output, contentBounds);
+		drawOverlayLegend(cropped, drewPlayer, drewWaypoints);
+		return cropped;
 	}
 
 	static BufferedImage stitchCachedRegionImages(Path imageDir, int centerRegionX, int centerRegionZ, int regionRadius) {
@@ -371,7 +378,7 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		return true;
 	}
 
-	private static void drawWaypointMarkers(
+	private static boolean drawWaypointMarkers(
 		BufferedImage image,
 		int outputMinWorldX,
 		int outputMinWorldZ,
@@ -381,8 +388,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		ImageBounds contentBounds
 	) {
 		if (waypoints == null || waypoints.isEmpty()) {
-			return;
+			return false;
 		}
+		boolean drewAny = false;
 		for (MapWaypoint waypoint : waypoints) {
 			if (waypoint == null || !waypoint.enabled() || !waypoint.showOnMap()) {
 				continue;
@@ -392,7 +400,9 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 				continue;
 			}
 			drawWaypointMarker(image, waypoint.x() - outputMinWorldX, waypoint.z() - outputMinWorldZ, waypoint, contentBounds);
+			drewAny = true;
 		}
+		return drewAny;
 	}
 
 	private static void drawWaypointMarker(BufferedImage image, int centerX, int centerY, MapWaypoint waypoint, ImageBounds contentBounds) {
@@ -441,30 +451,107 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		Graphics2D graphics = image.createGraphics();
 		try {
 			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			graphics.setStroke(new BasicStroke(2.0F));
+			graphics.setStroke(new BasicStroke(3.0F, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
 			double headingRadians = Math.toRadians(yawDegrees);
-			int headingX = centerX + (int) Math.round(-Math.sin(headingRadians) * 14.0D);
-			int headingY = centerY + (int) Math.round(Math.cos(headingRadians) * 14.0D);
+			double headingDx = -Math.sin(headingRadians);
+			double headingDy = Math.cos(headingRadians);
+			double perpendicularDx = -headingDy;
+			double perpendicularDy = headingDx;
+			int headingX = centerX + (int) Math.round(headingDx * 22.0D);
+			int headingY = centerY + (int) Math.round(headingDy * 22.0D);
+			int arrowBaseX = centerX + (int) Math.round(headingDx * 13.0D);
+			int arrowBaseY = centerY + (int) Math.round(headingDy * 13.0D);
+			int wingLeftX = arrowBaseX + (int) Math.round(perpendicularDx * 6.0D);
+			int wingLeftY = arrowBaseY + (int) Math.round(perpendicularDy * 6.0D);
+			int wingRightX = arrowBaseX - (int) Math.round(perpendicularDx * 6.0D);
+			int wingRightY = arrowBaseY - (int) Math.round(perpendicularDy * 6.0D);
+
 			graphics.setColor(Color.WHITE);
 			graphics.drawLine(centerX, centerY, headingX, headingY);
-			graphics.fillOval(centerX - 6, centerY - 6, 12, 12);
+			graphics.fillOval(centerX - 8, centerY - 8, 16, 16);
 			graphics.setColor(Color.BLACK);
-			graphics.drawOval(centerX - 6, centerY - 6, 12, 12);
-			graphics.setColor(new Color(0xffff2d2d, true));
+			graphics.drawOval(centerX - 8, centerY - 8, 16, 16);
 			graphics.drawLine(centerX, centerY, headingX, headingY);
-			graphics.fillOval(centerX - 4, centerY - 4, 8, 8);
-			graphics.drawLine(centerX - 10, centerY, centerX - 7, centerY);
-			graphics.drawLine(centerX + 7, centerY, centerX + 10, centerY);
-			graphics.drawLine(centerX, centerY - 10, centerX, centerY - 7);
-			graphics.drawLine(centerX, centerY + 7, centerX, centerY + 10);
+			graphics.setColor(new Color(PLAYER_MARKER_COLOR, true));
+			graphics.drawLine(centerX, centerY, headingX, headingY);
+			graphics.fill(new Polygon(
+				new int[] {headingX, wingLeftX, wingRightX},
+				new int[] {headingY, wingLeftY, wingRightY},
+				3
+			));
+			graphics.fillOval(centerX - 5, centerY - 5, 10, 10);
+			graphics.setStroke(new BasicStroke(2.0F));
+			graphics.setColor(Color.BLACK);
+			graphics.drawOval(centerX - 5, centerY - 5, 10, 10);
+			drawOverlayLabel(graphics, image, centerX + 10, centerY + 4, "PLAYER", contentBounds);
 		}
 		finally {
 			graphics.dispose();
 		}
 		if (isInside(image, centerX, centerY)) {
-			image.setRGB(centerX, centerY, 0xffff2d2d);
+			image.setRGB(centerX, centerY, PLAYER_MARKER_COLOR);
 		}
-		contentBounds.include(centerX - 16, centerY - 16, centerX + 16, centerY + 16);
+		contentBounds.include(centerX - 24, centerY - 24, centerX + 42, centerY + 24);
+	}
+
+	private static void drawOverlayLabel(Graphics2D graphics, BufferedImage image, int labelX, int baselineY, String label, ImageBounds contentBounds) {
+		var metrics = graphics.getFontMetrics();
+		int width = metrics.stringWidth(label);
+		if (labelX + width + 1 >= image.getWidth()) {
+			labelX = Math.max(1, image.getWidth() - width - 2);
+		}
+		baselineY = Math.max(metrics.getAscent() + 1, Math.min(image.getHeight() - metrics.getDescent() - 1, baselineY));
+		graphics.setColor(new Color(0xcc000000, true));
+		graphics.drawString(label, labelX + 1, baselineY + 1);
+		graphics.setColor(Color.WHITE);
+		graphics.drawString(label, labelX, baselineY);
+		contentBounds.include(labelX, baselineY - metrics.getAscent(), labelX + width + 1, baselineY + metrics.getDescent() + 1);
+	}
+
+	private static void drawOverlayLegend(BufferedImage image, boolean includePlayer, boolean includeWaypoints) {
+		if ((!includePlayer && !includeWaypoints) || image.getWidth() < 120 || image.getHeight() < 64) {
+			return;
+		}
+		Graphics2D graphics = image.createGraphics();
+		try {
+			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			graphics.setFont(graphics.getFont().deriveFont(Font.BOLD, 11.0F));
+			int rowCount = (includePlayer ? 1 : 0) + (includeWaypoints ? 1 : 0);
+			int legendWidth = Math.min(168, image.getWidth() - 16);
+			int legendHeight = 18 + rowCount * 20;
+			int x = 8;
+			int y = image.getHeight() - legendHeight - 8;
+			graphics.setColor(new Color(0xee111111, true));
+			graphics.fillRoundRect(x, y, legendWidth, legendHeight, 6, 6);
+			graphics.setColor(new Color(0xffffffff, true));
+			graphics.drawRoundRect(x, y, legendWidth, legendHeight, 6, 6);
+			graphics.drawString("LEGEND", x + 8, y + 14);
+			int rowY = y + 27;
+			graphics.setFont(graphics.getFont().deriveFont(Font.PLAIN, 11.0F));
+			if (includePlayer) {
+				drawLegendRow(graphics, x + 10, rowY, PLAYER_MARKER_COLOR, "Player + facing arrow");
+				rowY += 20;
+			}
+			if (includeWaypoints) {
+				drawLegendRow(graphics, x + 10, rowY, 0xff33aaff, "Waypoint");
+			}
+		}
+		finally {
+			graphics.dispose();
+		}
+	}
+
+	private static void drawLegendRow(Graphics2D graphics, int x, int centerY, int color, String label) {
+		graphics.setColor(Color.WHITE);
+		graphics.fillOval(x - 5, centerY - 5, 10, 10);
+		graphics.setColor(Color.BLACK);
+		graphics.drawOval(x - 5, centerY - 5, 10, 10);
+		graphics.setColor(new Color(color, true));
+		graphics.fillOval(x - 4, centerY - 4, 8, 8);
+		graphics.setColor(Color.WHITE);
+		graphics.drawString(label, x + 13, centerY + 4);
+		graphics.setColor(new Color(color, true));
+		graphics.fillRect(x, centerY, 1, 1);
 	}
 
 	private static boolean isInside(BufferedImage image, int x, int y) {

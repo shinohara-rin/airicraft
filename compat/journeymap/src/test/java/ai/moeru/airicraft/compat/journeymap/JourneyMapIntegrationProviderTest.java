@@ -170,6 +170,39 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(0xff3366ff, centered.getRGB(300, 300));
 	}
 
+	@Test
+	void drawsLegendForPlayerAndWaypointOverlays() throws Exception {
+		writeTile("0,0.png", Color.WHITE);
+		MapWaypoint waypoint = new MapWaypoint(
+			"journeymap",
+			"guid-1",
+			"Home",
+			"minecraft:overworld",
+			280,
+			64,
+			280,
+			0x33aaff,
+			true,
+			true,
+			true
+		);
+
+		BufferedImage centered = JourneyMapIntegrationProvider.composeCenteredMapImage(
+			tempDir,
+			256,
+			256,
+			160,
+			256,
+			256,
+			0.0F,
+			List.of(waypoint)
+		);
+
+		assertEquals(0xffff2d2d, centered.getRGB(80, 80));
+		assertEquals(0xffff2d2d, centered.getRGB(18, centered.getHeight() - 41));
+		assertEquals(0xff33aaff, centered.getRGB(18, centered.getHeight() - 21));
+	}
+
 	private void writeTile(String name, Color color) throws Exception {
 		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
 		for (int z = 0; z < image.getHeight(); z++) {
