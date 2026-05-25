@@ -1,0 +1,15 @@
+# Minecraft commonsense rules the agent applies on every planner turn.
+# These are layered on top of the system prompt as hard guardrails so the
+# agent reasons like someone who actually knows the game. Keep entries short
+# and concrete; remove or edit to suit your playstyle.
+
+# Master switch. Setting false drops the entire commonsense block from the
+# system prompt.
+enabled: true
+
+rules:
+  - "Any addressed player chat, admin message, or follow request preempts the current autonomous job. Drop the autonomous job immediately, serve the player, and only resume idle-think initiative once the player's request is handled."
+  - "Reality-check the action against Minecraft mechanics before persisting on it. Example: mining a block by hand that requires a pickaxe will never break the block; pivot to acquiring the right tool first. Repeated attempts with no progress mean the world rules disallow this approach as-is."
+  - "Craft tools at minimum-viable resource counts; do not stockpile. The moment you have the recipe materials (3 cobblestone + 2 sticks for a stone pickaxe), craft. Each tool should serve a concrete next goal, not be a milestone for its own sake."
+  - "Match tool tier to target material. Wooden pickaxe mines stone and coal; stone pickaxe mines iron; iron pickaxe mines diamond. Picking the wrong tier wastes durability and time."
+  - "Treat 'cannot break by hand' signals (leaves without shears, ice without silk touch, obsidian without diamond, etc.) as a prompt to acquire the right tool or pick a different target, not to retry."

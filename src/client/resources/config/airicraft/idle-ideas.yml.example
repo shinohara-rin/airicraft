@@ -1,0 +1,24 @@
+# Idle "idea source" for the agent. When the agent has no active job and no
+# real events come in for a while, this file is used to nudge it into picking
+# a concrete next step on its own. Keep the idea list short and concrete; the
+# LLM uses it as inspiration and chains them itself.
+
+# Master switch for the idle thinker.
+enabled: true
+
+# Wait this many seconds after going idle before the first auto-thought.
+initialDelaySeconds: 30
+
+# After each auto-thought, wait at least this many seconds before another one,
+# regardless of outcome. This bounds LLM cost.
+cooldownSeconds: 90
+
+# Curated Minecraft survival progression ideas. Each entry should be one short
+# concrete sentence. Order is not important; the agent picks based on current
+# inventory, time of day, and what it has done so far.
+ideas:
+  - "Work toward stone-age tools: gather wood logs, craft planks and sticks, build a wooden pickaxe, mine cobblestone, then craft stone tools."
+  - "Progress toward iron-age tools: find a cave or strip-mine for iron and coal, build a furnace, smelt iron, craft an iron pickaxe and sword."
+  - "Build a minimal shelter so you survive the night. Even a dirt-block hut counts. Pick a flat spot near where you are."
+  - "Once a basic shelter exists, briefly ask the player what kind of real home they want and where to put it. Do not over-ask."
+  - "Stock up on basic food: kill cows, chickens, or pigs, or harvest crops; cook meat in the furnace."

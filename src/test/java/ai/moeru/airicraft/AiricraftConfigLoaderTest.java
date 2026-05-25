@@ -17,12 +17,23 @@ class AiricraftConfigLoaderTest {
 		AiricraftConfig parsed = AiricraftConfigLoader.fromMap(Map.of(
 			"socialChatMaxDistanceBlocks", 96,
 			"readSystemChatMessages", false,
-			"enableProactiveSocialMode", true
+			"enableProactiveSocialMode", true,
+			"suppressAutoPauseOnFocusLost", false
 		), defaults);
 
 		assertEquals(96, parsed.socialChatMaxDistanceBlocks());
 		assertFalse(parsed.readSystemChatMessages());
 		assertTrue(parsed.enableProactiveSocialMode());
+		assertFalse(parsed.suppressAutoPauseOnFocusLost());
+	}
+
+	@Test
+	void fromMapDefaultsSuppressAutoPauseOnFocusLostWhenAbsent() {
+		AiricraftConfig defaults = AiricraftConfig.defaults();
+
+		AiricraftConfig parsed = AiricraftConfigLoader.fromMap(Map.of(), defaults);
+
+		assertEquals(defaults.suppressAutoPauseOnFocusLost(), parsed.suppressAutoPauseOnFocusLost());
 	}
 
 	@Test

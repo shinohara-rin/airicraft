@@ -74,16 +74,17 @@ public final class PlannerShellFactory {
 			new ReiRecipeSearchToolProvider(),
 			new MapPlannerToolProvider(MapIntegrationBridge::registry)
 		);
+		PlannerContextAggregator contextAggregator = new PlannerContextAggregator(
+			effectiveClock,
+			config.llm().plannerCompactionTriggerTokens(),
+			config.llm().plannerPendingSemanticEventCap(),
+			config.llm().plannerVisionMode(),
+			toolRegistry
+		);
 		PlannerOrchestrator orchestrator = new PlannerOrchestrator(
 			new PlannerExecutor(new OpenAiCompatibleLlmBackend(config.llm(), observability, toolRegistry), observability),
 			new PlannerCompactionService(new OpenAiCompatibleChatClient(config.llm(), observability, toolRegistry), observability),
-			new PlannerContextAggregator(
-				effectiveClock,
-				config.llm().plannerCompactionTriggerTokens(),
-				config.llm().plannerPendingSemanticEventCap(),
-				config.llm().plannerVisionMode(),
-				toolRegistry
-			),
+			contextAggregator,
 			visionService,
 			inventoryService,
 			config.llm().plannerVisionMode(),
@@ -103,7 +104,8 @@ public final class PlannerShellFactory {
 		return new PlannerShellComponents(
 			visionService,
 			new DialogueRuntime(orchestrator, config.llm().maxRecentConversationTurns(), effectiveClock),
-			journal
+			journal,
+			contextAggregator::setCommonsenseRules
 		);
 	}
 }

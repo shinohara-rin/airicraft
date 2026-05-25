@@ -5,7 +5,8 @@ public enum PlannerTriggerType {
 	CRAFT("craft"),
 	DAMAGE("damage"),
 	PICKUP("pickup"),
-	SYSTEM("system");
+	SYSTEM("system"),
+	IDLE_THINK("idle_think");
 
 	private final String promptLabel;
 

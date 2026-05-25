@@ -31,6 +31,7 @@ public record PlannerTrigger(
 			case DAMAGE -> "self";
 			case PICKUP -> "self";
 			case SYSTEM -> "server";
+			case IDLE_THINK -> "self";
 		};
 	}
 }

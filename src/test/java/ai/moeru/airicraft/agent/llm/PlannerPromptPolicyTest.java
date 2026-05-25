@@ -111,6 +111,41 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptOmitsCommonsenseHeaderWhenRulesEmpty() {
+		String prompt = PlannerPromptPolicy.systemPrompt(
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			PlannerToolRegistry.empty(),
+			java.util.List.of()
+		);
+
+		assertFalse(prompt.contains("Minecraft commonsense rules"));
+		assertFalse(prompt.contains("{{"));
+	}
+
+	@Test
+	void systemPromptRendersCommonsenseRulesWhenProvided() {
+		String prompt = PlannerPromptPolicy.systemPrompt(
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			PlannerToolRegistry.empty(),
+			java.util.List.of("first rule", "second rule")
+		);
+
+		assertTrue(prompt.contains("Minecraft commonsense rules (apply on every turn):"));
+		assertTrue(prompt.contains("- first rule"));
+		assertTrue(prompt.contains("- second rule"));
+		assertFalse(prompt.contains("{{"));
+	}
+
+	@Test
+	void systemPromptHardCodesPlayerInterruptRule() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("preempts any autonomous idle_think activity"));
+		assertTrue(prompt.contains("cancel the autonomous job"));
+		assertTrue(prompt.contains("serve the player's request first"));
+	}
+
+	@Test
 	void compactionInstructionLoadsMarkdownTemplate() {
 		String prompt = PlannerPromptPolicy.compactionInstruction();
 

@@ -11,6 +11,7 @@ import com.google.gson.JsonElement;
 import java.time.Clock;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -25,6 +26,7 @@ public final class PlannerContextAggregator {
 	private final PlannerVisionMode visionMode;
 	private final PlannerToolRegistry toolRegistry;
 	private final SemanticContextProjector semanticContextProjector = new SemanticContextProjector();
+	private volatile List<String> commonsenseRules = List.of();
 
 	private PlannerContextState state = PlannerContextState.initial();
 	private PlannerContextSnapshot lastFrozenSnapshot;
@@ -52,6 +54,14 @@ public final class PlannerContextAggregator {
 		this.pendingSemanticEventCap = Math.max(1, pendingSemanticEventCap);
 		this.visionMode = Objects.requireNonNull(visionMode, "visionMode");
 		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
+	}
+
+	public void setCommonsenseRules(List<String> rules) {
+		this.commonsenseRules = rules == null ? List.of() : List.copyOf(rules);
+	}
+
+	List<String> commonsenseRules() {
+		return Collections.unmodifiableList(commonsenseRules);
 	}
 
 	public boolean compactionPending() {
@@ -404,7 +414,7 @@ public final class PlannerContextAggregator {
 		LlmChatMessage terminalMessage
 	) {
 		ArrayList<LlmChatMessage> messages = new ArrayList<>();
-		messages.add(LlmChatMessage.system(PlannerPromptPolicy.systemPrompt(visionMode, toolRegistry)));
+		messages.add(LlmChatMessage.system(PlannerPromptPolicy.systemPrompt(visionMode, toolRegistry, commonsenseRules)));
 		if (state.activeCheckpoint() != null) {
 			messages.add(LlmChatMessage.user(state.activeCheckpoint().renderMessage(), LlmMessageKind.CHECKPOINT));
 		}

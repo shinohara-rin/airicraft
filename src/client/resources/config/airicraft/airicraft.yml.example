@@ -7,3 +7,6 @@ readSystemChatMessages: true
 
 # When true, nearby non-@agent chat also goes through the planner.
 enableProactiveSocialMode: true
+
+# When true, the game does not open the pause menu after the window loses focus.
+suppressAutoPauseOnFocusLost: true

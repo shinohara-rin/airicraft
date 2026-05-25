@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class PlannerPromptPolicy {
@@ -18,21 +20,44 @@ public final class PlannerPromptPolicy {
 	}
 
 	public static String systemPrompt(PlannerVisionMode visionMode) {
-		return systemPrompt(visionMode, PlannerToolRegistry.empty());
+		return systemPrompt(visionMode, PlannerToolRegistry.empty(), List.of());
 	}
 
 	public static String systemPrompt(PlannerVisionMode visionMode, PlannerToolRegistry toolRegistry) {
+		return systemPrompt(visionMode, toolRegistry, List.of());
+	}
+
+	public static String systemPrompt(PlannerVisionMode visionMode, PlannerToolRegistry toolRegistry, List<String> commonsenseRules) {
 		PlannerToolRegistry effectiveToolRegistry = toolRegistry == null ? PlannerToolRegistry.empty() : toolRegistry;
 		String visionInstruction = switch (visionMode) {
 			case EXTERNAL_SUMMARY -> "If you need visual information, call take_a_look with a short prompt describing what the separate vision model should inspect.";
 			case NATIVE_TOOL_IMAGE -> "If you need visual information, call take_a_look.";
 		};
-		return renderTemplate(SYSTEM_PROMPT_TEMPLATE, SYSTEM_PROMPT_TEMPLATE_TEXT, Map.of(
-			"available_tool_line", availableToolLine(effectiveToolRegistry),
-			"vision_instruction", visionInstruction,
-			"provider_tool_instructions", effectiveToolRegistry.promptInstructions(),
-			"same_client_admin", DialogueSpeakerLabels.SAME_CLIENT_ADMIN
-		));
+		LinkedHashMap<String, String> placeholders = new LinkedHashMap<>();
+		placeholders.put("available_tool_line", availableToolLine(effectiveToolRegistry));
+		placeholders.put("vision_instruction", visionInstruction);
+		placeholders.put("provider_tool_instructions", effectiveToolRegistry.promptInstructions());
+		placeholders.put("same_client_admin", DialogueSpeakerLabels.SAME_CLIENT_ADMIN);
+		placeholders.put("commonsense_rules", renderCommonsenseRules(commonsenseRules));
+		return renderTemplate(SYSTEM_PROMPT_TEMPLATE, SYSTEM_PROMPT_TEMPLATE_TEXT, placeholders);
+	}
+
+	private static String renderCommonsenseRules(List<String> rules) {
+		if (rules == null || rules.isEmpty()) {
+			return "";
+		}
+		StringBuilder builder = new StringBuilder("Minecraft commonsense rules (apply on every turn):\n");
+		for (String rule : rules) {
+			if (rule == null || rule.isBlank()) {
+				continue;
+			}
+			builder.append("- ").append(rule.strip()).append('\n');
+		}
+		int trailingNewline = builder.length() - 1;
+		if (trailingNewline >= 0 && builder.charAt(trailingNewline) == '\n') {
+			builder.deleteCharAt(trailingNewline);
+		}
+		return builder.toString();
 	}
 
 	private static String availableToolLine(PlannerToolRegistry toolRegistry) {

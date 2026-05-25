@@ -1,5 +1,7 @@
-package ai.moeru.airicraft;
+package ai.moeru.airicraft.agent.idle;
 
+import ai.moeru.airicraft.Airicraft;
+import ai.moeru.airicraft.ConfigLoadException;
 import net.fabricmc.loader.api.FabricLoader;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -10,45 +12,45 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
-public final class AiricraftConfigLoader {
+public final class IdleIdeasLoader {
 	private static final Yaml YAML = createYaml();
-	private static final String TEMPLATE_RESOURCE = "/config/airicraft/airicraft.yml.example";
-	private static final String TEMPLATE_FILENAME = "airicraft.yml.example";
-	private static final String CONFIG_FILENAME = "airicraft.yml";
-	private static final String AGENT_CONFIG_FILENAME = "agent.yml";
+	private static final String TEMPLATE_RESOURCE = "/config/airicraft/idle-ideas.yml.example";
+	private static final String TEMPLATE_FILENAME = "idle-ideas.yml.example";
+	private static final String CONFIG_FILENAME = "idle-ideas.yml";
 
-	private AiricraftConfigLoader() {
+	private IdleIdeasLoader() {
 	}
 
-	public static AiricraftConfig load() {
+	public static IdleIdeasConfig load() {
 		try {
 			return loadInternal(false);
 		}
 		catch (ConfigLoadException exception) {
-			Airicraft.LOGGER.warn("Failed to load Airicraft mod config; using defaults", exception);
-			return AiricraftConfig.defaults();
+			Airicraft.LOGGER.warn("Failed to load idle ideas config; using defaults", exception);
+			return IdleIdeasConfig.defaults();
 		}
 	}
 
-	public static AiricraftConfig loadStrict() throws ConfigLoadException {
+	public static IdleIdeasConfig loadStrict() throws ConfigLoadException {
 		return loadInternal(true);
 	}
 
-	private static AiricraftConfig loadInternal(boolean strict) throws ConfigLoadException {
-		AiricraftConfig defaults = AiricraftConfig.defaults();
+	private static IdleIdeasConfig loadInternal(boolean strict) throws ConfigLoadException {
+		IdleIdeasConfig defaults = IdleIdeasConfig.defaults();
 		Path configDir = FabricLoader.getInstance().getConfigDir().resolve("airicraft");
 		Path templatePath = configDir.resolve(TEMPLATE_FILENAME);
 		Path configPath = configDir.resolve(CONFIG_FILENAME);
-		Path agentConfigPath = configDir.resolve(AGENT_CONFIG_FILENAME);
 
 		try {
 			Files.createDirectories(configDir);
 			ensureFile(templatePath);
 			if (Files.notExists(configPath)) {
-				createInitialConfig(configPath, templatePath, agentConfigPath, defaults);
+				Files.copy(templatePath, configPath);
 			}
 
 			try (Reader fileReader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
@@ -64,47 +66,48 @@ public final class AiricraftConfigLoader {
 		}
 	}
 
-	static AiricraftConfig fromMap(Map<String, Object> root, AiricraftConfig defaults) {
+	static IdleIdeasConfig fromMap(Map<String, Object> root, IdleIdeasConfig defaults) {
 		return fromMap(root, defaults, false);
 	}
 
-	static AiricraftConfig fromMapStrict(Map<String, Object> root, AiricraftConfig defaults) {
+	static IdleIdeasConfig fromMapStrict(Map<String, Object> root, IdleIdeasConfig defaults) {
 		return fromMap(root, defaults, true);
 	}
 
-	private static AiricraftConfig fromMap(Map<String, Object> root, AiricraftConfig defaults, boolean strict) {
-		return new AiricraftConfig(
-			readInt(root, "socialChatMaxDistanceBlocks", defaults.socialChatMaxDistanceBlocks()),
-			readBoolean(root, "readSystemChatMessages", defaults.readSystemChatMessages(), strict),
-			readBoolean(root, "enableProactiveSocialMode", defaults.enableProactiveSocialMode(), strict),
-			readBoolean(root, "suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost(), strict)
+	private static IdleIdeasConfig fromMap(Map<String, Object> root, IdleIdeasConfig defaults, boolean strict) {
+		return new IdleIdeasConfig(
+			readBoolean(root, "enabled", defaults.enabled(), strict),
+			readInt(root, "initialDelaySeconds", defaults.initialDelaySeconds()),
+			readInt(root, "cooldownSeconds", defaults.cooldownSeconds()),
+			readIdeas(root, defaults.ideas(), strict)
 		);
 	}
 
-	private static void createInitialConfig(
-		Path configPath,
-		Path templatePath,
-		Path agentConfigPath,
-		AiricraftConfig defaults
-	) throws IOException {
-		if (Files.exists(agentConfigPath)) {
-			Map<String, Object> migratedData;
-			try (Reader fileReader = Files.newBufferedReader(agentConfigPath, StandardCharsets.UTF_8)) {
-				Map<String, Object> agentRoot = parseYaml(fileReader);
-				migratedData = new LinkedHashMap<>();
-				migratedData.put("socialChatMaxDistanceBlocks", defaults.socialChatMaxDistanceBlocks());
-				migratedData.put("readSystemChatMessages", defaults.readSystemChatMessages());
-				migratedData.put(
-					"enableProactiveSocialMode",
-					readBoolean(agentRoot, "enableProactiveSocialMode", defaults.enableProactiveSocialMode(), false)
-				);
-				migratedData.put("suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost());
-			}
-			Files.writeString(configPath, dumpYaml(migratedData), StandardCharsets.UTF_8);
-			return;
+	private static List<String> readIdeas(Map<String, Object> root, List<String> fallback, boolean strict) {
+		if (root == null || !root.containsKey("ideas") || root.get("ideas") == null) {
+			return fallback;
 		}
-
-		Files.copy(templatePath, configPath);
+		Object value = root.get("ideas");
+		if (!(value instanceof List<?> rawList)) {
+			if (strict) {
+				throw new IllegalArgumentException("ideas must be a YAML list of strings");
+			}
+			return fallback;
+		}
+		ArrayList<String> ideas = new ArrayList<>(rawList.size());
+		for (Object entry : rawList) {
+			if (entry == null) {
+				continue;
+			}
+			if (strict && (entry instanceof Map<?, ?> || entry instanceof List<?>)) {
+				throw new IllegalArgumentException("ideas entries must be scalar strings");
+			}
+			String text = String.valueOf(entry).strip();
+			if (!text.isEmpty()) {
+				ideas.add(text);
+			}
+		}
+		return ideas.isEmpty() ? fallback : List.copyOf(ideas);
 	}
 
 	private static void ensureFile(Path path) throws IOException {
@@ -112,9 +115,9 @@ public final class AiricraftConfigLoader {
 			return;
 		}
 
-		try (InputStream stream = AiricraftConfigLoader.class.getResourceAsStream(TEMPLATE_RESOURCE)) {
+		try (InputStream stream = IdleIdeasLoader.class.getResourceAsStream(TEMPLATE_RESOURCE)) {
 			if (stream == null) {
-				throw new IOException("Missing embedded Airicraft config template: " + TEMPLATE_RESOURCE);
+				throw new IOException("Missing embedded idle ideas template: " + TEMPLATE_RESOURCE);
 			}
 			Files.copy(stream, path);
 		}
@@ -168,10 +171,6 @@ public final class AiricraftConfigLoader {
 		options.setPrettyFlow(true);
 		options.setIndent(2);
 		return new Yaml(options);
-	}
-
-	private static String dumpYaml(Map<String, Object> yamlData) {
-		return YAML.dump(yamlData);
 	}
 
 	private static String nonEmpty(String value, String fallback) {
