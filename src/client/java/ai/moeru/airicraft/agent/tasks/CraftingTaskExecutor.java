@@ -6,6 +6,7 @@ import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -487,10 +488,6 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		return Optional.empty();
 	}
 
-	private static String currentScreenName(MinecraftClient client) {
-		return client == null || client.currentScreen == null ? null : client.currentScreen.getClass().getSimpleName();
-	}
-
 	static boolean isVisibleScreenBlockingCrafting(String screenName) {
 		return false;
 	}
@@ -563,7 +560,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private static boolean closeInventoryScreenIfOpen(MinecraftClient client, ClientPlayerEntity player) {
-		if ("InventoryScreen".equals(currentScreenName(client))
+		if (client.currentScreen instanceof InventoryScreen
 			&& player.currentScreenHandler == player.playerScreenHandler
 			&& player.currentScreenHandler.getCursorStack().isEmpty()) {
 			client.setScreen(null);

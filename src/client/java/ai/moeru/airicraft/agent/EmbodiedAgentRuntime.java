@@ -202,7 +202,7 @@ public final class EmbodiedAgentRuntime {
 	private String lastSystemChatText;
 	private Float lastKnownPlayerHealth;
 	private final Map<UUID, String> seenPlayerNames = new LinkedHashMap<>();
-	private PendingCraftToolResult pendingCraftToolResult;
+	private volatile PendingCraftToolResult pendingCraftToolResult;
 
 	public EmbodiedAgentRuntime(
 		AiricraftConfig airicraftConfig,
