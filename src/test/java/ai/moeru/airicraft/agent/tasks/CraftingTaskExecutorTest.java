@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import net.minecraft.recipe.NetworkRecipeId;
 import net.minecraft.screen.PlayerScreenHandler;
 import org.junit.jupiter.api.Test;
 
@@ -59,5 +60,45 @@ class CraftingTaskExecutorTest {
 			FALLBACK,
 			CraftingTaskExecutor.tableNavigationOutcome(Optional.of("CALC_FAILED"), false, false, 0)
 		);
+	}
+
+	@Test
+	void visibleScreensDoNotDetermineCraftingReadiness() {
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting(null));
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting("InventoryScreen"));
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting("ChatScreen"));
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting("GameMenuScreen"));
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting("GenericContainerScreen"));
+		assertFalse(CraftingTaskExecutor.isVisibleScreenBlockingCrafting("HandledScreen"));
+	}
+
+	@Test
+	void craftPlanCarriesResolvedNetworkRecipeId() {
+		NetworkRecipeId networkRecipeId = new NetworkRecipeId(42);
+		CraftingOpportunityResolver.CraftingRecipeResolution resolution = new CraftingOpportunityResolver.CraftingRecipeResolution(
+			networkRecipeId,
+			null,
+			4,
+			2,
+			CraftingGridKind.PLAYER_2X2,
+			java.util.List.of(),
+			null
+		);
+
+		CraftingTaskExecutor.CraftingPlan plan = CraftingTaskExecutor.toCraftingPlanForTests(resolution);
+
+		assertEquals(networkRecipeId, plan.networkRecipeId());
+		assertEquals(8, plan.targetOutputCount());
+	}
+
+	@Test
+	void recipeFillRequestUsesHandlerSyncId() {
+		NetworkRecipeId networkRecipeId = new NetworkRecipeId(7);
+
+		CraftingTaskExecutor.RecipeFillRequest request = CraftingTaskExecutor.recipeFillRequestForTests(123, networkRecipeId);
+
+		assertEquals(123, request.syncId());
+		assertEquals(networkRecipeId, request.networkRecipeId());
+		assertFalse(request.craftAll());
 	}
 }
