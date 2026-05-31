@@ -272,12 +272,13 @@ public final class OpenAiCompatibleChatClient {
 
 	private static List<Map<String, Object>> multimodalContent(LlmChatMessage message) {
 		LlmImageAttachment imageAttachment = Objects.requireNonNull(message.imageAttachment(), "imageAttachment");
+		String text = message.content().isBlank() ? "Image attached." : message.content();
 		String imageUrl = "data:%s;base64,%s".formatted(
 			imageAttachment.mimeType(),
 			Base64.getEncoder().encodeToString(imageAttachment.imageBytes())
 		);
 		return List.of(
-			Map.of("type", "text", "text", message.content()),
+			Map.of("type", "text", "text", text),
 			Map.of(
 				"type", "image_url",
 				"image_url", Map.of(

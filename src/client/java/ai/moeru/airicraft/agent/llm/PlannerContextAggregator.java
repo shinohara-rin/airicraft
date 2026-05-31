@@ -257,7 +257,7 @@ public final class PlannerContextAggregator {
 		}
 		return conversation.withAppended(
 			LlmChatMessage.userWithImage(
-				toolResult == null || toolResult.isBlank() ? "Tool result: image attached." : toolResult,
+				imageContextPlaceholder(toolResult),
 				LlmMessageKind.TOOL_RESULT,
 				imageAttachment
 			)
@@ -281,11 +281,19 @@ public final class PlannerContextAggregator {
 		}
 		return snapshot.plannerConversation()
 			.withAppended(LlmChatMessage.assistantToolCall("", toolCall))
-			.withAppended(LlmChatMessage.toolWithImage(
-				toolCall.id(),
-				toolResultContent(toolResult),
+			.withAppended(LlmChatMessage.tool(toolCall.id(), toolResultContent(toolResult)))
+			.withAppended(LlmChatMessage.userWithImage(
+				imageContextPlaceholder(toolResult),
+				LlmMessageKind.TOOL_RESULT,
 				imageAttachment
 			));
+	}
+
+	private static String imageContextPlaceholder(String toolResult) {
+		String normalized = toolResult == null || toolResult.isBlank()
+			? "Tool result: image attached."
+			: toolResult;
+		return normalized + "\nImage attached for the current planner context.";
 	}
 
 	public LlmConversation buildPlannerFollowUpConversation(String toolResult) {

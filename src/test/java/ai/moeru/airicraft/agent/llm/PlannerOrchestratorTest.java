@@ -1437,15 +1437,19 @@ class PlannerOrchestratorTest {
 
 		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
 		LlmConversation followUpConversation = backend.conversation(1);
-		LlmChatMessage replayedToolCall = followUpConversation.messages().get(followUpConversation.messages().size() - 2);
-		LlmChatMessage replayedToolResult = followUpConversation.messages().get(followUpConversation.messages().size() - 1);
+		LlmChatMessage replayedToolCall = followUpConversation.messages().get(followUpConversation.messages().size() - 3);
+		LlmChatMessage replayedToolResult = followUpConversation.messages().get(followUpConversation.messages().size() - 2);
+		LlmChatMessage replayedImageContext = followUpConversation.messages().get(followUpConversation.messages().size() - 1);
 		assertEquals("assistant", replayedToolCall.role());
 		assertTrue(replayedToolCall.hasToolCalls());
 		assertEquals("take_a_look", replayedToolCall.toolCalls().get(0).name());
 		assertFalse(replayedToolCall.toolCalls().get(0).arguments().has("prompt"));
 		assertEquals("tool", replayedToolResult.role());
 		assertTrue(replayedToolResult.content().contains("current first-person view attached"));
-		assertTrue(replayedToolResult.hasImageAttachment());
+		assertFalse(replayedToolResult.hasImageAttachment());
+		assertEquals("user", replayedImageContext.role());
+		assertTrue(replayedImageContext.content().contains("current planner context"));
+		assertTrue(replayedImageContext.hasImageAttachment());
 		backend.succeed(1, replyOnly("ok"));
 		assertTrue(awaitResult(orchestrator).succeeded());
 	}

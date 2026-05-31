@@ -116,7 +116,7 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
-	void nativeImageToolResultStaysInToolContext() throws Exception {
+	void nativeImageToolResultKeepsToolTextAndAddsImageContext() throws Exception {
 		AtomicReference<String> bodyRef = new AtomicReference<>();
 		try (TestServer server = TestServer.start(bodyRef, """
 			{
@@ -137,19 +137,27 @@ class PlannerToolCallInterfaceTest {
 				LlmChatMessage.system("system"),
 				LlmChatMessage.user("Alice said just now: @agent what do you see?", LlmMessageKind.USER_TURN),
 				LlmChatMessage.assistantToolCall("", toolCall),
-				LlmChatMessage.toolWithImage(
+				LlmChatMessage.tool(
 					toolCall.id(),
-					"Tool result for take_a_look: current first-person view attached.",
+					"Tool result for take_a_look: current first-person view attached."
+				),
+				LlmChatMessage.userWithImage(
+					"Image attached for the current planner context.",
+					LlmMessageKind.TOOL_RESULT,
 					new LlmImageAttachment("image/png", new byte[]{1, 2, 3}, "low")
 				)
 			)));
 
 			JsonArray messages = JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("messages");
-			JsonObject toolResult = messages.get(messages.size() - 1).getAsJsonObject();
+			JsonObject toolResult = messages.get(messages.size() - 2).getAsJsonObject();
 			assertEquals("tool", toolResult.get("role").getAsString());
 			assertEquals("call_look", toolResult.get("tool_call_id").getAsString());
-			JsonArray content = toolResult.getAsJsonArray("content");
+			assertEquals("Tool result for take_a_look: current first-person view attached.", toolResult.get("content").getAsString());
+			JsonObject imageContext = messages.get(messages.size() - 1).getAsJsonObject();
+			assertEquals("user", imageContext.get("role").getAsString());
+			JsonArray content = imageContext.getAsJsonArray("content");
 			assertEquals("text", content.get(0).getAsJsonObject().get("type").getAsString());
+			assertTrue(content.get(0).getAsJsonObject().get("text").getAsString().contains("current planner context"));
 			assertEquals("image_url", content.get(1).getAsJsonObject().get("type").getAsString());
 			assertTrue(content.get(1).toString().contains("data:image/png;base64,AQID"));
 			JsonObject takeLookProperties = toolSchema(

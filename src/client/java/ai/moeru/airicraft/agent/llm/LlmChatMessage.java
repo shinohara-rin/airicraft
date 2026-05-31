@@ -61,18 +61,6 @@ public record LlmChatMessage(
 		return new LlmChatMessage("tool", content, LlmMessageKind.TOOL_RESULT, null, null, List.of(), toolCallId);
 	}
 
-	public static LlmChatMessage toolWithImage(String toolCallId, String content, LlmImageAttachment imageAttachment) {
-		return new LlmChatMessage(
-			"tool",
-			content,
-			LlmMessageKind.TOOL_RESULT,
-			Objects.requireNonNull(imageAttachment, "imageAttachment"),
-			null,
-			List.of(),
-			toolCallId
-		);
-	}
-
 	public boolean hasImageAttachment() {
 		return imageAttachment != null;
 	}
