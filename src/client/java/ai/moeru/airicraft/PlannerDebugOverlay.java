@@ -144,7 +144,7 @@ final class PlannerDebugOverlay {
 
 	private void renderConversation(DrawContext drawContext, TextRenderer textRenderer, EmbodiedAgentRuntime agentRuntime, long nowMs) {
 		PlannerOrchestratorDebugSnapshot plannerSnapshot = agentRuntime.plannerDebugSnapshot();
-		PlannerConversationDebugSnapshot snapshot = agentRuntime.plannerConversationDebugSnapshot();
+		PlannerConversationDebugSnapshot snapshot = agentRuntime.plannerProjectedConversationDebugSnapshot();
 		if (snapshot == null || snapshot.isEmpty()) {
 			snapshot = placeholderConversationSnapshot(plannerSnapshot);
 		}
