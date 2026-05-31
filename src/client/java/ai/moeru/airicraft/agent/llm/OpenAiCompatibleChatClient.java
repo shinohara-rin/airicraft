@@ -185,7 +185,7 @@ public final class OpenAiCompatibleChatClient {
 			payload.put("response_format", Map.of("type", JSON_OBJECT_RESPONSE_FORMAT));
 		}
 		if (options.plannerTools()) {
-			payload.put("tools", toolRegistry.openAiTools());
+			payload.put("tools", toolRegistry.openAiTools(config.plannerVisionMode()));
 			payload.put("tool_choice", "auto");
 		}
 		payload.put("messages", compactRequestMessages(conversation.messages()));

@@ -34,7 +34,11 @@ public final class PlannerToolRegistry {
 	}
 
 	public List<Map<String, Object>> openAiTools() {
-		ArrayList<Map<String, Object>> tools = new ArrayList<>(PlannerToolCatalog.openAiTools());
+		return openAiTools(PlannerVisionMode.EXTERNAL_SUMMARY);
+	}
+
+	public List<Map<String, Object>> openAiTools(PlannerVisionMode visionMode) {
+		ArrayList<Map<String, Object>> tools = new ArrayList<>(PlannerToolCatalog.openAiTools(visionMode));
 		for (PlannerToolProvider provider : providers) {
 			if (provider.available()) {
 				tools.addAll(provider.openAiTools());
@@ -52,7 +56,11 @@ public final class PlannerToolRegistry {
 	}
 
 	public String availableToolNames() {
-		return openAiTools().stream()
+		return availableToolNames(PlannerVisionMode.EXTERNAL_SUMMARY);
+	}
+
+	public String availableToolNames(PlannerVisionMode visionMode) {
+		return openAiTools(visionMode).stream()
 			.map(PlannerToolRegistry::toolName)
 			.filter(name -> !name.isBlank())
 			.collect(Collectors.joining(", "));

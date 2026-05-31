@@ -107,6 +107,8 @@ class PlannerPromptPolicyTest {
 
 		assertTrue(prompt.startsWith("You are the planner for a Minecraft companion."));
 		assertTrue(prompt.contains("If you need visual information, call take_a_look."));
+		assertFalse(prompt.contains("short prompt describing what the separate vision model should inspect"));
+		assertFalse(prompt.contains("separate vision model"));
 		assertFalse(prompt.contains("{{"));
 	}
 

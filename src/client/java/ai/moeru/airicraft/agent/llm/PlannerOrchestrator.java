@@ -792,17 +792,18 @@ public final class PlannerOrchestrator {
 	}
 
 	private void startToolExecution(PlannerExecutionResult plannerResult, PlannerToolCall toolCall) {
-		narrationSink.onToolNarration(toolCall);
-		appendToolRequestCard(plannerResult, toolCall);
+		PlannerToolCall executionToolCall = normalizeToolCallForExecution(toolCall);
+		narrationSink.onToolNarration(executionToolCall);
+		appendToolRequestCard(plannerResult, executionToolCall);
 		debugRecorder.recordPlannerCompletion(plannerResult);
-		lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
+		lifecycleListener.onToolRequested(plannerResult.generation(), executionToolCall);
 		sessionCoordinator.markToolWait(plannerResult.generation());
 		pendingToolExecution = new PendingToolExecution(
 			plannerResult.generation(),
-			toolCallSummary(toolCall),
-			requestPlannerTool(toolCall),
+			toolCallSummary(executionToolCall),
+			requestPlannerTool(executionToolCall),
 			plannerResult.response().rawAssistantContent(),
-			toolCall
+			executionToolCall
 		);
 	}
 
@@ -1392,6 +1393,21 @@ public final class PlannerOrchestrator {
 		catch (RuntimeException exception) {
 			return "";
 		}
+	}
+
+	private PlannerToolCall normalizeToolCallForExecution(PlannerToolCall toolCall) {
+		if (
+			visionMode != PlannerVisionMode.NATIVE_TOOL_IMAGE
+				|| !VISUAL_TOOL_NAME.equals(normalizedToolName(toolCall))
+				|| toolCall == null
+				|| toolCall.arguments() == null
+				|| !toolCall.arguments().has("prompt")
+		) {
+			return toolCall;
+		}
+		JsonObject arguments = toolCall.arguments().deepCopy();
+		arguments.remove("prompt");
+		return new PlannerToolCall(toolCall.id(), toolCall.name(), arguments, toolCall.narration(), null);
 	}
 
 	private static boolean hasToolCompatibleIntent(PlannerResponse response) {

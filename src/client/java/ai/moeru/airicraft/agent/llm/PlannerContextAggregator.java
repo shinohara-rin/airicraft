@@ -261,7 +261,7 @@ public final class PlannerContextAggregator {
 				LlmMessageKind.TOOL_RESULT,
 				imageAttachment
 			)
-			);
+		);
 	}
 
 	public LlmConversation buildPlannerFollowUpConversation(
@@ -270,17 +270,22 @@ public final class PlannerContextAggregator {
 		String toolResult,
 		LlmImageAttachment imageAttachment
 	) {
-		LlmConversation conversation = buildPlannerFollowUpConversation(snapshot, toolCall, toolResult);
-		if (imageAttachment == null) {
-			return conversation;
+		if (snapshot == null) {
+			throw new IllegalStateException("No planner context snapshot");
 		}
-		return conversation.withAppended(
-			LlmChatMessage.userWithImage(
-				toolResult == null || toolResult.isBlank() ? "Tool result: image attached." : toolResult,
-				LlmMessageKind.TOOL_RESULT,
+		if (toolCall == null) {
+			throw new IllegalArgumentException("toolCall");
+		}
+		if (imageAttachment == null) {
+			return buildPlannerFollowUpConversation(snapshot, toolCall, toolResult);
+		}
+		return snapshot.plannerConversation()
+			.withAppended(LlmChatMessage.assistantToolCall("", toolCall))
+			.withAppended(LlmChatMessage.toolWithImage(
+				toolCall.id(),
+				toolResultContent(toolResult),
 				imageAttachment
-			)
-		);
+			));
 	}
 
 	public LlmConversation buildPlannerFollowUpConversation(String toolResult) {

@@ -60,6 +60,7 @@ class PlannerToolCallInterfaceTest {
 			JsonArray tools = body.getAsJsonArray("tools");
 			assertNotNull(tools);
 			assertTrue(tools.size() >= 10);
+			assertTrue(toolSchema(tools, "take_a_look").getAsJsonObject("properties").has("prompt"));
 			JsonObject narrationSchema = tools.get(0).getAsJsonObject()
 				.getAsJsonObject("function")
 				.getAsJsonObject("parameters")
@@ -111,6 +112,52 @@ class PlannerToolCallInterfaceTest {
 			assertEquals("call_inventory", response.toolCall().id());
 			assertEquals("I'm checking my inventory.", response.toolCall().narration());
 			assertEquals("List current counts.", response.toolCall().arguments().get("prompt").getAsString());
+		}
+	}
+
+	@Test
+	void nativeImageToolResultStaysInToolContext() throws Exception {
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "role": "assistant",
+			        "content": "I can see the hill."
+			      }
+			    }
+			  ]
+			}
+			""")) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(nativeVisionConfig(server.port()));
+			PlannerToolCall toolCall = new PlannerToolCall("call_look", "take_a_look", new JsonObject(), null, null);
+
+			backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent what do you see?", LlmMessageKind.USER_TURN),
+				LlmChatMessage.assistantToolCall("", toolCall),
+				LlmChatMessage.toolWithImage(
+					toolCall.id(),
+					"Tool result for take_a_look: current first-person view attached.",
+					new LlmImageAttachment("image/png", new byte[]{1, 2, 3}, "low")
+				)
+			)));
+
+			JsonArray messages = JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("messages");
+			JsonObject toolResult = messages.get(messages.size() - 1).getAsJsonObject();
+			assertEquals("tool", toolResult.get("role").getAsString());
+			assertEquals("call_look", toolResult.get("tool_call_id").getAsString());
+			JsonArray content = toolResult.getAsJsonArray("content");
+			assertEquals("text", content.get(0).getAsJsonObject().get("type").getAsString());
+			assertEquals("image_url", content.get(1).getAsJsonObject().get("type").getAsString());
+			assertTrue(content.get(1).toString().contains("data:image/png;base64,AQID"));
+			JsonObject takeLookProperties = toolSchema(
+				JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("tools"),
+				"take_a_look"
+			).getAsJsonObject("properties");
+			assertTrue(takeLookProperties.has("narration"));
+			assertFalse(takeLookProperties.has("prompt"));
 		}
 	}
 
@@ -403,6 +450,14 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	private static AgentConfig.LlmConfig config(int port) {
+		return config(port, false);
+	}
+
+	private static AgentConfig.LlmConfig nativeVisionConfig(int port) {
+		return config(port, true);
+	}
+
+	private static AgentConfig.LlmConfig config(int port, boolean plannerNativeVisionEnabled) {
 		return new AgentConfig.LlmConfig(
 			"http://127.0.0.1:" + port,
 			"planner-key",
@@ -415,7 +470,7 @@ class PlannerToolCallInterfaceTest {
 			8,
 			65_536,
 			"low",
-			false
+			plannerNativeVisionEnabled
 		);
 	}
 

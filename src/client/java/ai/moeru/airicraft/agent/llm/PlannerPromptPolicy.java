@@ -28,15 +28,15 @@ public final class PlannerPromptPolicy {
 			case NATIVE_TOOL_IMAGE -> "If you need visual information, call take_a_look.";
 		};
 		return renderTemplate(SYSTEM_PROMPT_TEMPLATE, SYSTEM_PROMPT_TEMPLATE_TEXT, Map.of(
-			"available_tool_line", availableToolLine(effectiveToolRegistry),
+			"available_tool_line", availableToolLine(effectiveToolRegistry, visionMode),
 			"vision_instruction", visionInstruction,
 			"provider_tool_instructions", effectiveToolRegistry.promptInstructions(),
 			"same_client_admin", DialogueSpeakerLabels.SAME_CLIENT_ADMIN
 		));
 	}
 
-	private static String availableToolLine(PlannerToolRegistry toolRegistry) {
-		return "Available tools: " + toolRegistry.availableToolNames() + ".";
+	private static String availableToolLine(PlannerToolRegistry toolRegistry, PlannerVisionMode visionMode) {
+		return "Available tools: " + toolRegistry.availableToolNames(visionMode) + ".";
 	}
 
 	public static String compactionInstruction() {

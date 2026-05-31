@@ -37,11 +37,12 @@ public final class PlannerToolCatalog {
 	}
 
 	public static List<Map<String, Object>> openAiTools() {
+		return openAiTools(PlannerVisionMode.EXTERNAL_SUMMARY);
+	}
+
+	public static List<Map<String, Object>> openAiTools(PlannerVisionMode visionMode) {
 		return List.of(
-			tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
-				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("prompt", string("Short prompt describing what to inspect."))
-			), List.of()),
+			takeALookTool(visionMode),
 			tool(INSPECT_INVENTORY, "Inspect current inventory counts.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional inventory question."))
@@ -119,6 +120,18 @@ public final class PlannerToolCatalog {
 				prop("upserts", array("Policy rule upserts.", policyUpsertSchema()))
 			), List.of())
 		);
+	}
+
+	private static Map<String, Object> takeALookTool(PlannerVisionMode visionMode) {
+		if (visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE) {
+			return tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed."))
+			), List.of());
+		}
+		return tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
+			prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+			prop("prompt", string("Short prompt describing what to inspect."))
+		), List.of());
 	}
 
 	public static PlannerToolCall parseToolCall(JsonObject object) {

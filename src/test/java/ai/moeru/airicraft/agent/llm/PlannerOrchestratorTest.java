@@ -1291,19 +1291,21 @@ class PlannerOrchestratorTest {
 		PlannerConversationDebugSnapshot followUp = orchestrator.conversationDebugSnapshot();
 		assertEquals(1L, followUp.generation());
 		assertEquals("TOOL_FOLLOW_UP", followUp.phase());
-			PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
-			assertNotNull(toolResultMessage);
-			PlannerConversationDebugMessage imageMessage = followUp.messages().stream()
-				.filter(message -> message.kind() == PlannerConversationDebugKind.TOOL_RESULT)
-				.filter(PlannerConversationDebugMessage::hasImageAttachment)
-				.findFirst()
-				.orElseThrow();
-			assertTrue(imageMessage.text().contains("current first-person view attached"));
-			PlannerConversationDebugMessage toolCallCard = findConversationMessage(followUp, PlannerConversationDebugKind.TASK, "Tool call: take_a_look");
-			assertNotNull(toolCallCard);
-			assertEquals(PlannerConversationDebugKind.TASK, toolCallCard.kind());
-			assertTrue(toolCallCard.text().contains("Tool call: take_a_look"));
-		}
+		PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
+		assertNotNull(toolResultMessage);
+		PlannerConversationDebugMessage imageMessage = followUp.messages().stream()
+			.filter(message -> message.kind() == PlannerConversationDebugKind.TOOL_RESULT)
+			.filter(PlannerConversationDebugMessage::hasImageAttachment)
+			.findFirst()
+			.orElseThrow();
+		assertTrue(imageMessage.text().contains("current first-person view attached"));
+		PlannerConversationDebugMessage toolCallCard = findConversationMessage(followUp, PlannerConversationDebugKind.TASK, "Tool call: take_a_look");
+		assertNotNull(toolCallCard);
+		assertEquals(PlannerConversationDebugKind.TASK, toolCallCard.kind());
+		assertTrue(toolCallCard.text().contains("Tool call: take_a_look"));
+		backend.succeed(1, replyOnly("ok"));
+		assertTrue(awaitResult(orchestrator).succeeded());
+	}
 
 	@Test
 	void conversationSnapshotShowsAcceptedToolFollowUpReplyBeforeNextSubmit() {
@@ -1415,7 +1417,7 @@ class PlannerOrchestratorTest {
 		backend.succeed(0, new PlannerResponse(
 			"",
 			new PlannerIntent("none", null, null),
-			new PlannerToolRequest("take_a_look", null),
+			new PlannerToolRequest("take_a_look", "Check the in-game time."),
 			null,
 			JsonParser.parseString("""
 				[
@@ -1433,18 +1435,19 @@ class PlannerOrchestratorTest {
 				""")
 		));
 
-			awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
-			LlmConversation followUpConversation = backend.conversation(1);
-			LlmChatMessage replayedToolCall = followUpConversation.messages().get(followUpConversation.messages().size() - 3);
-			LlmChatMessage replayedToolResult = followUpConversation.messages().get(followUpConversation.messages().size() - 2);
-			LlmChatMessage replayedImageResult = followUpConversation.messages().get(followUpConversation.messages().size() - 1);
-			assertEquals("assistant", replayedToolCall.role());
-			assertTrue(replayedToolCall.hasToolCalls());
-			assertEquals("take_a_look", replayedToolCall.toolCalls().get(0).name());
-			assertEquals("tool", replayedToolResult.role());
-			assertTrue(replayedToolResult.content().contains("current first-person view attached"));
-			assertEquals("user", replayedImageResult.role());
-			assertTrue(replayedImageResult.hasImageAttachment());
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		LlmConversation followUpConversation = backend.conversation(1);
+		LlmChatMessage replayedToolCall = followUpConversation.messages().get(followUpConversation.messages().size() - 2);
+		LlmChatMessage replayedToolResult = followUpConversation.messages().get(followUpConversation.messages().size() - 1);
+		assertEquals("assistant", replayedToolCall.role());
+		assertTrue(replayedToolCall.hasToolCalls());
+		assertEquals("take_a_look", replayedToolCall.toolCalls().get(0).name());
+		assertFalse(replayedToolCall.toolCalls().get(0).arguments().has("prompt"));
+		assertEquals("tool", replayedToolResult.role());
+		assertTrue(replayedToolResult.content().contains("current first-person view attached"));
+		assertTrue(replayedToolResult.hasImageAttachment());
+		backend.succeed(1, replyOnly("ok"));
+		assertTrue(awaitResult(orchestrator).succeeded());
 	}
 
 	@Test
