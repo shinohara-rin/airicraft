@@ -576,6 +576,10 @@ public final class EmbodiedAgentRuntime {
 		return dialogueRuntime.plannerConversationDebugSnapshot();
 	}
 
+	public PlannerConversationDebugSnapshot plannerProjectedConversationDebugSnapshot() {
+		return dialogueRuntime.plannerProjectedConversationDebugSnapshot();
+	}
+
 	public PlannerConversationDebugSnapshot plannerCanonicalConversationDebugSnapshot() {
 		return dialogueRuntime.plannerCanonicalConversationDebugSnapshot();
 	}

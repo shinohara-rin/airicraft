@@ -983,9 +983,36 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 
 		assertEquals("reply A", result.response().replyText());
-		PlannerConversationDebugMessage replyCard = lastConversationMessage(orchestrator.conversationDebugSnapshot());
+		PlannerConversationDebugSnapshot canonicalAfterReply = orchestrator.conversationDebugSnapshot();
+		assertEquals(PlannerConversationDebugKind.USER_TURN, lastConversationMessage(canonicalAfterReply).kind());
+		assertNull(findConversationMessage(canonicalAfterReply, PlannerConversationDebugKind.ASSISTANT_TURN, "reply A"));
+
+		PlannerConversationDebugMessage replyCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
 		assertEquals(PlannerConversationDebugKind.ASSISTANT_TURN, replyCard.kind());
 		assertEquals("reply A", replyCard.text());
+	}
+
+	@Test
+	void conversationDebugSnapshotReturnsCanonicalSubmittedPromptAfterReplyOnlyCompletion() {
+		RecordingBackend backend = new RecordingBackend();
+		PlannerOrchestrator orchestrator = newOrchestrator(backend, CurrentViewVisionTool.disabled(), PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "A"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, replyOnly("reply A"));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertTrue(result.succeeded());
+
+		PlannerConversationDebugSnapshot canonical = orchestrator.conversationDebugSnapshot();
+		assertEquals(1L, canonical.generation());
+		assertEquals("PLANNER_REQUEST", canonical.phase());
+		assertTrue(canonical.messages().stream().anyMatch(message -> message.kind() == PlannerConversationDebugKind.SYSTEM));
+		assertEquals(PlannerConversationDebugKind.USER_TURN, lastConversationMessage(canonical).kind());
+		assertTrue(lastConversationMessage(canonical).text().contains("[chat][Alice] A"));
+		assertNull(findConversationMessage(canonical, PlannerConversationDebugKind.ASSISTANT_TURN, "reply A"));
+
+		PlannerConversationDebugSnapshot projected = orchestrator.projectedConversationDebugSnapshot();
+		assertNotNull(findConversationMessage(projected, PlannerConversationDebugKind.ASSISTANT_TURN, "reply A"));
 	}
 
 	@Test
@@ -1003,7 +1030,7 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 		assertTrue(result.succeeded());
 
-		PlannerConversationDebugMessage outcomeCard = lastConversationMessage(orchestrator.conversationDebugSnapshot());
+		PlannerConversationDebugMessage outcomeCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
 		assertEquals(PlannerConversationDebugKind.TASK, outcomeCard.kind());
 		assertTrue(outcomeCard.text().contains("Goal call: FOLLOW_PLAYER -> Alice."));
 	}
@@ -1034,7 +1061,7 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 		assertTrue(result.succeeded());
 
-		PlannerConversationDebugSnapshot snapshot = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot snapshot = orchestrator.projectedConversationDebugSnapshot();
 		assertNotNull(findConversationMessage(snapshot, PlannerConversationDebugKind.ASSISTANT_TURN, "On it."));
 		assertNotNull(findConversationMessage(snapshot, PlannerConversationDebugKind.TASK, "Goal call: FOLLOW_PLAYER -> Alice."));
 		assertNotNull(findConversationMessage(snapshot, PlannerConversationDebugKind.TASK, "Event filter: clear all rules."));
@@ -1056,7 +1083,7 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult firstResult = awaitResult(orchestrator);
 		assertTrue(firstResult.succeeded());
 		assertNotNull(findConversationMessage(
-			orchestrator.conversationDebugSnapshot(),
+			orchestrator.projectedConversationDebugSnapshot(),
 			PlannerConversationDebugKind.TASK,
 			"Goal call: FOLLOW_PLAYER -> Alice."
 		));
@@ -1064,7 +1091,7 @@ class PlannerOrchestratorTest {
 		orchestrator.submit(requestAt(11L, 1_100L, "Alice", "status?"));
 		backend.awaitCalls(2, Duration.ofSeconds(1));
 
-		PlannerConversationDebugSnapshot submitted = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot submitted = orchestrator.projectedConversationDebugSnapshot();
 		assertNotNull(findConversationMessage(submitted, PlannerConversationDebugKind.TASK, "Goal call: FOLLOW_PLAYER -> Alice."));
 		assertNotNull(findConversationMessage(submitted, PlannerConversationDebugKind.USER_TURN, "[chat][Alice] status?"));
 	}
@@ -1111,7 +1138,7 @@ class PlannerOrchestratorTest {
 		orchestrator.submit(requestAt(21L, 2_100L, "Alice", "status?"));
 		backend.awaitCalls(2, Duration.ofSeconds(1));
 
-		PlannerConversationDebugSnapshot submitted = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot submitted = orchestrator.projectedConversationDebugSnapshot();
 		assertNotNull(findConversationMessage(submitted, PlannerConversationDebugKind.TASK, "Event filter: upsert mute-system-server -> IGNORE on social.system_message [speaker=server]."));
 		assertNotNull(findConversationMessage(submitted, PlannerConversationDebugKind.USER_TURN, "[chat][Alice] status?"));
 	}
@@ -1259,13 +1286,13 @@ class PlannerOrchestratorTest {
 		backend.awaitCompletions(1, Duration.ofSeconds(1));
 
 		assertNull(awaitNullPoll(orchestrator));
-		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.conversationDebugSnapshot());
+		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
 		assertEquals(PlannerConversationDebugKind.TASK, taskCard.kind());
 		assertTrue(taskCard.text().contains("Tool call: take_a_look"));
 	}
 
 	@Test
-	void toolFollowUpConversationShowsToolResultAndRetainsToolCallCard() {
+	void toolFollowUpConversationShowsCanonicalToolCallAndToolResults() {
 		RecordingBackend backend = new RecordingBackend();
 		StubVisionTool visionTool = new StubVisionTool(
 			true,
@@ -1291,19 +1318,22 @@ class PlannerOrchestratorTest {
 		PlannerConversationDebugSnapshot followUp = orchestrator.conversationDebugSnapshot();
 		assertEquals(1L, followUp.generation());
 		assertEquals("TOOL_FOLLOW_UP", followUp.phase());
-			PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
-			assertNotNull(toolResultMessage);
-			PlannerConversationDebugMessage imageMessage = followUp.messages().stream()
-				.filter(message -> message.kind() == PlannerConversationDebugKind.TOOL_RESULT)
-				.filter(PlannerConversationDebugMessage::hasImageAttachment)
-				.findFirst()
-				.orElseThrow();
-			assertTrue(imageMessage.text().contains("current first-person view attached"));
-			PlannerConversationDebugMessage toolCallCard = findConversationMessage(followUp, PlannerConversationDebugKind.TASK, "Tool call: take_a_look");
-			assertNotNull(toolCallCard);
-			assertEquals(PlannerConversationDebugKind.TASK, toolCallCard.kind());
-			assertTrue(toolCallCard.text().contains("Tool call: take_a_look"));
-		}
+		PlannerConversationDebugMessage toolCallMessage = findConversationMessage(followUp, PlannerConversationDebugKind.ASSISTANT_TURN, "Tool call: take_a_look");
+		assertNotNull(toolCallMessage);
+		assertEquals("assistant", toolCallMessage.role());
+		PlannerConversationDebugMessage toolResultMessage = findConversationMessage(followUp, PlannerConversationDebugKind.TOOL_RESULT, "current first-person view attached");
+		assertNotNull(toolResultMessage);
+		PlannerConversationDebugMessage imageMessage = followUp.messages().stream()
+			.filter(message -> message.kind() == PlannerConversationDebugKind.TOOL_RESULT)
+			.filter(PlannerConversationDebugMessage::hasImageAttachment)
+			.findFirst()
+			.orElseThrow();
+		assertTrue(imageMessage.text().contains("current first-person view attached"));
+
+		PlannerConversationDebugSnapshot projected = orchestrator.projectedConversationDebugSnapshot();
+		PlannerConversationDebugMessage toolCallCard = findConversationMessage(projected, PlannerConversationDebugKind.TASK, "Tool call: take_a_look");
+		assertNotNull(toolCallCard);
+	}
 
 	@Test
 	void conversationSnapshotShowsAcceptedToolFollowUpReplyBeforeNextSubmit() {
@@ -1334,7 +1364,7 @@ class PlannerOrchestratorTest {
 		orchestrator.recordAssistantTurn(new DialogueTurn("agent", result.response().replyText(), 11L, 1_100L));
 		orchestrator.onAcceptedReplyRecorded();
 
-		PlannerConversationDebugSnapshot snapshot = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot snapshot = orchestrator.projectedConversationDebugSnapshot();
 		assertNotNull(findConversationMessage(snapshot, PlannerConversationDebugKind.ASSISTANT_TURN, "I see snow."));
 		assertEquals("TOOL_FOLLOW_UP", snapshot.phase());
 	}
@@ -1459,7 +1489,7 @@ class PlannerOrchestratorTest {
 		PlannerExecutionResult result = awaitResult(orchestrator);
 		assertEquals(LlmFailureType.PROVIDER_ERROR, result.failureType());
 
-		PlannerConversationDebugMessage failureCard = lastConversationMessage(orchestrator.conversationDebugSnapshot());
+		PlannerConversationDebugMessage failureCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
 		assertEquals(PlannerConversationDebugKind.FAILURE, failureCard.kind());
 		assertTrue(failureCard.text().contains("PROVIDER_ERROR"));
 		assertTrue(failureCard.text().contains("Injected provider error"));
@@ -1478,8 +1508,10 @@ class PlannerOrchestratorTest {
 		resetBackend.succeed(0, replyOnly("reply A"));
 		awaitResult(resetOrchestrator);
 		assertFalse(resetOrchestrator.conversationDebugSnapshot().isEmpty());
+		assertFalse(resetOrchestrator.projectedConversationDebugSnapshot().isEmpty());
 		resetOrchestrator.reset();
 		assertTrue(resetOrchestrator.conversationDebugSnapshot().isEmpty());
+		assertTrue(resetOrchestrator.projectedConversationDebugSnapshot().isEmpty());
 
 		RecordingBackend shutdownBackend = new RecordingBackend();
 		PlannerOrchestrator shutdownOrchestrator = newOrchestrator(
@@ -1492,8 +1524,10 @@ class PlannerOrchestratorTest {
 		shutdownBackend.succeed(0, replyOnly("reply B"));
 		awaitResult(shutdownOrchestrator);
 		assertFalse(shutdownOrchestrator.conversationDebugSnapshot().isEmpty());
+		assertFalse(shutdownOrchestrator.projectedConversationDebugSnapshot().isEmpty());
 		shutdownOrchestrator.shutdown();
 		assertTrue(shutdownOrchestrator.conversationDebugSnapshot().isEmpty());
+		assertTrue(shutdownOrchestrator.projectedConversationDebugSnapshot().isEmpty());
 	}
 
 	@Test

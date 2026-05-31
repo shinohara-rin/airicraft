@@ -34,7 +34,7 @@ public record PlannerConversationDebugSnapshot(
 			messages.add(new PlannerConversationDebugMessage(
 				message.role(),
 				PlannerConversationDebugKind.fromMessageKind(message.kind()),
-				message.content(),
+				debugText(message),
 				generation,
 				phase == null ? "UNKNOWN" : phase.name(),
 				attempt,
@@ -52,5 +52,30 @@ public record PlannerConversationDebugSnapshot(
 		ArrayList<PlannerConversationDebugMessage> updated = new ArrayList<>(messages);
 		updated.add(Objects.requireNonNull(message, "message"));
 		return new PlannerConversationDebugSnapshot(generation, phase, attempt, updated);
+	}
+
+	private static String debugText(LlmChatMessage message) {
+		if (message == null) {
+			return "";
+		}
+		if (!message.hasToolCalls()) {
+			return message.content();
+		}
+		ArrayList<String> summaries = new ArrayList<>();
+		for (PlannerToolCall toolCall : message.toolCalls()) {
+			StringBuilder summary = new StringBuilder("Tool call: ");
+			summary.append(toolCall.name());
+			if (toolCall.arguments() != null && !toolCall.arguments().isEmpty()) {
+				summary.append(" args=").append(toolCall.arguments());
+			}
+			if (toolCall.narration() != null && !toolCall.narration().isBlank()) {
+				summary.append(" | narration: ").append(toolCall.narration());
+			}
+			summaries.add(summary.toString());
+		}
+		if (message.content() != null && !message.content().isBlank()) {
+			summaries.add(0, message.content());
+		}
+		return String.join("\n", summaries);
 	}
 }

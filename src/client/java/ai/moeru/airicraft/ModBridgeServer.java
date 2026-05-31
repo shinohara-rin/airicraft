@@ -1192,6 +1192,7 @@ public final class ModBridgeServer {
 			response.put("dialogue", agentRuntime().dialogueSnapshot());
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
+			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("lastChatTick", agentRuntime().lastChatTick());
 			response.put("lastChatText", agentRuntime().lastChatText());
@@ -1222,6 +1223,7 @@ public final class ModBridgeServer {
 			response.put("planner", agentRuntime().plannerDebugSnapshot());
 			response.put("dialogueState", agentRuntime().debugDialogueState());
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
+			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
 			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerAttempts", agentRuntime().debugPlannerAttempts());
 			response.put("taskProgressProbe", agentRuntime().debugCollectResourceState());

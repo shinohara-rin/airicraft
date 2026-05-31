@@ -75,6 +75,10 @@ public final class DialogueRuntime {
 		return plannerOrchestrator.conversationDebugSnapshot();
 	}
 
+	public PlannerConversationDebugSnapshot plannerProjectedConversationDebugSnapshot() {
+		return plannerOrchestrator.projectedConversationDebugSnapshot();
+	}
+
 	public PlannerConversationDebugSnapshot plannerCanonicalConversationDebugSnapshot() {
 		return plannerOrchestrator.canonicalConversationDebugSnapshot();
 	}

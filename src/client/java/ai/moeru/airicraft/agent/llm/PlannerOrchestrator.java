@@ -594,6 +594,10 @@ public final class PlannerOrchestrator {
 	}
 
 	public PlannerConversationDebugSnapshot conversationDebugSnapshot() {
+		return lastSubmittedConversation;
+	}
+
+	public PlannerConversationDebugSnapshot projectedConversationDebugSnapshot() {
 		return displayConversationDebugSnapshot();
 	}
 

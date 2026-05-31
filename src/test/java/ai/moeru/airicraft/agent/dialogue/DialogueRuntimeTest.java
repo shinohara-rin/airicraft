@@ -425,7 +425,7 @@ class DialogueRuntimeTest {
 		DialogueResponse response = awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
 
 		assertEquals("I see snow.", response.text());
-		assertTrue(runtime.plannerConversationDebugSnapshot().messages().stream().anyMatch(message ->
+		assertTrue(runtime.plannerProjectedConversationDebugSnapshot().messages().stream().anyMatch(message ->
 			message.kind() == PlannerConversationDebugKind.ASSISTANT_TURN && message.text().contains("I see snow.")
 		));
 		assertFalse(runtime.plannerCanonicalConversationDebugSnapshot().messages().stream().anyMatch(message ->
