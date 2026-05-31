@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -215,15 +216,7 @@ class EmbodiedAgentRuntimeTest {
 	void dropItemsPlannerResponseRoutesWorldTaskRequest() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
-		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
-			SessionMode.REMOTE_MULTIPLAYER,
-			true,
-			true,
-			"minecraft:overworld",
-			false,
-			0,
-			0L
-		));
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		DropItemsStepArgs dropItems = new DropItemsStepArgs("minecraft:oak_log", 2, null);
 
 		runtime.injectDialogueResponseForTests(new DialogueResponse(
@@ -435,49 +428,57 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void craftRecipeToolResultWarnsAcceptedIsOnlyQueued() {
+	void craftRecipeToolResultWaitsForTerminalFeedback() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
-			"call_craft",
-			"craft_recipe",
-			JsonParser.parseString("""
-				{"recipeId":"oak_planks_x2_to_stick","times":1}
-				""").getAsJsonObject(),
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+
+		assertFalse(resultFuture.isDone());
+		runtime.onClientTick(null);
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
 			null,
+			TaskExecutionState.COMPLETED,
+			"crafted",
 			null
 		));
+		runtime.onClientTick(null);
 
-		assertTrue(result.contains("accepted"));
-		assertTrue(result.contains("queued"));
-		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		String result = resultFuture.join();
+		assertTrue(result.contains("completed"));
+		assertTrue(result.contains("state=COMPLETED"));
+		assertFalse(result.contains("accepted queued"));
+	}
+
+	@Test
+	void craftRecipeToolResultTimesOutWhileLeavingTaskRunning() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+
+		for (int i = 0; i <= EmbodiedAgentRuntime.CRAFT_TOOL_RESULT_TIMEOUT_TICKS; i++) {
+			runtime.onClientTick(null);
+		}
+
+		String result = resultFuture.join();
+		assertTrue(result.contains("pending_timeout"));
+		assertFalse(result.contains("accepted queued"));
+		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
+		assertTrue(executor.lastActiveTask.isPresent());
 	}
 
 	@Test
 	void craftRecipePrimitiveFailureEmitsFailureReasonToPlanner() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
-		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
-			SessionMode.REMOTE_MULTIPLAYER,
-			true,
-			true,
-			"minecraft:overworld",
-			false,
-			0,
-			0L
-		));
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
-			"call_craft",
-			"craft_recipe",
-			JsonParser.parseString("""
-				{"recipeId":"oak_planks_x2_to_stick","times":1}
-				""").getAsJsonObject(),
-			null,
-			null
-		));
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
 		runtime.onClientTick(null);
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 
@@ -489,8 +490,11 @@ class EmbodiedAgentRuntimeTest {
 			null
 		));
 		runtime.onClientTick(null);
+		String result = resultFuture.join();
 		runtime.onClientTick(null);
 
+		assertTrue(result.contains("failed"));
+		assertTrue(result.contains("missing_ingredients"));
 		assertEquals(TaskState.FAILED, runtime.taskSnapshot().state());
 		assertEquals("missing_ingredients", runtime.taskSnapshot().lastFailure());
 		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.failed".equals(event.type())));
@@ -1088,5 +1092,29 @@ class EmbodiedAgentRuntimeTest {
 		public void shutdown() {
 			snapshot = TaskExecutionSnapshot.idle();
 		}
+	}
+
+	private static PlannerToolCall craftRecipeToolCall() {
+		return new PlannerToolCall(
+			"call_craft",
+			"craft_recipe",
+			JsonParser.parseString("""
+				{"recipeId":"oak_planks_x2_to_stick","times":1}
+				""").getAsJsonObject(),
+			null,
+			null
+		);
+	}
+
+	private static SessionSnapshot loadedRemoteSession() {
+		return new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		);
 	}
 }

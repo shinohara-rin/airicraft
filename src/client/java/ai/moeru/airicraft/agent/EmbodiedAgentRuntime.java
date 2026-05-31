@@ -156,6 +156,7 @@ import java.util.function.BiFunction;
 
 public final class EmbodiedAgentRuntime {
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
+	static final int CRAFT_TOOL_RESULT_TIMEOUT_TICKS = 40;
 	private static final Map<String, EventRoutingProfile> EVENT_ROUTING_PROFILES = createEventRoutingProfiles();
 
 	private final AiricraftConfig airicraftConfig;
@@ -201,6 +202,7 @@ public final class EmbodiedAgentRuntime {
 	private String lastSystemChatText;
 	private Float lastKnownPlayerHealth;
 	private final Map<UUID, String> seenPlayerNames = new LinkedHashMap<>();
+	private PendingCraftToolResult pendingCraftToolResult;
 
 	public EmbodiedAgentRuntime(
 		AiricraftConfig airicraftConfig,
@@ -326,6 +328,7 @@ public final class EmbodiedAgentRuntime {
 		primaryInteractionResolver.clear();
 		eventPolicyState.clear();
 		eventPipeline.clearPlannerFeed();
+		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=world_left");
 		dialogueRuntime.clear();
 		worldTaskExecutor.onWorldLeave();
 		activeJobRuntime.clear();
@@ -409,7 +412,10 @@ public final class EmbodiedAgentRuntime {
 		taskExecutionSnapshot = worldTaskExecutor.snapshot();
 		boolean semanticTaskContext = hasSemanticTaskContext(previousTaskSnapshot, taskSnapshot);
 		recordTaskStateTransition(previousTaskExecutionSnapshot, taskExecutionSnapshot, semanticTaskContext);
+		terminalTaskEvent.ifPresent(this::completePendingCraftToolResult);
 		terminalTaskEvent.ifPresent(event -> handleTerminalTaskEvent(event, semanticTaskContext));
+		completePendingCraftToolResultFromTaskSnapshot(taskSnapshot);
+		expirePendingCraftToolResultIfTimedOut();
 		behaviorTreeRuntime.tick(
 			client,
 			sessionSnapshot,
@@ -477,6 +483,7 @@ public final class EmbodiedAgentRuntime {
 		nearbyPlayerTracker.clear(tickCount, eventBuffer);
 		eventPipeline.clear();
 		primaryInteractionResolver.clear();
+		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=runtime_shutdown");
 		dialogueRuntime.shutdown();
 		observability.shutdown();
 		visionService.shutdown();
@@ -1071,6 +1078,9 @@ public final class EmbodiedAgentRuntime {
 
 	private CompletableFuture<String> executePlannerToolCall(PlannerToolCall toolCall) {
 		try {
+			if (toolCall != null && PlannerToolCatalog.CRAFT_RECIPE.equals(PlannerToolCatalog.normalizeName(toolCall.name()))) {
+				return executeCraftRecipePlannerTool(toolCall.arguments());
+			}
 			return CompletableFuture.completedFuture(executePlannerToolCallNow(toolCall));
 		}
 		catch (RuntimeException exception) {
@@ -1115,12 +1125,7 @@ public final class EmbodiedAgentRuntime {
 				yield "Tool result for collect_resource: accepted resourceKind=" + resourceKind.name() + " quantity=" + quantity;
 			}
 			case PlannerToolCatalog.CRAFT_RECIPE -> {
-				CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
-					stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
-					intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
-				);
-				applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
-				yield queuedActionToolResult("craft_recipe", "recipeId=" + craftRecipe.recipeId() + " times=" + craftRecipe.times());
+				yield "TOOL_ERROR: craft_recipe async_path_required";
 			}
 			case PlannerToolCatalog.DROP_ITEMS -> {
 				DropItemsStepArgs dropItems = new DropItemsStepArgs(
@@ -1188,6 +1193,32 @@ public final class EmbodiedAgentRuntime {
 
 	String executePlannerToolCallForTests(PlannerToolCall toolCall) {
 		return executePlannerToolCall(toolCall).join();
+	}
+
+	CompletableFuture<String> executePlannerToolCallFutureForTests(PlannerToolCall toolCall) {
+		return executePlannerToolCall(toolCall);
+	}
+
+	private CompletableFuture<String> executeCraftRecipePlannerTool(JsonObject args) {
+		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
+			stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
+			intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
+		);
+		applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
+		Optional<WorldTaskRequest> activeTask = activeJobRuntime.activeTaskRequest();
+		if (activeTask.isEmpty() || activeTask.get().craftRecipe() == null) {
+			return CompletableFuture.completedFuture("TOOL_ERROR: craft_recipe task_not_started");
+		}
+
+		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=superseded");
+		CompletableFuture<String> future = new CompletableFuture<>();
+		pendingCraftToolResult = new PendingCraftToolResult(
+			activeTask.get().taskId(),
+			craftRecipe,
+			tickCount,
+			future
+		);
+		return future;
 	}
 
 	private void emitPlannerToolNarration(PlannerToolCall toolCall) {
@@ -2162,6 +2193,12 @@ public final class EmbodiedAgentRuntime {
 			|| state == TaskState.PAUSED_BY_SESSION_GATE;
 	}
 
+	private static boolean isTerminalTaskState(TaskState state) {
+		return state == TaskState.COMPLETED
+			|| state == TaskState.FAILED
+			|| state == TaskState.CANCELLED;
+	}
+
 	private void handleTerminalTaskEvent(TaskTerminalEvent event, boolean semanticTaskContext) {
 		if (event == null || event.goal() == null || event.terminalState() == null) {
 			return;
@@ -2204,6 +2241,76 @@ public final class EmbodiedAgentRuntime {
 					eventBuffer
 				);
 		}
+	}
+
+	private void completePendingCraftToolResult(TaskTerminalEvent event) {
+		PendingCraftToolResult pending = pendingCraftToolResult;
+		if (pending == null || event == null || !Objects.equals(pending.taskId(), event.taskId())) {
+			return;
+		}
+		completePendingCraftToolResult(formatCraftTerminalToolResult(pending.craftRecipe(), event));
+	}
+
+	private void completePendingCraftToolResultFromTaskSnapshot(TaskSnapshot snapshot) {
+		PendingCraftToolResult pending = pendingCraftToolResult;
+		if (
+			pending == null
+				|| snapshot == null
+				|| snapshot.activeStepKind() != ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE
+				|| !isTerminalTaskState(snapshot.state())
+		) {
+			return;
+		}
+		completePendingCraftToolResult(formatCraftSnapshotToolResult(pending.craftRecipe(), snapshot));
+	}
+
+	private void expirePendingCraftToolResultIfTimedOut() {
+		PendingCraftToolResult pending = pendingCraftToolResult;
+		if (pending == null || pending.future().isDone()) {
+			pendingCraftToolResult = null;
+			return;
+		}
+		long waitedTicks = tickCount - pending.startTick();
+		if (waitedTicks < CRAFT_TOOL_RESULT_TIMEOUT_TICKS) {
+			return;
+		}
+		completePendingCraftToolResult(
+			"Tool result for craft_recipe: pending_timeout"
+				+ " recipeId=" + pending.craftRecipe().recipeId()
+				+ " times=" + pending.craftRecipe().times()
+				+ " waitedTicks=" + waitedTicks
+				+ ". Crafting is still running; this can happen on high-latency multiplayer. Wait for TASK UPDATE before saying the action completed."
+		);
+	}
+
+	private void completePendingCraftToolResult(String result) {
+		PendingCraftToolResult pending = pendingCraftToolResult;
+		if (pending == null) {
+			return;
+		}
+		pendingCraftToolResult = null;
+		pending.future().complete(result);
+	}
+
+	private static String formatCraftTerminalToolResult(CraftRecipeStepArgs craftRecipe, TaskTerminalEvent event) {
+		boolean failed = event.terminalState() == TaskExecutionState.FAILED;
+		String status = failed ? "failed" : event.terminalState() == TaskExecutionState.CANCELLED ? "cancelled" : "completed";
+		String message = event.message() == null || event.message().isBlank() ? "" : " message=" + event.message();
+		return "Tool result for craft_recipe: " + status
+			+ " recipeId=" + craftRecipe.recipeId()
+			+ " times=" + craftRecipe.times()
+			+ " state=" + event.terminalState().name()
+			+ message;
+	}
+
+	private static String formatCraftSnapshotToolResult(CraftRecipeStepArgs craftRecipe, TaskSnapshot snapshot) {
+		String status = snapshot.state() == TaskState.FAILED ? "failed" : snapshot.state() == TaskState.CANCELLED ? "cancelled" : "completed";
+		String failure = snapshot.lastFailure() == null || snapshot.lastFailure().isBlank() ? "" : " failure=" + snapshot.lastFailure();
+		return "Tool result for craft_recipe: " + status
+			+ " recipeId=" + craftRecipe.recipeId()
+			+ " times=" + craftRecipe.times()
+			+ " state=" + snapshot.state().name()
+			+ failure;
 	}
 
 	private void registerDefaultScenarios() {
@@ -2801,6 +2908,14 @@ public final class EmbodiedAgentRuntime {
 			return lastKnownPlayerHealth.floatValue();
 		}
 		return observedHealthBefore;
+	}
+
+	private record PendingCraftToolResult(
+		String taskId,
+		CraftRecipeStepArgs craftRecipe,
+		long startTick,
+		CompletableFuture<String> future
+	) {
 	}
 
 	private static final class NoopWorldTaskExecutor implements WorldTaskExecutor {
