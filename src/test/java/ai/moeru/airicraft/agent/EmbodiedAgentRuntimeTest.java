@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntent;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
+import ai.moeru.airicraft.agent.events.EventRoutingProfile;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.job.ActiveJob;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
@@ -53,6 +54,8 @@ import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.WorldTaskType;
 import ai.moeru.airicraft.agent.verification.VerificationStatus;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
+import ai.moeru.airicraft.agent.llm.PlannerTrigger;
+import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import com.google.gson.JsonParser;
 import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Test;
@@ -343,6 +346,33 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("queued"));
 		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
 		assertEquals(new CollectSmeltedItemsStepArgs(processId, "confirm-2"), request.collectSmeltedItems());
+	}
+
+	@Test
+	void smeltingOutputReadyEventCreatesSystemPlannerTrigger() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+
+		PlannerTrigger trigger = runtime.createPlannerTriggerForTests(new SemanticEvent(
+			1L,
+			20L,
+			1000L,
+			"smelting.output_ready",
+			Map.of(
+				"processId", "smelt-process-1",
+				"optionId", "smelt:iron:nearby-1",
+				"station", "minecraft:overworld@1,64,1",
+				"outputItemId", "minecraft:iron_ingot",
+				"outputCount", 1,
+				"inputQuantity", 1
+			)
+		), new EventRoutingProfile("smelting.output_ready", true, PlannerTriggerType.SYSTEM, true));
+
+		assertEquals(PlannerTriggerType.SYSTEM, trigger.type());
+		assertEquals("runtime", trigger.speaker());
+		assertEquals(
+			"Smelting output ready: processId=smelt-process-1 output=minecraft:iron_ingotx1 station=minecraft:overworld@1,64,1.",
+			trigger.text()
+		);
 	}
 
 	@Test

@@ -79,6 +79,18 @@ public final class SmeltingPlannerService {
 		return builder.toString();
 	}
 
+	public List<SmeltingOutputReadyEvent> pollTrackedOutputReady(MinecraftClient client, SmeltingProcessManager manager) {
+		Objects.requireNonNull(manager, "manager");
+		if (!manager.hasTrackedProcesses()) {
+			return List.of();
+		}
+		ArrayList<SmeltingStationObservation> observations = new ArrayList<>();
+		for (SmeltingStationKey key : manager.trackedStationKeys()) {
+			observeTrackedStation(client, key).ifPresent(observations::add);
+		}
+		return manager.markReadyOutputs(observations);
+	}
+
 	public SmeltingActionResult startSmelting(MinecraftClient client, SmeltingProcessManager manager, SmeltItemsStepArgs request, long tick) {
 		Objects.requireNonNull(manager, "manager");
 		Objects.requireNonNull(request, "request");
@@ -133,7 +145,42 @@ public final class SmeltingPlannerService {
 		}
 		return observeStations(client).stream()
 			.filter(observation -> key.equals(observation.key()))
-			.findFirst();
+				.findFirst();
+	}
+
+	private Optional<SmeltingStationObservation> observeTrackedStation(MinecraftClient client, SmeltingStationKey key) {
+		ClientPlayerEntity player = client == null ? null : client.player;
+		ClientWorld world = client == null ? null : client.world;
+		if (player == null || world == null || key == null) {
+			return Optional.empty();
+		}
+		if (key.dimensionId() != null && key.dimensionId().contains("#open_screen")) {
+			return observeStations(client).stream()
+				.filter(observation -> key.equals(observation.key()))
+				.findFirst();
+		}
+		if (!Objects.equals(world.getRegistryKey().getValue().toString(), key.dimensionId())) {
+			return Optional.empty();
+		}
+		BlockPos pos = new BlockPos(key.x(), key.y(), key.z());
+		if (!world.isChunkLoaded(pos)) {
+			return Optional.empty();
+		}
+		SmeltingStationKind kind = stationKind(world.getBlockState(pos)).orElse(null);
+		if (kind == null) {
+			return Optional.empty();
+		}
+		BlockEntity blockEntity = world.getBlockEntity(pos);
+		if (!(blockEntity instanceof Inventory inventory)) {
+			return Optional.empty();
+		}
+		return Optional.of(new SmeltingStationObservation(
+			key,
+			kind,
+			slotSnapshot(inventory, world.getBlockState(pos)),
+			false,
+			player.squaredDistanceTo(Vec3d.ofCenter(pos))
+		));
 	}
 
 	List<SmeltingStationObservation> observeStations(MinecraftClient client) {

@@ -48,6 +48,14 @@ public final class SmeltingProcessManager {
 		return process == null ? null : process.stationKey();
 	}
 
+	public boolean hasTrackedProcesses() {
+		return !processesById.isEmpty();
+	}
+
+	public List<SmeltingStationKey> trackedStationKeys() {
+		return List.copyOf(processesByStation.keySet());
+	}
+
 	public void updateProcessFingerprint(String optionId, SmeltingStationKey stationKey, SmeltingSlotSnapshot slots) {
 		if (optionId == null || optionId.isBlank() || stationKey == null || slots == null) {
 			return;
@@ -61,8 +69,10 @@ public final class SmeltingProcessManager {
 			process.stationKey(),
 			slots.fingerprint(),
 			process.optionId(),
+			process.expectedOutputItemId(),
 			process.inputQuantity(),
-			process.startedTick()
+			process.startedTick(),
+			process.outputReadyNotified()
 		);
 		processesByStation.put(stationKey, updated);
 		processesById.put(process.processId(), updated);
@@ -108,8 +118,10 @@ public final class SmeltingProcessManager {
 				newKey,
 				observation.slots().fingerprint(),
 				process.optionId(),
+				process.expectedOutputItemId(),
 				process.inputQuantity(),
-				process.startedTick()
+				process.startedTick(),
+				process.outputReadyNotified()
 			);
 			processesByStation.put(newKey, relocated);
 			processesById.put(process.processId(), relocated);
@@ -169,13 +181,16 @@ public final class SmeltingProcessManager {
 			);
 		}
 		String processId = "smelt-process-" + UUID.randomUUID();
+		SmeltingOption option = registeredOption(request.optionId());
 		TrackedProcess process = new TrackedProcess(
 			processId,
 			observation.key(),
 			observation.slots().fingerprint(),
 			request.optionId(),
+			option == null ? null : option.outputItemId(),
 			request.inputQuantity(),
-			tick
+			tick,
+			false
 		);
 		processesByStation.put(observation.key(), process);
 		processesById.put(processId, process);
@@ -245,6 +260,20 @@ public final class SmeltingProcessManager {
 		return List.copyOf(ranked);
 	}
 
+	public List<SmeltingOutputReadyEvent> markReadyOutputs(List<SmeltingStationObservation> observations) {
+		if (observations == null || observations.isEmpty() || processesByStation.isEmpty()) {
+			return List.of();
+		}
+		ArrayList<SmeltingOutputReadyEvent> events = new ArrayList<>();
+		for (SmeltingStationObservation observation : observations) {
+			SmeltingOutputReadyEvent event = markReadyOutput(observation);
+			if (event != null) {
+				events.add(event);
+			}
+		}
+		return List.copyOf(events);
+	}
+
 	public String inspectSummary() {
 		if (processesById.isEmpty()) {
 			return "Tool result for inspect_smelting: processes=0";
@@ -273,6 +302,49 @@ public final class SmeltingProcessManager {
 		}
 		processesByStation.remove(process.stationKey());
 		return true;
+	}
+
+	private SmeltingOutputReadyEvent markReadyOutput(SmeltingStationObservation observation) {
+		if (observation == null || observation.key() == null || observation.slots() == null) {
+			return null;
+		}
+		TrackedProcess process = processesByStation.get(observation.key());
+		SmeltingSlotSnapshot slots = observation.slots();
+		if (
+			process == null
+				|| process.outputReadyNotified()
+				|| slots.outputItemId() == null
+				|| slots.outputCount() <= 0
+		) {
+			return null;
+		}
+		SmeltingOption option = registeredOption(process.optionId());
+		String expectedOutputItemId = process.expectedOutputItemId() == null && option != null
+			? option.outputItemId()
+			: process.expectedOutputItemId();
+		if (expectedOutputItemId != null && !Objects.equals(expectedOutputItemId, slots.outputItemId())) {
+			return null;
+		}
+		TrackedProcess updated = new TrackedProcess(
+			process.processId(),
+			process.stationKey(),
+			slots.fingerprint(),
+			process.optionId(),
+			expectedOutputItemId,
+			process.inputQuantity(),
+			process.startedTick(),
+			true
+		);
+		processesByStation.put(process.stationKey(), updated);
+		processesById.put(process.processId(), updated);
+		return new SmeltingOutputReadyEvent(
+			process.processId(),
+			process.optionId(),
+			process.stationKey(),
+			slots.outputItemId(),
+			slots.outputCount(),
+			process.inputQuantity()
+		);
 	}
 
 	private SmeltingActionResult consumeConfirmation(
@@ -354,8 +426,10 @@ public final class SmeltingProcessManager {
 		SmeltingStationKey stationKey,
 		String slotFingerprint,
 		String optionId,
+		String expectedOutputItemId,
 		int inputQuantity,
-		long startedTick
+		long startedTick,
+		boolean outputReadyNotified
 	) {
 	}
 

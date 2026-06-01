@@ -223,6 +223,103 @@ class SmeltingProcessManagerTest {
 		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(relocatedOption.stationObservation(), 501L));
 	}
 
+	@Test
+	void trackedProcessOutputReadyFiresOnceWhenExpectedOutputAppears() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationObservation empty = new SmeltingStationObservation(
+			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		SmeltingOption option = new SmeltingOption(
+			"smelt:iron:nearby-1",
+			"minecraft:raw_iron",
+			"minecraft:iron_ingot",
+			1,
+			1,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.NEARBY_EXISTING,
+				SmeltingStationState.EMPTY,
+				SmeltingStationKind.FURNACE,
+				empty.key(),
+				1.0D,
+				false
+			),
+			empty
+		);
+		manager.registerOptions(java.util.List.of(option));
+		SmeltingActionResult started = manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 1, SmeltingFuelMode.AUTO, null, 0, null),
+			600L
+		);
+		SmeltingStationObservation ready = new SmeltingStationObservation(
+			empty.key(),
+			empty.kind(),
+			new SmeltingSlotSnapshot(null, 0, null, 0, "minecraft:iron_ingot", 1, 0, 200, false),
+			false,
+			1.0D
+		);
+		manager.registerOptions(java.util.List.of());
+
+		java.util.List<SmeltingOutputReadyEvent> first = manager.markReadyOutputs(java.util.List.of(ready));
+		java.util.List<SmeltingOutputReadyEvent> second = manager.markReadyOutputs(java.util.List.of(ready));
+
+		assertTrue(started.accepted());
+		assertEquals(1, first.size());
+		assertEquals(started.processId(), first.getFirst().processId());
+		assertEquals("smelt:iron:nearby-1", first.getFirst().optionId());
+		assertEquals("minecraft:iron_ingot", first.getFirst().outputItemId());
+		assertEquals(1, first.getFirst().outputCount());
+		assertTrue(second.isEmpty());
+	}
+
+	@Test
+	void trackedProcessOutputReadyIgnoresUnexpectedOutputItem() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationObservation empty = new SmeltingStationObservation(
+			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		SmeltingOption option = new SmeltingOption(
+			"smelt:iron:nearby-1",
+			"minecraft:raw_iron",
+			"minecraft:iron_ingot",
+			1,
+			1,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.NEARBY_EXISTING,
+				SmeltingStationState.EMPTY,
+				SmeltingStationKind.FURNACE,
+				empty.key(),
+				1.0D,
+				false
+			),
+			empty
+		);
+		manager.registerOptions(java.util.List.of(option));
+		manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 1, SmeltingFuelMode.AUTO, null, 0, null),
+			800L
+		);
+		manager.registerOptions(java.util.List.of());
+		SmeltingStationObservation unexpected = new SmeltingStationObservation(
+			empty.key(),
+			empty.kind(),
+			new SmeltingSlotSnapshot(null, 0, null, 0, "minecraft:charcoal", 1, 0, 200, false),
+			false,
+			1.0D
+		);
+
+		assertTrue(manager.markReadyOutputs(java.util.List.of(unexpected)).isEmpty());
+	}
+
 	private static SmeltingStationObservation occupiedStation(int inputCount) {
 		return new SmeltingStationObservation(
 			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),

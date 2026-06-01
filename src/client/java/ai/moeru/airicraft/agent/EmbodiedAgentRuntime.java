@@ -107,6 +107,7 @@ import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.SmeltingActionResult;
 import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
 import ai.moeru.airicraft.agent.tasks.SmeltingOption;
+import ai.moeru.airicraft.agent.tasks.SmeltingOutputReadyEvent;
 import ai.moeru.airicraft.agent.tasks.SmeltingPlannerService;
 import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
@@ -164,6 +165,7 @@ import java.util.function.BiFunction;
 public final class EmbodiedAgentRuntime {
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
 	static final int CRAFT_TOOL_RESULT_TIMEOUT_TICKS = 40;
+	private static final long SMELTING_OUTPUT_READY_POLL_INTERVAL_TICKS = 20L;
 	private static final Map<String, EventRoutingProfile> EVENT_ROUTING_PROFILES = createEventRoutingProfiles();
 
 	private final AiricraftConfig airicraftConfig;
@@ -210,6 +212,7 @@ public final class EmbodiedAgentRuntime {
 	private long lastSystemChatTick = -1L;
 	private String lastSystemChatText;
 	private Float lastKnownPlayerHealth;
+	private long lastSmeltingOutputReadyPollTick = Long.MIN_VALUE;
 	private final Map<UUID, String> seenPlayerNames = new LinkedHashMap<>();
 	private volatile PendingCraftToolResult pendingCraftToolResult;
 
@@ -400,6 +403,7 @@ public final class EmbodiedAgentRuntime {
 			primaryInteractionResolver.clearIfNotNearby(current.uuid(), nearbyPlayerTracker.isNearby(current.uuid()))
 		);
 		primaryInteractionResolver.expireInactive(tickCount);
+		recordSmeltingOutputReadyEvents(client);
 		drainEventPipeline();
 
 		WorldEvidence worldEvidence = currentWorldEvidence(client);
@@ -1899,9 +1903,14 @@ public final class EmbodiedAgentRuntime {
 			case "pickup.item_picked_up" -> createPickupTrigger(event);
 			case "crafting.item_crafted" -> createCraftTrigger(event);
 			case "combat.damage_taken" -> createDamageTrigger(event);
+			case "smelting.output_ready" -> createSmeltingOutputReadyTrigger(event);
 			case "task.blocked" -> createTaskBlockedTrigger(event);
 			default -> null;
 		};
+	}
+
+	PlannerTrigger createPlannerTriggerForTests(SemanticEvent event, EventRoutingProfile profile) {
+		return createPlannerTrigger(event, profile);
 	}
 
 	private ai.moeru.airicraft.agent.llm.PlannerTrigger createPlayerSpokeTrigger(SemanticEvent event) {
@@ -2021,6 +2030,34 @@ public final class EmbodiedAgentRuntime {
 		);
 	}
 
+	private ai.moeru.airicraft.agent.llm.PlannerTrigger createSmeltingOutputReadyTrigger(SemanticEvent event) {
+		Map<String, Object> payload = event.payload();
+		String processId = stringPayloadValue(payload, "processId");
+		String outputItemId = stringPayloadValue(payload, "outputItemId");
+		Float outputCount = floatPayloadValue(payload, "outputCount");
+		String station = stringPayloadValue(payload, "station");
+		if (processId == null || outputItemId == null || outputCount == null) {
+			return null;
+		}
+		StringBuilder message = new StringBuilder("Smelting output ready: processId=")
+			.append(processId)
+			.append(" output=")
+			.append(outputItemId)
+			.append("x")
+			.append(formatDecimal(outputCount));
+		if (station != null) {
+			message.append(" station=").append(station);
+		}
+		message.append('.');
+		return ai.moeru.airicraft.agent.llm.PlannerTrigger.pending(
+			PlannerTriggerType.SYSTEM,
+			"runtime",
+			message.toString(),
+			event.tick(),
+			event.timestampMs()
+		);
+	}
+
 	private ai.moeru.airicraft.agent.llm.PlannerTrigger createTaskBlockedTrigger(SemanticEvent event) {
 		Map<String, Object> payload = event.payload();
 		String taskType = stringPayloadValue(payload, "taskType");
@@ -2051,6 +2088,29 @@ public final class EmbodiedAgentRuntime {
 			event.tick(),
 			event.timestampMs()
 		);
+	}
+
+	private void recordSmeltingOutputReadyEvents(MinecraftClient client) {
+		if (!sessionSnapshot.worldLoaded() || !smeltingProcessManager.hasTrackedProcesses()) {
+			return;
+		}
+		if (
+			lastSmeltingOutputReadyPollTick != Long.MIN_VALUE
+				&& tickCount - lastSmeltingOutputReadyPollTick < SMELTING_OUTPUT_READY_POLL_INTERVAL_TICKS
+		) {
+			return;
+		}
+		lastSmeltingOutputReadyPollTick = tickCount;
+		for (SmeltingOutputReadyEvent event : smeltingPlannerService.pollTrackedOutputReady(client, smeltingProcessManager)) {
+			eventBuffer.append(tickCount, "smelting.output_ready", Map.of(
+				"processId", event.processId(),
+				"optionId", event.optionId(),
+				"station", event.stationKey().compact(),
+				"outputItemId", event.outputItemId(),
+				"outputCount", event.outputCount(),
+				"inputQuantity", event.inputQuantity()
+			));
+		}
 	}
 
 	private void applyPlannerEventPolicyChanges(EventPolicyChanges changes) {
@@ -2134,6 +2194,7 @@ public final class EmbodiedAgentRuntime {
 		profiles.put("social.system_message", new EventRoutingProfile("social.system_message", false, PlannerTriggerType.SYSTEM, false));
 		profiles.put("pickup.item_picked_up", new EventRoutingProfile("pickup.item_picked_up", true, PlannerTriggerType.PICKUP, false));
 		profiles.put("crafting.item_crafted", new EventRoutingProfile("crafting.item_crafted", true, PlannerTriggerType.CRAFT, false));
+		profiles.put("smelting.output_ready", new EventRoutingProfile("smelting.output_ready", true, PlannerTriggerType.SYSTEM, true));
 		profiles.put("combat.damage_taken", new EventRoutingProfile("combat.damage_taken", true, PlannerTriggerType.DAMAGE, false));
 		profiles.put("session.world_loaded", new EventRoutingProfile("session.world_loaded", true, null, false));
 		profiles.put("session.world_unloaded", new EventRoutingProfile("session.world_unloaded", true, null, false));
