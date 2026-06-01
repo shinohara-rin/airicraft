@@ -184,6 +184,22 @@ public final class PlannerTurnJournal {
 		events.clear();
 		supersededGenerations.clear();
 		nextEventId = 1L;
+		append(new PlannerTurnEvent(
+			nextEventId++,
+			PlannerTurnEvent.Kind.RESET,
+			clock.millis(),
+			0L,
+			0,
+			"RESET",
+			null,
+			null,
+			null,
+			null,
+			null,
+			reason == null ? "reset" : reason,
+			-1L,
+			false
+		));
 	}
 
 	private void append(PlannerTurnEvent event) {
