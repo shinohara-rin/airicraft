@@ -1227,6 +1227,10 @@ public final class ModBridgeServer {
 			response.put("available", true);
 			response.put("planner", agentRuntime().plannerDebugSnapshot());
 			response.put("dialogueState", agentRuntime().debugDialogueState());
+			response.put("activeJob", agentRuntime().activeJob());
+			response.put("task", agentRuntime().taskSnapshot());
+			response.put("taskExecution", agentRuntime().taskExecutionSnapshot());
+			response.put("missionExecution", agentRuntime().missionExecutionSnapshot());
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());

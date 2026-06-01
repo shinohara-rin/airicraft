@@ -1,6 +1,12 @@
 package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.AgentRuntimeSnapshot;
+import ai.moeru.airicraft.agent.goals.GoalPosition;
+import ai.moeru.airicraft.agent.goals.GoalSnapshot;
+import ai.moeru.airicraft.agent.goals.GoalType;
+import ai.moeru.airicraft.agent.job.ActiveJob;
+import ai.moeru.airicraft.agent.job.ActiveJobStatus;
+import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.llm.PlannerContextDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerConversationDebugKind;
 import ai.moeru.airicraft.agent.llm.PlannerConversationDebugMessage;
@@ -9,6 +15,9 @@ import ai.moeru.airicraft.agent.llm.PlannerOrchestratorDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerRequest;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
+import ai.moeru.airicraft.agent.tasks.TaskTerminationCause;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -84,6 +93,46 @@ class PlannerDebugOverlayTest {
 		assertTrue(lines.contains("lastObservedUsage: unknown"));
 		assertTrue(lines.contains("activeCheckpoint: none"));
 		assertTrue(lines.contains("ambientContext: none"));
+	}
+
+	@Test
+	void formatStateLinesShowsActionDispatchCause() {
+		GoalSnapshot goal = navigateGoal();
+		ActiveJob activeJob = failedNavigateJob(goal);
+		AgentRuntimeSnapshot runtimeSnapshot = new AgentRuntimeSnapshot(
+			true,
+			120L,
+			new SessionSnapshot(SessionMode.REMOTE_MULTIPLAYER, true, true, "minecraft:overworld", false, 0, 120L),
+			null,
+			new TaskExecutionSnapshot(
+				TaskExecutionState.FAILED,
+				"job-nav",
+				goal,
+				"Custom Goal",
+				"CALC_FAILED",
+				null,
+				TaskTerminationCause.CALCULATION_FAILED
+			),
+			null,
+			null
+		);
+
+		List<String> lines = PlannerDebugOverlay.formatStateLines(
+			true,
+			runtimeSnapshot,
+			false,
+			true,
+			true,
+			null,
+			activeJob,
+			120L
+		);
+
+		assertTrue(lines.stream().anyMatch(line -> line.contains("activeJob: type=NAVIGATE_TO status=FAILED")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("error=CALC_FAILED")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("activeGoal: NAVIGATE_TO x=-30 y=115 z=-55")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("taskExecution: state=FAILED")));
+		assertTrue(lines.stream().anyMatch(line -> line.contains("cause=CALCULATION_FAILED")));
 	}
 
 	@Test
@@ -202,6 +251,18 @@ class PlannerDebugOverlayTest {
 	}
 
 	@Test
+	void conversationFooterShowsDirectJobFailureWhenPlannerIsIdle() {
+		String footer = PlannerDebugOverlay.formatConversationFooter(
+			null,
+			runtimeSnapshot(SessionMode.REMOTE_MULTIPLAYER),
+			failedNavigateJob(navigateGoal()),
+			400L
+		);
+
+		assertEquals("job NAVIGATE_TO FAILED error=CALC_FAILED", footer);
+	}
+
+	@Test
 	void conversationLayoutTitleTracksCurrentGenerationWhenPinnedToBottom() {
 		PlannerDebugOverlay.ConversationPaneLayout first = PlannerDebugOverlay.layoutConversationPane(
 			new PlannerConversationDebugSnapshot(
@@ -283,6 +344,38 @@ class PlannerDebugOverlayTest {
 			null,
 			null,
 			null
+		);
+	}
+
+	private static GoalSnapshot navigateGoal() {
+		return new GoalSnapshot(
+			GoalType.NAVIGATE_TO,
+			null,
+			new GoalPosition(-30, 115, -55, false),
+			null,
+			120L,
+			"planner_tool"
+		);
+	}
+
+	private static ActiveJob failedNavigateJob(GoalSnapshot goal) {
+		return new ActiveJob(
+			"job-nav",
+			ActiveJobType.NAVIGATE_TO,
+			ActiveJobStatus.FAILED,
+			goal,
+			null,
+			null,
+			null,
+			null,
+			null,
+			-1L,
+			0,
+			0,
+			"planner_tool",
+			null,
+			"CALC_FAILED",
+			120L
 		);
 	}
 

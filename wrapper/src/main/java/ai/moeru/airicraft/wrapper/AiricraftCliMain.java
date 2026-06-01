@@ -1538,6 +1538,9 @@ public final class AiricraftCliMain {
 			if (payload.containsKey("taskExecution")) {
 				view.put("taskExecution", payload.get("taskExecution"));
 			}
+			if (payload.containsKey("activeJob")) {
+				view.put("activeJob", payload.get("activeJob"));
+			}
 			if (payload.containsKey("task")) {
 				view.put("task", payload.get("task"));
 			}
@@ -1560,9 +1563,9 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentGoals(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "activeGoal", "taskExecution");
+			copy(view, payload, "available", "activeGoal", "activeJob", "taskExecution");
 			if (verbose) {
-				copy(view, payload, "task", "lastDialogueResponse");
+				copy(view, payload, "task", "missionExecution", "lastDialogueResponse");
 			}
 			return view;
 		}
@@ -1645,6 +1648,7 @@ public final class AiricraftCliMain {
 			List<Map<String, Object>> timelineTail = maps(payload.get("timelineTail"));
 			copy(view, planner, "configured", "plannerVisionMode", "inFlight", "plannerInFlight", "compactionInFlight", "toolInFlight", "activeGeneration", "currentPhase", "activeAttemptCount");
 			copy(view, dialogueState, "pendingReply", "pendingReplyReason", "degraded", "consecutiveFailureCount", "lastFailureType", "lastFailureTick");
+			copy(view, payload, "activeJob", "taskExecution");
 			copy(view, conversationSources, "canonicalMessageCount", "projectedMessageCount", "canonicalUserTurnCount", "projectedUserTurnCount", "hiddenKinds");
 			copy(view, taskProgressProbe, "active", "resourceKind", "baselineResourceCount", "currentResourceCount", "inventoryDelta", "targetQuantity", "collected", "remaining", "activeJobStatus", "blockedReason", "completionReason");
 			copy(view, chatProbe, "lastAttemptTick", "lastAttemptSource", "lastAttemptReusedPriorResponse", "lastSendSucceeded", "lastEmissionTick", "lastEmissionSource");
@@ -1654,6 +1658,7 @@ public final class AiricraftCliMain {
 			if (verbose) {
 				copy(view, dialogueState, "lastResponse");
 				copy(view, chatProbe, "lastAttemptText", "lastEmissionText");
+				copy(view, payload, "task", "missionExecution");
 				copy(view, conversationSources, "canonicalConversation", "projectedConversation");
 				view.put("plannerAttempts", plannerAttempts);
 				view.put("timelineTail", timelineTail);
@@ -1704,6 +1709,9 @@ public final class AiricraftCliMain {
 			List<Object> contextExcerpt = values(payload.get("contextExcerpt"));
 			if (payload.containsKey("taskExecution")) {
 				view.put("taskExecution", payload.get("taskExecution"));
+			}
+			if (payload.containsKey("activeJob")) {
+				view.put("activeJob", payload.get("activeJob"));
 			}
 			copy(view, planner, "configured", "plannerVisionMode", "inFlight", "plannerInFlight", "compactionInFlight", "captureInFlight", "toolInFlight", "toolUsed");
 			copy(view, planner, "coalescePending", "coalesceReadyAtMs", "coalesceWindowMs");

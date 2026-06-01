@@ -524,6 +524,44 @@ class EmbodiedAgentRuntimeTest {
 				&& turn.text().contains("TASK UPDATE: state=FAILED")
 				&& turn.text().contains("activeStepKind=CRAFT_RECIPE")
 				&& turn.text().contains("failure=missing_ingredients")
+			));
+	}
+
+	@Test
+	void directGoalFailureEmitsFailureReasonToPlanner() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_nav",
+			"navigate_to",
+			JsonParser.parseString("""
+				{"x":-30,"y":115,"z":-55,"exactY":false}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		assertTrue(result.contains("accepted"));
+
+		runtime.onClientTick(null);
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			request.goal(),
+			TaskExecutionState.FAILED,
+			"CALC_FAILED",
+			TaskTerminationCause.CALCULATION_FAILED
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.failed".equals(event.type())));
+		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
+			"system".equals(turn.speaker())
+				&& turn.text().contains("TASK UPDATE: state=FAILED")
+				&& turn.text().contains("goalType=NAVIGATE_TO")
+				&& turn.text().contains("message=CALC_FAILED")
+				&& turn.text().contains("terminationCause=CALCULATION_FAILED")
 		));
 	}
 

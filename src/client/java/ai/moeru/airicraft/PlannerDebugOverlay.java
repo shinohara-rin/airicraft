@@ -13,8 +13,13 @@ import ai.moeru.airicraft.agent.llm.PlannerConversationDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestratorDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerRequest;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerBatch;
+import ai.moeru.airicraft.agent.goals.GoalSnapshot;
+import ai.moeru.airicraft.agent.job.ActiveJob;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
+import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -117,6 +122,7 @@ final class PlannerDebugOverlay {
 			agentRuntime.llmAvailable(),
 			agentRuntime.visionAvailable(),
 			agentRuntime.plannerDebugSnapshot(),
+			agentRuntime.activeJob(),
 			nowMs
 		);
 		if (lines.isEmpty()) {
@@ -148,7 +154,7 @@ final class PlannerDebugOverlay {
 		if (snapshot == null || snapshot.isEmpty()) {
 			snapshot = placeholderConversationSnapshot(plannerSnapshot);
 		}
-		String footerLine = formatConversationFooter(plannerSnapshot, nowMs);
+		String footerLine = formatConversationFooter(plannerSnapshot, agentRuntime.snapshot(), agentRuntime.activeJob(), nowMs);
 
 		ConversationPaneLayout layout = layoutConversationPane(
 			snapshot,
@@ -217,10 +223,25 @@ final class PlannerDebugOverlay {
 		PlannerOrchestratorDebugSnapshot plannerSnapshot,
 		long nowMs
 	) {
+		return formatStateLines(overlayEnabled, runtimeSnapshot, degraded, llmAvailable, visionAvailable, plannerSnapshot, null, nowMs);
+	}
+
+	static List<String> formatStateLines(
+		boolean overlayEnabled,
+		AgentRuntimeSnapshot runtimeSnapshot,
+		boolean degraded,
+		boolean llmAvailable,
+		boolean visionAvailable,
+		PlannerOrchestratorDebugSnapshot plannerSnapshot,
+		ActiveJob activeJob,
+		long nowMs
+	) {
 		ArrayList<String> lines = new ArrayList<>();
 		SessionSnapshot session = runtimeSnapshot == null || runtimeSnapshot.session() == null
 			? SessionSnapshot.initial()
 			: runtimeSnapshot.session();
+		TaskSnapshot task = runtimeSnapshot == null ? null : runtimeSnapshot.task();
+		TaskExecutionSnapshot taskExecution = runtimeSnapshot == null ? null : runtimeSnapshot.taskExecution();
 		PlannerContextDebugSnapshot context = plannerSnapshot == null ? null : plannerSnapshot.context();
 		long coalesceRemainingMs = plannerSnapshot != null && plannerSnapshot.coalescePending()
 			? Math.max(0L, plannerSnapshot.coalesceReadyAtMs() - nowMs)
@@ -233,6 +254,12 @@ final class PlannerDebugOverlay {
 		addStateLine(lines, "llmAvailable: " + llmAvailable);
 		addStateLine(lines, "visionAvailable: " + visionAvailable);
 		addStateLine(lines, "plannerVisionMode: " + plannerValue(plannerSnapshot == null ? null : plannerSnapshot.plannerVisionMode()));
+
+		addStateSection(lines, "action dispatch");
+		addStateLine(lines, summarizeActiveJob(activeJob));
+		addStateLine(lines, summarizeGoal(activeJob == null ? null : activeJob.directGoal()));
+		addStateLine(lines, summarizeTaskExecution(taskExecution));
+		addStateLine(lines, summarizeTask(task));
 
 		addStateSection(lines, "planner execution");
 		addStateLine(lines, "configured: " + plannerBool(plannerSnapshot, PlannerOrchestratorDebugSnapshot::configured));
@@ -346,8 +373,18 @@ final class PlannerDebugOverlay {
 	}
 
 	static String formatConversationFooter(PlannerOrchestratorDebugSnapshot plannerSnapshot, long nowMs) {
+		return formatConversationFooter(plannerSnapshot, null, null, nowMs);
+	}
+
+	static String formatConversationFooter(
+		PlannerOrchestratorDebugSnapshot plannerSnapshot,
+		AgentRuntimeSnapshot runtimeSnapshot,
+		ActiveJob activeJob,
+		long nowMs
+	) {
+		String actionStatus = summarizeActionFooter(runtimeSnapshot, activeJob);
 		if (plannerSnapshot == null || !plannerSnapshot.inFlight()) {
-			return null;
+			return actionStatus;
 		}
 		String spinner = SPINNER_FRAMES[(int) ((Math.max(0L, nowMs) / 200L) % SPINNER_FRAMES.length)];
 		PlannerContextDebugSnapshot context = plannerSnapshot.context();
@@ -364,7 +401,8 @@ final class PlannerDebugOverlay {
 						: plannerSnapshot.plannerInFlight()
 							? "waiting for planner"
 							: "working";
-		return spinner + " " + status;
+		String plannerStatus = spinner + " " + status;
+		return actionStatus == null ? plannerStatus : plannerStatus + " | " + actionStatus;
 	}
 
 	static List<String> wrapText(String text, int maxWidth, TextWidthMeasurer textWidthMeasurer) {
@@ -522,6 +560,86 @@ final class PlannerDebugOverlay {
 		return "ambientContext: session=" + sessionState(ambientContext.sessionMode())
 			+ " player=" + plannerValue(ambientContext.primaryInteractionPlayer())
 			+ " goal=" + plannerValue(ambientContext.activeGoalDescription());
+	}
+
+	private static String summarizeActiveJob(ActiveJob activeJob) {
+		if (activeJob == null || activeJob.isIdle()) {
+			return "activeJob: idle";
+		}
+		return "activeJob: type=" + activeJob.type().name()
+			+ " status=" + activeJob.status().name()
+			+ " error=" + plannerValue(activeJob.lastError())
+			+ " blocked=" + plannerValue(activeJob.blockedReason())
+			+ " source=" + plannerValue(activeJob.source());
+	}
+
+	private static String summarizeGoal(GoalSnapshot goal) {
+		if (goal == null || goal.type() == null) {
+			return "activeGoal: none";
+		}
+		String target = goal.targetPlayer() == null || goal.targetPlayer().isBlank()
+			? ""
+			: " target=" + goal.targetPlayer();
+		String position = goal.position() == null
+			? ""
+			: " x=" + goal.position().x()
+				+ " y=" + goal.position().y()
+				+ " z=" + goal.position().z()
+				+ " exactY=" + goal.position().exactY();
+		String mine = goal.mineSpec() == null
+			? ""
+			: " blocks=" + goal.mineSpec().blockIds().size()
+				+ " quantity=" + goal.mineSpec().quantity();
+		return "activeGoal: " + goal.type().name() + target + position + mine;
+	}
+
+	private static String summarizeTaskExecution(TaskExecutionSnapshot taskExecution) {
+		if (taskExecution == null || taskExecution.state() == null) {
+			return "taskExecution: state=-";
+		}
+		return "taskExecution: state=" + taskExecution.state().name()
+			+ " cause=" + plannerValue(taskExecution.terminationCause() == null ? null : taskExecution.terminationCause().name())
+			+ " pathEvent=" + plannerValue(taskExecution.lastPathEvent())
+			+ " taskId=" + plannerValue(taskExecution.taskId())
+			+ " process=" + plannerValue(taskExecution.processName())
+			+ " eta=" + plannerValue(taskExecution.estimatedTicksToGoal());
+	}
+
+	private static String summarizeTask(TaskSnapshot task) {
+		if (task == null || task.state() == null) {
+			return "semanticTask: none";
+		}
+		return "semanticTask: state=" + task.state().name()
+			+ " step=" + plannerValue(task.activeStepKind() == null ? null : task.activeStepKind().name())
+			+ " failure=" + plannerValue(task.lastFailure());
+	}
+
+	private static String summarizeActionFooter(AgentRuntimeSnapshot runtimeSnapshot, ActiveJob activeJob) {
+		if (activeJob != null && !activeJob.isIdle()) {
+			StringBuilder builder = new StringBuilder("job ")
+				.append(activeJob.type().name())
+				.append(' ')
+				.append(activeJob.status().name());
+			if (activeJob.lastError() != null && !activeJob.lastError().isBlank()) {
+				builder.append(" error=").append(activeJob.lastError());
+			}
+			else if (activeJob.blockedReason() != null && !activeJob.blockedReason().isBlank()) {
+				builder.append(" blocked=").append(activeJob.blockedReason());
+			}
+			return trim(builder.toString(), 96);
+		}
+		TaskExecutionSnapshot execution = runtimeSnapshot == null ? null : runtimeSnapshot.taskExecution();
+		if (execution == null || execution.state() == null || execution.state() == TaskExecutionState.IDLE) {
+			return null;
+		}
+		StringBuilder builder = new StringBuilder("exec ").append(execution.state().name());
+		if (execution.activeGoal() != null && execution.activeGoal().type() != null) {
+			builder.append(' ').append(execution.activeGoal().type().name());
+		}
+		if (execution.lastPathEvent() != null && !execution.lastPathEvent().isBlank()) {
+			builder.append(" event=").append(execution.lastPathEvent());
+		}
+		return trim(builder.toString(), 96);
 	}
 
 	private static PlannerConversationDebugSnapshot placeholderConversationSnapshot(PlannerOrchestratorDebugSnapshot plannerSnapshot) {

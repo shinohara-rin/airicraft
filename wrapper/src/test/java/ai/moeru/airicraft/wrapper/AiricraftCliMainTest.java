@@ -256,6 +256,37 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void agentDebugStateShowsActionDispatchState() {
+		TestTransport transport = new TestTransport();
+		transport.agentDebugStatePayload = linkedMap(
+			"available", true,
+			"planner", linkedMap("configured", true),
+			"dialogueState", linkedMap("pendingReply", false),
+			"conversationSources", linkedMap("canonicalMessageCount", 1, "projectedMessageCount", 1),
+			"taskProgressProbe", linkedMap("active", false),
+			"chatProbe", linkedMap("lastSendSucceeded", true),
+			"eventPipeline", linkedMap("lastEventType", "task.failed"),
+			"plannerAttempts", List.of(),
+			"timelineTail", List.of(),
+			"activeJob", linkedMap(
+				"type", "NAVIGATE_TO",
+				"status", "FAILED",
+				"lastError", "CALC_FAILED"
+			),
+			"taskExecution", linkedMap("state", "IDLE")
+		);
+
+		CliResult result = execute(transport, "agent", "debug", "state");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("[activeJob]\n"));
+		assertTrue(result.output().contains("type: NAVIGATE_TO\n"));
+		assertTrue(result.output().contains("lastError: CALC_FAILED\n"));
+		assertTrue(result.output().contains("[taskExecution]\n"));
+		assertTrue(result.output().contains("state: IDLE\n"));
+	}
+
+	@Test
 	void agentDebugTimelinePassesSinceAndRendersEntries() {
 		TestTransport transport = new TestTransport();
 		transport.agentDebugTimelinePayload = linkedMap(
@@ -282,6 +313,28 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("command: agent debug timeline\n"));
 		assertTrue(result.output().contains("entryCount: 1\n"));
 		assertTrue(result.output().contains("summary: TIMEOUT: LLM request timed out\n"));
+	}
+
+	@Test
+	void agentGoalsShowsActiveDirectJobFailure() {
+		TestTransport transport = new TestTransport();
+		transport.agentGoalsPayload = linkedMap(
+			"available", true,
+			"activeJob", linkedMap(
+				"type", "NAVIGATE_TO",
+				"status", "FAILED",
+				"lastError", "CALC_FAILED"
+			),
+			"taskExecution", linkedMap("state", "IDLE")
+		);
+
+		CliResult result = execute(transport, "agent", "goals", "--verbose");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("[activeJob]\n"));
+		assertTrue(result.output().contains("type: NAVIGATE_TO\n"));
+		assertTrue(result.output().contains("status: FAILED\n"));
+		assertTrue(result.output().contains("lastError: CALC_FAILED\n"));
 	}
 
 	@Test
