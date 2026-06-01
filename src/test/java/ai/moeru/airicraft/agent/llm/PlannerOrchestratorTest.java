@@ -1704,6 +1704,79 @@ class PlannerOrchestratorTest {
 		assertEquals(2L, result.generation());
 	}
 
+	@Test
+	void pendingActionToolIsJournaledBeforeQueuedTriggersStart() {
+		RecordingBackend backend = new RecordingBackend();
+		MutableClock clock = new MutableClock(Instant.ofEpochMilli(1_000L), ZoneId.of("Asia/Taipei"));
+		CompletableFuture<String> actionResult = new CompletableFuture<>();
+		ArrayList<String> invokedTools = new ArrayList<>();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			3,
+			10,
+			10,
+			100,
+			128,
+			clock,
+			toolCall -> {
+				invokedTools.add(toolCall.name());
+				return actionResult;
+			},
+			PlannerToolNarrationSink.NO_OP
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent craft sticks"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		JsonObject craftArgs = new JsonObject();
+		craftArgs.addProperty("recipeId", "spruce_planks_x2_to_stick");
+		craftArgs.addProperty("times", 1);
+		backend.succeed(0, new PlannerResponse(
+			"",
+			new PlannerToolCall("call_craft", PlannerToolCatalog.CRAFT_RECIPE, craftArgs, "Crafting sticks.", null),
+			null
+		));
+		awaitInvokedToolCount(orchestrator, invokedTools, 1, Duration.ofSeconds(1));
+
+		orchestrator.submit(requestAt(11L, 1_100L, "self", "Recent context updates require one combined response."));
+		assertEquals(1, backend.callCount());
+		assertEquals(0L, orchestrator.debugSnapshot().supersededCount());
+
+		actionResult.complete("Tool result for craft_recipe: completed recipeId=spruce_planks_x2_to_stick times=1 state=SUCCEEDED");
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		LlmConversation toolFollowUp = backend.conversation(1);
+		assertTrue(toolFollowUp.messages().stream()
+			.anyMatch(message -> "assistant".equals(message.role())
+				&& message.hasToolCalls()
+				&& message.toolCalls().stream().anyMatch(toolCall -> PlannerToolCatalog.CRAFT_RECIPE.equals(toolCall.name()))));
+		assertTrue(toolFollowUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craft".equals(message.toolCallId())
+				&& message.content().contains("spruce_planks_x2_to_stick")));
+
+		backend.succeed(1, replyOnly("Crafted sticks."));
+		PlannerExecutionResult actionResultReply = awaitResult(orchestrator);
+		assertTrue(actionResultReply.succeeded());
+		assertEquals(1L, actionResultReply.generation());
+
+		orchestrator.recordAssistantTurn(new DialogueTurn("agent", actionResultReply.response().replyText(), 12L, 1_200L));
+		orchestrator.onAcceptedReplyRecorded();
+		awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(1));
+
+		LlmConversation queuedPrompt = backend.conversation(2);
+		assertTrue(queuedPrompt.messages().stream()
+			.anyMatch(message -> "assistant".equals(message.role())
+				&& message.hasToolCalls()
+				&& message.toolCalls().stream().anyMatch(toolCall -> PlannerToolCatalog.CRAFT_RECIPE.equals(toolCall.name()))));
+		assertTrue(queuedPrompt.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craft".equals(message.toolCallId())
+				&& message.content().contains("spruce_planks_x2_to_stick")));
+		assertPromptContains(queuedPrompt, "Recent context updates require one combined response.");
+	}
+
 	private static void assertActionToolRoute(String toolName, JsonObject arguments) {
 		RecordingBackend backend = new RecordingBackend();
 		ArrayList<String> invokedTools = new ArrayList<>();
@@ -2106,6 +2179,29 @@ class PlannerOrchestratorTest {
 				+ ", snapshot="
 				+ orchestrator.debugSnapshot()
 		);
+	}
+
+	private static void awaitInvokedToolCount(
+		PlannerOrchestrator orchestrator,
+		List<String> invokedTools,
+		int expectedCount,
+		Duration timeout
+	) {
+		Instant deadline = Instant.now().plus(timeout);
+		while (Instant.now().isBefore(deadline)) {
+			orchestrator.poll();
+			if (invokedTools.size() >= expectedCount) {
+				return;
+			}
+			try {
+				Thread.sleep(10L);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new AssertionError("Interrupted while waiting for invoked tool count", exception);
+			}
+		}
+		throw new AssertionError("Timed out waiting for invoked tool count " + expectedCount + ", actual=" + invokedTools.size());
 	}
 
 	private static void awaitRetryPending(PlannerOrchestrator orchestrator, Duration timeout) {

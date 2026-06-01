@@ -631,6 +631,9 @@ public final class PlannerOrchestrator {
 		if (awaitingAcceptedReplyRecord) {
 			return true;
 		}
+		if (pendingSideEffectToolExecution()) {
+			return true;
+		}
 		if (sessionCoordinator.hasReplaceableActiveSession()) {
 			if (sessionCoordinator.hasReadyResultForActiveSession()) {
 				return true;
@@ -794,6 +797,15 @@ public final class PlannerOrchestrator {
 			plannerResult.response().rawAssistantContent(),
 			toolCall
 		);
+	}
+
+	private boolean pendingSideEffectToolExecution() {
+		return pendingToolExecution != null && isSideEffectTool(pendingToolExecution.toolCall());
+	}
+
+	private static boolean isSideEffectTool(PlannerToolCall toolCall) {
+		String toolName = toolCall == null ? "" : toolCall.name();
+		return PlannerToolCatalog.isKnownTool(toolName) && !PlannerToolCatalog.isReadTool(toolName);
 	}
 
 	public void injectMockResponse(PlannerResponse response) {
