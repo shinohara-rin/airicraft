@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntent;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
+import ai.moeru.airicraft.agent.debug.AgentDebugTimelineEntry;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.job.ActiveJob;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
@@ -451,6 +452,26 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("completed"));
 		assertTrue(result.contains("state=COMPLETED"));
 		assertFalse(result.contains("accepted queued"));
+	}
+
+	@Test
+	void craftingProgressDoesNotWakePlannerWhileCraftToolResultPending() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		runtime.onPlayerCraftedItem("minecraft:stick", 4);
+
+		AgentDebugTimelineEntry route = runtime.debugTimeline(null).entries().stream()
+			.filter(entry -> "event_pipeline".equals(entry.domain()))
+			.filter(entry -> "crafting.item_crafted".equals(entry.payload().get("eventType")))
+			.findFirst()
+			.orElseThrow();
+
+		assertFalse(resultFuture.isDone());
+		assertEquals(true, route.payload().get("emitSemantic"));
+		assertEquals(false, route.payload().get("emitTrigger"));
 	}
 
 	@Test

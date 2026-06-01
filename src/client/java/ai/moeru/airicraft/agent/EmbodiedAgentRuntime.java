@@ -1897,7 +1897,7 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private ai.moeru.airicraft.agent.llm.PlannerTrigger createCraftTrigger(SemanticEvent event) {
-		if (suppressPlannerTriggersForCollectResourceProgress()) {
+		if (suppressPlannerTriggersForCollectResourceProgress() || suppressPlannerTriggersForPendingCraftToolResult()) {
 			return null;
 		}
 		String itemId = stringPayloadValue(event.payload(), "itemId");
@@ -2085,6 +2085,11 @@ public final class EmbodiedAgentRuntime {
 	private boolean suppressPlannerTriggersForCollectResourceProgress() {
 		ActiveJob current = activeJobRuntime.current();
 		return current.type() == ActiveJobType.COLLECT_RESOURCE && !current.status().terminal();
+	}
+
+	private boolean suppressPlannerTriggersForPendingCraftToolResult() {
+		PendingCraftToolResult pending = pendingCraftToolResult;
+		return pending != null && !pending.future().isDone();
 	}
 
 	private void recordTaskStateTransition(TaskExecutionSnapshot previous, TaskExecutionSnapshot current, boolean semanticTaskContext) {
