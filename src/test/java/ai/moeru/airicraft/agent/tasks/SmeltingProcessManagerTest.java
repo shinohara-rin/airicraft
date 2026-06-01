@@ -138,6 +138,46 @@ class SmeltingProcessManagerTest {
 		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(occupied, 302L));
 	}
 
+	@Test
+	void ownedProcessFingerprintCanAdvanceAfterExecutorMutation() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationObservation empty = new SmeltingStationObservation(
+			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		SmeltingActionResult started = manager.startProcess(
+			new SmeltItemsStepArgs("smelt:iron:nearby-1", 1, SmeltingFuelMode.AUTO, null, 0, null),
+			empty,
+			400L
+		);
+		SmeltingSlotSnapshot insertedSlots = new SmeltingSlotSnapshot(
+			"minecraft:raw_iron",
+			1,
+			"minecraft:coal",
+			1,
+			null,
+			0,
+			0,
+			200,
+			false
+		);
+		SmeltingStationObservation inserted = new SmeltingStationObservation(
+			empty.key(),
+			empty.kind(),
+			insertedSlots,
+			false,
+			1.0D
+		);
+
+		manager.updateProcessFingerprint("smelt:iron:nearby-1", empty.key(), insertedSlots);
+
+		assertTrue(started.accepted());
+		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(inserted, 401L));
+	}
+
 	private static SmeltingStationObservation occupiedStation(int inputCount) {
 		return new SmeltingStationObservation(
 			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),

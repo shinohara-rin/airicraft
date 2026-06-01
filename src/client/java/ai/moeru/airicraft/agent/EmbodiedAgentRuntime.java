@@ -194,7 +194,7 @@ public final class EmbodiedAgentRuntime {
 	private final WorldTaskExecutor worldTaskExecutor;
 	private final InventoryResourceCounter inventoryResourceCounter = new InventoryResourceCounter();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
-	private final SmeltingProcessManager smeltingProcessManager = new SmeltingProcessManager();
+	private final SmeltingProcessManager smeltingProcessManager;
 	private final SmeltingPlannerService smeltingPlannerService = new SmeltingPlannerService();
 
 	private boolean initialized;
@@ -220,10 +220,22 @@ public final class EmbodiedAgentRuntime {
 		WorldTaskExecutor worldTaskExecutor,
 		AgentObservability observability
 	) {
+		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, new SmeltingProcessManager());
+	}
+
+	public EmbodiedAgentRuntime(
+		AiricraftConfig airicraftConfig,
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		WorldTaskExecutor worldTaskExecutor,
+		AgentObservability observability,
+		SmeltingProcessManager smeltingProcessManager
+	) {
 		this.airicraftConfig = Objects.requireNonNull(airicraftConfig, "airicraftConfig");
 		this.config = Objects.requireNonNull(config, "config");
 		this.worldTaskExecutor = Objects.requireNonNull(worldTaskExecutor, "worldTaskExecutor");
 		this.observability = Objects.requireNonNull(observability, "observability");
+		this.smeltingProcessManager = Objects.requireNonNull(smeltingProcessManager, "smeltingProcessManager");
 		this.nearbyPlayerTracker = new NearbyPlayerTracker(resolveNearbyPlayerTrackingRadius(airicraftConfig));
 		this.idleIdeaScheduler = new IdleIdeaScheduler(effectiveIdleIdeasConfig(IdleIdeasConfig.defaults()));
 		Clock clock = Clock.systemDefaultZone();
@@ -251,6 +263,18 @@ public final class EmbodiedAgentRuntime {
 	) {
 		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
 			AgentObservability.create(config == null ? null : config.observability()));
+	}
+
+	public EmbodiedAgentRuntime(
+		AiricraftConfig airicraftConfig,
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		WorldTaskExecutor worldTaskExecutor,
+		SmeltingProcessManager smeltingProcessManager
+	) {
+		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
+			AgentObservability.create(config == null ? null : config.observability()),
+			smeltingProcessManager);
 	}
 
 	public EmbodiedAgentRuntime(AiricraftConfig airicraftConfig, AgentConfig config, FirstPersonScreenshotService screenshotService) {

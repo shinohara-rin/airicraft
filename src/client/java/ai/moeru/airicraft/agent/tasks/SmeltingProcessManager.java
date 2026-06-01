@@ -15,6 +15,7 @@ public final class SmeltingProcessManager {
 	private final Map<String, TrackedProcess> processesById = new HashMap<>();
 	private final Map<String, Confirmation> confirmations = new HashMap<>();
 	private final Map<String, SmeltingOption> optionsById = new HashMap<>();
+	private final Map<String, SmeltingStationKey> confirmedCollectionStations = new HashMap<>();
 
 	public void registerOptions(List<SmeltingOption> options) {
 		optionsById.clear();
@@ -47,12 +48,39 @@ public final class SmeltingProcessManager {
 		return process == null ? null : process.stationKey();
 	}
 
+	public void updateProcessFingerprint(String optionId, SmeltingStationKey stationKey, SmeltingSlotSnapshot slots) {
+		if (optionId == null || optionId.isBlank() || stationKey == null || slots == null) {
+			return;
+		}
+		TrackedProcess process = processesByStation.get(stationKey);
+		if (process == null || !Objects.equals(process.optionId(), optionId.trim())) {
+			return;
+		}
+		TrackedProcess updated = new TrackedProcess(
+			process.processId(),
+			process.stationKey(),
+			slots.fingerprint(),
+			process.optionId(),
+			process.inputQuantity(),
+			process.startedTick()
+		);
+		processesByStation.put(stationKey, updated);
+		processesById.put(process.processId(), updated);
+	}
+
 	public SmeltingStationKey confirmationStationKey(String confirmationToken) {
 		if (confirmationToken == null || confirmationToken.isBlank()) {
 			return null;
 		}
 		Confirmation confirmation = confirmations.get(confirmationToken.trim());
 		return confirmation == null ? null : confirmation.stationKey();
+	}
+
+	public SmeltingStationKey confirmedCollectionStationKey(String confirmationToken) {
+		if (confirmationToken == null || confirmationToken.isBlank()) {
+			return null;
+		}
+		return confirmedCollectionStations.get(confirmationToken.trim());
 	}
 
 	public SmeltingActionResult startRegisteredProcess(SmeltItemsStepArgs request, long tick) {
@@ -126,6 +154,10 @@ public final class SmeltingProcessManager {
 			);
 			if (confirmationFailure != null) {
 				return confirmationFailure;
+			}
+			if (request.confirmationToken() != null) {
+				confirmedCollectionStations.put(request.confirmationToken(), observation.key());
+				return SmeltingActionResult.accepted(null, "accepted untracked station=" + stationText(observation));
 			}
 		}
 		if (unsafeStation && request.confirmationToken() == null) {
