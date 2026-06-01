@@ -14,6 +14,58 @@ public final class SmeltingProcessManager {
 	private final Map<SmeltingStationKey, TrackedProcess> processesByStation = new HashMap<>();
 	private final Map<String, TrackedProcess> processesById = new HashMap<>();
 	private final Map<String, Confirmation> confirmations = new HashMap<>();
+	private final Map<String, SmeltingOption> optionsById = new HashMap<>();
+
+	public void registerOptions(List<SmeltingOption> options) {
+		optionsById.clear();
+		if (options == null) {
+			return;
+		}
+		for (SmeltingOption option : options) {
+			if (option != null) {
+				optionsById.put(option.optionId(), option);
+			}
+		}
+	}
+
+	public List<SmeltingOption> registeredOptions() {
+		return List.copyOf(optionsById.values());
+	}
+
+	public SmeltingOption registeredOption(String optionId) {
+		if (optionId == null || optionId.isBlank()) {
+			return null;
+		}
+		return optionsById.get(optionId.trim());
+	}
+
+	public SmeltingStationKey processStationKey(String processId) {
+		if (processId == null || processId.isBlank()) {
+			return null;
+		}
+		TrackedProcess process = processesById.get(processId.trim());
+		return process == null ? null : process.stationKey();
+	}
+
+	public SmeltingStationKey confirmationStationKey(String confirmationToken) {
+		if (confirmationToken == null || confirmationToken.isBlank()) {
+			return null;
+		}
+		Confirmation confirmation = confirmations.get(confirmationToken.trim());
+		return confirmation == null ? null : confirmation.stationKey();
+	}
+
+	public SmeltingActionResult startRegisteredProcess(SmeltItemsStepArgs request, long tick) {
+		Objects.requireNonNull(request, "request");
+		SmeltingOption option = registeredOption(request.optionId());
+		if (option == null) {
+			return SmeltingActionResult.failed("option_not_found", "Unknown smelting optionId: " + request.optionId());
+		}
+		if (request.inputQuantity() > option.maxInputQuantity()) {
+			return SmeltingActionResult.failed("insufficient_input", "Requested inputQuantity exceeds the registered option inventory count.");
+		}
+		return startProcess(request, option.stationObservation(), tick);
+	}
 
 	public SmeltingActionResult startProcess(SmeltItemsStepArgs request, SmeltingStationObservation observation, long tick) {
 		Objects.requireNonNull(request, "request");

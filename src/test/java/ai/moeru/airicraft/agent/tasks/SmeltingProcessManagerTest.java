@@ -101,6 +101,43 @@ class SmeltingProcessManagerTest {
 		);
 	}
 
+	@Test
+	void registeredOptionResolvesToObservedStationForConfirmation() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationObservation occupied = occupiedStation(1);
+		SmeltingOption option = new SmeltingOption(
+			"smelt:minecraft_raw_iron:nearby-1",
+			"minecraft:raw_iron",
+			"minecraft:iron_ingot",
+			1,
+			1,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.NEARBY_EXISTING,
+				SmeltingStationState.OCCUPIED,
+				SmeltingStationKind.FURNACE,
+				occupied.key(),
+				1.0D,
+				true
+			),
+			occupied
+		);
+		manager.registerOptions(java.util.List.of(option));
+
+		SmeltingActionResult first = manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 1, SmeltingFuelMode.AUTO, null, 0, null),
+			300L
+		);
+		SmeltingActionResult confirmed = manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 1, SmeltingFuelMode.AUTO, null, 0, first.confirmationToken()),
+			301L
+		);
+
+		assertTrue(first.confirmationRequired());
+		assertTrue(confirmed.accepted());
+		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(occupied, 302L));
+	}
+
 	private static SmeltingStationObservation occupiedStation(int inputCount) {
 		return new SmeltingStationObservation(
 			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),

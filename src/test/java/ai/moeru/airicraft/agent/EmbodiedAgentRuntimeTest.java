@@ -32,6 +32,14 @@ import ai.moeru.airicraft.agent.tasks.LedgerStepStatus;
 import ai.moeru.airicraft.agent.tasks.MissionType;
 import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
+import ai.moeru.airicraft.agent.tasks.SmeltingOption;
+import ai.moeru.airicraft.agent.tasks.SmeltingSlotSnapshot;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationCandidate;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationKey;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationKind;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationObservation;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationSource;
+import ai.moeru.airicraft.agent.tasks.SmeltingStationState;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
@@ -274,6 +282,7 @@ class EmbodiedAgentRuntimeTest {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
 
 		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
 			"call_smelt",
@@ -284,10 +293,10 @@ class EmbodiedAgentRuntimeTest {
 			null,
 			null
 		));
+		assertTrue(result.contains("accepted"), result);
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
-		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("processId="));
 		assertTrue(result.contains("does not mean completed"));
 		assertEquals(WorldTaskType.SMELT_ITEMS, request.type());
@@ -306,13 +315,24 @@ class EmbodiedAgentRuntimeTest {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
+		String startResult = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_smelt",
+			"smelt_items",
+			JsonParser.parseString("""
+				{"optionId":"smelt:iron:nearby-1","inputQuantity":1}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		String processId = extractProcessId(startResult);
 
 		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
 			"call_collect_smelted",
 			"collect_smelted_items",
 			JsonParser.parseString("""
-				{"processId":"smelt-process-1","confirmationToken":"confirm-2"}
-				""").getAsJsonObject(),
+				{"processId":"%s","confirmationToken":"confirm-2"}
+				""".formatted(processId)).getAsJsonObject(),
 			null,
 			null
 		));
@@ -322,7 +342,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
-		assertEquals(new CollectSmeltedItemsStepArgs("smelt-process-1", "confirm-2"), request.collectSmeltedItems());
+		assertEquals(new CollectSmeltedItemsStepArgs(processId, "confirm-2"), request.collectSmeltedItems());
 	}
 
 	@Test
@@ -1163,6 +1183,42 @@ class EmbodiedAgentRuntimeTest {
 			null,
 			null
 		);
+	}
+
+	private static SmeltingOption testSmeltingOption(String optionId, int maxInputQuantity) {
+		SmeltingStationKey key = new SmeltingStationKey("minecraft:overworld", 1, 64, 1);
+		SmeltingStationObservation observation = new SmeltingStationObservation(
+			key,
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		return new SmeltingOption(
+			optionId,
+			"minecraft:raw_iron",
+			"minecraft:iron_ingot",
+			1,
+			maxInputQuantity,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.NEARBY_EXISTING,
+				SmeltingStationState.EMPTY,
+				SmeltingStationKind.FURNACE,
+				key,
+				1.0D,
+				false
+			),
+			observation
+		);
+	}
+
+	private static String extractProcessId(String toolResult) {
+		int start = toolResult.indexOf("processId=");
+		assertTrue(start >= 0);
+		int valueStart = start + "processId=".length();
+		int valueEnd = toolResult.indexOf(' ', valueStart);
+		return valueEnd < 0 ? toolResult.substring(valueStart) : toolResult.substring(valueStart, valueEnd);
 	}
 
 	private static SessionSnapshot loadedRemoteSession() {

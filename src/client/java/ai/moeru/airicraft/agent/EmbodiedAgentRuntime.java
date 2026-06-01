@@ -104,7 +104,10 @@ import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.SmeltingActionResult;
 import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
+import ai.moeru.airicraft.agent.tasks.SmeltingOption;
+import ai.moeru.airicraft.agent.tasks.SmeltingPlannerService;
 import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
 import ai.moeru.airicraft.agent.verification.VerificationRunner;
@@ -192,6 +195,7 @@ public final class EmbodiedAgentRuntime {
 	private final InventoryResourceCounter inventoryResourceCounter = new InventoryResourceCounter();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
 	private final SmeltingProcessManager smeltingProcessManager = new SmeltingProcessManager();
+	private final SmeltingPlannerService smeltingPlannerService = new SmeltingPlannerService();
 
 	private boolean initialized;
 	private long tickCount;
@@ -1137,10 +1141,10 @@ public final class EmbodiedAgentRuntime {
 				yield "TOOL_ERROR: craft_recipe async_path_required";
 			}
 			case PlannerToolCatalog.CHECK_SMELTABLES -> {
-				yield "Tool result for check_smeltables: no executable smelting options observed; candidates=[]";
+				yield smeltingPlannerService.checkSmeltables(MinecraftClient.getInstance(), smeltingProcessManager, tickCount);
 			}
 			case PlannerToolCatalog.INSPECT_SMELTING -> {
-				yield smeltingProcessManager.inspectSummary();
+				yield smeltingPlannerService.inspectSmelting(MinecraftClient.getInstance(), smeltingProcessManager, tickCount);
 			}
 			case PlannerToolCatalog.SMELT_ITEMS -> {
 				SmeltItemsStepArgs smeltItems = new SmeltItemsStepArgs(
@@ -1151,10 +1155,28 @@ public final class EmbodiedAgentRuntime {
 					intArg(args, "fuelQuantity").orElse(0),
 					stringArg(args, "confirmationToken").orElse(null)
 				);
+				SmeltingActionResult smeltingResult = smeltingPlannerService.startSmelting(
+					MinecraftClient.getInstance(),
+					smeltingProcessManager,
+					smeltItems,
+					tickCount
+				);
+				if (smeltingResult.confirmationRequired()) {
+					yield "Tool result for smelt_items: confirmationRequired confirmationToken="
+						+ smeltingResult.confirmationToken()
+						+ " "
+						+ smeltingResult.message();
+				}
+				if (!smeltingResult.accepted()) {
+					yield "Tool result for smelt_items: refused error_code="
+						+ smeltingResult.errorCode()
+						+ " message="
+						+ smeltingResult.message();
+				}
 				applyPlannerJobTool(ActiveJobProposal.smeltItems(smeltItems));
 				yield queuedActionToolResult(
 					"smelt_items",
-					"processId=pending optionId=" + smeltItems.optionId() + " inputQuantity=" + smeltItems.inputQuantity()
+					"processId=" + smeltingResult.processId() + " optionId=" + smeltItems.optionId() + " inputQuantity=" + smeltItems.inputQuantity()
 				);
 			}
 			case PlannerToolCatalog.COLLECT_SMELTED_ITEMS -> {
@@ -1162,6 +1184,24 @@ public final class EmbodiedAgentRuntime {
 					stringArg(args, "processId").orElse(null),
 					stringArg(args, "confirmationToken").orElse(null)
 				);
+				SmeltingActionResult collectResult = smeltingPlannerService.collectSmelted(
+					MinecraftClient.getInstance(),
+					smeltingProcessManager,
+					collect,
+					tickCount
+				);
+				if (collectResult.confirmationRequired()) {
+					yield "Tool result for collect_smelted_items: confirmationRequired confirmationToken="
+						+ collectResult.confirmationToken()
+						+ " "
+						+ collectResult.message();
+				}
+				if (!collectResult.accepted()) {
+					yield "Tool result for collect_smelted_items: refused error_code="
+						+ collectResult.errorCode()
+						+ " message="
+						+ collectResult.message();
+				}
 				applyPlannerJobTool(ActiveJobProposal.collectSmeltedItems(collect));
 				yield queuedActionToolResult(
 					"collect_smelted_items",
@@ -1243,6 +1283,10 @@ public final class EmbodiedAgentRuntime {
 
 	CompletableFuture<String> executePlannerToolCallFutureForTests(PlannerToolCall toolCall) {
 		return executePlannerToolCall(toolCall);
+	}
+
+	void registerSmeltingOptionsForTests(List<SmeltingOption> options) {
+		smeltingProcessManager.registerOptions(options);
 	}
 
 	private CompletableFuture<String> executeCraftRecipePlannerTool(JsonObject args) {
