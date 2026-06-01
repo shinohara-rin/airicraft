@@ -97,11 +97,15 @@ import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.WorldEvidence;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
+import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
+import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.verification.VerificationReport;
 import ai.moeru.airicraft.agent.verification.VerificationRunner;
 import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
@@ -187,6 +191,7 @@ public final class EmbodiedAgentRuntime {
 	private final WorldTaskExecutor worldTaskExecutor;
 	private final InventoryResourceCounter inventoryResourceCounter = new InventoryResourceCounter();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
+	private final SmeltingProcessManager smeltingProcessManager = new SmeltingProcessManager();
 
 	private boolean initialized;
 	private long tickCount;
@@ -1130,6 +1135,43 @@ public final class EmbodiedAgentRuntime {
 			}
 			case PlannerToolCatalog.CRAFT_RECIPE -> {
 				yield "TOOL_ERROR: craft_recipe async_path_required";
+			}
+			case PlannerToolCatalog.CHECK_SMELTABLES -> {
+				yield "Tool result for check_smeltables: no executable smelting options observed; candidates=[]";
+			}
+			case PlannerToolCatalog.INSPECT_SMELTING -> {
+				yield smeltingProcessManager.inspectSummary();
+			}
+			case PlannerToolCatalog.SMELT_ITEMS -> {
+				SmeltItemsStepArgs smeltItems = new SmeltItemsStepArgs(
+					stringArg(args, "optionId").orElseThrow(() -> new IllegalArgumentException("optionId is required")),
+					intArg(args, "inputQuantity").orElseThrow(() -> new IllegalArgumentException("inputQuantity is required")),
+					SmeltingFuelMode.fromWireValue(stringArg(args, "fuelMode").orElse(null)),
+					stringArg(args, "fuelItemId").orElse(null),
+					intArg(args, "fuelQuantity").orElse(0),
+					stringArg(args, "confirmationToken").orElse(null)
+				);
+				applyPlannerJobTool(ActiveJobProposal.smeltItems(smeltItems));
+				yield queuedActionToolResult(
+					"smelt_items",
+					"processId=pending optionId=" + smeltItems.optionId() + " inputQuantity=" + smeltItems.inputQuantity()
+				);
+			}
+			case PlannerToolCatalog.COLLECT_SMELTED_ITEMS -> {
+				CollectSmeltedItemsStepArgs collect = new CollectSmeltedItemsStepArgs(
+					stringArg(args, "processId").orElse(null),
+					stringArg(args, "confirmationToken").orElse(null)
+				);
+				applyPlannerJobTool(ActiveJobProposal.collectSmeltedItems(collect));
+				yield queuedActionToolResult(
+					"collect_smelted_items",
+					(collect.processId() == null ? "processId=untracked" : "processId=" + collect.processId())
+				);
+			}
+			case PlannerToolCatalog.CANCEL_SMELTING -> {
+				String processId = stringArg(args, "processId").orElseThrow(() -> new IllegalArgumentException("processId is required"));
+				boolean cancelled = smeltingProcessManager.cancel(processId);
+				yield "Tool result for cancel_smelting: accepted processId=" + processId + " tracked=" + cancelled;
 			}
 			case PlannerToolCatalog.DROP_ITEMS -> {
 				DropItemsStepArgs dropItems = new DropItemsStepArgs(
@@ -2171,7 +2213,7 @@ public final class EmbodiedAgentRuntime {
 		}
 		return switch (intent.activeJob().type()) {
 			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS -> true;
-			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, ATTACK_ENTITY, USE_ENTITY, ASK_USER -> false;
+			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, ATTACK_ENTITY, USE_ENTITY, ASK_USER -> false;
 		};
 	}
 
@@ -2185,6 +2227,8 @@ public final class EmbodiedAgentRuntime {
 		return snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_RESOURCE
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.CRAFT_RECIPE
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.DROP_ITEMS
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.SMELT_ITEMS
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_SMELTED_ITEMS
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ATTACK_ENTITY
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_ENTITY
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;

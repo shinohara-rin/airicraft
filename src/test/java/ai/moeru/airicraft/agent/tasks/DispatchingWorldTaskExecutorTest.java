@@ -70,7 +70,8 @@ class DispatchingWorldTaskExecutorTest {
 		RecordingExecutor crafting = new RecordingExecutor();
 		RecordingExecutor dropItems = new RecordingExecutor();
 		RecordingExecutor entityInteraction = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction);
+		RecordingExecutor smelting = new RecordingExecutor();
+		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
 
 		executor.tick(snapshot(), Optional.of(WorldTaskRequest.useEntity(
 			"task-2",
@@ -82,6 +83,50 @@ class DispatchingWorldTaskExecutorTest {
 		assertEquals(Optional.empty(), baritone.lastTask);
 		assertEquals(Optional.empty(), crafting.lastTask);
 		assertEquals(Optional.empty(), dropItems.lastTask);
+	}
+
+	@Test
+	void smeltingRequestsRouteToSmeltingExecutor() {
+		RecordingExecutor baritone = new RecordingExecutor();
+		RecordingExecutor crafting = new RecordingExecutor();
+		RecordingExecutor dropItems = new RecordingExecutor();
+		RecordingExecutor entityInteraction = new RecordingExecutor();
+		RecordingExecutor smelting = new RecordingExecutor();
+		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
+
+		executor.tick(snapshot(), Optional.of(WorldTaskRequest.smeltItems(
+			"task-3",
+			"job-3",
+			new SmeltItemsStepArgs("smelt:iron:nearby-1", 2, SmeltingFuelMode.AUTO, null, 0, null)
+		)));
+
+		assertEquals(WorldTaskType.SMELT_ITEMS, smelting.lastTask.orElseThrow().type());
+		assertEquals(Optional.empty(), baritone.lastTask);
+		assertEquals(Optional.empty(), crafting.lastTask);
+		assertEquals(Optional.empty(), dropItems.lastTask);
+		assertEquals(Optional.empty(), entityInteraction.lastTask);
+	}
+
+	@Test
+	void collectSmeltedRequestsRouteToSmeltingExecutor() {
+		RecordingExecutor baritone = new RecordingExecutor();
+		RecordingExecutor crafting = new RecordingExecutor();
+		RecordingExecutor dropItems = new RecordingExecutor();
+		RecordingExecutor entityInteraction = new RecordingExecutor();
+		RecordingExecutor smelting = new RecordingExecutor();
+		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
+
+		executor.tick(snapshot(), Optional.of(WorldTaskRequest.collectSmeltedItems(
+			"task-4",
+			"job-4",
+			new CollectSmeltedItemsStepArgs("smelt-process-1", "confirm-1")
+		)));
+
+		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, smelting.lastTask.orElseThrow().type());
+		assertEquals(Optional.empty(), baritone.lastTask);
+		assertEquals(Optional.empty(), crafting.lastTask);
+		assertEquals(Optional.empty(), dropItems.lastTask);
+		assertEquals(Optional.empty(), entityInteraction.lastTask);
 	}
 
 	private static SessionSnapshot snapshot() {

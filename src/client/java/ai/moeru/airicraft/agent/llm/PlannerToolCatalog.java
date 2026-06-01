@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.agent.llm;
 
 import ai.moeru.airicraft.agent.tasks.EntityAttackMode;
+import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -19,12 +20,17 @@ public final class PlannerToolCatalog {
 	public static final String TAKE_A_LOOK = "take_a_look";
 	public static final String INSPECT_INVENTORY = "inspect_inventory";
 	public static final String CHECK_CRAFTABLES = "check_craftables";
+	public static final String CHECK_SMELTABLES = "check_smeltables";
+	public static final String INSPECT_SMELTING = "inspect_smelting";
 	public static final String INSPECT_NEARBY_ENTITIES = "inspect_nearby_entities";
 	public static final String FOLLOW_PLAYER = "follow_player";
 	public static final String NAVIGATE_TO = "navigate_to";
 	public static final String MINE_BLOCKS = "mine_blocks";
 	public static final String COLLECT_RESOURCE = "collect_resource";
 	public static final String CRAFT_RECIPE = "craft_recipe";
+	public static final String SMELT_ITEMS = "smelt_items";
+	public static final String COLLECT_SMELTED_ITEMS = "collect_smelted_items";
+	public static final String CANCEL_SMELTING = "cancel_smelting";
 	public static final String DROP_ITEMS = "drop_items";
 	public static final String GIVE_PLAYER = "give_player";
 	public static final String ATTACK_ENTITY = "attack_entity";
@@ -49,6 +55,14 @@ public final class PlannerToolCatalog {
 			tool(CHECK_CRAFTABLES, "Check currently executable crafting options.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional crafting question."))
+			), List.of()),
+			tool(CHECK_SMELTABLES, "Check currently executable smelting options and ranked furnace candidates.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("prompt", string("Optional smelting question."))
+			), List.of()),
+			tool(INSPECT_SMELTING, "Inspect Airicraft-owned smelting processes and nearby furnace observations.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("prompt", string("Optional smelting status question."))
 			), List.of()),
 			tool(INSPECT_NEARBY_ENTITIES, "List nearby loaded entities with exact selectors such as uuid, name, entityTypeId, distance, and health when available.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -80,6 +94,24 @@ public final class PlannerToolCatalog {
 				prop("recipeId", string("Exact recipe id from check_craftables.")),
 				prop("times", integer("Recipe run count."))
 			), List.of("recipeId", "times")),
+			tool(SMELT_ITEMS, "Start one background smelting process from an exact optionId returned by check_smeltables.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("optionId", string("Exact optionId from check_smeltables.")),
+				prop("inputQuantity", integer("Number of input items to smelt.")),
+				prop("fuelMode", enumString("Fuel mode. Use auto unless explicitly selecting fuel.", List.of("auto", "manual"))),
+				prop("fuelItemId", optionalString("Required when fuelMode is manual. Exact namespaced fuel item id.")),
+				prop("fuelQuantity", integer("Fuel item quantity for manual fuel. Use 0 or omit for auto fuel.")),
+				prop("confirmationToken", optionalString("Short-lived token returned when an occupied or stale furnace requires confirmation."))
+			), List.of("optionId", "inputQuantity")),
+			tool(COLLECT_SMELTED_ITEMS, "Collect output from an Airicraft-owned smelting process, or from an untracked occupied furnace with confirmation.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("processId", optionalString("Airicraft-owned process id from smelt_items or inspect_smelting.")),
+				prop("confirmationToken", optionalString("Short-lived token required for untracked or occupied furnace collection."))
+			), List.of()),
+			tool(CANCEL_SMELTING, "Stop tracking an Airicraft-owned smelting process without reclaiming furnace contents.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("processId", string("Airicraft-owned process id to stop tracking."))
+			), List.of("processId")),
 			tool(DROP_ITEMS, "Drop exact items from current inventory at the current position.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
@@ -178,7 +210,7 @@ public final class PlannerToolCatalog {
 
 	public static boolean isReadTool(String name) {
 		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES -> true;
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CHECK_SMELTABLES, INSPECT_SMELTING, INSPECT_NEARBY_ENTITIES -> true;
 			default -> false;
 		};
 	}
@@ -188,12 +220,17 @@ public final class PlannerToolCatalog {
 			case TAKE_A_LOOK,
 				INSPECT_INVENTORY,
 				CHECK_CRAFTABLES,
+				CHECK_SMELTABLES,
+				INSPECT_SMELTING,
 				INSPECT_NEARBY_ENTITIES,
 				FOLLOW_PLAYER,
 				NAVIGATE_TO,
 				MINE_BLOCKS,
 				COLLECT_RESOURCE,
 				CRAFT_RECIPE,
+				SMELT_ITEMS,
+				COLLECT_SMELTED_ITEMS,
+				CANCEL_SMELTING,
 				DROP_ITEMS,
 				GIVE_PLAYER,
 				ATTACK_ENTITY,
@@ -268,7 +305,7 @@ public final class PlannerToolCatalog {
 
 	private static void validateArguments(String name, JsonObject arguments) {
 		switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
+			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CHECK_SMELTABLES, INSPECT_SMELTING, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
 			}
 			case FOLLOW_PLAYER -> requireString(arguments, "targetPlayer");
 			case NAVIGATE_TO -> {
@@ -292,6 +329,16 @@ public final class PlannerToolCatalog {
 				requireString(arguments, "recipeId");
 				requirePositiveInt(arguments, "times");
 			}
+			case SMELT_ITEMS -> validateSmeltItemsArguments(arguments);
+			case COLLECT_SMELTED_ITEMS -> {
+				if (arguments.has("processId") && !arguments.get("processId").isJsonNull()) {
+					requireString(arguments, "processId");
+				}
+				if (arguments.has("confirmationToken") && !arguments.get("confirmationToken").isJsonNull()) {
+					requireString(arguments, "confirmationToken");
+				}
+			}
+			case CANCEL_SMELTING -> requireString(arguments, "processId");
 			case DROP_ITEMS -> {
 				requireString(arguments, "itemId");
 				requirePositiveInt(arguments, "quantity");
@@ -336,6 +383,31 @@ public final class PlannerToolCatalog {
 		}
 		catch (IllegalArgumentException exception) {
 			throw new JsonParseException(exception.getMessage(), exception);
+		}
+	}
+
+	private static void validateSmeltItemsArguments(JsonObject arguments) {
+		requireString(arguments, "optionId");
+		requirePositiveInt(arguments, "inputQuantity");
+		String fuelMode = getString(arguments, "fuelMode").orElse(null);
+		try {
+			SmeltingFuelMode parsedFuelMode = SmeltingFuelMode.fromWireValue(fuelMode);
+			if (parsedFuelMode == SmeltingFuelMode.MANUAL) {
+				requireString(arguments, "fuelItemId");
+				requirePositiveInt(arguments, "fuelQuantity");
+			}
+			else if (arguments.has("fuelQuantity") && !arguments.get("fuelQuantity").isJsonNull()) {
+				int fuelQuantity = requireInt(arguments, "fuelQuantity");
+				if (fuelQuantity < 0) {
+					throw new JsonParseException("fuelQuantity must be non-negative");
+				}
+			}
+		}
+		catch (IllegalArgumentException exception) {
+			throw new JsonParseException(exception.getMessage(), exception);
+		}
+		if (arguments.has("confirmationToken") && !arguments.get("confirmationToken").isJsonNull()) {
+			requireString(arguments, "confirmationToken");
 		}
 	}
 

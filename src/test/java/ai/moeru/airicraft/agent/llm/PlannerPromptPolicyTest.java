@@ -79,6 +79,19 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptExplainsSmeltingConfirmationAndAsyncCompletion() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("check_smeltables"));
+		assertTrue(prompt.contains("smelt_items"));
+		assertTrue(prompt.contains("inspect_smelting"));
+		assertTrue(prompt.contains("collect_smelted_items"));
+		assertTrue(prompt.contains("confirmationToken"));
+		assertTrue(prompt.contains("occupied"));
+		assertTrue(prompt.contains("Accepted does not mean completed") || prompt.contains("accepted does not mean completed"));
+	}
+
+	@Test
 	void systemPromptDistinguishesStartupInventoryFromLatestToolFollowUp() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 

@@ -12,18 +12,20 @@ public record WorldTaskRequest(
 	GoalSnapshot goal,
 	CraftRecipeStepArgs craftRecipe,
 	DropItemsStepArgs dropItems,
-	EntityInteractionStepArgs entityInteraction
+	EntityInteractionStepArgs entityInteraction,
+	SmeltItemsStepArgs smeltItems,
+	CollectSmeltedItemsStepArgs collectSmeltedItems
 ) {
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal) {
-		this(taskId, sourceJobId, type, goal, null, null, null);
+		this(taskId, sourceJobId, type, goal, null, null, null, null, null);
 	}
 
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, null, null);
+		this(taskId, sourceJobId, type, goal, craftRecipe, null, null, null, null);
 	}
 
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe, DropItemsStepArgs dropItems) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, null);
+		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, null, null, null);
 	}
 
 	public WorldTaskRequest {
@@ -39,6 +41,12 @@ public record WorldTaskRequest(
 		else if (type == WorldTaskType.ATTACK_ENTITY || type == WorldTaskType.USE_ENTITY) {
 			entityInteraction = Objects.requireNonNull(entityInteraction, "entityInteraction");
 		}
+		else if (type == WorldTaskType.SMELT_ITEMS) {
+			smeltItems = Objects.requireNonNull(smeltItems, "smeltItems");
+		}
+		else if (type == WorldTaskType.COLLECT_SMELTED_ITEMS) {
+			collectSmeltedItems = Objects.requireNonNull(collectSmeltedItems, "collectSmeltedItems");
+		}
 		else {
 			goal = Objects.requireNonNull(goal, "goal");
 		}
@@ -53,19 +61,27 @@ public record WorldTaskRequest(
 	}
 
 	public static WorldTaskRequest craftRecipe(String taskId, String sourceJobId, CraftRecipeStepArgs craftRecipe) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.CRAFT_RECIPE, null, craftRecipe, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.CRAFT_RECIPE, null, craftRecipe, null, null, null, null);
 	}
 
 	public static WorldTaskRequest dropItems(String taskId, String sourceJobId, DropItemsStepArgs dropItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.DROP_ITEMS, null, null, dropItems, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.DROP_ITEMS, null, null, dropItems, null, null, null);
 	}
 
 	public static WorldTaskRequest attackEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.ATTACK_ENTITY, null, null, null, entityInteraction);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.ATTACK_ENTITY, null, null, null, entityInteraction, null, null);
 	}
 
 	public static WorldTaskRequest useEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_ENTITY, null, null, null, entityInteraction);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_ENTITY, null, null, null, entityInteraction, null, null);
+	}
+
+	public static WorldTaskRequest smeltItems(String taskId, String sourceJobId, SmeltItemsStepArgs smeltItems) {
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.SMELT_ITEMS, null, null, null, null, smeltItems, null);
+	}
+
+	public static WorldTaskRequest collectSmeltedItems(String taskId, String sourceJobId, CollectSmeltedItemsStepArgs collectSmeltedItems) {
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, collectSmeltedItems);
 	}
 
 	private static WorldTaskType typeFor(GoalSnapshot goal) {

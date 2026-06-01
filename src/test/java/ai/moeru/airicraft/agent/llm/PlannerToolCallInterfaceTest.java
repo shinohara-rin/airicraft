@@ -207,6 +207,61 @@ class PlannerToolCallInterfaceTest {
 		assertEquals("check_craftables", PlannerToolCatalog.parseToolCall(toolCall("check_craftables", "{}")).name());
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("inspect_recipes", "{}"))
+			);
+	}
+
+	@Test
+	void exposesAndParsesSmeltingTools() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+
+		assertTrue(toolNames(tools).contains("check_smeltables"));
+		assertTrue(toolNames(tools).contains("smelt_items"));
+		assertTrue(toolNames(tools).contains("inspect_smelting"));
+		assertTrue(toolNames(tools).contains("collect_smelted_items"));
+		assertTrue(toolNames(tools).contains("cancel_smelting"));
+
+		PlannerToolCall smeltCall = PlannerToolCatalog.parseToolCall(toolCall("smelt_items", """
+			{"optionId":"smelt:iron:nearby-1","inputQuantity":3,"fuelMode":"manual","fuelItemId":"minecraft:coal","fuelQuantity":1,"confirmationToken":"confirm-1"}
+			"""));
+		PlannerToolCall collectCall = PlannerToolCatalog.parseToolCall(toolCall("collect_smelted_items", """
+			{"processId":"smelt-process-1","confirmationToken":"confirm-2"}
+			"""));
+		PlannerToolCall cancelCall = PlannerToolCatalog.parseToolCall(toolCall("cancel_smelting", """
+			{"processId":"smelt-process-1"}
+			"""));
+
+		assertEquals("smelt_items", smeltCall.name());
+		assertEquals("smelt:iron:nearby-1", smeltCall.arguments().get("optionId").getAsString());
+		assertEquals(3, smeltCall.arguments().get("inputQuantity").getAsInt());
+		assertEquals("manual", smeltCall.arguments().get("fuelMode").getAsString());
+		assertEquals("minecraft:coal", smeltCall.arguments().get("fuelItemId").getAsString());
+		assertEquals(1, smeltCall.arguments().get("fuelQuantity").getAsInt());
+		assertEquals("confirm-1", smeltCall.arguments().get("confirmationToken").getAsString());
+		assertEquals("collect_smelted_items", collectCall.name());
+		assertEquals("smelt-process-1", collectCall.arguments().get("processId").getAsString());
+		assertEquals("confirm-2", collectCall.arguments().get("confirmationToken").getAsString());
+		assertEquals("cancel_smelting", cancelCall.name());
+	}
+
+	@Test
+	void smeltingToolSchemasRequireExecutableOptionAndPositiveQuantity() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject smeltParameters = toolSchema(tools, "smelt_items");
+
+		JsonArray required = smeltParameters.getAsJsonArray("required");
+		assertNotNull(required);
+		assertTrue(required.asList().stream().anyMatch(element -> "optionId".equals(element.getAsString())));
+		assertTrue(required.asList().stream().anyMatch(element -> "inputQuantity".equals(element.getAsString())));
+		assertTrue(smeltParameters.getAsJsonObject("properties").has("confirmationToken"));
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("smelt_items", """
+				{"inputQuantity":1}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("smelt_items", """
+				{"optionId":"smelt:iron","inputQuantity":0}
+				"""))
 		);
 	}
 

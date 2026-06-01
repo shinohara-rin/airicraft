@@ -4,9 +4,12 @@ import ai.moeru.airicraft.agent.dialogue.DialogueIntent;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
+import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntityInteractionStepArgs;
 import ai.moeru.airicraft.agent.tasks.EntitySelector;
+import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
 import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.WorldTaskType;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
@@ -160,6 +163,63 @@ class ActiveJobRuntimeTest {
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.DROP_ITEMS, runtime.current().type());
 		assertEquals(dropItems, runtime.current().dropItems());
+	}
+
+	@Test
+	void smeltItemsActiveJobProjectsWorldTaskRequest() {
+		ActiveJobRuntime runtime = new ActiveJobRuntime();
+		SmeltItemsStepArgs smeltItems = new SmeltItemsStepArgs(
+			"smelt:iron:nearby-1",
+			3,
+			SmeltingFuelMode.MANUAL,
+			"minecraft:coal",
+			1,
+			"confirm-1"
+		);
+
+		runtime.applyPlannerResponse(
+			new DialogueResponse(
+				"Starting iron smelting.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.smeltItems(smeltItems)),
+				1L
+			),
+			0,
+			"test",
+			1L
+		);
+
+		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
+
+		assertEquals(WorldTaskType.SMELT_ITEMS, request.type());
+		assertEquals(smeltItems, request.smeltItems());
+		assertNull(request.goal());
+		assertEquals(ActiveJobType.SMELT_ITEMS, runtime.current().type());
+		assertEquals(smeltItems, runtime.current().smeltItems());
+	}
+
+	@Test
+	void collectSmeltedItemsActiveJobProjectsWorldTaskRequest() {
+		ActiveJobRuntime runtime = new ActiveJobRuntime();
+		CollectSmeltedItemsStepArgs collect = new CollectSmeltedItemsStepArgs("smelt-process-1", "confirm-2");
+
+		runtime.applyPlannerResponse(
+			new DialogueResponse(
+				"Collecting furnace output.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.collectSmeltedItems(collect)),
+				1L
+			),
+			0,
+			"test",
+			1L
+		);
+
+		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
+
+		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
+		assertEquals(collect, request.collectSmeltedItems());
+		assertNull(request.goal());
+		assertEquals(ActiveJobType.COLLECT_SMELTED_ITEMS, runtime.current().type());
+		assertEquals(collect, runtime.current().collectSmeltedItems());
 	}
 
 	@Test

@@ -17,6 +17,7 @@ import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
+import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
 import ai.moeru.airicraft.agent.tasks.EvidenceRequirement;
@@ -29,6 +30,8 @@ import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
 import ai.moeru.airicraft.agent.tasks.LedgerStepPayload;
 import ai.moeru.airicraft.agent.tasks.LedgerStepStatus;
 import ai.moeru.airicraft.agent.tasks.MissionType;
+import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
+import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
@@ -264,6 +267,62 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("TASK UPDATE"));
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
 		assertEquals(new DropItemsStepArgs("minecraft:oak_log", 2, null), request.dropItems());
+	}
+
+	@Test
+	void smeltItemsToolRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_smelt",
+			"smelt_items",
+			JsonParser.parseString("""
+				{"optionId":"smelt:iron:nearby-1","inputQuantity":3,"fuelMode":"manual","fuelItemId":"minecraft:coal","fuelQuantity":1,"confirmationToken":"confirm-1"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("processId="));
+		assertTrue(result.contains("does not mean completed"));
+		assertEquals(WorldTaskType.SMELT_ITEMS, request.type());
+		assertEquals(new SmeltItemsStepArgs(
+			"smelt:iron:nearby-1",
+			3,
+			SmeltingFuelMode.MANUAL,
+			"minecraft:coal",
+			1,
+			"confirm-1"
+		), request.smeltItems());
+	}
+
+	@Test
+	void collectSmeltedItemsToolRoutesWorldTaskRequest() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_collect_smelted",
+			"collect_smelted_items",
+			JsonParser.parseString("""
+				{"processId":"smelt-process-1","confirmationToken":"confirm-2"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
+		assertEquals(new CollectSmeltedItemsStepArgs("smelt-process-1", "confirm-2"), request.collectSmeltedItems());
 	}
 
 	@Test
