@@ -27,6 +27,7 @@ import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -180,7 +181,10 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 					playerBlock.getX(),
 					playerBlock.getZ(),
 					client.player.getYaw(),
-					client.world.getRegistryKey().getValue().toString()
+					client.world.getRegistryKey().getValue().toString(),
+					originBlockX,
+					originBlockZ,
+					geometry
 				)
 			);
 		}
@@ -199,10 +203,13 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		int playerBlockX,
 		int playerBlockZ,
 		float yawDegrees,
-		String dimension
+		String dimension,
+		int originBlockX,
+		int originBlockZ,
+		MapCaptureGeometry geometry
 	) {
 		if (nativeImage == null) {
-			future.completeExceptionally(new BridgeUnavailableException("map_unavailable", "JourneyMap live map tile is unavailable"));
+			completeCachedMapTile(future, kind, originBlockX, originBlockZ, playerBlockX, playerBlockZ, yawDegrees, dimension, geometry);
 			return;
 		}
 		try {
@@ -222,6 +229,43 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 		}
 		catch (RuntimeException exception) {
 			future.completeExceptionally(new BridgeUnavailableException("map_capture_failed", "Failed to encode JourneyMap live map tile: " + exception.getMessage()));
+		}
+	}
+
+	private void completeCachedMapTile(
+		CompletableFuture<MapImageCapture> future,
+		String kind,
+		int originBlockX,
+		int originBlockZ,
+		int playerBlockX,
+		int playerBlockZ,
+		float yawDegrees,
+		String dimension,
+		MapCaptureGeometry geometry
+	) {
+		try {
+			File dataPath = jmAPI.getDataPath(AIRICRAFT_MOD_ID);
+			Path imageDir = cachedMapImageDirectory(dataPath == null ? null : dataPath.toPath(), dimension, "day");
+			BufferedImage image = composeCenteredMapImage(
+				imageDir,
+				originBlockX,
+				originBlockZ,
+				geometry.outputSize(),
+				playerBlockX,
+				playerBlockZ,
+				yawDegrees,
+				listWaypoints(new MapWaypointQuery(PROVIDER_ID, dimension)),
+				geometry.zoom(),
+				geometry.grid()
+			);
+			future.complete(MapImageEncoder.encode(PROVIDER_ID, kind, image, System.currentTimeMillis()));
+		}
+		catch (RuntimeException exception) {
+			String detail = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+			future.completeExceptionally(new BridgeUnavailableException(
+				"map_unavailable",
+				"JourneyMap live map tile is unavailable and cached map fallback failed: " + detail
+			));
 		}
 	}
 
@@ -269,6 +313,27 @@ public final class JourneyMapIntegrationProvider implements MapIntegrationProvid
 
 	static int regionCoordinateForChunk(int chunkCoordinate) {
 		return Math.floorDiv(chunkCoordinate, 32);
+	}
+
+	static Path cachedMapImageDirectory(Path addonDataPath, String dimension, String mapLayer) {
+		if (addonDataPath == null || addonDataPath.getNameCount() < 3) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map directory is unavailable");
+		}
+		Path addonDataDir = addonDataPath.getParent();
+		Path worldDir = addonDataDir == null ? null : addonDataDir.getParent();
+		if (worldDir == null) {
+			throw new BridgeUnavailableException("map_unavailable", "JourneyMap cached map directory is unavailable");
+		}
+		return worldDir.resolve(dimensionPathSegment(dimension)).resolve(mapLayer == null || mapLayer.isBlank() ? "day" : mapLayer);
+	}
+
+	private static String dimensionPathSegment(String dimension) {
+		if (dimension == null || dimension.isBlank()) {
+			return "overworld";
+		}
+		int namespaceSeparator = dimension.indexOf(':');
+		String path = namespaceSeparator >= 0 ? dimension.substring(namespaceSeparator + 1) : dimension;
+		return path.isBlank() ? "overworld" : path;
 	}
 
 	static BufferedImage composeCenteredMapImage(Path imageDir, int playerBlockX, int playerBlockZ, int outputSize, boolean drawMarker, float yawDegrees) {

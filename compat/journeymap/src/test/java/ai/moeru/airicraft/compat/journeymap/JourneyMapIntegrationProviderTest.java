@@ -259,6 +259,15 @@ class JourneyMapIntegrationProviderTest {
 		assertEquals(0x88000000, centered.getRGB(16, 16));
 	}
 
+	@Test
+	void cachedMapImageDirectoryResolvesFromJourneyMapAddonDataPath() {
+		Path addonDataPath = tempDir.resolve("journeymap/data/sp/New World/addon-data/airicraft");
+
+		Path imageDir = JourneyMapIntegrationProvider.cachedMapImageDirectory(addonDataPath, "minecraft:overworld", "day");
+
+		assertEquals(tempDir.resolve("journeymap/data/sp/New World/overworld/day"), imageDir);
+	}
+
 	private void writeTile(String name, Color color) throws Exception {
 		BufferedImage image = new BufferedImage(512, 512, BufferedImage.TYPE_INT_ARGB);
 		for (int z = 0; z < image.getHeight(); z++) {
