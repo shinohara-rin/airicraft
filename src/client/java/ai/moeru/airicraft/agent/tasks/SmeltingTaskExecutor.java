@@ -10,6 +10,7 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.AbstractFurnaceScreenHandler;
 import net.minecraft.screen.PlayerScreenHandler;
@@ -384,13 +385,20 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		}
 		int selectedHotbarSlot = player.getInventory().getSelectedSlot();
 		if (sourceSlot >= PlayerScreenHandler.HOTBAR_START && sourceSlot < PlayerScreenHandler.HOTBAR_END) {
-			player.getInventory().setSelectedSlot(sourceSlot - PlayerScreenHandler.HOTBAR_START);
+			selectAndSyncHotbarSlot(client, player, sourceSlot - PlayerScreenHandler.HOTBAR_START);
 			return true;
 		}
 		client.interactionManager.clickSlot(handler.syncId, sourceSlot, selectedHotbarSlot, SlotActionType.SWAP, player);
-		player.getInventory().setSelectedSlot(selectedHotbarSlot);
+		selectAndSyncHotbarSlot(client, player, selectedHotbarSlot);
 		ItemStack selected = player.getInventory().getSelectedStack();
 		return !selected.isEmpty() && selected.isOf(item);
+	}
+
+	private static void selectAndSyncHotbarSlot(MinecraftClient client, ClientPlayerEntity player, int hotbarSlot) {
+		player.getInventory().setSelectedSlot(hotbarSlot);
+		if (client.getNetworkHandler() != null) {
+			client.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(hotbarSlot));
+		}
 	}
 
 	private static int findInventorySlot(ScreenHandler handler, Item item) {
