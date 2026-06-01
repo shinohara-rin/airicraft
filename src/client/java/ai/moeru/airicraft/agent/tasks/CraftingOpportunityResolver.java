@@ -1,12 +1,15 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.recipebook.RecipeResultCollection;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.NetworkRecipeId;
+import net.minecraft.recipe.RecipeEntry;
 import net.minecraft.recipe.RecipeDisplayEntry;
 import net.minecraft.recipe.RecipeFinder;
 import net.minecraft.recipe.display.RecipeDisplay;
@@ -26,6 +29,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public final class CraftingOpportunityResolver {
 	private static final int PLAYER_GRID_INPUT_COUNT = PlayerScreenHandler.CRAFTING_INPUT_COUNT;
@@ -39,8 +44,11 @@ public final class CraftingOpportunityResolver {
 		if (player == null) {
 			return List.of();
 		}
-		RecipeFinder finder = recipeFinder(player);
-		return availableCrafts(player.getRecipeBook().getOrderedResults(), finder, inventoryCounts(player));
+		Map<String, CraftingOpportunity> opportunities = new LinkedHashMap<>();
+		for (ResolvedCraftingOption option : resolvedOptions(player)) {
+			opportunities.putIfAbsent(option.opportunity().recipeId(), option.opportunity());
+		}
+		return List.copyOf(opportunities.values());
 	}
 
 	static List<CraftingOpportunity> availableCrafts(List<RecipeResultCollection> collections, RecipeFinder finder) {
@@ -62,7 +70,7 @@ public final class CraftingOpportunityResolver {
 		if (player == null || request == null) {
 			return CraftingRecipeResolution.failure("recipe_not_found");
 		}
-		return resolve(player.getRecipeBook().getOrderedResults(), recipeFinder(player), inventoryCounts(player), request.recipeId(), request.times());
+		return resolve(resolvedOptions(player), request.recipeId(), request.times());
 	}
 
 	static CraftingRecipeResolution resolve(List<RecipeResultCollection> collections, RecipeFinder finder, String recipeId, int times) {
@@ -70,11 +78,15 @@ public final class CraftingOpportunityResolver {
 	}
 
 	static CraftingRecipeResolution resolve(List<RecipeResultCollection> collections, RecipeFinder finder, Map<Item, Integer> availableItems, String recipeId, int times) {
+		return resolve(resolvedOptions(collections, finder, availableItems), recipeId, times);
+	}
+
+	private static CraftingRecipeResolution resolve(List<ResolvedCraftingOption> options, String recipeId, int times) {
 		String requestedRecipeId = normalizeRequestedRecipeId(recipeId);
-		if (requestedRecipeId.isBlank() || times <= 0 || collections == null || finder == null) {
+		if (requestedRecipeId.isBlank() || times <= 0) {
 			return CraftingRecipeResolution.failure("recipe_not_found");
 		}
-		for (ResolvedCraftingOption option : resolvedOptions(collections, finder, availableItems)) {
+		for (ResolvedCraftingOption option : options) {
 			if (option.opportunity().recipeId().equals(requestedRecipeId)) {
 				return CraftingRecipeResolution.success(
 					option.networkRecipeId(),
@@ -182,7 +194,54 @@ public final class CraftingOpportunityResolver {
 		return counts;
 	}
 
+	private static List<ResolvedCraftingOption> resolvedOptions(ClientPlayerEntity player) {
+		RecipeFinder finder = recipeFinder(player);
+		Map<Item, Integer> availableItems = inventoryCounts(player);
+		List<ResolvedCraftingOption> options = new ArrayList<>(resolvedOptions(player.getRecipeBook().getOrderedResults(), finder, availableItems));
+		options.addAll(resolvedOptions(integratedServerRecipeCollections(), finder, availableItems, true));
+		return List.copyOf(options);
+	}
+
+	private static List<RecipeResultCollection> integratedServerRecipeCollections() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client == null || !client.isIntegratedServerRunning()) {
+			return List.of();
+		}
+		IntegratedServer server = client.getServer();
+		if (server == null) {
+			return List.of();
+		}
+		CompletableFuture<List<RecipeDisplayEntry>> future = new CompletableFuture<>();
+		server.executeSync(() -> {
+			try {
+				List<RecipeEntry<?>> recipes = List.copyOf(server.getRecipeManager().values());
+				List<RecipeDisplayEntry> entries = new ArrayList<>();
+				for (RecipeEntry<?> recipe : recipes) {
+					server.getRecipeManager().forEachRecipeDisplay(recipe.id(), entries::add);
+				}
+				future.complete(List.copyOf(entries));
+			}
+			catch (Throwable throwable) {
+				future.completeExceptionally(throwable);
+			}
+		});
+		try {
+			List<RecipeDisplayEntry> entries = future.get(2L, TimeUnit.SECONDS);
+			return entries.isEmpty() ? List.of() : List.of(new RecipeResultCollection(entries));
+		}
+		catch (Exception exception) {
+			return List.of();
+		}
+	}
+
 	private static List<ResolvedCraftingOption> resolvedOptions(List<RecipeResultCollection> collections, RecipeFinder finder, Map<Item, Integer> availableItems) {
+		return resolvedOptions(collections, finder, availableItems, false);
+	}
+
+	private static List<ResolvedCraftingOption> resolvedOptions(List<RecipeResultCollection> collections, RecipeFinder finder, Map<Item, Integer> availableItems, boolean manualPlacementOnly) {
+		if (collections == null || finder == null) {
+			return List.of();
+		}
 		Map<Item, Integer> safeAvailableItems = availableItems == null ? Map.of() : availableItems;
 		List<ResolvedCraftingOption> options = new ArrayList<>();
 		for (RecipeResultCollection collection : collections) {
@@ -211,7 +270,7 @@ public final class CraftingOpportunityResolver {
 						inputItemIds,
 						gridKind
 					);
-					options.add(new ResolvedCraftingOption(entry.id(), result.getItem(), gridKind, opportunity, placements));
+					options.add(new ResolvedCraftingOption(manualPlacementOnly ? null : entry.id(), result.getItem(), gridKind, opportunity, placements));
 				}
 			}
 		}

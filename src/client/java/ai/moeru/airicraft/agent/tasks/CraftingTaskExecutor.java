@@ -395,7 +395,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 
 		ScreenHandler handler = player.currentScreenHandler;
 		if (phase == CraftPhase.IDLE || phase == placingPhase) {
-			if (!requestRecipeFill(client, handler, plan)) {
+			if (!placeRecipeInputs(client, handler, gridSpec, plan)) {
 				return CraftAdvanceResult.failed("recipe_not_found");
 			}
 			phase = waitingForResultPhase;
@@ -448,6 +448,36 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		}
 		RecipeFillRequest request = recipeFillRequest(handler.syncId, plan.networkRecipeId());
 		client.interactionManager.clickRecipe(request.syncId(), request.networkRecipeId(), request.craftAll());
+		return true;
+	}
+
+	private static boolean placeRecipeInputs(MinecraftClient client, ScreenHandler handler, CraftingGridSpec gridSpec, CraftingPlan plan) {
+		if (plan.networkRecipeId() != null) {
+			return requestRecipeFill(client, handler, plan);
+		}
+		if (client.interactionManager == null || plan.placements().isEmpty()) {
+			return false;
+		}
+		for (CraftingOpportunityResolver.CraftingIngredientPlacement placement : plan.placements()) {
+			int targetSlot = gridSpec.firstInputSlot() + placement.gridIndex();
+			if (targetSlot < gridSpec.firstInputSlot() || targetSlot >= gridSpec.firstInputSlot() + gridSpec.inputSlotCount()) {
+				return false;
+			}
+			ItemStack targetStack = handler.getSlot(targetSlot).getStack();
+			if (!targetStack.isEmpty()) {
+				if (targetStack.isOf(placement.item())) {
+					continue;
+				}
+				return false;
+			}
+			int sourceSlot = findInventorySlot(handler, gridSpec, placement.item());
+			if (sourceSlot < 0) {
+				return false;
+			}
+			client.interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
+			client.interactionManager.clickSlot(handler.syncId, targetSlot, 1, SlotActionType.PICKUP, client.player);
+			client.interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
+		}
 		return true;
 	}
 
