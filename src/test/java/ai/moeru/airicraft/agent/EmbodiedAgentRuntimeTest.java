@@ -1004,6 +1004,39 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void clearGoalResponseRecordsEventWhenGoalAlreadyClearedByRuntime() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.injectGoalForTests(new GoalSnapshot(
+			GoalType.FOLLOW_PLAYER,
+			"ObserveAlice",
+			null,
+			null,
+			10L,
+			"test"
+		));
+		assertTrue(runtime.activeGoal().isPresent());
+
+		runtime.cancelTask("target_lost");
+		assertTrue(runtime.activeGoal().isEmpty());
+		long baselineSeqNo = runtime.latestEventSeqNo();
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"Stopping.",
+			new DialogueIntent(DialogueIntentType.CLEAR_GOAL, null, null),
+			20L
+		));
+
+		SemanticEvent event = runtime.recentEvents(baselineSeqNo).events().stream()
+			.filter(candidate -> "planner.goal_cleared".equals(candidate.type()))
+			.findFirst()
+			.orElseThrow();
+		assertEquals(Boolean.TRUE, event.payload().get("alreadyClear"));
+		assertEquals("planner_response", event.payload().get("source"));
+	}
+
+	@Test
 	void mineBlocksVerificationRegistersAndReachesRunningTaskState() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
