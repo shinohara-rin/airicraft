@@ -199,6 +199,46 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void takeALookAcceptsDirectionBlockOrPlayerTargets() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject parameters = toolSchema(tools, "take_a_look");
+
+		assertTrue(parameters.getAsJsonObject("properties").has("direction"));
+		assertTrue(parameters.getAsJsonObject("properties").has("x"));
+		assertTrue(parameters.getAsJsonObject("properties").has("y"));
+		assertTrue(parameters.getAsJsonObject("properties").has("z"));
+		assertTrue(parameters.getAsJsonObject("properties").has("targetPlayer"));
+		assertEquals("west", PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+			{"direction":"west"}
+			""")).arguments().get("direction").getAsString());
+		assertEquals(12, PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+			{"x":12,"y":64,"z":-8}
+			""")).arguments().get("x").getAsInt());
+		assertEquals("Alice", PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+			{"targetPlayer":"Alice"}
+			""")).arguments().get("targetPlayer").getAsString());
+	}
+
+	@Test
+	void takeALookRejectsConflictingOrPartialTargets() {
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+				{"direction":"west","targetPlayer":"Alice"}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+				{"x":12,"z":-8}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("take_a_look", """
+				{"direction":"up"}
+				"""))
+		);
+	}
+
+	@Test
 	void exposesCheckCraftablesInsteadOfInspectRecipes() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 
