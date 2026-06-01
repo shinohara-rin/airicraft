@@ -1174,31 +1174,31 @@ public final class PlannerOrchestrator {
 					return CompletableFuture.completedFuture(new TextToolExecutionOutcome("VISION_UNAVAILABLE: vision_provider_unavailable"));
 				}
 
-				return requestCapture()
-					.handle((capture, throwable) -> {
+				return requestCapture(toolCall)
+					.handle((captureResult, throwable) -> {
 						if (throwable != null) {
 							String code = visionFailureCode(throwable);
 							Airicraft.LOGGER.warn("Vision tool capture failed code={}", code, throwable);
 							return CompletableFuture.<ToolExecutionOutcome>completedFuture(new TextToolExecutionOutcome("VISION_UNAVAILABLE: " + code));
 						}
-							return visionTool.requestDescription(capture, toolPrompt(toolCall))
+							return visionTool.requestDescription(captureResult.screenshot(), toolPrompt(toolCall))
 								.<ToolExecutionOutcome>handle((description, throwable2) -> {
 								if (throwable2 == null) {
-									return new TextToolExecutionOutcome(description.text());
+									return new TextToolExecutionOutcome(appendCaptureMetadata(description.text(), captureResult.metadataLines()));
 								}
 								String code = visionFailureCode(throwable2);
 								Airicraft.LOGGER.warn("Vision tool failed code={}", code, throwable2);
-								return new TextToolExecutionOutcome("VISION_UNAVAILABLE: " + code);
+								return new TextToolExecutionOutcome(appendCaptureMetadata("VISION_UNAVAILABLE: " + code, captureResult.metadataLines()));
 							});
 					})
 					.thenCompose(future -> future);
 			}
 
-			return requestCapture().handle((capture, throwable) -> {
+			return requestCapture(toolCall).handle((captureResult, throwable) -> {
 				if (throwable == null) {
 					return new ImageToolExecutionOutcome(
-						NATIVE_TOOL_RESULT_TEXT,
-						new LlmImageAttachment(mimeType(capture), capture.imageBytes(), imageDetail)
+						nativeToolResultText(captureResult.metadataLines()),
+						new LlmImageAttachment(mimeType(captureResult.screenshot()), captureResult.screenshot().imageBytes(), imageDetail)
 					);
 				}
 				String code = visionFailureCode(throwable);
@@ -1208,14 +1208,61 @@ public final class PlannerOrchestrator {
 		}
 	}
 
-	private CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> requestCapture() {
+	private CompletableFuture<ViewCaptureResult> requestCapture(PlannerToolCall toolCall) {
 		captureInFlight = true;
 		try {
-			return visionTool.requestCapture().whenComplete((capture, throwable) -> captureInFlight = false);
+			return visionTool.requestCapture(viewCaptureRequest(toolCall)).whenComplete((capture, throwable) -> captureInFlight = false);
 		}
 		catch (RuntimeException exception) {
 			captureInFlight = false;
 			return CompletableFuture.failedFuture(exception);
+		}
+	}
+
+	private static ViewCaptureRequest viewCaptureRequest(PlannerToolCall toolCall) {
+		JsonObject arguments = toolCall == null ? null : toolCall.arguments();
+		if (arguments == null) {
+			return ViewCaptureRequest.current();
+		}
+		String direction = stringArgument(arguments, "direction");
+		if (direction != null) {
+			return ViewCaptureRequest.direction(direction);
+		}
+		String targetPlayer = stringArgument(arguments, "targetPlayer");
+		if (targetPlayer != null) {
+			return ViewCaptureRequest.player(targetPlayer);
+		}
+		if (arguments.has("x") || arguments.has("y") || arguments.has("z")) {
+			return ViewCaptureRequest.block(
+				arguments.get("x").getAsInt(),
+				arguments.get("y").getAsInt(),
+				arguments.get("z").getAsInt()
+			);
+		}
+		return ViewCaptureRequest.current();
+	}
+
+	private static String nativeToolResultText(List<String> metadataLines) {
+		return appendCaptureMetadata(NATIVE_TOOL_RESULT_TEXT, metadataLines);
+	}
+
+	private static String appendCaptureMetadata(String text, List<String> metadataLines) {
+		if (metadataLines == null || metadataLines.isEmpty()) {
+			return text;
+		}
+		return text + "\n" + String.join("\n", metadataLines);
+	}
+
+	private static String stringArgument(JsonObject object, String key) {
+		if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
+			return null;
+		}
+		try {
+			String value = object.get(key).getAsString();
+			return value == null || value.isBlank() ? null : value.trim();
+		}
+		catch (RuntimeException exception) {
+			return null;
 		}
 	}
 

@@ -9,6 +9,10 @@ public interface CurrentViewVisionTool {
 
 	CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> requestCapture();
 
+	default CompletableFuture<ViewCaptureResult> requestCapture(ViewCaptureRequest request) {
+		return requestCapture().thenApply(screenshot -> new ViewCaptureResult(screenshot, java.util.List.of()));
+	}
+
 	CompletableFuture<VisionDescription> requestDescription(FirstPersonScreenshotService.CapturedScreenshot screenshot, String prompt);
 
 	default CompletableFuture<VisionDescription> requestDescription(LlmImageAttachment imageAttachment, String prompt) {
