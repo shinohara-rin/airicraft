@@ -202,6 +202,45 @@ class PlannerDebugOverlayTest {
 	}
 
 	@Test
+	void conversationLayoutTitleTracksCurrentGenerationWhenPinnedToBottom() {
+		PlannerDebugOverlay.ConversationPaneLayout first = PlannerDebugOverlay.layoutConversationPane(
+			new PlannerConversationDebugSnapshot(
+				1L,
+				"PLANNER_REQUEST",
+				1,
+				List.of(message("user", PlannerConversationDebugKind.USER_TURN, "first request"))
+			),
+			800,
+			600,
+			text -> text.length() * 6,
+			10,
+			0,
+			true,
+			null
+		);
+
+		PlannerDebugOverlay.ConversationPaneLayout second = PlannerDebugOverlay.layoutConversationPane(
+			new PlannerConversationDebugSnapshot(
+				2L,
+				"TOOL_FOLLOW_UP",
+				1,
+				List.of(message("tool", PlannerConversationDebugKind.TOOL_RESULT, "second tool result"))
+			),
+			800,
+			600,
+			text -> text.length() * 6,
+			10,
+			first.scrollTop(),
+			true,
+			null
+		);
+
+		assertTrue(second.title().contains("g2"));
+		assertTrue(second.title().contains("tool_follow_up"));
+		assertEquals(second.maxScroll(), second.scrollTop());
+	}
+
+	@Test
 	void conversationLayoutReservesFooterSpaceWhenStatusLinePresent() {
 		PlannerConversationDebugSnapshot snapshot = new PlannerConversationDebugSnapshot(
 			7L,

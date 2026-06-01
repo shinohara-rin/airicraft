@@ -19,10 +19,8 @@ import io.opentelemetry.context.Scope;
 
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -62,8 +60,8 @@ public final class PlannerOrchestrator {
 	private final PlannerActionToolExecutor actionToolExecutor;
 	private final PlannerToolNarrationSink narrationSink;
 	private final PlannerToolRegistry toolRegistry;
-
-	private final Map<Long, List<RecordedToolExchange>> toolExchangesByGeneration = new HashMap<>();
+	private final PlannerTurnJournal turnJournal;
+	private final PlannerConversationProjector conversationProjector;
 
 	private PlannerRequest pendingSubmitRequest;
 	private PendingToolExecution pendingToolExecution;
@@ -75,8 +73,6 @@ public final class PlannerOrchestrator {
 	private long coalesceReadyAtMs = -1L;
 	private long coalesceWindowMs;
 	private PlannerContextSnapshot coalesceSupersededSnapshot;
-	private PlannerConversationDebugSnapshot lastSubmittedConversation = PlannerConversationDebugSnapshot.empty();
-	private PlannerConversationDebugSnapshot lastVisibleConversation = PlannerConversationDebugSnapshot.empty();
 	private Context turnContext;
 	private boolean inventoryBootstrapPending = true;
 
@@ -551,6 +547,8 @@ public final class PlannerOrchestrator {
 		this.actionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
 		this.narrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
 		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
+		this.turnJournal = new PlannerTurnJournal(this.clock, CONVERSATION_HISTORY_CARD_LIMIT * 4);
+		this.conversationProjector = new PlannerConversationProjector(CONVERSATION_HISTORY_CARD_LIMIT);
 	}
 
 	public boolean isConfigured() {
@@ -594,32 +592,19 @@ public final class PlannerOrchestrator {
 	}
 
 	public PlannerConversationDebugSnapshot conversationDebugSnapshot() {
-		return lastSubmittedConversation;
+		return conversationProjector.submittedSnapshot(turnJournal);
 	}
 
 	public PlannerConversationDebugSnapshot projectedConversationDebugSnapshot() {
-		return displayConversationDebugSnapshot();
+		return conversationProjector.projectedSnapshot(turnJournal);
 	}
 
 	public PlannerConversationDebugSnapshot canonicalConversationDebugSnapshot() {
-		return lastSubmittedConversation;
+		return conversationDebugSnapshot();
 	}
 
 	public List<String> contextExcerpt() {
-		if (lastVisibleConversation.isEmpty()) {
-			return List.of();
-		}
-
-		ArrayList<String> excerpt = new ArrayList<>();
-		for (PlannerConversationDebugMessage message : lastVisibleConversation.messages()) {
-			if (message.kind() != PlannerConversationDebugKind.NOTICE && message.kind() != PlannerConversationDebugKind.CHECKPOINT) {
-				continue;
-			}
-			if (message.text() != null && !message.text().isBlank()) {
-				excerpt.add(message.text());
-			}
-		}
-		return List.copyOf(excerpt);
+		return conversationProjector.contextExcerpt(turnJournal);
 	}
 
 	public long lastObservedEventSeqNo() {
@@ -650,7 +635,10 @@ public final class PlannerOrchestrator {
 			if (sessionCoordinator.hasReadyResultForActiveSession()) {
 				return true;
 			}
+			long supersededGeneration = sessionCoordinator.activeGeneration();
 			coalesceSupersededSnapshot = sessionCoordinator.supersedeActiveSessionIfReplaceable();
+			turnJournal.markSuperseded(supersededGeneration);
+			recordConversationSources();
 			armCoalesceWindow();
 			return coalesceWindowMs > 0L || startQueuedWorkIfPossible();
 		}
@@ -712,7 +700,6 @@ public final class PlannerOrchestrator {
 		debugRecorder.recordPlannerCompletion(plannerResult);
 		observability.recordFailure(turnContext, plannerResult.failureType().name(), plannerResult.failureMessage(), null);
 		lifecycleListener.onPlannerExecutionFailed(plannerResult);
-		dropRecordedToolExchanges(plannerResult.generation());
 		sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 		endTurnSpan();
 		return plannerResult;
@@ -790,7 +777,6 @@ public final class PlannerOrchestrator {
 		PlannerExecutionResult failure = parseFailure(plannerResult, message);
 		appendFailureCard(failure);
 		debugRecorder.recordPlannerCompletion(failure);
-		dropRecordedToolExchanges(plannerResult.generation());
 		sessionCoordinator.finishGeneration(plannerResult.generation(), true);
 		return failure;
 	}
@@ -881,15 +867,13 @@ public final class PlannerOrchestrator {
 
 	private void clearRuntimeState(String reason) {
 		contextAggregator.clear();
-		toolExchangesByGeneration.clear();
+		turnJournal.clear(reason);
 		pendingSubmitRequest = null;
 		lastCompactionResult = null;
 		awaitingAcceptedReplyRecord = false;
 		pendingAcceptedAssistantRawContent = null;
 		inventoryBootstrapPending = true;
-		lastSubmittedConversation = PlannerConversationDebugSnapshot.empty();
-		lastVisibleConversation = PlannerConversationDebugSnapshot.empty();
-		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
+		recordConversationSources();
 		clearCoalesceState();
 		endTurnSpan();
 		lifecycleListener.onReset(reason);
@@ -1045,6 +1029,7 @@ public final class PlannerOrchestrator {
 			contextAggregator.commitAcceptedTriggerBatch(snapshot);
 		}
 		commitRecordedToolExchanges(acceptedResult.generation());
+		turnJournal.recordAcceptedReply(acceptedResult);
 		sessionCoordinator.finishGeneration(acceptedResult.generation(), false);
 		boolean hasVisibleReply = acceptedResult.response() != null
 			&& acceptedResult.response().replyText() != null
@@ -1104,7 +1089,8 @@ public final class PlannerOrchestrator {
 			snapshot,
 			toolExecution.assistantRawContent(),
 			toolExecution.toolCall(),
-			toolOutcome.toolResultText()
+			toolOutcome.toolResultText(),
+			toolOutcome instanceof ImageToolExecutionOutcome
 		);
 		sessionCoordinator.submitToolFollowUp(
 			toolExecution.generation(),
@@ -1226,6 +1212,7 @@ public final class PlannerOrchestrator {
 	private void completeCompaction(CompactionExecutionResult compactionResult) {
 		lastCompactionResult = compactionResult;
 		lifecycleListener.onCompactionCompleted(compactionResult);
+		turnJournal.recordCompaction(compactionResult);
 		if (compactionResult.succeeded()) {
 			contextAggregator.recordObservedUsage(compactionResult.usage());
 			contextAggregator.applyCheckpoint(compactionResult.checkpoint());
@@ -1248,34 +1235,21 @@ public final class PlannerOrchestrator {
 		PlannerContextSnapshot snapshot,
 		JsonElement assistantRawContent,
 		PlannerToolCall toolCall,
-		String toolResultText
+		String toolResultText,
+		boolean imageAttached
 	) {
-		if ((assistantRawContent == null && toolCall == null) || snapshot == null) {
-			return;
-		}
-		toolExchangesByGeneration
-			.computeIfAbsent(generation, key -> new ArrayList<>())
-			.add(new RecordedToolExchange(
-				assistantRawContent,
-				toolCall,
-				toolResultText,
-				snapshot.request().tick(),
-				snapshot.request().timestampMs()
-			));
+		turnJournal.recordToolExchange(generation, snapshot, assistantRawContent, toolCall, toolResultText, imageAttached);
 	}
 
 	private void commitRecordedToolExchanges(long generation) {
-		List<RecordedToolExchange> exchanges = toolExchangesByGeneration.remove(generation);
-		if (exchanges == null) {
-			return;
-		}
-		for (RecordedToolExchange exchange : exchanges) {
+		List<PlannerTurnEvent> exchanges = recordedToolExchanges(generation);
+		for (PlannerTurnEvent exchange : exchanges) {
 			if (exchange.toolCall() != null) {
 				contextAggregator.recordAcceptedToolExchange(
 					exchange.toolCall(),
 					exchange.toolResultText(),
 					exchange.tick(),
-					exchange.timestampMs()
+					exchange.request() == null ? exchange.timestampMs() : exchange.request().timestampMs()
 				);
 			}
 			else {
@@ -1283,19 +1257,19 @@ public final class PlannerOrchestrator {
 					exchange.assistantRawContent(),
 					exchange.toolResultText(),
 					exchange.tick(),
-					exchange.timestampMs()
+					exchange.request() == null ? exchange.timestampMs() : exchange.request().timestampMs()
 				);
 			}
 		}
 	}
 
-	private List<RecordedToolExchange> recordedToolExchanges(long generation) {
-		return List.copyOf(toolExchangesByGeneration.getOrDefault(generation, List.of()));
+	private List<PlannerTurnEvent> recordedToolExchanges(long generation) {
+		return turnJournal.toolExchanges(generation);
 	}
 
 	private PlannerContextSnapshot withRecordedToolExchanges(
 		PlannerContextSnapshot snapshot,
-		List<RecordedToolExchange> exchanges
+		List<PlannerTurnEvent> exchanges
 	) {
 		if (snapshot == null || exchanges == null || exchanges.isEmpty()) {
 			return snapshot;
@@ -1304,7 +1278,7 @@ public final class PlannerOrchestrator {
 			snapshot.request(),
 			snapshot.mode(),
 			snapshot.triggerBatch(),
-			appendRecordedToolExchanges(snapshot.plannerConversation(), exchanges),
+			conversationProjector.appendToolExchanges(snapshot.plannerConversation(), exchanges),
 			snapshot.includedSemanticEventSeqNoUpperBound(),
 			snapshot.includedSemanticGapVersion(),
 			snapshot.renderedAmbientContext(),
@@ -1312,45 +1286,8 @@ public final class PlannerOrchestrator {
 		);
 	}
 
-	private LlmConversation appendRecordedToolExchanges(
-		LlmConversation conversation,
-		List<RecordedToolExchange> exchanges
-	) {
-		LlmConversation updated = conversation;
-		for (RecordedToolExchange exchange : exchanges) {
-			if (exchange.toolCall() != null) {
-				updated = updated
-					.withAppended(LlmChatMessage.assistantToolCall("", exchange.toolCall()))
-					.withAppended(LlmChatMessage.tool(exchange.toolCall().id(), recordedToolResultContent(exchange.toolResultText())));
-			}
-			else if (exchange.assistantRawContent() != null) {
-				updated = updated
-					.withAppended(LlmChatMessage.assistant(
-						OpenAiCompatibleMessageContent.extractVisibleText(exchange.assistantRawContent()),
-						exchange.assistantRawContent()
-					))
-					.withAppended(LlmChatMessage.user(
-						"Tool result: " + recordedToolResultContent(exchange.toolResultText()),
-						LlmMessageKind.TOOL_RESULT
-					));
-			}
-		}
-		return updated;
-	}
-
-	private static String recordedToolResultContent(String toolResultText) {
-		if (toolResultText == null || toolResultText.isBlank()) {
-			return "Tool result: none";
-		}
-		return toolResultText;
-	}
-
 	private int completedToolCallCount(long generation) {
-		return toolExchangesByGeneration.getOrDefault(generation, List.of()).size();
-	}
-
-	private void dropRecordedToolExchanges(long generation) {
-		toolExchangesByGeneration.remove(generation);
+		return turnJournal.toolExchanges(generation).size();
 	}
 
 	private void armCoalesceWindow() {
@@ -1386,23 +1323,9 @@ public final class PlannerOrchestrator {
 		LlmConversation conversation
 	) {
 		lifecycleListener.onConversationSubmitted(generation, attempt, phase, request, conversation);
-		PlannerConversationDebugSnapshot submitted = PlannerConversationDebugSnapshot.fromConversation(generation, phase, attempt, conversation);
-		lastSubmittedConversation = submitted;
+		turnJournal.recordSubmission(generation, attempt, phase, request, conversation);
 		debugRecorder.recordPlannerSubmission(generation, attempt, phase, clock.millis(), conversation);
-		if (lastVisibleConversation == null || lastVisibleConversation.isEmpty()) {
-			lastVisibleConversation = submitted;
-			debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
-			return;
-		}
-		ArrayList<PlannerConversationDebugMessage> merged = new ArrayList<>(persistentConversationHistory(lastVisibleConversation));
-		merged.addAll(submitted.messages());
-		lastVisibleConversation = new PlannerConversationDebugSnapshot(
-			generation,
-			phase == null ? "UNKNOWN" : phase.name(),
-			attempt,
-			trimConversationMessages(merged)
-		);
-		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
+		recordConversationSources();
 	}
 
 	private PlannerToolCall effectiveToolCall(PlannerResponse response) {
@@ -1596,120 +1519,12 @@ public final class PlannerOrchestrator {
 		if (message == null) {
 			return;
 		}
-		if (lastVisibleConversation == null || lastVisibleConversation.isEmpty()) {
-			lastVisibleConversation = new PlannerConversationDebugSnapshot(
-				message.generation(),
-				message.phase(),
-				message.attempt(),
-				java.util.List.of(message)
-			);
-			debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
-			return;
-		}
-		lastVisibleConversation = new PlannerConversationDebugSnapshot(
-			lastVisibleConversation.generation(),
-			lastVisibleConversation.phase(),
-			lastVisibleConversation.attempt(),
-			trimConversationMessages(new ArrayList<>(lastVisibleConversation.withAppended(message).messages()))
-		);
-		debugRecorder.recordConversationSources(lastSubmittedConversation, lastVisibleConversation);
+		turnJournal.recordDebugCard(message);
+		recordConversationSources();
 	}
 
-	private static List<PlannerConversationDebugMessage> persistentConversationHistory(PlannerConversationDebugSnapshot snapshot) {
-		if (snapshot == null || snapshot.isEmpty()) {
-			return List.of();
-		}
-		ArrayList<PlannerConversationDebugMessage> history = new ArrayList<>();
-		for (PlannerConversationDebugMessage message : snapshot.messages()) {
-			if (isPersistentConversationCard(message.kind())) {
-				history.add(message);
-			}
-		}
-		return List.copyOf(history);
-	}
-
-	private static boolean isPersistentConversationCard(PlannerConversationDebugKind kind) {
-		if (kind == null) {
-			return false;
-		}
-		return switch (kind) {
-			case ASSISTANT_TURN, TOOL_RESULT, TASK, FAILURE -> true;
-			case SYSTEM, CHECKPOINT, NOTICE, USER_TURN -> false;
-		};
-	}
-
-	private PlannerConversationDebugSnapshot displayConversationDebugSnapshot() {
-		if (lastSubmittedConversation == null || lastSubmittedConversation.isEmpty()) {
-			return lastVisibleConversation;
-		}
-		if (lastVisibleConversation == null || lastVisibleConversation.isEmpty()) {
-			return lastSubmittedConversation;
-		}
-		ArrayList<PlannerConversationDebugMessage> messages = new ArrayList<>();
-		for (PlannerConversationDebugMessage message : persistentConversationHistory(lastVisibleConversation)) {
-			if (!sameConversationWindow(message, lastSubmittedConversation)) {
-				messages.add(message);
-			}
-		}
-		messages.addAll(lastSubmittedConversation.messages());
-		ArrayList<PlannerConversationDebugMessage> remainingSubmitted = new ArrayList<>(lastSubmittedConversation.messages());
-		for (PlannerConversationDebugMessage message : lastVisibleConversation.messages()) {
-			if (!sameConversationWindow(message, lastSubmittedConversation)) {
-				continue;
-			}
-			if (!remainingSubmitted.isEmpty() && sameConversationMessage(message, remainingSubmitted.get(0))) {
-				remainingSubmitted.remove(0);
-				continue;
-			}
-			messages.add(message);
-		}
-		return new PlannerConversationDebugSnapshot(
-			lastSubmittedConversation.generation(),
-			lastSubmittedConversation.phase(),
-			lastSubmittedConversation.attempt(),
-			trimConversationMessages(messages)
-		);
-	}
-
-	private static boolean sameConversationWindow(PlannerConversationDebugMessage message, PlannerConversationDebugSnapshot snapshot) {
-		return message != null
-			&& snapshot != null
-			&& message.generation() == snapshot.generation()
-			&& Objects.equals(message.phase(), snapshot.phase())
-			&& message.attempt() == snapshot.attempt();
-	}
-
-	private static boolean sameConversationMessage(PlannerConversationDebugMessage left, PlannerConversationDebugMessage right) {
-		return left != null
-			&& right != null
-			&& Objects.equals(left.role(), right.role())
-			&& left.kind() == right.kind()
-			&& Objects.equals(left.text(), right.text())
-			&& left.generation() == right.generation()
-			&& Objects.equals(left.phase(), right.phase())
-			&& left.attempt() == right.attempt()
-			&& left.hasImageAttachment() == right.hasImageAttachment();
-	}
-
-	private static List<PlannerConversationDebugMessage> trimConversationMessages(List<PlannerConversationDebugMessage> messages) {
-		if (messages == null || messages.isEmpty()) {
-			return List.of();
-		}
-		ArrayList<PlannerConversationDebugMessage> trimmed = new ArrayList<>(messages);
-		while (trimmed.size() > CONVERSATION_HISTORY_CARD_LIMIT) {
-			int removableIndex = firstNonPersistentIndex(trimmed);
-			trimmed.remove(removableIndex >= 0 ? removableIndex : 0);
-		}
-		return List.copyOf(trimmed);
-	}
-
-	private static int firstNonPersistentIndex(List<PlannerConversationDebugMessage> messages) {
-		for (int index = 0; index < messages.size(); index++) {
-			if (!isPersistentConversationCard(messages.get(index).kind())) {
-				return index;
-			}
-		}
-		return -1;
+	private void recordConversationSources() {
+		debugRecorder.recordConversationSources(conversationDebugSnapshot(), projectedConversationDebugSnapshot());
 	}
 
 	private sealed interface ToolExecutionOutcome permits TextToolExecutionOutcome, ImageToolExecutionOutcome {
@@ -1759,15 +1574,6 @@ public final class PlannerOrchestrator {
 		CompletableFuture<ToolExecutionOutcome> future,
 		JsonElement assistantRawContent,
 		PlannerToolCall toolCall
-	) {
-	}
-
-	private record RecordedToolExchange(
-		JsonElement assistantRawContent,
-		PlannerToolCall toolCall,
-		String toolResultText,
-		long tick,
-		long timestampMs
 	) {
 	}
 

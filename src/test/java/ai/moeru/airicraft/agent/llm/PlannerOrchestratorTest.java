@@ -4,6 +4,7 @@ import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
+import ai.moeru.airicraft.agent.debug.ConversationSourcesDebugSnapshot;
 import ai.moeru.airicraft.agent.dialogue.DialogueTurn;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
@@ -1020,6 +1021,36 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void conversationSourcesMatchJournalProjectedSnapshots() {
+		RecordingBackend backend = new RecordingBackend();
+		AgentDebugRecorder debugRecorder = new AgentDebugRecorder();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			debugRecorder
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "A"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, replyOnly("reply A"));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertTrue(result.succeeded());
+
+		PlannerConversationDebugSnapshot canonical = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot projected = orchestrator.projectedConversationDebugSnapshot();
+		ConversationSourcesDebugSnapshot sources = debugRecorder.conversationSourcesSnapshot();
+		assertEquals(canonical, sources.canonicalConversation());
+		assertEquals(projected, sources.projectedConversation());
+		assertEquals(canonical.messages().size(), sources.canonicalMessageCount());
+		assertEquals(projected.messages().size(), sources.projectedMessageCount());
+		assertEquals(1, sources.canonicalUserTurnCount());
+		assertEquals(1, sources.projectedUserTurnCount());
+		assertNotNull(findConversationMessage(projected, PlannerConversationDebugKind.ASSISTANT_TURN, "reply A"));
+	}
+
+	@Test
 	void conversationSnapshotShowsGoalSetOutcomeWhenReplyTextIsBlank() {
 		RecordingBackend backend = new RecordingBackend();
 		PlannerOrchestrator orchestrator = newOrchestrator(backend, CurrentViewVisionTool.disabled(), PlannerVisionMode.EXTERNAL_SUMMARY);
@@ -1774,6 +1805,38 @@ class PlannerOrchestratorTest {
 		PlannerVisionMode visionMode
 	) {
 		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, 3, Clock.systemDefaultZone());
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		AgentDebugRecorder debugRecorder
+	) {
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemDefaultZone();
+		PlannerToolRegistry toolRegistry = PlannerToolRegistry.empty();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(backend),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config, toolRegistry)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), visionMode, toolRegistry),
+			visionTool,
+			inventoryTool,
+			visionMode,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			PlannerLifecycleListener.NO_OP,
+			debugRecorder,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			toolRegistry
+		);
 	}
 
 	private static PlannerOrchestrator newOrchestrator(
