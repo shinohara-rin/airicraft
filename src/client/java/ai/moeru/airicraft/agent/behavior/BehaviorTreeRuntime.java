@@ -52,9 +52,16 @@ public final class BehaviorTreeRuntime {
 			dialogueRuntime.lastResponse()
 				.map(DialogueResponse::text)
 				.ifPresent(text -> {
-					debugRecorder.recordChatAttempt(tick, text, source, reusedPriorResponse);
+					String sanitizedText = ChatService.sanitizeForChat(text);
+					debugRecorder.recordChatAttempt(tick, sanitizedText, source, reusedPriorResponse);
 					boolean sent = chatService.send(client, text, tick);
-					debugRecorder.recordChatResult(tick, text, source, reusedPriorResponse, sent);
+					debugRecorder.recordChatResult(
+						tick,
+						sent ? chatService.lastChatText() : sanitizedText,
+						source,
+						reusedPriorResponse,
+						sent
+					);
 					if (sent) {
 						dialogueRuntime.markReplyObserved();
 						debugRecorder.recordDialogueState(dialogueRuntime.snapshot());

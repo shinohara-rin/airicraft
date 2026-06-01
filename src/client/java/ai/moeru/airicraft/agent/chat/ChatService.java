@@ -30,7 +30,7 @@ public final class ChatService {
 		return true;
 	}
 
-	static String sanitizeForChat(String text) {
+	public static String sanitizeForChat(String text) {
 		if (text == null || text.isBlank()) {
 			return "";
 		}
