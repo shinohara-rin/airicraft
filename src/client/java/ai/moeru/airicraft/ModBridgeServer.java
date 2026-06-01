@@ -1223,8 +1223,10 @@ public final class ModBridgeServer {
 			response.put("planner", agentRuntime().plannerDebugSnapshot());
 			response.put("dialogueState", agentRuntime().debugDialogueState());
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
+			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
 			response.put("conversationSources", agentRuntime().debugConversationSources());
+			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("plannerAttempts", agentRuntime().debugPlannerAttempts());
 			response.put("taskProgressProbe", agentRuntime().debugCollectResourceState());
 			response.put("chatProbe", agentRuntime().debugChatState());
