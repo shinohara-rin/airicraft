@@ -835,6 +835,40 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void plannerDirectGoalToolDoesNotPreemptActiveCollectResourceTask() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+		runtime.submitTask(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, 1), "planner_tool");
+		runtime.onClientTick(null);
+		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_nav",
+			"navigate_to",
+			JsonParser.parseString("""
+				{"x":71,"y":70,"z":-299,"exactY":false}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+
+		assertTrue(result.contains("TOOL_ERROR: navigate_to denied"));
+		assertTrue(result.contains("active_task_in_progress"));
+		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
+		assertEquals(TaskType.COLLECT_RESOURCE, runtime.taskSnapshot().spec().type());
+		assertEquals(GoalType.MINE_BLOCKS, runtime.activeGoal().orElseThrow().type());
+	}
+
+	@Test
 	void submitTaskClearsPreviouslyActiveDirectGoal() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
