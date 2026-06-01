@@ -81,18 +81,18 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 			return fail(request, "world_unavailable");
 		}
 		return request.type() == WorldTaskType.SMELT_ITEMS
-			? tickSmeltItems(request, client, player)
+			? tickSmeltItems(request, client, player, sessionSnapshot.tickCount())
 			: tickCollectSmeltedItems(request, client, player);
 	}
 
-	private Optional<TaskTerminalEvent> tickSmeltItems(WorldTaskRequest request, MinecraftClient client, ClientPlayerEntity player) {
+	private Optional<TaskTerminalEvent> tickSmeltItems(WorldTaskRequest request, MinecraftClient client, ClientPlayerEntity player, long tick) {
 		SmeltingOption option = processManager.registeredOption(request.smeltItems().optionId());
 		if (option == null) {
 			return fail(request, "option_not_found");
 		}
 		if (option.stationCandidate().source() == SmeltingStationSource.OPEN_SCREEN
 			&& player.currentScreenHandler instanceof AbstractFurnaceScreenHandler handler) {
-			return insertSmeltingInputs(request, client, player, handler, option);
+			return insertSmeltingInputs(request, client, player, handler, option, tick);
 		}
 		BlockPos stationPos = stationPos(option.stationObservation().key());
 		if (stationPos == null) {
@@ -111,7 +111,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (option == null) {
 			return fail(request, "option_not_found");
 		}
-		return insertSmeltingInputs(request, client, player, handler, option);
+		return insertSmeltingInputs(request, client, player, handler, option, tick);
 	}
 
 	private Optional<TaskTerminalEvent> insertSmeltingInputs(
@@ -119,7 +119,8 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		AbstractFurnaceScreenHandler handler,
-		SmeltingOption option
+		SmeltingOption option,
+		long tick
 	) {
 		SmeltItemsStepArgs args = request.smeltItems();
 		if (!moveItemsToSlot(client, player, handler, option.inputItemId(), 0, args.inputQuantity())) {
@@ -135,7 +136,8 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		processManager.updateProcessFingerprint(
 			option.optionId(),
 			option.stationObservation().key(),
-			screenSlotSnapshot(handler)
+			screenSlotSnapshot(handler),
+			tick
 		);
 		return complete(request, "smelting_started");
 	}

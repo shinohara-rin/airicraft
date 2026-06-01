@@ -6,6 +6,7 @@ public record SmeltingOutputReadyEvent(
 	SmeltingStationKey stationKey,
 	String outputItemId,
 	int outputCount,
-	int inputQuantity
+	int inputQuantity,
+	boolean estimated
 ) {
 }

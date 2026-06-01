@@ -10,6 +10,7 @@ import java.util.UUID;
 
 public final class SmeltingProcessManager {
 	private static final long CONFIRMATION_TTL_TICKS = 20L * 60L;
+	private static final long ESTIMATED_READY_GRACE_TICKS = 40L;
 
 	private final Map<SmeltingStationKey, TrackedProcess> processesByStation = new HashMap<>();
 	private final Map<String, TrackedProcess> processesById = new HashMap<>();
@@ -56,7 +57,7 @@ public final class SmeltingProcessManager {
 		return List.copyOf(processesByStation.keySet());
 	}
 
-	public void updateProcessFingerprint(String optionId, SmeltingStationKey stationKey, SmeltingSlotSnapshot slots) {
+	public void updateProcessFingerprint(String optionId, SmeltingStationKey stationKey, SmeltingSlotSnapshot slots, long tick) {
 		if (optionId == null || optionId.isBlank() || stationKey == null || slots == null) {
 			return;
 		}
@@ -64,14 +65,17 @@ public final class SmeltingProcessManager {
 		if (process == null || !Objects.equals(process.optionId(), optionId.trim())) {
 			return;
 		}
+		long estimatedReadyTick = estimatedReadyTick(process, tick);
 		TrackedProcess updated = new TrackedProcess(
 			process.processId(),
 			process.stationKey(),
 			slots.fingerprint(),
 			process.optionId(),
 			process.expectedOutputItemId(),
+			process.expectedOutputCount(),
 			process.inputQuantity(),
 			process.startedTick(),
+			estimatedReadyTick,
 			process.outputReadyNotified()
 		);
 		processesByStation.put(stationKey, updated);
@@ -119,8 +123,10 @@ public final class SmeltingProcessManager {
 				observation.slots().fingerprint(),
 				process.optionId(),
 				process.expectedOutputItemId(),
+				process.expectedOutputCount(),
 				process.inputQuantity(),
 				process.startedTick(),
+				process.estimatedReadyTick(),
 				process.outputReadyNotified()
 			);
 			processesByStation.put(newKey, relocated);
@@ -182,14 +188,17 @@ public final class SmeltingProcessManager {
 		}
 		String processId = "smelt-process-" + UUID.randomUUID();
 		SmeltingOption option = registeredOption(request.optionId());
+		int expectedOutputCount = option == null ? request.inputQuantity() : Math.max(1, option.outputCount()) * request.inputQuantity();
 		TrackedProcess process = new TrackedProcess(
 			processId,
 			observation.key(),
 			observation.slots().fingerprint(),
 			request.optionId(),
 			option == null ? null : option.outputItemId(),
+			expectedOutputCount,
 			request.inputQuantity(),
 			tick,
+			Long.MAX_VALUE,
 			false
 		);
 		processesByStation.put(observation.key(), process);
@@ -260,13 +269,21 @@ public final class SmeltingProcessManager {
 		return List.copyOf(ranked);
 	}
 
-	public List<SmeltingOutputReadyEvent> markReadyOutputs(List<SmeltingStationObservation> observations) {
-		if (observations == null || observations.isEmpty() || processesByStation.isEmpty()) {
+	public List<SmeltingOutputReadyEvent> markReadyOutputs(List<SmeltingStationObservation> observations, long tick) {
+		if (processesByStation.isEmpty()) {
 			return List.of();
 		}
 		ArrayList<SmeltingOutputReadyEvent> events = new ArrayList<>();
-		for (SmeltingStationObservation observation : observations) {
-			SmeltingOutputReadyEvent event = markReadyOutput(observation);
+		if (observations != null) {
+			for (SmeltingStationObservation observation : observations) {
+				SmeltingOutputReadyEvent event = markObservedReadyOutput(observation);
+				if (event != null) {
+					events.add(event);
+				}
+			}
+		}
+		for (TrackedProcess process : List.copyOf(processesById.values())) {
+			SmeltingOutputReadyEvent event = markEstimatedReadyOutput(process, tick);
 			if (event != null) {
 				events.add(event);
 			}
@@ -304,7 +321,7 @@ public final class SmeltingProcessManager {
 		return true;
 	}
 
-	private SmeltingOutputReadyEvent markReadyOutput(SmeltingStationObservation observation) {
+	private SmeltingOutputReadyEvent markObservedReadyOutput(SmeltingStationObservation observation) {
 		if (observation == null || observation.key() == null || observation.slots() == null) {
 			return null;
 		}
@@ -331,8 +348,10 @@ public final class SmeltingProcessManager {
 			slots.fingerprint(),
 			process.optionId(),
 			expectedOutputItemId,
+			process.expectedOutputCount(),
 			process.inputQuantity(),
 			process.startedTick(),
+			process.estimatedReadyTick(),
 			true
 		);
 		processesByStation.put(process.stationKey(), updated);
@@ -343,8 +362,50 @@ public final class SmeltingProcessManager {
 			process.stationKey(),
 			slots.outputItemId(),
 			slots.outputCount(),
-			process.inputQuantity()
+			process.inputQuantity(),
+			false
 		);
+	}
+
+	private SmeltingOutputReadyEvent markEstimatedReadyOutput(TrackedProcess process, long tick) {
+		if (
+			process == null
+				|| process.outputReadyNotified()
+				|| process.estimatedReadyTick() == Long.MAX_VALUE
+				|| tick < process.estimatedReadyTick()
+				|| process.expectedOutputItemId() == null
+		) {
+			return null;
+		}
+		TrackedProcess updated = new TrackedProcess(
+			process.processId(),
+			process.stationKey(),
+			process.slotFingerprint(),
+			process.optionId(),
+			process.expectedOutputItemId(),
+			process.expectedOutputCount(),
+			process.inputQuantity(),
+			process.startedTick(),
+			process.estimatedReadyTick(),
+			true
+		);
+		processesByStation.put(process.stationKey(), updated);
+		processesById.put(process.processId(), updated);
+		return new SmeltingOutputReadyEvent(
+			process.processId(),
+			process.optionId(),
+			process.stationKey(),
+			process.expectedOutputItemId(),
+			process.expectedOutputCount(),
+			process.inputQuantity(),
+			true
+		);
+	}
+
+	private long estimatedReadyTick(TrackedProcess process, long insertedTick) {
+		SmeltingOption option = registeredOption(process.optionId());
+		int cookTimeTicks = option == null ? 200 : Math.max(1, option.cookTimeTicks());
+		return insertedTick + (long) cookTimeTicks * Math.max(1, process.inputQuantity()) + ESTIMATED_READY_GRACE_TICKS;
 	}
 
 	private SmeltingActionResult consumeConfirmation(
@@ -427,8 +488,10 @@ public final class SmeltingProcessManager {
 		String slotFingerprint,
 		String optionId,
 		String expectedOutputItemId,
+		int expectedOutputCount,
 		int inputQuantity,
 		long startedTick,
+		long estimatedReadyTick,
 		boolean outputReadyNotified
 	) {
 	}

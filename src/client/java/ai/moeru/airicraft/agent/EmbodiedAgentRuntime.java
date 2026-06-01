@@ -2036,6 +2036,7 @@ public final class EmbodiedAgentRuntime {
 		String outputItemId = stringPayloadValue(payload, "outputItemId");
 		Float outputCount = floatPayloadValue(payload, "outputCount");
 		String station = stringPayloadValue(payload, "station");
+		boolean estimated = booleanPayloadValue(payload, "estimated");
 		if (processId == null || outputItemId == null || outputCount == null) {
 			return null;
 		}
@@ -2045,6 +2046,9 @@ public final class EmbodiedAgentRuntime {
 			.append(outputItemId)
 			.append("x")
 			.append(formatDecimal(outputCount));
+		if (estimated) {
+			message.append(" estimated=true");
+		}
 		if (station != null) {
 			message.append(" station=").append(station);
 		}
@@ -2101,14 +2105,15 @@ public final class EmbodiedAgentRuntime {
 			return;
 		}
 		lastSmeltingOutputReadyPollTick = tickCount;
-		for (SmeltingOutputReadyEvent event : smeltingPlannerService.pollTrackedOutputReady(client, smeltingProcessManager)) {
+		for (SmeltingOutputReadyEvent event : smeltingPlannerService.pollTrackedOutputReady(client, smeltingProcessManager, tickCount)) {
 			eventBuffer.append(tickCount, "smelting.output_ready", Map.of(
 				"processId", event.processId(),
 				"optionId", event.optionId(),
 				"station", event.stationKey().compact(),
 				"outputItemId", event.outputItemId(),
 				"outputCount", event.outputCount(),
-				"inputQuantity", event.inputQuantity()
+				"inputQuantity", event.inputQuantity(),
+				"estimated", event.estimated()
 			));
 		}
 	}
@@ -2822,6 +2827,17 @@ public final class EmbodiedAgentRuntime {
 		catch (NumberFormatException ignored) {
 			return null;
 		}
+	}
+
+	private static boolean booleanPayloadValue(Map<String, Object> payload, String key) {
+		if (payload == null) {
+			return false;
+		}
+		Object value = payload.get(key);
+		if (value instanceof Boolean booleanValue) {
+			return booleanValue;
+		}
+		return value != null && Boolean.parseBoolean(String.valueOf(value));
 	}
 
 	private static String formatDecimal(float value) {

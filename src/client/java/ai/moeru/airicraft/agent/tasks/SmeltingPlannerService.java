@@ -79,7 +79,7 @@ public final class SmeltingPlannerService {
 		return builder.toString();
 	}
 
-	public List<SmeltingOutputReadyEvent> pollTrackedOutputReady(MinecraftClient client, SmeltingProcessManager manager) {
+	public List<SmeltingOutputReadyEvent> pollTrackedOutputReady(MinecraftClient client, SmeltingProcessManager manager, long tick) {
 		Objects.requireNonNull(manager, "manager");
 		if (!manager.hasTrackedProcesses()) {
 			return List.of();
@@ -88,7 +88,7 @@ public final class SmeltingPlannerService {
 		for (SmeltingStationKey key : manager.trackedStationKeys()) {
 			observeTrackedStation(client, key).ifPresent(observations::add);
 		}
-		return manager.markReadyOutputs(observations);
+		return manager.markReadyOutputs(observations, tick);
 	}
 
 	public SmeltingActionResult startSmelting(MinecraftClient client, SmeltingProcessManager manager, SmeltItemsStepArgs request, long tick) {

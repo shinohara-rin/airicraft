@@ -172,7 +172,7 @@ class SmeltingProcessManagerTest {
 			1.0D
 		);
 
-		manager.updateProcessFingerprint("smelt:iron:nearby-1", empty.key(), insertedSlots);
+		manager.updateProcessFingerprint("smelt:iron:nearby-1", empty.key(), insertedSlots, 401L);
 
 		assertTrue(started.accepted());
 		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(inserted, 401L));
@@ -264,8 +264,8 @@ class SmeltingProcessManagerTest {
 		);
 		manager.registerOptions(java.util.List.of());
 
-		java.util.List<SmeltingOutputReadyEvent> first = manager.markReadyOutputs(java.util.List.of(ready));
-		java.util.List<SmeltingOutputReadyEvent> second = manager.markReadyOutputs(java.util.List.of(ready));
+		java.util.List<SmeltingOutputReadyEvent> first = manager.markReadyOutputs(java.util.List.of(ready), 700L);
+		java.util.List<SmeltingOutputReadyEvent> second = manager.markReadyOutputs(java.util.List.of(ready), 701L);
 
 		assertTrue(started.accepted());
 		assertEquals(1, first.size());
@@ -273,6 +273,7 @@ class SmeltingProcessManagerTest {
 		assertEquals("smelt:iron:nearby-1", first.getFirst().optionId());
 		assertEquals("minecraft:iron_ingot", first.getFirst().outputItemId());
 		assertEquals(1, first.getFirst().outputCount());
+		assertFalse(first.getFirst().estimated());
 		assertTrue(second.isEmpty());
 	}
 
@@ -317,7 +318,61 @@ class SmeltingProcessManagerTest {
 			1.0D
 		);
 
-		assertTrue(manager.markReadyOutputs(java.util.List.of(unexpected)).isEmpty());
+		assertTrue(manager.markReadyOutputs(java.util.List.of(unexpected), 900L).isEmpty());
+	}
+
+	@Test
+	void trackedProcessOutputReadyCanFireFromCookTimeEstimateWithoutVisibleSlots() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationObservation empty = new SmeltingStationObservation(
+			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		SmeltingOption option = new SmeltingOption(
+			"smelt:iron:nearby-1",
+			"minecraft:raw_iron",
+			"minecraft:iron_ingot",
+			1,
+			3,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.NEARBY_EXISTING,
+				SmeltingStationState.EMPTY,
+				SmeltingStationKind.FURNACE,
+				empty.key(),
+				1.0D,
+				false
+			),
+			empty
+		);
+		manager.registerOptions(java.util.List.of(option));
+		SmeltingActionResult started = manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 2, SmeltingFuelMode.AUTO, null, 0, null),
+			1000L
+		);
+		manager.updateProcessFingerprint(
+			option.optionId(),
+			empty.key(),
+			new SmeltingSlotSnapshot("minecraft:raw_iron", 2, "minecraft:coal", 1, null, 0, 0, 200, true),
+			1100L
+		);
+		manager.registerOptions(java.util.List.of());
+
+		java.util.List<SmeltingOutputReadyEvent> early = manager.markReadyOutputs(java.util.List.of(), 1539L);
+		java.util.List<SmeltingOutputReadyEvent> ready = manager.markReadyOutputs(java.util.List.of(), 1540L);
+		java.util.List<SmeltingOutputReadyEvent> repeated = manager.markReadyOutputs(java.util.List.of(), 1541L);
+
+		assertTrue(started.accepted());
+		assertTrue(early.isEmpty());
+		assertEquals(1, ready.size());
+		assertEquals(started.processId(), ready.getFirst().processId());
+		assertEquals("minecraft:iron_ingot", ready.getFirst().outputItemId());
+		assertEquals(2, ready.getFirst().outputCount());
+		assertTrue(ready.getFirst().estimated());
+		assertTrue(repeated.isEmpty());
 	}
 
 	private static SmeltingStationObservation occupiedStation(int inputCount) {
