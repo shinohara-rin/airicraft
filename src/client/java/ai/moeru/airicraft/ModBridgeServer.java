@@ -1193,6 +1193,7 @@ public final class ModBridgeServer {
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
+			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("lastChatTick", agentRuntime().lastChatTick());
 			response.put("lastChatText", agentRuntime().lastChatText());
@@ -1205,6 +1206,10 @@ public final class ModBridgeServer {
 			Map<String, Object> response = new LinkedHashMap<>();
 			response.put("available", true);
 			response.put("planner", agentRuntime().plannerDebugSnapshot());
+			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
+			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
+			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
+			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("contextExcerpt", agentRuntime().plannerContextExcerpt());
 			response.put("activeJob", agentRuntime().activeJob());

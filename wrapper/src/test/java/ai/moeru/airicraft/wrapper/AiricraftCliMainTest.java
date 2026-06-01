@@ -100,6 +100,13 @@ class AiricraftCliMainTest {
 					"pendingSemanticGap", false,
 					"overflowFlushPending", true
 				)
+			),
+			"conversationSources", linkedMap(
+				"canonicalMessageCount", 11,
+				"projectedMessageCount", 14,
+				"canonicalUserTurnCount", 4,
+				"projectedUserTurnCount", 4,
+				"hiddenKinds", List.of("SYSTEM")
 			)
 		);
 
@@ -115,6 +122,8 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("acceptedTurnCount: 8\n"));
 		assertTrue(result.output().contains("projectedPendingNoticeCount: 2\n"));
 		assertTrue(result.output().contains("overflowFlushPending: true\n"));
+		assertTrue(result.output().contains("canonicalMessageCount: 11\n"));
+		assertTrue(result.output().contains("projectedMessageCount: 14\n"));
 	}
 
 	@Test
@@ -130,14 +139,58 @@ class AiricraftCliMainTest {
 			),
 			"contextExcerpt", List.of(
 				"Context update: You took 4 damage from minecraft:fall and dropped to 16 health just now."
-			)
+			),
+			"conversation", linkedMap("messageCount", 1),
+			"canonicalConversation", linkedMap("messageCount", 1),
+			"projectedConversation", linkedMap("messageCount", 2),
+			"conversationSources", linkedMap(
+				"canonicalMessageCount", 1,
+				"projectedMessageCount", 2
+			),
+			"plannerJournal", linkedMap("eventCount", 3)
 		);
 
 		CliResult result = execute(transport, "agent", "context", "--verbose");
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("contextExcerptLineCount: 1\n"));
+		assertTrue(result.output().contains("projectedMessageCount: 2\n"));
+		assertTrue(result.output().contains("[canonicalConversation]\n"));
+		assertTrue(result.output().contains("[plannerJournal]\n"));
 		assertTrue(result.output().contains("value: Context update: You took 4 damage from minecraft:fall and dropped to 16 health just now.\n"));
+	}
+
+	@Test
+	void agentDialogueVerboseIncludesConversationAliases() {
+		TestTransport transport = new TestTransport();
+		transport.agentDialoguePayload = linkedMap(
+			"available", true,
+			"dialogue", linkedMap(
+				"pendingReply", false,
+				"recentTurns", List.of()
+			),
+			"conversation", linkedMap("messageCount", 1),
+			"canonicalConversation", linkedMap("messageCount", 1),
+			"projectedConversation", linkedMap("messageCount", 2),
+			"conversationSources", linkedMap(
+				"canonicalMessageCount", 1,
+				"projectedMessageCount", 2,
+				"canonicalUserTurnCount", 1,
+				"projectedUserTurnCount", 1
+			),
+			"plannerJournal", linkedMap("eventCount", 4),
+			"lastChatTick", 42L,
+			"lastChatText", "done"
+		);
+
+		CliResult result = execute(transport, "agent", "dialogue", "--verbose");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("command: agent dialogue\n"));
+		assertTrue(result.output().contains("canonicalMessageCount: 1\n"));
+		assertTrue(result.output().contains("projectedMessageCount: 2\n"));
+		assertTrue(result.output().contains("[canonicalConversation]\n"));
+		assertTrue(result.output().contains("[plannerJournal]\n"));
 	}
 
 	@Test
