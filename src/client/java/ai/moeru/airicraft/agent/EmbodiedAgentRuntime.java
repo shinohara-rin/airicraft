@@ -679,7 +679,7 @@ public final class EmbodiedAgentRuntime {
 
 	public boolean verificationAvailable() {
 		MinecraftClient client = MinecraftClient.getInstance();
-		return sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL
+		return isIntegratedSingleplayerMode(sessionSnapshot.mode())
 			&& sessionSnapshot.worldLoaded()
 			&& client != null
 			&& client.player != null
@@ -2779,8 +2779,8 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private void ensureVerificationSessionAvailable() {
-		if (sessionSnapshot.mode() != SessionMode.SINGLEPLAYER_LOCAL) {
-			throw new BridgeUnavailableException("unsupported_session_state", "Verification actions require a singleplayer local world");
+		if (!isIntegratedSingleplayerMode(sessionSnapshot.mode())) {
+			throw new BridgeUnavailableException("unsupported_session_state", "Verification actions require an integrated singleplayer world");
 		}
 		if (!sessionSnapshot.worldLoaded()) {
 			throw new BridgeUnavailableException("verification_unavailable", "No singleplayer local world is loaded for verification");
@@ -2789,6 +2789,10 @@ public final class EmbodiedAgentRuntime {
 		if (client == null || client.player == null || !client.isIntegratedServerRunning() || client.getServer() == null) {
 			throw new BridgeUnavailableException("verification_unavailable", "Integrated singleplayer verification controls are unavailable");
 		}
+	}
+
+	private static boolean isIntegratedSingleplayerMode(SessionMode mode) {
+		return mode == SessionMode.SINGLEPLAYER_LOCAL || mode == SessionMode.SINGLEPLAYER_LAN_HOST;
 	}
 
 	private void prepareClientForVerification() {
