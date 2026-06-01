@@ -88,6 +88,10 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (option == null) {
 			return fail(request, "option_not_found");
 		}
+		if (option.stationCandidate().source() == SmeltingStationSource.OPEN_SCREEN
+			&& player.currentScreenHandler instanceof AbstractFurnaceScreenHandler handler) {
+			return insertSmeltingInputs(request, client, player, handler, option);
+		}
 		BlockPos stationPos = stationPos(option.stationObservation().key());
 		if (stationPos == null) {
 			return fail(request, "station_unavailable");
@@ -101,6 +105,20 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (!handler.getCursorStack().isEmpty()) {
 			return fail(request, "cursor_not_empty");
 		}
+		option = processManager.registeredOption(request.smeltItems().optionId());
+		if (option == null) {
+			return fail(request, "option_not_found");
+		}
+		return insertSmeltingInputs(request, client, player, handler, option);
+	}
+
+	private Optional<TaskTerminalEvent> insertSmeltingInputs(
+		WorldTaskRequest request,
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		AbstractFurnaceScreenHandler handler,
+		SmeltingOption option
+	) {
 		SmeltItemsStepArgs args = request.smeltItems();
 		if (!moveItemsToSlot(client, player, handler, option.inputItemId(), 0, args.inputQuantity())) {
 			return fail(request, "insufficient_input");
@@ -147,11 +165,26 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 
 	private boolean ensureStationReady(WorldTaskRequest request, MinecraftClient client, ClientPlayerEntity player, SmeltingOption option, BlockPos stationPos) {
 		if (option.stationCandidate().source() == SmeltingStationSource.PLACE_FROM_INVENTORY && !isFurnaceBlock(client, stationPos)) {
+			if (!canPlaceAt(client, stationPos)) {
+				Optional<BlockPos> fallback = chooseFurnacePlacement(client, player);
+				if (fallback.isPresent()) {
+					BlockPos fallbackPos = fallback.get();
+					SmeltingStationKey oldKey = option.stationObservation().key();
+					SmeltingStationKey newKey = new SmeltingStationKey(oldKey.dimensionId(), fallbackPos.getX(), fallbackPos.getY(), fallbackPos.getZ());
+					processManager.relocatePlacementProcess(option.optionId(), oldKey, newKey, player.squaredDistanceTo(Vec3d.ofCenter(fallbackPos)));
+					stationPos = fallbackPos;
+				}
+				else {
+					snapshot = snapshot(TaskExecutionState.FAILED, request, "furnace_placement_blocked");
+					return false;
+				}
+			}
 			if (!withinInteractionRange(player, stationPos)) {
 				return navigateOrFail(request, stationPos);
 			}
-			if (!placeFurnace(client, player, stationPos)) {
-				snapshot = snapshot(TaskExecutionState.RUNNING, request, "placing_furnace");
+			PlacementAttempt placement = placeFurnace(client, player, stationPos);
+			if (!placement.placed()) {
+				snapshot = snapshot(TaskExecutionState.RUNNING, request, "placing_furnace:" + placement.reason());
 				return false;
 			}
 			snapshot = snapshot(TaskExecutionState.RUNNING, request, "waiting_for_furnace");
@@ -314,13 +347,13 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		return state.isOf(Blocks.FURNACE) || state.isOf(Blocks.BLAST_FURNACE) || state.isOf(Blocks.SMOKER);
 	}
 
-	private static boolean placeFurnace(MinecraftClient client, ClientPlayerEntity player, BlockPos pos) {
+	private static PlacementAttempt placeFurnace(MinecraftClient client, ClientPlayerEntity player, BlockPos pos) {
 		if (player.currentScreenHandler != player.playerScreenHandler || !player.currentScreenHandler.getCursorStack().isEmpty()) {
-			return false;
+			return new PlacementAttempt(false, "inventory_not_ready");
 		}
 		Hand hand = selectFurnacePlacementHand(client, player);
 		if (hand == null) {
-			return false;
+			return new PlacementAttempt(false, "furnace_not_selectable");
 		}
 		BlockPos support = pos.down();
 		BlockHitResult hitResult = new BlockHitResult(
@@ -333,7 +366,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (result.isAccepted()) {
 			player.swingHand(hand);
 		}
-		return result.isAccepted();
+		return new PlacementAttempt(result.isAccepted(), result.isAccepted() ? "accepted" : "interact_" + result);
 	}
 
 	private static Hand selectFurnacePlacementHand(MinecraftClient client, ClientPlayerEntity player) {
@@ -364,6 +397,10 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (!(handler instanceof PlayerScreenHandler)) {
 			return -1;
 		}
+		ItemStack offhand = handler.getSlot(PlayerScreenHandler.OFFHAND_ID).getStack();
+		if (!offhand.isEmpty() && offhand.isOf(item)) {
+			return PlayerScreenHandler.OFFHAND_ID;
+		}
 		for (int slot = PlayerScreenHandler.INVENTORY_START; slot < PlayerScreenHandler.HOTBAR_END; slot++) {
 			ItemStack stack = handler.getSlot(slot).getStack();
 			if (!stack.isEmpty() && stack.isOf(item)) {
@@ -371,6 +408,35 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 			}
 		}
 		return -1;
+	}
+
+	private static Optional<BlockPos> chooseFurnacePlacement(MinecraftClient client, ClientPlayerEntity player) {
+		BlockPos origin = player.getBlockPos();
+		for (Direction direction : Direction.Type.HORIZONTAL) {
+			BlockPos candidate = origin.offset(direction);
+			if (canPlaceAt(client, candidate)) {
+				return Optional.of(candidate.toImmutable());
+			}
+		}
+		for (int dx = -2; dx <= 2; dx++) {
+			for (int dz = -2; dz <= 2; dz++) {
+				BlockPos candidate = origin.add(dx, 0, dz);
+				if (!candidate.equals(origin) && canPlaceAt(client, candidate)) {
+					return Optional.of(candidate.toImmutable());
+				}
+			}
+		}
+		return Optional.empty();
+	}
+
+	private static boolean canPlaceAt(MinecraftClient client, BlockPos pos) {
+		if (client == null || client.world == null || !client.world.isChunkLoaded(pos) || !client.world.isChunkLoaded(pos.down())) {
+			return false;
+		}
+		BlockState target = client.world.getBlockState(pos);
+		BlockState support = client.world.getBlockState(pos.down());
+		return (target.isAir() || target.isReplaceable())
+			&& support.isSideSolidFullSquare(client.world, pos.down(), Direction.UP);
 	}
 
 	private static boolean withinInteractionRange(ClientPlayerEntity player, BlockPos pos) {
@@ -490,5 +556,8 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private record FuelSelection(String itemId, int quantity) {
+	}
+
+	private record PlacementAttempt(boolean placed, String reason) {
 	}
 }

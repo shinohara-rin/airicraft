@@ -178,6 +178,51 @@ class SmeltingProcessManagerTest {
 		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(inserted, 401L));
 	}
 
+	@Test
+	void carriedFurnaceProcessCanRelocateWhenPlacementCandidateGoesStale() {
+		SmeltingProcessManager manager = new SmeltingProcessManager();
+		SmeltingStationKey originalKey = new SmeltingStationKey("minecraft:overworld", 1, 64, 1);
+		SmeltingStationKey relocatedKey = new SmeltingStationKey("minecraft:overworld", 2, 64, 1);
+		SmeltingStationObservation empty = new SmeltingStationObservation(
+			originalKey,
+			SmeltingStationKind.FURNACE,
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, 200, false),
+			false,
+			1.0D
+		);
+		SmeltingOption option = new SmeltingOption(
+			"smelt:log:carried_furnace-1",
+			"minecraft:oak_log",
+			"minecraft:charcoal",
+			1,
+			4,
+			200,
+			new SmeltingStationCandidate(
+				SmeltingStationSource.PLACE_FROM_INVENTORY,
+				SmeltingStationState.EMPTY,
+				SmeltingStationKind.FURNACE,
+				originalKey,
+				1.0D,
+				false
+			),
+			empty
+		);
+		manager.registerOptions(java.util.List.of(option));
+		SmeltingActionResult started = manager.startRegisteredProcess(
+			new SmeltItemsStepArgs(option.optionId(), 4, SmeltingFuelMode.AUTO, null, 0, null),
+			500L
+		);
+
+		boolean relocated = manager.relocatePlacementProcess(option.optionId(), originalKey, relocatedKey, 2.0D);
+		SmeltingOption relocatedOption = manager.registeredOption(option.optionId());
+
+		assertTrue(started.accepted());
+		assertTrue(relocated);
+		assertEquals(relocatedKey, relocatedOption.stationObservation().key());
+		assertEquals(relocatedKey, manager.processStationKey(started.processId()));
+		assertEquals(SmeltingStationState.AIRICRAFT_OWNED, manager.classify(relocatedOption.stationObservation(), 501L));
+	}
+
 	private static SmeltingStationObservation occupiedStation(int inputCount) {
 		return new SmeltingStationObservation(
 			new SmeltingStationKey("minecraft:overworld", 1, 64, 1),

@@ -68,6 +68,55 @@ public final class SmeltingProcessManager {
 		processesById.put(process.processId(), updated);
 	}
 
+	public boolean relocatePlacementProcess(String optionId, SmeltingStationKey oldKey, SmeltingStationKey newKey, double distance) {
+		if (optionId == null || optionId.isBlank() || oldKey == null || newKey == null || Objects.equals(oldKey, newKey)) {
+			return false;
+		}
+		SmeltingOption option = registeredOption(optionId);
+		if (option == null || option.stationCandidate().source() != SmeltingStationSource.PLACE_FROM_INVENTORY) {
+			return false;
+		}
+		SmeltingStationCandidate candidate = new SmeltingStationCandidate(
+			SmeltingStationSource.PLACE_FROM_INVENTORY,
+			SmeltingStationState.EMPTY,
+			option.stationCandidate().kind(),
+			newKey,
+			distance,
+			false
+		);
+		SmeltingStationObservation observation = new SmeltingStationObservation(
+			newKey,
+			option.stationObservation().kind(),
+			new SmeltingSlotSnapshot(null, 0, null, 0, null, 0, 0, option.cookTimeTicks(), false),
+			false,
+			distance
+		);
+		optionsById.put(option.optionId(), new SmeltingOption(
+			option.optionId(),
+			option.inputItemId(),
+			option.outputItemId(),
+			option.outputCount(),
+			option.maxInputQuantity(),
+			option.cookTimeTicks(),
+			candidate,
+			observation
+		));
+		TrackedProcess process = processesByStation.remove(oldKey);
+		if (process != null && Objects.equals(process.optionId(), option.optionId())) {
+			TrackedProcess relocated = new TrackedProcess(
+				process.processId(),
+				newKey,
+				observation.slots().fingerprint(),
+				process.optionId(),
+				process.inputQuantity(),
+				process.startedTick()
+			);
+			processesByStation.put(newKey, relocated);
+			processesById.put(process.processId(), relocated);
+		}
+		return true;
+	}
+
 	public SmeltingStationKey confirmationStationKey(String confirmationToken) {
 		if (confirmationToken == null || confirmationToken.isBlank()) {
 			return null;
