@@ -158,6 +158,8 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 			return fail(request, "furnace_screen_not_open");
 		}
 		if (handler.getSlot(2).getStack().isEmpty()) {
+			// TODO: For estimated ready events, consider requeueing a delayed collect instead of
+			// failing the foreground job immediately.
 			return fail(request, "output_not_ready");
 		}
 		client.interactionManager.clickSlot(handler.syncId, 2, 0, SlotActionType.QUICK_MOVE, player);

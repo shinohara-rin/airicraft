@@ -342,6 +342,8 @@ public final class SmeltingProcessManager {
 		if (expectedOutputItemId != null && !Objects.equals(expectedOutputItemId, slots.outputItemId())) {
 			return null;
 		}
+		// TODO: Harden against remote-server desync by requiring a fresh post-open slot observation
+		// before treating visible output as authoritative.
 		TrackedProcess updated = new TrackedProcess(
 			process.processId(),
 			process.stationKey(),
@@ -377,6 +379,8 @@ public final class SmeltingProcessManager {
 		) {
 			return null;
 		}
+		// TODO: Replace timer-only readiness with a server-backed signal when a safe route exists;
+		// this is only a planner wakeup hint.
 		TrackedProcess updated = new TrackedProcess(
 			process.processId(),
 			process.stationKey(),
@@ -405,6 +409,8 @@ public final class SmeltingProcessManager {
 	private long estimatedReadyTick(TrackedProcess process, long insertedTick) {
 		SmeltingOption option = registeredOption(process.optionId());
 		int cookTimeTicks = option == null ? 200 : Math.max(1, option.cookTimeTicks());
+		// TODO: Account for server TPS, fuel burn gaps, partial cook progress, and chunk unloads
+		// instead of assuming vanilla uninterrupted ticks.
 		return insertedTick + (long) cookTimeTicks * Math.max(1, process.inputQuantity()) + ESTIMATED_READY_GRACE_TICKS;
 	}
 
