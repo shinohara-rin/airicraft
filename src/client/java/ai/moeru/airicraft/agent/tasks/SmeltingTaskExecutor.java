@@ -5,6 +5,7 @@ import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.ShapeContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
@@ -444,7 +445,8 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		BlockState target = client.world.getBlockState(pos);
 		BlockState support = client.world.getBlockState(pos.down());
 		return (target.isAir() || target.isReplaceable())
-			&& support.isSideSolidFullSquare(client.world, pos.down(), Direction.UP);
+			&& support.isSideSolidFullSquare(client.world, pos.down(), Direction.UP)
+			&& client.world.canPlace(Blocks.FURNACE.getDefaultState(), pos, ShapeContext.ofPlacement(client.player));
 	}
 
 	private static boolean withinInteractionRange(ClientPlayerEntity player, BlockPos pos) {
