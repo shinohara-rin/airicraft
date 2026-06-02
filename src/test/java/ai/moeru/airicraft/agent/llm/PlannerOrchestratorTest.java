@@ -1468,11 +1468,13 @@ class PlannerOrchestratorTest {
 			"Tool result for inspect_inventory: itemCounts={minecraft:oak_log=3}",
 			"Tool result for check_craftables: availableCrafts=oak_planks"
 		);
+		RecordingLifecycleListener lifecycleListener = new RecordingLifecycleListener();
 		PlannerOrchestrator orchestrator = newOrchestrator(
 			backend,
 			CurrentViewVisionTool.disabled(),
 			inventoryTool,
-			PlannerVisionMode.EXTERNAL_SUMMARY
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			lifecycleListener
 		);
 
 		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent inspect and craft"));
@@ -1503,6 +1505,9 @@ class PlannerOrchestratorTest {
 			.anyMatch(message -> "tool".equals(message.role())
 				&& "call_craftables".equals(message.toolCallId())
 				&& message.content().contains("oak_planks")));
+		assertEquals(2, lifecycleListener.completedToolResults().size());
+		assertTrue(lifecycleListener.completedToolResults().get(0).contains("inspect_inventory"));
+		assertTrue(lifecycleListener.completedToolResults().get(1).contains("check_craftables"));
 		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
 		assertTrue(taskCard.text().contains("Tool calls: inspect_inventory,check_craftables"));
 	}
@@ -1969,6 +1974,36 @@ class PlannerOrchestratorTest {
 		PlannerVisionMode visionMode
 	) {
 		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, 3, Clock.systemDefaultZone());
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		PlannerLifecycleListener lifecycleListener
+	) {
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemDefaultZone();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(backend),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), visionMode),
+			visionTool,
+			inventoryTool,
+			visionMode,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			lifecycleListener,
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
+		);
 	}
 
 	private static PlannerOrchestrator newOrchestrator(
@@ -2711,6 +2746,19 @@ class PlannerOrchestratorTest {
 
 		private synchronized void fail(int index, LlmFailureType failureType, String message) {
 			responses.get(index).completeExceptionally(new LlmBackendException(failureType, message));
+		}
+	}
+
+	private static final class RecordingLifecycleListener implements PlannerLifecycleListener {
+		private final List<String> completedToolResults = new ArrayList<>();
+
+		@Override
+		public synchronized void onToolCompleted(long generation, String toolResult, boolean imageAttached) {
+			completedToolResults.add(toolResult);
+		}
+
+		private synchronized List<String> completedToolResults() {
+			return List.copyOf(completedToolResults);
 		}
 	}
 

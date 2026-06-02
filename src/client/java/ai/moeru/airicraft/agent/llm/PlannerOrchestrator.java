@@ -1110,7 +1110,8 @@ public final class PlannerOrchestrator {
 			snapshot,
 			recordedToolExchanges(toolExecution.generation())
 		);
-		for (ToolExecutionResult toolResult : toolOutcome.toolResults(toolExecution.toolCalls())) {
+		List<ToolExecutionResult> toolResults = toolOutcome.toolResults(toolExecution.toolCalls());
+		for (ToolExecutionResult toolResult : toolResults) {
 			recordToolExchange(
 				toolExecution.generation(),
 				snapshot,
@@ -1125,7 +1126,9 @@ public final class PlannerOrchestrator {
 			followUpRequest,
 			toolOutcome.appendFollowUp(contextAggregator, followUpSnapshot, toolExecution.assistantRawContent(), toolExecution.toolCalls())
 		);
-		lifecycleListener.onToolCompleted(toolExecution.generation(), toolOutcome.toolResultText(), toolOutcome.hasImageAttachment());
+		for (ToolExecutionResult toolResult : toolResults) {
+			lifecycleListener.onToolCompleted(toolExecution.generation(), toolResult.toolResultText(), toolResult.imageAttached());
+		}
 		appendToolFollowUpCard(toolExecution);
 		return null;
 	}
