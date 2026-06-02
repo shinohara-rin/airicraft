@@ -12,15 +12,16 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.registry.Registries;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.RaycastContext;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -91,7 +92,7 @@ public final class CurrentViewVisionService implements CurrentViewVisionTool {
 			CompletableFuture<ViewCaptureResult> captureFuture = new CompletableFuture<>();
 			Runnable captureTask = () -> {
 				try {
-					List<String> metadataLines = prepareCaptureTarget(client, request == null ? ViewCaptureRequest.current() : request);
+					List<String> metadataLines = prepareCaptureTarget(client, request);
 					screenshotService.requestCapture(client).whenComplete((capture, throwable) -> {
 						if (throwable == null) {
 							captureFuture.complete(new ViewCaptureResult(capture, metadataLines));
@@ -192,28 +193,26 @@ public final class CurrentViewVisionService implements CurrentViewVisionTool {
 			return java.util.Optional.of("LOOK_WARNING: target_block_los_unknown reason=target_chunk_not_loaded");
 		}
 		Vec3d start = player.getEyePos();
-		Vec3d delta = targetCenter.subtract(start);
-		int steps = Math.max(1, (int) Math.ceil(delta.length() * 10.0D));
-		Set<BlockPos> visited = new HashSet<>();
-		for (int step = 1; step < steps; step++) {
-			double progress = step / (double) steps;
-			Vec3d point = start.add(delta.multiply(progress));
-			BlockPos blockerPos = BlockPos.ofFloored(point);
-			if (blockerPos.equals(targetPos) || !visited.add(blockerPos)) {
-				continue;
-			}
+		BlockHitResult hitResult = client.world.raycast(new RaycastContext(
+			start,
+			targetCenter,
+			RaycastContext.ShapeType.VISUAL,
+			RaycastContext.FluidHandling.NONE,
+			player
+		));
+		if (hitResult.getType() == HitResult.Type.BLOCK && !hitResult.getBlockPos().equals(targetPos)) {
+			BlockPos blockerPos = hitResult.getBlockPos();
 			if (!client.world.isChunkLoaded(blockerPos)) {
 				return java.util.Optional.of("LOOK_WARNING: target_block_los_unknown reason=blocking_chunk_not_loaded");
 			}
 			BlockState blockerState = client.world.getBlockState(blockerPos);
-			if (blockerState.isAir() || blockerState.isTransparent()) {
-				continue;
+			if (!blockerState.isAir() && !blockerState.isTransparent()) {
+				String blockId = Registries.BLOCK.getId(blockerState.getBlock()).toString();
+				return java.util.Optional.of(
+					"LOOK_WARNING: target_block_los_blocked blockingBlockId=" + blockId
+						+ " blockingPos=" + blockerPos.getX() + "," + blockerPos.getY() + "," + blockerPos.getZ()
+				);
 			}
-			String blockId = Registries.BLOCK.getId(blockerState.getBlock()).toString();
-			return java.util.Optional.of(
-				"LOOK_WARNING: target_block_los_blocked blockingBlockId=" + blockId
-					+ " blockingPos=" + blockerPos.getX() + "," + blockerPos.getY() + "," + blockerPos.getZ()
-			);
 		}
 		return java.util.Optional.empty();
 	}

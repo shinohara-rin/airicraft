@@ -1232,7 +1232,7 @@ public final class PlannerOrchestrator {
 		if (targetPlayer != null) {
 			return ViewCaptureRequest.player(targetPlayer);
 		}
-		if (arguments.has("x") || arguments.has("y") || arguments.has("z")) {
+		if (arguments.has("x") && arguments.has("y") && arguments.has("z")) {
 			return ViewCaptureRequest.block(
 				arguments.get("x").getAsInt(),
 				arguments.get("y").getAsInt(),
