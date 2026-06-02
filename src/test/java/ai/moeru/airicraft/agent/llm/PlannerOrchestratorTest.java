@@ -1557,6 +1557,87 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void multipleReadToolCallsExecuteInOrderAndReplayIntoFollowUp() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:oak_log=2}",
+			"Tool result for check_craftables: availableCrafts=Available 2x2 crafts: oak_planks"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		JsonObject inventoryArgs = new JsonObject();
+		inventoryArgs.addProperty("prompt", "Count items.");
+		JsonObject craftablesArgs = new JsonObject();
+		craftablesArgs.addProperty("prompt", "List crafts.");
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent what can I make?"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, new PlannerResponse("", List.of(
+			new PlannerToolCall("call_inventory", "inspect_inventory", inventoryArgs, null, null),
+			new PlannerToolCall("call_craftables", "check_craftables", craftablesArgs, null, null)
+		), null));
+
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+
+		assertEquals(1, inventoryTool.inventoryRequestCount());
+		assertEquals(1, inventoryTool.craftablesRequestCount());
+		LlmConversation followUp = backend.conversation(1);
+		LlmChatMessage replayedToolCall = followUp.messages().stream()
+			.filter(message -> "assistant".equals(message.role()) && message.hasToolCalls())
+			.filter(message -> message.toolCalls().size() == 2)
+			.findFirst()
+			.orElseThrow();
+		assertEquals(List.of("inspect_inventory", "check_craftables"), replayedToolCall.toolCalls().stream()
+			.map(PlannerToolCall::name)
+			.toList());
+		List<LlmChatMessage> toolResults = followUp.messages().stream()
+			.filter(message -> "tool".equals(message.role()))
+			.toList();
+		assertEquals(2, toolResults.size());
+		assertEquals("call_inventory", toolResults.get(0).toolCallId());
+		assertTrue(toolResults.get(0).content().contains("itemCounts"));
+		assertEquals("call_craftables", toolResults.get(1).toolCallId());
+		assertTrue(toolResults.get(1).content().contains("oak_planks"));
+	}
+
+	@Test
+	void multipleToolCallBatchRejectsVisualToolBeforeExecution() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:oak_log=2}",
+			"unused"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		JsonObject inventoryArgs = new JsonObject();
+		inventoryArgs.addProperty("prompt", "Count items.");
+		JsonObject lookArgs = new JsonObject();
+		lookArgs.addProperty("prompt", "Look around.");
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent inspect everything"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, new PlannerResponse("", List.of(
+			new PlannerToolCall("call_inventory", "inspect_inventory", inventoryArgs, null, null),
+			new PlannerToolCall("call_look", "take_a_look", lookArgs, null, null)
+		), null));
+
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertFalse(result.succeeded());
+		assertEquals(LlmFailureType.PARSE_ERROR, result.failureType());
+		assertTrue(result.failureMessage().contains("unsupported tool batch"));
+		assertEquals(0, inventoryTool.inventoryRequestCount());
+	}
+
+	@Test
 	void plannerRequestAndToolFollowUpUseTurnContextAsSpanParent() {
 		RecordingBackend backend = new RecordingBackend();
 		RecordingObservability observability = new RecordingObservability();

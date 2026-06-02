@@ -13,6 +13,7 @@ import com.google.gson.JsonParser;
 import io.opentelemetry.context.Context;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -96,18 +97,18 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 
 			JsonElement rawAssistantContent = OpenAiCompatibleMessageContent.rawContentForReplay(message.get("content"));
 			String visibleText = OpenAiCompatibleMessageContent.extractVisibleText(message.get("content"));
-			PlannerToolCall toolCall = parseToolCall(message);
-			if (toolCall != null) {
+			List<PlannerToolCall> toolCalls = parseToolCalls(message);
+			if (!toolCalls.isEmpty()) {
 				Airicraft.LOGGER.info(
-					"Planner parsed tool_call name={} narration={}",
-					toolCall.name(),
-					summarizeForLog(toolCall.narration())
+					"Planner parsed tool_calls names={} count={}",
+					summarizeToolCallNames(toolCalls),
+					toolCalls.size()
 				);
-				return new PlannerResponse("", toolCall, rawAssistantContent);
+				return new PlannerResponse("", toolCalls, rawAssistantContent);
 			}
 			String replyText = visibleText.strip();
 			Airicraft.LOGGER.info("Planner parsed plaintext reply={}", summarizeForLog(replyText));
-			return new PlannerResponse(replyText, null, rawAssistantContent);
+			return new PlannerResponse(replyText, List.of(), rawAssistantContent);
 		}
 		catch (IllegalArgumentException | JsonParseException exception) {
 			String failureMessage = plannerParseFailureMessage(exception);
@@ -125,64 +126,72 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		}
 	}
 
-	private PlannerToolCall parseToolCall(JsonObject message) {
+	private List<PlannerToolCall> parseToolCalls(JsonObject message) {
 		if (message == null || !message.has("tool_calls") || !message.get("tool_calls").isJsonArray()) {
-			return null;
+			return List.of();
 		}
 		JsonArray toolCalls = message.getAsJsonArray("tool_calls");
 		if (toolCalls.isEmpty()) {
-			return null;
+			return List.of();
 		}
-		if (toolCalls.size() > 1) {
-			PlannerToolCall selected = selectEntityActionToolCall(toolCalls);
-			if (selected != null) {
-				Airicraft.LOGGER.warn("Planner returned multiple tool calls names={} selected={}", summarizeToolCallNames(toolCalls), selected.name());
-				return selected;
+		ArrayList<PlannerToolCall> parsed = new ArrayList<>();
+		for (JsonElement toolCall : toolCalls) {
+			if (!toolCall.isJsonObject()) {
+				throw new JsonParseException("Planner tool call must be an object");
 			}
-			throw new JsonParseException("Planner returned multiple tool calls: " + summarizeToolCallNames(toolCalls));
+			parsed.add(PlannerToolCatalog.parseToolCall(toolCall.getAsJsonObject(), toolRegistry));
 		}
-		if (!toolCalls.get(0).isJsonObject()) {
-			throw new JsonParseException("Planner tool call must be an object");
+		if (parsed.size() == 1) {
+			return List.copyOf(parsed);
 		}
-		return PlannerToolCatalog.parseToolCall(toolCalls.get(0).getAsJsonObject(), toolRegistry);
+		if (allReadToolCalls(parsed)) {
+			return List.copyOf(parsed);
+		}
+		if (parsed.size() > 1) {
+			PlannerToolCall selected = selectEntityActionToolCall(parsed);
+			if (selected != null) {
+				Airicraft.LOGGER.warn("Planner returned multiple tool calls names={} selected={}", summarizeToolCallNames(parsed), selected.name());
+				return List.of(selected);
+			}
+			throw new JsonParseException("Planner returned multiple tool calls: " + summarizeToolCallNames(parsed));
+		}
+		return List.copyOf(parsed);
 	}
 
-	private PlannerToolCall selectEntityActionToolCall(JsonArray toolCalls) {
-		List<JsonObject> callObjects = toolCalls.asList().stream()
-			.filter(JsonElement::isJsonObject)
-			.map(JsonElement::getAsJsonObject)
-			.toList();
-		if (callObjects.size() != toolCalls.size()) {
-			return null;
-		}
+	private boolean allReadToolCalls(List<PlannerToolCall> toolCalls) {
+		return toolCalls.stream()
+			.allMatch(toolCall -> toolRegistry.isReadTool(toolCall.name()));
+	}
 
-		List<JsonObject> entityActionCalls = callObjects.stream()
+	private PlannerToolCall selectEntityActionToolCall(List<PlannerToolCall> toolCalls) {
+		List<PlannerToolCall> entityActionCalls = toolCalls.stream()
 			.filter(this::isEntityInteractionToolCall)
 			.toList();
 		if (entityActionCalls.isEmpty()) {
 			return null;
 		}
 
-		boolean onlyReadOrEntityActions = callObjects.stream().allMatch(call ->
-			isEntityInteractionToolCall(call) || PlannerToolCatalog.isReadTool(rawToolName(call))
+		boolean onlyReadOrEntityActions = toolCalls.stream().allMatch(call ->
+			isEntityInteractionToolCall(call) || toolRegistry.isReadTool(call.name())
 		);
 		if (!onlyReadOrEntityActions) {
 			return null;
 		}
 
 		long distinctEntityActionNames = entityActionCalls.stream()
-			.map(this::rawToolName)
+			.map(PlannerToolCall::name)
+			.map(PlannerToolCatalog::normalizeName)
 			.distinct()
 			.count();
 		if (distinctEntityActionNames != 1L) {
 			return null;
 		}
 
-		return PlannerToolCatalog.parseToolCall(entityActionCalls.getFirst(), toolRegistry);
+		return entityActionCalls.getFirst();
 	}
 
-	private boolean isEntityInteractionToolCall(JsonObject toolCall) {
-		String name = rawToolName(toolCall);
+	private boolean isEntityInteractionToolCall(PlannerToolCall toolCall) {
+		String name = toolCall == null ? "" : PlannerToolCatalog.normalizeName(toolCall.name());
 		return PlannerToolCatalog.ATTACK_ENTITY.equals(name) || PlannerToolCatalog.USE_ENTITY.equals(name);
 	}
 
@@ -215,6 +224,14 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 				continue;
 			}
 			names.add(PlannerToolCatalog.normalizeName(function.get("name").getAsString()));
+		}
+		return String.join(",", names);
+	}
+
+	private static String summarizeToolCallNames(List<PlannerToolCall> toolCalls) {
+		LinkedHashSet<String> names = new LinkedHashSet<>();
+		for (PlannerToolCall toolCall : toolCalls) {
+			names.add(toolCall == null ? "<null>" : PlannerToolCatalog.normalizeName(toolCall.name()));
 		}
 		return String.join(",", names);
 	}

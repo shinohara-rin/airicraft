@@ -159,6 +159,39 @@ final class PlannerContextReducer {
 			state.lastObservedUsage(),
 			state.queuedTriggers(),
 			state.nextTriggerSeqNo()
+			);
+	}
+
+	static PlannerContextState recordAcceptedToolExchange(
+		PlannerContextState state,
+		List<PlannerToolCall> toolCalls,
+		List<String> toolResultTexts,
+		long tick,
+		long timestampMs
+	) {
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			return state;
+		}
+
+		ArrayList<PlannerContextEntry> acceptedHistory = new ArrayList<>(state.acceptedHistoryTape());
+		acceptedHistory.add(PlannerContextEntry.toolRequest(toolCalls, tick, timestampMs));
+		for (int index = 0; index < toolCalls.size(); index++) {
+			String toolResultText = toolResultTexts == null || index >= toolResultTexts.size() ? null : toolResultTexts.get(index);
+			acceptedHistory.add(PlannerContextEntry.toolResult(toolResultText, toolCalls.get(index), tick, timestampMs));
+		}
+		return new PlannerContextState(
+			List.copyOf(acceptedHistory),
+			state.activeCheckpoint(),
+			state.pendingSemanticEvents(),
+			state.pendingSemanticGapVersion(),
+			state.nextSemanticGapVersion(),
+			state.lastObservedEventSeqNo(),
+			state.lastAcceptedAmbientContext(),
+			state.lastAcceptedTimeContextAtMs(),
+			state.compactionPending(),
+			state.lastObservedUsage(),
+			state.queuedTriggers(),
+			state.nextTriggerSeqNo()
 		);
 	}
 
@@ -172,11 +205,11 @@ final class PlannerContextReducer {
 			turn.speaker(),
 			turn.text(),
 			turn.tick(),
-				turn.timestampMs(),
-				null,
-				rawAssistantContent,
-				null
-			);
+			turn.timestampMs(),
+			null,
+			rawAssistantContent,
+			List.of()
+		);
 		ArrayList<PlannerContextEntry> acceptedHistory = new ArrayList<>(state.acceptedHistoryTape());
 		acceptedHistory.add(acceptedEntry);
 		return new PlannerContextState(

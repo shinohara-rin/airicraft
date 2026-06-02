@@ -137,7 +137,7 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
-	void generateRejectsMultipleToolCalls() throws Exception {
+	void generateParsesMultipleReadToolCalls() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -157,11 +157,12 @@ class OpenAiCompatibleLlmBackendTest {
 		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
 
-			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-				backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))))
-			);
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
 
-			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+			assertEquals(List.of("inspect_inventory", "check_craftables"), result.payload().toolCalls().stream()
+				.map(PlannerToolCall::name)
+				.toList());
+			assertEquals("inspect_inventory", result.payload().toolCall().name());
 		}
 	}
 
@@ -232,6 +233,37 @@ class OpenAiCompatibleLlmBackendTest {
 			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
 			assertTrue(exception.getMessage().contains("attack_entity"));
 			assertTrue(exception.getMessage().contains("clear_goal"));
+		}
+	}
+
+	@Test
+	void generateRejectsReadAndActionToolCallBatch() throws Exception {
+		String responseBody = """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "content": null,
+			        "tool_calls": [
+			          {"id":"call_check","type":"function","function":{"name":"check_craftables","arguments":"{}"}},
+			          {"id":"call_craft","type":"function","function":{"name":"craft_recipe","arguments":"{\\"recipeId\\":\\"minecraft:stick\\",\\"times\\":1}"}}
+			        ]
+			      }
+			    }
+			  ]
+			}
+			""";
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
+
+			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
+				backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))))
+			);
+
+			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+			assertTrue(exception.getMessage().contains("check_craftables"));
+			assertTrue(exception.getMessage().contains("craft_recipe"));
 		}
 	}
 
