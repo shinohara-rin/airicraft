@@ -100,11 +100,12 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 			List<PlannerToolCall> toolCalls = parseToolCalls(message);
 			if (!toolCalls.isEmpty()) {
 				Airicraft.LOGGER.info(
-					"Planner parsed tool_calls names={} count={}",
+					"Planner parsed tool_calls names={} count={} firstNarration={}",
 					summarizeToolCallNames(toolCalls),
-					toolCalls.size()
+					toolCalls.size(),
+					summarizeForLog(toolCalls.getFirst().narration())
 				);
-				return new PlannerResponse("", toolCalls, rawAssistantContent);
+				return PlannerResponse.toolCalls(toolCalls, rawAssistantContent);
 			}
 			String replyText = visibleText.strip();
 			Airicraft.LOGGER.info("Planner parsed plaintext reply={}", summarizeForLog(replyText));
@@ -195,43 +196,10 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		return PlannerToolCatalog.ATTACK_ENTITY.equals(name) || PlannerToolCatalog.USE_ENTITY.equals(name);
 	}
 
-	private String rawToolName(JsonObject toolCall) {
-		if (toolCall == null || !toolCall.has("function") || !toolCall.get("function").isJsonObject()) {
-			return "";
-		}
-		JsonObject function = toolCall.getAsJsonObject("function");
-		if (!function.has("name") || function.get("name").isJsonNull()) {
-			return "";
-		}
-		return PlannerToolCatalog.normalizeName(function.get("name").getAsString());
-	}
-
-	private static String summarizeToolCallNames(JsonArray toolCalls) {
-		LinkedHashSet<String> names = new LinkedHashSet<>();
-		for (JsonElement toolCall : toolCalls) {
-			if (!toolCall.isJsonObject()) {
-				names.add("<non_object>");
-				continue;
-			}
-			JsonObject object = toolCall.getAsJsonObject();
-			if (!object.has("function") || !object.get("function").isJsonObject()) {
-				names.add("<missing_function>");
-				continue;
-			}
-			JsonObject function = object.getAsJsonObject("function");
-			if (!function.has("name") || function.get("name").isJsonNull()) {
-				names.add("<missing_name>");
-				continue;
-			}
-			names.add(PlannerToolCatalog.normalizeName(function.get("name").getAsString()));
-		}
-		return String.join(",", names);
-	}
-
 	private static String summarizeToolCallNames(List<PlannerToolCall> toolCalls) {
 		LinkedHashSet<String> names = new LinkedHashSet<>();
-		for (PlannerToolCall toolCall : toolCalls) {
-			names.add(toolCall == null ? "<null>" : PlannerToolCatalog.normalizeName(toolCall.name()));
+		for (PlannerToolCall toolCall : toolCalls == null ? List.<PlannerToolCall>of() : toolCalls) {
+			names.add(PlannerToolCatalog.normalizeName(toolCall == null ? "" : toolCall.name()));
 		}
 		return String.join(",", names);
 	}

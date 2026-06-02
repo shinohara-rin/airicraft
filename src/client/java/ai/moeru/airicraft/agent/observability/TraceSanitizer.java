@@ -238,9 +238,12 @@ public final class TraceSanitizer {
 			}
 			root.add("toolCall", tool);
 		}
-		if (response.toolCalls().size() > 1) {
+		if (response.toolCalls() != null && response.toolCalls().size() > 1) {
 			JsonArray toolCalls = new JsonArray();
 			for (PlannerToolCall call : response.toolCalls()) {
+				if (call == null || call.name() == null) {
+					continue;
+				}
 				JsonObject tool = new JsonObject();
 				tool.addProperty("name", sanitizeTraceText(call.name(), 64));
 				if (call.narration() != null && !call.narration().isBlank()) {
@@ -253,25 +256,35 @@ public final class TraceSanitizer {
 		return TRACE_GSON.toJson(root);
 	}
 
-		public static String sanitizePlannerCompletionForGenAi(PlannerResponse response) {
-			if (response == null) {
-				return "";
-			}
-			if (response.toolCall() != null) {
-				JsonObject root = new JsonObject();
-				root.addProperty("tool_call", sanitizeTraceText(response.toolCall().name(), 64));
-				if (response.toolCall().narration() != null && !response.toolCall().narration().isBlank()) {
-					root.addProperty("narration", sanitizeTraceText(response.toolCall().narration(), TRACE_TEXT_LIMIT));
+	public static String sanitizePlannerCompletionForGenAi(PlannerResponse response) {
+		if (response == null) {
+			return "";
+		}
+		if (response.toolCalls() != null && response.toolCalls().size() > 1) {
+			JsonObject root = new JsonObject();
+			JsonArray toolCalls = new JsonArray();
+			for (PlannerToolCall toolCall : response.toolCalls()) {
+				if (toolCall == null || toolCall.name() == null) {
+					continue;
 				}
-				if (response.toolCalls().size() > 1) {
-					JsonArray toolCalls = new JsonArray();
-					for (PlannerToolCall call : response.toolCalls()) {
-						toolCalls.add(sanitizeTraceText(call.name(), 64));
-					}
-					root.add("tool_calls", toolCalls);
+				JsonObject tool = new JsonObject();
+				tool.addProperty("name", sanitizeTraceText(toolCall.name(), 64));
+				if (toolCall.narration() != null && !toolCall.narration().isBlank()) {
+					tool.addProperty("narration", sanitizeTraceText(toolCall.narration(), TRACE_TEXT_LIMIT));
 				}
-				return TRACE_GSON.toJson(root);
+				toolCalls.add(tool);
 			}
+			root.add("tool_calls", toolCalls);
+			return TRACE_GSON.toJson(root);
+		}
+		if (response.toolCall() != null) {
+			JsonObject root = new JsonObject();
+			root.addProperty("tool_call", sanitizeTraceText(response.toolCall().name(), 64));
+			if (response.toolCall().narration() != null && !response.toolCall().narration().isBlank()) {
+				root.addProperty("narration", sanitizeTraceText(response.toolCall().narration(), TRACE_TEXT_LIMIT));
+			}
+			return TRACE_GSON.toJson(root);
+		}
 		if (response.replyText() == null) {
 			return "";
 		}

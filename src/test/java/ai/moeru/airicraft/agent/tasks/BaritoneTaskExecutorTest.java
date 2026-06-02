@@ -283,6 +283,31 @@ class BaritoneTaskExecutorTest {
 		assertEquals("Invalid block name minecraft:log", executor.snapshot().lastPathEvent());
 	}
 
+	@Test
+	void unavailableFacadeBecomesFailedTaskEvent() {
+		FakeBaritoneFacade facade = new FakeBaritoneFacade();
+		facade.loaded = false;
+		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(facade);
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.NAVIGATE_TO,
+			null,
+			new GoalPosition(10, 64, 20, true),
+			null,
+			20L,
+			"planner_response"
+		);
+
+		Optional<TaskTerminalEvent> first = executor.tick(multiplayer(), Optional.of(request("nav-task", goal)));
+		Optional<TaskTerminalEvent> second = executor.tick(multiplayer(), Optional.of(request("nav-task", goal)));
+
+		assertTrue(first.isPresent());
+		assertTrue(second.isEmpty());
+		assertEquals(TaskExecutionState.FAILED, first.orElseThrow().terminalState());
+		assertEquals("baritone_unavailable", first.orElseThrow().message());
+		assertEquals(TaskExecutionState.FAILED, executor.snapshot().state());
+		assertEquals("baritone_unavailable", executor.snapshot().lastPathEvent());
+	}
+
 	private static WorldTaskRequest request(String taskId, GoalSnapshot goal) {
 		return WorldTaskRequest.direct(taskId, goal);
 	}
@@ -308,10 +333,11 @@ class BaritoneTaskExecutorTest {
 		private boolean navigationGoalReached;
 		private int cancelCalls;
 		private RuntimeException startMineFailure;
+		private boolean loaded = true;
 
 		@Override
 		public boolean isLoaded() {
-			return true;
+			return loaded;
 		}
 
 		@Override

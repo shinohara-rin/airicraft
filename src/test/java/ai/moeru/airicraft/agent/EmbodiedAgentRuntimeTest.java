@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntent;
 import ai.moeru.airicraft.agent.dialogue.DialogueIntentType;
 import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
+import ai.moeru.airicraft.agent.debug.AgentDebugTimelineEntry;
 import ai.moeru.airicraft.agent.events.EventRoutingProfile;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.job.ActiveJob;
@@ -288,14 +289,14 @@ class EmbodiedAgentRuntimeTest {
 		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
 
 		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
-			"call_smelt",
-			"smelt_items",
-			JsonParser.parseString("""
-				{"optionId":"smelt:iron:nearby-1","inputQuantity":3,"fuelMode":"manual","fuelItemId":"minecraft:coal","fuelQuantity":1,"confirmationToken":"confirm-1"}
-				""").getAsJsonObject(),
-			null,
-			null
-		));
+				"call_smelt",
+				"smelt_items",
+				JsonParser.parseString("""
+					{"optionId":"smelt:iron:nearby-1","inputQuantity":3,"fuelMode":"manual","fuelItemId":"minecraft:coal","fuelQuantity":1,"confirmationToken":"confirm-1"}
+					""").getAsJsonObject(),
+				null,
+				null
+			));
 		assertTrue(result.contains("accepted"), result);
 		runtime.onClientTick(null);
 
@@ -311,6 +312,40 @@ class EmbodiedAgentRuntimeTest {
 			1,
 			"confirm-1"
 		), request.smeltItems());
+	}
+
+	@Test
+	void mineBlocksToolResultWarnsPlannerToWaitForTaskUpdate() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+				"call_mine",
+				"mine_blocks",
+				JsonParser.parseString("""
+					{"blockIds":["minecraft:dirt"],"quantity":1}
+					""").getAsJsonObject(),
+				null,
+				null
+			));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertTrue(result.contains("does not mean completed"));
+		assertTrue(result.contains("TASK UPDATE"));
+		assertEquals(WorldTaskType.MINE, request.type());
+		assertEquals(new GoalMineSpec(List.of("minecraft:dirt"), 1), request.goal().mineSpec());
 	}
 
 	@Test
@@ -372,7 +407,7 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(
 			"Smelting output ready: processId=smelt-process-1 output=minecraft:iron_ingotx1 station=minecraft:overworld@1,64,1.",
 			trigger.text()
-		);
+			);
 	}
 
 	@Test
@@ -563,6 +598,26 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void craftingProgressDoesNotWakePlannerWhileCraftToolResultPending() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		runtime.onPlayerCraftedItem("minecraft:stick", 4);
+
+		AgentDebugTimelineEntry route = runtime.debugTimeline(null).entries().stream()
+			.filter(entry -> "event_pipeline".equals(entry.domain()))
+			.filter(entry -> "crafting.item_crafted".equals(entry.payload().get("eventType")))
+			.findFirst()
+			.orElseThrow();
+
+		assertFalse(resultFuture.isDone());
+		assertEquals(true, route.payload().get("emitSemantic"));
+		assertEquals(false, route.payload().get("emitTrigger"));
+	}
+
+	@Test
 	void craftRecipeToolResultTimesOutWhileLeavingTaskRunning() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
@@ -612,6 +667,44 @@ class EmbodiedAgentRuntimeTest {
 				&& turn.text().contains("TASK UPDATE: state=FAILED")
 				&& turn.text().contains("activeStepKind=CRAFT_RECIPE")
 				&& turn.text().contains("failure=missing_ingredients")
+			));
+	}
+
+	@Test
+	void directGoalFailureEmitsFailureReasonToPlanner() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_nav",
+			"navigate_to",
+			JsonParser.parseString("""
+				{"x":-30,"y":115,"z":-55,"exactY":false}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		assertTrue(result.contains("accepted"));
+
+		runtime.onClientTick(null);
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			request.goal(),
+			TaskExecutionState.FAILED,
+			"CALC_FAILED",
+			TaskTerminationCause.CALCULATION_FAILED
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.failed".equals(event.type())));
+		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
+			"system".equals(turn.speaker())
+				&& turn.text().contains("TASK UPDATE: state=FAILED")
+				&& turn.text().contains("goalType=NAVIGATE_TO")
+				&& turn.text().contains("message=CALC_FAILED")
+				&& turn.text().contains("terminationCause=CALCULATION_FAILED")
 		));
 	}
 
@@ -986,6 +1079,40 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void plannerDirectGoalToolDoesNotPreemptActiveCollectResourceTask() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+		runtime.submitTask(new TaskSpec(TaskType.COLLECT_RESOURCE, TaskResourceKind.WOOD_LOGS, 1), "planner_tool");
+		runtime.onClientTick(null);
+		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_nav",
+			"navigate_to",
+			JsonParser.parseString("""
+				{"x":71,"y":70,"z":-299,"exactY":false}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+
+		assertTrue(result.contains("TOOL_ERROR: navigate_to denied"));
+		assertTrue(result.contains("active_task_in_progress"));
+		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
+		assertEquals(TaskType.COLLECT_RESOURCE, runtime.taskSnapshot().spec().type());
+		assertEquals(GoalType.MINE_BLOCKS, runtime.activeGoal().orElseThrow().type());
+	}
+
+	@Test
 	void submitTaskClearsPreviouslyActiveDirectGoal() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
@@ -1178,6 +1305,39 @@ class EmbodiedAgentRuntimeTest {
 
 		assertEquals(TaskState.CANCELLED, runtime.taskSnapshot().state());
 		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.cancelled".equals(event.type())));
+	}
+
+	@Test
+	void clearGoalResponseRecordsEventWhenGoalAlreadyClearedByRuntime() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.injectGoalForTests(new GoalSnapshot(
+			GoalType.FOLLOW_PLAYER,
+			"ObserveAlice",
+			null,
+			null,
+			10L,
+			"test"
+		));
+		assertTrue(runtime.activeGoal().isPresent());
+
+		runtime.cancelTask("target_lost");
+		assertTrue(runtime.activeGoal().isEmpty());
+		long baselineSeqNo = runtime.latestEventSeqNo();
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"Stopping.",
+			new DialogueIntent(DialogueIntentType.CLEAR_GOAL, null, null),
+			20L
+		));
+
+		SemanticEvent event = runtime.recentEvents(baselineSeqNo).events().stream()
+			.filter(candidate -> "planner.goal_cleared".equals(candidate.type()))
+			.findFirst()
+			.orElseThrow();
+		assertEquals(Boolean.TRUE, event.payload().get("alreadyClear"));
+		assertEquals("planner_response", event.payload().get("source"));
 	}
 
 	@Test

@@ -4,9 +4,15 @@ import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.events.SemanticEventBuffer;
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
+import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionTool;
+import ai.moeru.airicraft.agent.llm.LlmBackend;
+import ai.moeru.airicraft.agent.llm.LlmBackendException;
+import ai.moeru.airicraft.agent.llm.LlmCallResult;
+import ai.moeru.airicraft.agent.llm.LlmConversation;
+import ai.moeru.airicraft.agent.llm.LlmFailureType;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.PlannerCompactionService;
@@ -49,7 +55,12 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.Clock;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.List;
 import java.util.Optional;
 
@@ -353,6 +364,57 @@ class DialogueRuntimeTest {
 	}
 
 	@Test
+	void internalTaskUpdateDuringInFlightPlannerRequestIsSubmittedAfterResult() {
+		BlockingLlmBackend backend = new BlockingLlmBackend();
+		CompletableFuture<PlannerResponse> firstResponse = backend.enqueueResponse();
+		CompletableFuture<PlannerResponse> taskUpdateResponse = backend.enqueueResponse();
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.MINE_BLOCKS,
+			null,
+			null,
+			new GoalMineSpec(List.of("minecraft:dirt"), 1),
+			10L,
+			"planner_tool"
+		);
+
+		runtime.onPlayerChat(
+			"Alice",
+			"@agent dig down",
+			10L,
+			SessionSnapshot.initial(),
+			"Alice",
+			Optional.of(goal),
+			eventBuffer
+		);
+		backend.awaitConversationCount(1);
+		runtime.onInternalTaskUpdate(
+			"TASK UPDATE: state=CANCELLED taskId=mine-task goalType=MINE_BLOCKS message=Task cancelled terminationCause=BARITONE_CANCELLED",
+			11L,
+			SessionSnapshot.initial(),
+			Optional.of(goal),
+			TaskSnapshot.idle(),
+			MissionExecutionSnapshot.idle(),
+			eventBuffer
+		);
+
+		assertEquals(1, backend.conversationCount());
+
+		firstResponse.complete(new PlannerResponse("Starting.", new PlannerIntent("reply_only", null, null)));
+		assertEquals("Starting.", awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1)).text());
+		backend.awaitConversationCount(2);
+		assertTrue(backend.conversation(1).messages().stream().anyMatch(message ->
+			message.content().contains("TASK UPDATE: state=CANCELLED")
+				&& message.content().contains("goalType=MINE_BLOCKS")
+		));
+
+		taskUpdateResponse.complete(new PlannerResponse("The mining task cancelled.", new PlannerIntent("reply_only", null, null)));
+		assertEquals("The mining task cancelled.", awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1)).text());
+		runtime.shutdown();
+	}
+
+	@Test
 	void plannerTriggerPreservesOriginalTriggerType() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		DialogueRuntime runtime = newDialogueRuntime(backend);
@@ -597,8 +659,20 @@ class DialogueRuntimeTest {
 		return newDialogueRuntime(backend, CurrentViewVisionTool.disabled(), PlannerVisionMode.EXTERNAL_SUMMARY);
 	}
 
+	private static DialogueRuntime newDialogueRuntime(LlmBackend backend) {
+		return newDialogueRuntime(backend, CurrentViewVisionTool.disabled(), PlannerVisionMode.EXTERNAL_SUMMARY);
+	}
+
 	private static DialogueRuntime newDialogueRuntime(
 		OpenAiCompatibleLlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		PlannerVisionMode visionMode
+	) {
+		return newDialogueRuntime((LlmBackend) backend, visionTool, visionMode);
+	}
+
+	private static DialogueRuntime newDialogueRuntime(
+		LlmBackend backend,
 		CurrentViewVisionTool visionTool,
 		PlannerVisionMode visionMode
 	) {
@@ -618,5 +692,71 @@ class DialogueRuntimeTest {
 			config.visionImageDetail()
 		);
 		return new DialogueRuntime(orchestrator, 8, clock);
+	}
+
+	private static final class BlockingLlmBackend implements LlmBackend {
+		private final CopyOnWriteArrayList<LlmConversation> conversations = new CopyOnWriteArrayList<>();
+		private final LinkedBlockingQueue<CompletableFuture<PlannerResponse>> responses = new LinkedBlockingQueue<>();
+
+		@Override
+		public LlmCallResult<PlannerResponse> generate(LlmConversation conversation) throws LlmBackendException {
+			conversations.add(conversation);
+			try {
+				CompletableFuture<PlannerResponse> response = responses.take();
+				return LlmCallResult.of(response.get(2, TimeUnit.SECONDS), null);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new LlmBackendException(LlmFailureType.PROVIDER_ERROR, "Interrupted while waiting for test response", exception);
+			}
+			catch (ExecutionException exception) {
+				throw new LlmBackendException(LlmFailureType.PROVIDER_ERROR, "Failed test response", exception);
+			}
+			catch (TimeoutException exception) {
+				throw new LlmBackendException(LlmFailureType.TIMEOUT, "Timed out waiting for test response", exception);
+			}
+		}
+
+		@Override
+		public void injectMockResponse(PlannerResponse response) {
+			CompletableFuture<PlannerResponse> future = enqueueResponse();
+			future.complete(response);
+		}
+
+		@Override
+		public void injectTimeout() {
+			CompletableFuture<PlannerResponse> future = enqueueResponse();
+			future.completeExceptionally(new TimeoutException("Injected LLM timeout"));
+		}
+
+		@Override
+		public boolean isConfigured() {
+			return true;
+		}
+
+		private CompletableFuture<PlannerResponse> enqueueResponse() {
+			CompletableFuture<PlannerResponse> response = new CompletableFuture<>();
+			responses.add(response);
+			return response;
+		}
+
+		private int conversationCount() {
+			return conversations.size();
+		}
+
+		private LlmConversation conversation(int index) {
+			return conversations.get(index);
+		}
+
+		private void awaitConversationCount(int expectedCount) {
+			long deadlineNanos = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+			while (System.nanoTime() < deadlineNanos) {
+				if (conversationCount() >= expectedCount) {
+					return;
+				}
+				sleepBriefly();
+			}
+			throw new AssertionError("Timed out waiting for conversation count " + expectedCount + ", got " + conversationCount());
+		}
 	}
 }

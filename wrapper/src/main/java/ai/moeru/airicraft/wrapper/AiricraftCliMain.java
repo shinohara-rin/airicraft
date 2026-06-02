@@ -1538,6 +1538,9 @@ public final class AiricraftCliMain {
 			if (payload.containsKey("taskExecution")) {
 				view.put("taskExecution", payload.get("taskExecution"));
 			}
+			if (payload.containsKey("activeJob")) {
+				view.put("activeJob", payload.get("activeJob"));
+			}
 			if (payload.containsKey("task")) {
 				view.put("task", payload.get("task"));
 			}
@@ -1560,9 +1563,9 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentGoals(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "activeGoal", "taskExecution");
+			copy(view, payload, "available", "activeGoal", "activeJob", "taskExecution");
 			if (verbose) {
-				copy(view, payload, "task", "lastDialogueResponse");
+				copy(view, payload, "task", "missionExecution", "lastDialogueResponse");
 			}
 			return view;
 		}
@@ -1619,11 +1622,14 @@ public final class AiricraftCliMain {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
 			copy(view, payload, "available", "lastChatTick", "lastChatText");
 			Map<String, Object> dialogue = map(payload.get("dialogue"));
+			Map<String, Object> conversationSources = map(payload.get("conversationSources"));
 			copy(view, dialogue, "pendingReply", "pendingReplyReason", "degraded", "consecutiveFailureCount", "lastFailureType", "lastFailureTick");
+			copy(view, conversationSources, "canonicalMessageCount", "projectedMessageCount", "canonicalUserTurnCount", "projectedUserTurnCount", "hiddenKinds");
 			List<Map<String, Object>> recentTurns = maps(dialogue.get("recentTurns"));
 			view.put("recentTurnCount", recentTurns.size());
 			if (verbose) {
 				copy(view, dialogue, "lastResponse");
+				copy(view, payload, "conversation", "canonicalConversation", "projectedConversation", "conversationSources", "plannerJournal");
 				view.put("recentTurns", recentTurns);
 			}
 			return view;
@@ -1642,6 +1648,7 @@ public final class AiricraftCliMain {
 			List<Map<String, Object>> timelineTail = maps(payload.get("timelineTail"));
 			copy(view, planner, "configured", "plannerVisionMode", "inFlight", "plannerInFlight", "compactionInFlight", "toolInFlight", "activeGeneration", "currentPhase", "activeAttemptCount");
 			copy(view, dialogueState, "pendingReply", "pendingReplyReason", "degraded", "consecutiveFailureCount", "lastFailureType", "lastFailureTick");
+			copy(view, payload, "activeJob", "taskExecution");
 			copy(view, conversationSources, "canonicalMessageCount", "projectedMessageCount", "canonicalUserTurnCount", "projectedUserTurnCount", "hiddenKinds");
 			copy(view, taskProgressProbe, "active", "resourceKind", "baselineResourceCount", "currentResourceCount", "inventoryDelta", "targetQuantity", "collected", "remaining", "activeJobStatus", "blockedReason", "completionReason");
 			copy(view, chatProbe, "lastAttemptTick", "lastAttemptSource", "lastAttemptReusedPriorResponse", "lastSendSucceeded", "lastEmissionTick", "lastEmissionSource");
@@ -1651,6 +1658,7 @@ public final class AiricraftCliMain {
 			if (verbose) {
 				copy(view, dialogueState, "lastResponse");
 				copy(view, chatProbe, "lastAttemptText", "lastEmissionText");
+				copy(view, payload, "task", "missionExecution");
 				copy(view, conversationSources, "canonicalConversation", "projectedConversation");
 				view.put("plannerAttempts", plannerAttempts);
 				view.put("timelineTail", timelineTail);
@@ -1697,20 +1705,26 @@ public final class AiricraftCliMain {
 			Map<String, Object> planner = map(payload.get("planner"));
 			Map<String, Object> context = map(planner.get("context"));
 			Map<String, Object> eventPolicy = map(payload.get("eventPolicy"));
+			Map<String, Object> conversationSources = map(payload.get("conversationSources"));
 			List<Object> contextExcerpt = values(payload.get("contextExcerpt"));
 			if (payload.containsKey("taskExecution")) {
 				view.put("taskExecution", payload.get("taskExecution"));
+			}
+			if (payload.containsKey("activeJob")) {
+				view.put("activeJob", payload.get("activeJob"));
 			}
 			copy(view, planner, "configured", "plannerVisionMode", "inFlight", "plannerInFlight", "compactionInFlight", "captureInFlight", "toolInFlight", "toolUsed");
 			copy(view, planner, "coalescePending", "coalesceReadyAtMs", "coalesceWindowMs");
 			copy(view, context, "compactionTriggerTokens", "compactionPending", "acceptedTurnCount",
 				"pendingSemanticEventCount", "projectedPendingNoticeCount", "frozenPlannerMessageCount", "queuedTriggerCount",
 				"lastObservedEventSeqNo", "lastAcceptedTimeContextAtMs", "pendingSemanticGap", "overflowFlushPending");
+			copy(view, conversationSources, "canonicalMessageCount", "projectedMessageCount", "canonicalUserTurnCount", "projectedUserTurnCount", "hiddenKinds");
 			copy(view, eventPolicy, "activeRuleCount", "recentInterventionCount", "lastMatchedRuleId", "lastMatchedEffect");
 			view.put("contextExcerptLineCount", contextExcerpt.size());
 			if (verbose) {
 				copy(view, planner, "baseRequest", "lastCompactionResult");
 				copy(view, context, "lastObservedUsage", "acceptedAmbientContext", "activeCheckpoint");
+				copy(view, payload, "conversation", "canonicalConversation", "projectedConversation", "conversationSources", "plannerJournal");
 				view.put("contextExcerpt", contextExcerpt);
 			}
 			return view;

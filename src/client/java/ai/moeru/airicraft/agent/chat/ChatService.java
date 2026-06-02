@@ -3,11 +3,15 @@ package ai.moeru.airicraft.agent.chat;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
 
+import java.util.ArrayDeque;
+
 public final class ChatService {
 	public static final int MAX_CHAT_MESSAGE_LENGTH = 220;
+	private static final int RECENT_SENT_CHAT_LIMIT = 8;
 
 	private long lastChatTick = -1L;
 	private String lastChatText;
+	private final ArrayDeque<SentChat> recentSentChats = new ArrayDeque<>();
 
 	public boolean send(MinecraftClient client, String text, long tick) {
 		if (client == null || text == null || text.isBlank()) {
@@ -27,10 +31,23 @@ public final class ChatService {
 		networkHandler.sendChatMessage(sanitizedText);
 		lastChatTick = tick;
 		lastChatText = sanitizedText;
+		rememberSentChat(sanitizedText, tick);
 		return true;
 	}
 
-	static String sanitizeForChat(String text) {
+	public boolean isRecentSentChat(String text, long currentTick, long maxAgeTicks) {
+		if (text == null || text.isBlank()) {
+			return false;
+		}
+		for (SentChat sentChat : recentSentChats) {
+			if (sentChat.matches(text, currentTick, maxAgeTicks)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static String sanitizeForChat(String text) {
 		if (text == null || text.isBlank()) {
 			return "";
 		}
@@ -78,5 +95,25 @@ public final class ChatService {
 	public void clear() {
 		lastChatTick = -1L;
 		lastChatText = null;
+		recentSentChats.clear();
+	}
+
+	void rememberSentChat(String text, long tick) {
+		if (text == null || text.isBlank()) {
+			return;
+		}
+		recentSentChats.addLast(new SentChat(text, tick));
+		while (recentSentChats.size() > RECENT_SENT_CHAT_LIMIT) {
+			recentSentChats.removeFirst();
+		}
+	}
+
+	private record SentChat(String text, long tick) {
+		boolean matches(String candidate, long currentTick, long maxAgeTicks) {
+			if (tick < 0L || currentTick < tick) {
+				return false;
+			}
+			return currentTick - tick <= maxAgeTicks && text.equals(candidate);
+		}
 	}
 }

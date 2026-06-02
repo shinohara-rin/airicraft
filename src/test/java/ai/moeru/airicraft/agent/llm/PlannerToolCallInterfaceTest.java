@@ -431,16 +431,16 @@ class PlannerToolCallInterfaceTest {
 			""")) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port()));
 
-			PlannerResponse response = backend.generate(LlmConversation.of(List.of(
-				LlmChatMessage.system("system"),
-				LlmChatMessage.user("Alice said just now: @agent inspect", LlmMessageKind.USER_TURN)
-			))).payload();
+		PlannerResponse response = backend.generate(LlmConversation.of(List.of(
+			LlmChatMessage.system("system"),
+			LlmChatMessage.user("Alice said just now: @agent inspect", LlmMessageKind.USER_TURN)
+		))).payload();
 
-			assertEquals(List.of("inspect_inventory", "check_craftables"), response.toolCalls().stream()
-				.map(PlannerToolCall::name)
-				.toList());
-			assertEquals("inspect_inventory", response.toolCall().name());
-		}
+		assertEquals(List.of("inspect_inventory", "check_craftables"), response.toolCalls().stream()
+			.map(PlannerToolCall::name)
+			.toList());
+		assertEquals("inspect_inventory", response.toolCall().name());
+	}
 	}
 
 	private static com.google.gson.Gson gson() {

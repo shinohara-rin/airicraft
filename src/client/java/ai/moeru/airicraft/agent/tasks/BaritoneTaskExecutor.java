@@ -27,6 +27,9 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 	@Override
 	public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 		if (!facade.isLoaded()) {
+			if (activeTask.isPresent()) {
+				return failUnavailable(activeTask.get());
+			}
 			reset();
 			return Optional.empty();
 		}
@@ -129,6 +132,34 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 			null,
 			null
 		);
+		terminalEventTaskId = request.taskId();
+		terminalEventState = TaskExecutionState.FAILED;
+		terminalEventCause = null;
+		return Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			request.goal(),
+			TaskExecutionState.FAILED,
+			message,
+			null
+		));
+	}
+
+	private Optional<TaskTerminalEvent> failUnavailable(WorldTaskRequest request) {
+		String message = "baritone_unavailable";
+		snapshot = new TaskExecutionSnapshot(
+			TaskExecutionState.FAILED,
+			request.taskId(),
+			request.goal(),
+			null,
+			message,
+			null,
+			null
+		);
+		if (Objects.equals(request.taskId(), terminalEventTaskId)
+			&& terminalEventState == TaskExecutionState.FAILED
+			&& terminalEventCause == null) {
+			return Optional.empty();
+		}
 		terminalEventTaskId = request.taskId();
 		terminalEventState = TaskExecutionState.FAILED;
 		terminalEventCause = null;

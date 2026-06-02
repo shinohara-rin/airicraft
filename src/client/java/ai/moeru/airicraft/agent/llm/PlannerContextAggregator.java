@@ -237,7 +237,11 @@ public final class PlannerContextAggregator {
 		return buildPlannerFollowUpConversation(snapshot, List.of(toolCall), List.of(toolResult));
 	}
 
-	public LlmConversation buildPlannerFollowUpConversation(PlannerContextSnapshot snapshot, List<PlannerToolCall> toolCalls, List<String> toolResults) {
+	public LlmConversation buildPlannerFollowUpConversation(
+		PlannerContextSnapshot snapshot,
+		List<PlannerToolCall> toolCalls,
+		List<String> toolResults
+	) {
 		if (snapshot == null) {
 			throw new IllegalStateException("No planner context snapshot");
 		}
@@ -247,8 +251,9 @@ public final class PlannerContextAggregator {
 		LlmConversation conversation = snapshot.plannerConversation()
 			.withAppended(LlmChatMessage.assistantToolCalls("", toolCalls));
 		for (int index = 0; index < toolCalls.size(); index++) {
-			String toolResult = toolResults == null || index >= toolResults.size() ? null : toolResults.get(index);
-			conversation = conversation.withAppended(LlmChatMessage.tool(toolCalls.get(index).id(), toolResultContent(toolResult)));
+			PlannerToolCall toolCall = toolCalls.get(index);
+			String toolResult = toolResults == null || index >= toolResults.size() ? "" : toolResults.get(index);
+			conversation = conversation.withAppended(LlmChatMessage.tool(toolCall.id(), toolResultContent(toolResult)));
 		}
 		return conversation;
 	}

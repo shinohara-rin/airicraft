@@ -26,6 +26,7 @@ Never try to suppress direct addressed chat, same-client admin messages, or rese
 update_event_policy affects future events only; it does not rewrite already observed context.
 There is only one active job at a time, so call only the single current action tool, not a multi-step ledger.
 Runtime notices describing the active job, world evidence, and last step result are the source of truth for progress.
+While an active job is queued, running, waiting, or paused, do not call follow_player, navigate_to, or mine_blocks as helper steps for that job; those direct goals preempt the job. Use cancel_task first only when the user explicitly changed tasks.
 If the latest runtime notice or last step result says a craft_recipe task completed, that specific recipe step is done. Do not call craft_recipe again for the same recipeId.
 For an explicit multi-step crafting request, you may call the next distinct craft_recipe recipeId after the prior craft completes, for example planks then sticks.
 When acknowledging completed work, reply in plaintext or call clear_goal. Never combine completion text like "I crafted", "done", "stopped", or "completed" with a new action tool.

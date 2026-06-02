@@ -159,15 +159,16 @@ class OpenAiCompatibleLlmBackendTest {
 
 			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
 
-			assertEquals(List.of("inspect_inventory", "check_craftables"), result.payload().toolCalls().stream()
-				.map(PlannerToolCall::name)
-				.toList());
-			assertEquals("inspect_inventory", result.payload().toolCall().name());
-		}
+		assertEquals(List.of("inspect_inventory", "check_craftables"), result.payload().toolCalls().stream()
+			.map(PlannerToolCall::name)
+			.toList());
+		assertEquals("", result.payload().replyText());
+		assertEquals("inspect_inventory", result.payload().toolCall().name());
+	}
 	}
 
 	@Test
-	void generatePrefersSingleEntityActionWhenMixedWithReadToolCalls() throws Exception {
+	void generateParsesMixedReadAndEntityActionToolCalls() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -196,12 +197,13 @@ class OpenAiCompatibleLlmBackendTest {
 
 			assertNotNull(result.payload().toolCall());
 			assertEquals("attack_entity", result.payload().toolCall().name());
+			assertEquals(1, result.payload().toolCalls().size());
 			assertEquals("slime-1", result.payload().toolCall().arguments().get("uuid").getAsString());
 		}
 	}
 
 	@Test
-	void generateIncludesToolNamesInMultipleToolCallParseErrors() throws Exception {
+	void generateRejectsMultipleActionToolCallsBeforeExecutionValidation() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [

@@ -58,7 +58,10 @@ public record LlmChatMessage(
 	}
 
 	public static LlmChatMessage assistantToolCalls(String content, List<PlannerToolCall> toolCalls) {
-		return new LlmChatMessage("assistant", content, LlmMessageKind.ASSISTANT_TURN, null, null, Objects.requireNonNull(toolCalls, "toolCalls"), null);
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			throw new IllegalArgumentException("toolCalls");
+		}
+		return new LlmChatMessage("assistant", content, LlmMessageKind.ASSISTANT_TURN, null, null, toolCalls, null);
 	}
 
 	public static LlmChatMessage tool(String toolCallId, String content) {

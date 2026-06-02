@@ -4,6 +4,7 @@ import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
+import ai.moeru.airicraft.agent.debug.ConversationSourcesDebugSnapshot;
 import ai.moeru.airicraft.agent.dialogue.DialogueTurn;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
@@ -1096,6 +1097,36 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void conversationSourcesMatchJournalProjectedSnapshots() {
+		RecordingBackend backend = new RecordingBackend();
+		AgentDebugRecorder debugRecorder = new AgentDebugRecorder();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			debugRecorder
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "A"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, replyOnly("reply A"));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertTrue(result.succeeded());
+
+		PlannerConversationDebugSnapshot canonical = orchestrator.conversationDebugSnapshot();
+		PlannerConversationDebugSnapshot projected = orchestrator.projectedConversationDebugSnapshot();
+		ConversationSourcesDebugSnapshot sources = debugRecorder.conversationSourcesSnapshot();
+		assertEquals(canonical, sources.canonicalConversation());
+		assertEquals(projected, sources.projectedConversation());
+		assertEquals(canonical.messages().size(), sources.canonicalMessageCount());
+		assertEquals(projected.messages().size(), sources.projectedMessageCount());
+		assertEquals(1, sources.canonicalUserTurnCount());
+		assertEquals(1, sources.projectedUserTurnCount());
+		assertNotNull(findConversationMessage(projected, PlannerConversationDebugKind.ASSISTANT_TURN, "reply A"));
+	}
+
+	@Test
 	void conversationSnapshotShowsGoalSetOutcomeWhenReplyTextIsBlank() {
 		RecordingBackend backend = new RecordingBackend();
 		PlannerOrchestrator orchestrator = newOrchestrator(backend, CurrentViewVisionTool.disabled(), PlannerVisionMode.EXTERNAL_SUMMARY);
@@ -1507,6 +1538,102 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void multipleReadToolCallsExecuteAndReturnAllResultsInOneFollowUp() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:oak_log=3}",
+			"Tool result for check_craftables: availableCrafts=oak_planks"
+		);
+		RecordingLifecycleListener lifecycleListener = new RecordingLifecycleListener();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			lifecycleListener
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent inspect and craft"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, PlannerResponse.toolCalls(List.of(
+			new PlannerToolCall("call_inv", "inspect_inventory", new JsonObject(), null, null),
+			new PlannerToolCall("call_craftables", "check_craftables", new JsonObject(), null, null)
+		), null));
+
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		assertEquals(1, inventoryTool.inventoryRequestCount());
+		assertEquals(1, inventoryTool.craftablesRequestCount());
+
+		LlmConversation followUp = backend.conversation(1);
+		LlmChatMessage replayedToolCalls = followUp.messages().stream()
+			.filter(message -> "assistant".equals(message.role()) && message.hasToolCalls())
+			.filter(message -> message.toolCalls().stream().anyMatch(toolCall -> "inspect_inventory".equals(toolCall.name())))
+			.findFirst()
+			.orElseThrow();
+		assertEquals(2, replayedToolCalls.toolCalls().size());
+		assertEquals("inspect_inventory", replayedToolCalls.toolCalls().get(0).name());
+		assertEquals("check_craftables", replayedToolCalls.toolCalls().get(1).name());
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_inv".equals(message.toolCallId())
+				&& message.content().contains("minecraft:oak_log=3")));
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craftables".equals(message.toolCallId())
+				&& message.content().contains("oak_planks")));
+		assertEquals(2, lifecycleListener.completedToolResults().size());
+		assertTrue(lifecycleListener.completedToolResults().get(0).contains("inspect_inventory"));
+		assertTrue(lifecycleListener.completedToolResults().get(1).contains("check_craftables"));
+		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
+		assertTrue(taskCard.text().contains("Tool calls: inspect_inventory,check_craftables"));
+	}
+
+	@Test
+	void multipleActionToolCallsAreRejectedBeforeDispatch() {
+		RecordingBackend backend = new RecordingBackend();
+		ArrayList<String> invokedTools = new ArrayList<>();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			3,
+			10,
+			10,
+			100,
+			128,
+			Clock.systemUTC(),
+			toolCall -> {
+				invokedTools.add(toolCall.name());
+				return CompletableFuture.completedFuture("Tool result for " + toolCall.name() + ": ok");
+			},
+			PlannerToolNarrationSink.NO_OP
+		);
+
+		JsonObject navigateArgs = new JsonObject();
+		navigateArgs.addProperty("x", 1);
+		navigateArgs.addProperty("y", 64);
+		navigateArgs.addProperty("z", 2);
+		navigateArgs.addProperty("exactY", false);
+		JsonObject craftArgs = new JsonObject();
+		craftArgs.addProperty("recipeId", "minecraft:oak_planks");
+		craftArgs.addProperty("times", 1);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent move and craft"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, PlannerResponse.toolCalls(List.of(
+			new PlannerToolCall("call_nav", PlannerToolCatalog.NAVIGATE_TO, navigateArgs, null, null),
+			new PlannerToolCall("call_craft", PlannerToolCatalog.CRAFT_RECIPE, craftArgs, null, null)
+		), null));
+
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertFalse(result.succeeded());
+		assertEquals(LlmFailureType.PARSE_ERROR, result.failureType());
+		assertTrue(result.failureMessage().contains("only read-only text tools can be batched"));
+		assertTrue(invokedTools.isEmpty());
+	}
+
+	@Test
 	void consecutiveToolFollowUpKeepsPriorToolExchangeInPrompt() {
 		RecordingBackend backend = new RecordingBackend();
 		StubInventoryTool inventoryTool = new StubInventoryTool(
@@ -1633,7 +1760,7 @@ class PlannerOrchestratorTest {
 
 		assertFalse(result.succeeded());
 		assertEquals(LlmFailureType.PARSE_ERROR, result.failureType());
-		assertTrue(result.failureMessage().contains("unsupported tool batch"));
+		assertTrue(result.failureMessage().contains("multiple tools"));
 		assertEquals(0, inventoryTool.inventoryRequestCount());
 	}
 
@@ -1830,6 +1957,79 @@ class PlannerOrchestratorTest {
 		assertEquals(2L, result.generation());
 	}
 
+	@Test
+	void pendingActionToolIsJournaledBeforeQueuedTriggersStart() {
+		RecordingBackend backend = new RecordingBackend();
+		MutableClock clock = new MutableClock(Instant.ofEpochMilli(1_000L), ZoneId.of("Asia/Taipei"));
+		CompletableFuture<String> actionResult = new CompletableFuture<>();
+		ArrayList<String> invokedTools = new ArrayList<>();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			3,
+			10,
+			10,
+			100,
+			128,
+			clock,
+			toolCall -> {
+				invokedTools.add(toolCall.name());
+				return actionResult;
+			},
+			PlannerToolNarrationSink.NO_OP
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent craft sticks"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		JsonObject craftArgs = new JsonObject();
+		craftArgs.addProperty("recipeId", "spruce_planks_x2_to_stick");
+		craftArgs.addProperty("times", 1);
+		backend.succeed(0, new PlannerResponse(
+			"",
+			new PlannerToolCall("call_craft", PlannerToolCatalog.CRAFT_RECIPE, craftArgs, "Crafting sticks.", null),
+			null
+		));
+		awaitInvokedToolCount(orchestrator, invokedTools, 1, Duration.ofSeconds(1));
+
+		orchestrator.submit(requestAt(11L, 1_100L, "self", "Recent context updates require one combined response."));
+		assertEquals(1, backend.callCount());
+		assertEquals(0L, orchestrator.debugSnapshot().supersededCount());
+
+		actionResult.complete("Tool result for craft_recipe: completed recipeId=spruce_planks_x2_to_stick times=1 state=SUCCEEDED");
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		LlmConversation toolFollowUp = backend.conversation(1);
+		assertTrue(toolFollowUp.messages().stream()
+			.anyMatch(message -> "assistant".equals(message.role())
+				&& message.hasToolCalls()
+				&& message.toolCalls().stream().anyMatch(toolCall -> PlannerToolCatalog.CRAFT_RECIPE.equals(toolCall.name()))));
+		assertTrue(toolFollowUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craft".equals(message.toolCallId())
+				&& message.content().contains("spruce_planks_x2_to_stick")));
+
+		backend.succeed(1, replyOnly("Crafted sticks."));
+		PlannerExecutionResult actionResultReply = awaitResult(orchestrator);
+		assertTrue(actionResultReply.succeeded());
+		assertEquals(1L, actionResultReply.generation());
+
+		orchestrator.recordAssistantTurn(new DialogueTurn("agent", actionResultReply.response().replyText(), 12L, 1_200L));
+		orchestrator.onAcceptedReplyRecorded();
+		awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(1));
+
+		LlmConversation queuedPrompt = backend.conversation(2);
+		assertTrue(queuedPrompt.messages().stream()
+			.anyMatch(message -> "assistant".equals(message.role())
+				&& message.hasToolCalls()
+				&& message.toolCalls().stream().anyMatch(toolCall -> PlannerToolCatalog.CRAFT_RECIPE.equals(toolCall.name()))));
+		assertTrue(queuedPrompt.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craft".equals(message.toolCallId())
+				&& message.content().contains("spruce_planks_x2_to_stick")));
+		assertPromptContains(queuedPrompt, "Recent context updates require one combined response.");
+	}
+
 	private static void assertActionToolRoute(String toolName, JsonObject arguments) {
 		RecordingBackend backend = new RecordingBackend();
 		ArrayList<String> invokedTools = new ArrayList<>();
@@ -1931,6 +2131,68 @@ class PlannerOrchestratorTest {
 		PlannerVisionMode visionMode
 	) {
 		return newOrchestrator(backend, visionTool, inventoryTool, visionMode, 3, Clock.systemDefaultZone());
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		PlannerLifecycleListener lifecycleListener
+	) {
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemDefaultZone();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(backend),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), visionMode),
+			visionTool,
+			inventoryTool,
+			visionMode,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			lifecycleListener,
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP
+		);
+	}
+
+	private static PlannerOrchestrator newOrchestrator(
+		LlmBackend backend,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		AgentDebugRecorder debugRecorder
+	) {
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemDefaultZone();
+		PlannerToolRegistry toolRegistry = PlannerToolRegistry.empty();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(backend),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config, toolRegistry)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), visionMode, toolRegistry),
+			visionTool,
+			inventoryTool,
+			visionMode,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			PlannerLifecycleListener.NO_OP,
+			debugRecorder,
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			toolRegistry
+		);
 	}
 
 	private static PlannerOrchestrator newOrchestrator(
@@ -2200,6 +2462,29 @@ class PlannerOrchestratorTest {
 				+ ", snapshot="
 				+ orchestrator.debugSnapshot()
 		);
+	}
+
+	private static void awaitInvokedToolCount(
+		PlannerOrchestrator orchestrator,
+		List<String> invokedTools,
+		int expectedCount,
+		Duration timeout
+	) {
+		Instant deadline = Instant.now().plus(timeout);
+		while (Instant.now().isBefore(deadline)) {
+			orchestrator.poll();
+			if (invokedTools.size() >= expectedCount) {
+				return;
+			}
+			try {
+				Thread.sleep(10L);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new AssertionError("Interrupted while waiting for invoked tool count", exception);
+			}
+		}
+		throw new AssertionError("Timed out waiting for invoked tool count " + expectedCount + ", actual=" + invokedTools.size());
 	}
 
 	private static void awaitRetryPending(PlannerOrchestrator orchestrator, Duration timeout) {
@@ -2640,6 +2925,19 @@ class PlannerOrchestratorTest {
 
 		private synchronized void fail(int index, LlmFailureType failureType, String message) {
 			responses.get(index).completeExceptionally(new LlmBackendException(failureType, message));
+		}
+	}
+
+	private static final class RecordingLifecycleListener implements PlannerLifecycleListener {
+		private final List<String> completedToolResults = new ArrayList<>();
+
+		@Override
+		public synchronized void onToolCompleted(long generation, String toolResult, boolean imageAttached) {
+			completedToolResults.add(toolResult);
+		}
+
+		private synchronized List<String> completedToolResults() {
+			return List.copyOf(completedToolResults);
 		}
 	}
 
