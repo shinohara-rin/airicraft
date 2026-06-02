@@ -1143,6 +1143,32 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void clearGoalEventEmitsWhenGoalAlreadyClearedByTaskRuntime() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		runtime.injectGoalForTests(new GoalSnapshot(
+			GoalType.FOLLOW_PLAYER,
+			"Alice",
+			null,
+			null,
+			10L,
+			"test"
+		));
+		runtime.injectGoalForTests(null);
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"Stopping.",
+			new DialogueIntent(DialogueIntentType.CLEAR_GOAL, null, null),
+			20L
+		));
+
+		SemanticEvent event = runtime.recentEvents(null).events().stream()
+			.filter(current -> "planner.goal_cleared".equals(current.type()))
+			.findFirst()
+			.orElseThrow();
+		assertEquals("planner_response", event.payload().get("source"));
+	}
+
+	@Test
 	void cancelTaskRecordsCancelledEventImmediately() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

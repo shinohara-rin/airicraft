@@ -1822,13 +1822,18 @@ public final class EmbodiedAgentRuntime {
 			return;
 		}
 
-		if (response.intent().type() == DialogueIntentType.CLEAR_GOAL && previousGoal.isPresent() && currentGoal.isEmpty()) {
+		if (response.intent().type() == DialogueIntentType.CLEAR_GOAL && currentGoal.isEmpty()) {
 			java.util.LinkedHashMap<String, Object> goalPayload = new java.util.LinkedHashMap<>();
-			goalPayload.put("goalType", previousGoal.get().type().name());
-			if (previousGoal.get().targetPlayer() != null && !previousGoal.get().targetPlayer().isBlank()) {
-				goalPayload.put("targetPlayer", previousGoal.get().targetPlayer());
+			if (previousGoal.isPresent()) {
+				goalPayload.put("goalType", previousGoal.get().type().name());
+				if (previousGoal.get().targetPlayer() != null && !previousGoal.get().targetPlayer().isBlank()) {
+					goalPayload.put("targetPlayer", previousGoal.get().targetPlayer());
+				}
+				goalPayload.put("source", previousGoal.get().source());
 			}
-			goalPayload.put("source", previousGoal.get().source());
+			else {
+				goalPayload.put("source", "planner_response");
+			}
 			eventBuffer.append(tickCount, "planner.goal_cleared", goalPayload);
 		}
 	}
