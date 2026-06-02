@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -345,7 +346,7 @@ class OtelObservabilitySpanLayoutTest {
 	}
 
 	@Test
-	void parseFailureSpanRetainsRawPlannerResponseEvenWhenOutputsDisabled() throws Exception {
+	void multiToolSpanRetainsEveryParsedToolCallInOutput() throws Exception {
 		CollectingSpanExporter exporter = new CollectingSpanExporter();
 		OtelObservability observability = new OtelObservability(
 			new AgentConfig.ObservabilityConfig(
@@ -360,7 +361,7 @@ class OtelObservabilitySpanLayoutTest {
 				"weave",
 				false,
 				true,
-				false,
+				true,
 				false
 			),
 			SimpleSpanProcessor.create(exporter)
@@ -392,14 +393,13 @@ class OtelObservabilitySpanLayoutTest {
 			Context turnContext = observability.startTurnSpan(null, "session:test:speaker=rin");
 			Context plannerContext = observability.startChildSpan(AgentObservability.PLANNER_REQUEST_SPAN_NAME, turnContext);
 			try (Scope ignored = plannerContext.makeCurrent()) {
-				LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-					backend.generate(LlmConversation.of(List.of(
+				PlannerResponse response = backend.generate(LlmConversation.of(List.of(
 						LlmChatMessage.system("You are Airicraft."),
 						LlmChatMessage.user("Attack the slime.", LlmMessageKind.USER_TURN)
-					)))
-				);
-				assertTrue(exception.getMessage().contains("attack_entity"));
-				assertTrue(exception.getMessage().contains("clear_goal"));
+					))).payload();
+				assertEquals(2, response.toolCalls().size());
+				assertEquals("attack_entity", response.toolCalls().get(0).name());
+				assertEquals("clear_goal", response.toolCalls().get(1).name());
 			}
 			finally {
 				observability.endSpan(plannerContext);
@@ -421,9 +421,8 @@ class OtelObservabilitySpanLayoutTest {
 		assertTrue(outputValue.contains("attack_entity"));
 		assertTrue(outputValue.contains("clear_goal"));
 		assertTrue(completionValue.contains("attack_entity"));
-		assertEquals("PARSE_ERROR", failureType);
-		assertTrue(plannerSpan.getStatus().getDescription().contains("attack_entity"));
-		assertTrue(plannerSpan.getStatus().getDescription().contains("clear_goal"));
+		assertTrue(completionValue.contains("clear_goal"));
+		assertNull(failureType);
 	}
 
 	@Test
