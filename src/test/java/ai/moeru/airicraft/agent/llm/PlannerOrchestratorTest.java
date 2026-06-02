@@ -563,6 +563,82 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void nativeVisionModePassesTargetedTakeALookRequest() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		JsonObject args = new JsonObject();
+		args.addProperty("direction", "west");
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerToolCall("call_look_west", "take_a_look", args, null, null),
+			null
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"I looked west.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		StubVisionTool visionTool = new StubVisionTool(
+			false,
+			CompletableFuture.completedFuture(capturedScreenshot()),
+			CompletableFuture.failedFuture(new AssertionError("External summary should not be requested")),
+			List.of("lookTarget=direction direction=west")
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(backend, visionTool, PlannerVisionMode.NATIVE_TOOL_IMAGE);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals(ViewCaptureRequest.TargetType.DIRECTION, visionTool.captureRequests().get(0).targetType());
+		assertEquals("west", visionTool.captureRequests().get(0).direction());
+		assertTrue(result.request().toolResult().contains("Tool result for take_a_look: current first-person view attached."));
+		assertTrue(result.request().toolResult().contains("lookTarget=direction direction=west"));
+	}
+
+	@Test
+	void externalVisionModeAppendsTargetedTakeALookWarning() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		JsonObject args = new JsonObject();
+		args.addProperty("x", 10);
+		args.addProperty("y", 64);
+		args.addProperty("z", -5);
+		args.addProperty("prompt", "Check whether this block is visible.");
+		backend.injectMockResponse(new PlannerResponse(
+			"",
+			new PlannerToolCall("call_look_block", "take_a_look", args, null, null),
+			null
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"That block is blocked from view.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		StubVisionTool visionTool = new StubVisionTool(
+			true,
+			CompletableFuture.completedFuture(capturedScreenshot()),
+			CompletableFuture.completedFuture(new VisionDescription(
+				"I see a wall.",
+				"gpt-4.1-mini",
+				1L
+			)),
+			List.of(
+				"lookTarget=block x=10 y=64 z=-5",
+				"LOOK_WARNING: target_block_los_blocked blockingBlockId=minecraft:stone blockingPos=9,64,-5"
+			)
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(backend, visionTool, PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		orchestrator.submit(baseRequest(null));
+		PlannerExecutionResult result = awaitResult(orchestrator);
+
+		assertNotNull(result);
+		assertTrue(result.succeeded());
+		assertEquals(ViewCaptureRequest.TargetType.BLOCK, visionTool.captureRequests().get(0).targetType());
+		assertTrue(result.request().toolResult().contains("I see a wall."));
+		assertTrue(result.request().toolResult().contains("lookTarget=block x=10 y=64 z=-5"));
+		assertTrue(result.request().toolResult().contains("LOOK_WARNING: target_block_los_blocked"));
+	}
+
+	@Test
 	void boundedToolPlanRejectsExcessiveToolRequests() {
 		int toolRequestCountLimit = 20;
 
@@ -2170,6 +2246,8 @@ class PlannerOrchestratorTest {
 		private final boolean configured;
 		private final CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture;
 		private final CompletableFuture<VisionDescription> descriptionFuture;
+		private final List<String> metadataLines;
+		private final List<ViewCaptureRequest> captureRequests = new ArrayList<>();
 		private int captureRequestCount;
 		private int descriptionRequestCount;
 
@@ -2178,9 +2256,19 @@ class PlannerOrchestratorTest {
 			CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture,
 			CompletableFuture<VisionDescription> descriptionFuture
 		) {
+			this(configured, captureFuture, descriptionFuture, List.of());
+		}
+
+		private StubVisionTool(
+			boolean configured,
+			CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture,
+			CompletableFuture<VisionDescription> descriptionFuture,
+			List<String> metadataLines
+		) {
 			this.configured = configured;
 			this.captureFuture = captureFuture;
 			this.descriptionFuture = descriptionFuture;
+			this.metadataLines = List.copyOf(metadataLines);
 		}
 
 		@Override
@@ -2190,8 +2278,14 @@ class PlannerOrchestratorTest {
 
 		@Override
 		public CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> requestCapture() {
+			return requestCapture(ViewCaptureRequest.current()).thenApply(ViewCaptureResult::screenshot);
+		}
+
+		@Override
+		public CompletableFuture<ViewCaptureResult> requestCapture(ViewCaptureRequest request) {
 			captureRequestCount++;
-			return captureFuture;
+			captureRequests.add(request);
+			return captureFuture.thenApply(screenshot -> new ViewCaptureResult(screenshot, metadataLines));
 		}
 
 		@Override
@@ -2206,6 +2300,10 @@ class PlannerOrchestratorTest {
 
 		private int descriptionRequestCount() {
 			return descriptionRequestCount;
+		}
+
+		private List<ViewCaptureRequest> captureRequests() {
+			return List.copyOf(captureRequests);
 		}
 
 		private CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture() {

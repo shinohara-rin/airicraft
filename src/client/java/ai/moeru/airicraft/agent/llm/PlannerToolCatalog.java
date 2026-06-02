@@ -46,7 +46,21 @@ public final class PlannerToolCatalog {
 		return List.of(
 			tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("prompt", string("Short prompt describing what to inspect."))
+				prop("prompt", string("Short prompt describing what to inspect.")),
+				prop("direction", enumString("Optional compass direction to face before capture.", List.of(
+					"north",
+					"northeast",
+					"east",
+					"southeast",
+					"south",
+					"southwest",
+					"west",
+					"northwest"
+				))),
+				prop("x", integer("Optional target block x coordinate. Provide x, y, and z together.")),
+				prop("y", integer("Optional target block y coordinate. Provide x, y, and z together.")),
+				prop("z", integer("Optional target block z coordinate. Provide x, y, and z together.")),
+				prop("targetPlayer", optionalString("Optional loaded player name to look at before capture."))
 			), List.of()),
 			tool(INSPECT_INVENTORY, "Inspect current inventory counts.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -305,7 +319,8 @@ public final class PlannerToolCatalog {
 
 	private static void validateArguments(String name, JsonObject arguments) {
 		switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CHECK_SMELTABLES, INSPECT_SMELTING, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
+			case TAKE_A_LOOK -> validateTakeALookArguments(arguments);
+			case INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
 			}
 			case FOLLOW_PLAYER -> requireString(arguments, "targetPlayer");
 			case NAVIGATE_TO -> {
@@ -373,6 +388,28 @@ public final class PlannerToolCatalog {
 		boolean hasEntityTypeId = getString(arguments, "entityTypeId").isPresent();
 		if (!hasUuid && !hasName && !hasEntityTypeId) {
 			throw new JsonParseException("entity selector requires uuid, name, or entityTypeId");
+		}
+	}
+
+	private static void validateTakeALookArguments(JsonObject arguments) {
+		boolean hasDirection = getString(arguments, "direction").isPresent();
+		boolean hasPlayer = getString(arguments, "targetPlayer").isPresent();
+		boolean hasAnyCoordinate = arguments.has("x") || arguments.has("y") || arguments.has("z");
+		boolean hasBlock = hasAnyCoordinate;
+		int targetModes = (hasDirection ? 1 : 0) + (hasBlock ? 1 : 0) + (hasPlayer ? 1 : 0);
+		if (targetModes > 1) {
+			throw new JsonParseException("take_a_look accepts only one of direction, block coordinates, or targetPlayer");
+		}
+		if (hasDirection) {
+			String direction = requireString(arguments, "direction").toLowerCase(Locale.ROOT);
+			if (!List.of("north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest").contains(direction)) {
+				throw new JsonParseException("Unsupported direction: " + direction);
+			}
+		}
+		if (hasBlock) {
+			requireInt(arguments, "x");
+			requireInt(arguments, "y");
+			requireInt(arguments, "z");
 		}
 	}
 

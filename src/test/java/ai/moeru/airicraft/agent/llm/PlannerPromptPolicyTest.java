@@ -103,6 +103,18 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptExplainsTargetedTakeALook() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("take_a_look can optionally face one target"));
+		assertTrue(prompt.contains("direction north/northeast"));
+		assertTrue(prompt.contains("block coordinates x/y/z"));
+		assertTrue(prompt.contains("targetPlayer"));
+		assertTrue(prompt.contains("LOOK_WARNING"));
+		assertTrue(prompt.contains("not follow_player"));
+	}
+
+	@Test
 	void systemPromptIncludesProviderInstructions() {
 		String prompt = PlannerPromptPolicy.systemPrompt(
 			PlannerVisionMode.EXTERNAL_SUMMARY,
