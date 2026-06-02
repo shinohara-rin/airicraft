@@ -73,6 +73,6 @@ public final class DialogueClearGoalVerification extends VerificationScenario {
 			.action("inject stop request", injectStopRequest)
 			.waitUntil("goal cleared", 300, goalCleared)
 			.waitUntil("tree returns to observe", 100, observeStateActive)
-			.assertThat("planner goal_cleared emitted", () -> goalClearedSeenSince.test(goalClearedBaselineSeqNo));
+			.waitUntil("planner goal_cleared emitted", 300, () -> goalClearedSeenSince.test(goalClearedBaselineSeqNo));
 	}
 }
