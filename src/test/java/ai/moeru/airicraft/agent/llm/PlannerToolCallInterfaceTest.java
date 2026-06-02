@@ -259,6 +259,8 @@ class PlannerToolCallInterfaceTest {
 		assertTrue(toolNames(tools).contains("inspect_smelting"));
 		assertTrue(toolNames(tools).contains("collect_smelted_items"));
 		assertTrue(toolNames(tools).contains("cancel_smelting"));
+		assertEquals("check_smeltables", PlannerToolCatalog.parseToolCall(toolCall("check_smeltables", "{}")).name());
+		assertEquals("inspect_smelting", PlannerToolCatalog.parseToolCall(toolCall("inspect_smelting", "{}")).name());
 
 		PlannerToolCall smeltCall = PlannerToolCatalog.parseToolCall(toolCall("smelt_items", """
 			{"optionId":"smelt:iron:nearby-1","inputQuantity":3,"fuelMode":"manual","fuelItemId":"minecraft:coal","fuelQuantity":1,"confirmationToken":"confirm-1"}

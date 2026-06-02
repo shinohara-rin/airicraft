@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 public final class PlannerToolCatalog {
 	public static final String TAKE_A_LOOK = "take_a_look";
@@ -39,12 +40,10 @@ public final class PlannerToolCatalog {
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
 
-	private PlannerToolCatalog() {
-	}
-
-	public static List<Map<String, Object>> openAiTools() {
-		return List.of(
-			tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
+	private static final Consumer<JsonObject> NO_ARGUMENT_VALIDATION = arguments -> {
+	};
+	private static final List<BuiltInTool> BUILT_IN_TOOLS = List.of(
+		builtInTool(TAKE_A_LOOK, true, tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Short prompt describing what to inspect.")),
 				prop("direction", enumString("Optional compass direction to face before capture.", List.of(
@@ -61,54 +60,54 @@ public final class PlannerToolCatalog {
 				prop("y", integer("Optional target block y coordinate. Provide x, y, and z together.")),
 				prop("z", integer("Optional target block z coordinate. Provide x, y, and z together.")),
 				prop("targetPlayer", optionalString("Optional loaded player name to look at before capture."))
-			), List.of()),
-			tool(INSPECT_INVENTORY, "Inspect current inventory counts.", properties(
+			), List.of()), PlannerToolCatalog::validateTakeALookArguments),
+		builtInTool(INSPECT_INVENTORY, true, tool(INSPECT_INVENTORY, "Inspect current inventory counts.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional inventory question."))
-			), List.of()),
-			tool(CHECK_CRAFTABLES, "Check currently executable crafting options.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(CHECK_CRAFTABLES, true, tool(CHECK_CRAFTABLES, "Check currently executable crafting options.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional crafting question."))
-			), List.of()),
-			tool(CHECK_SMELTABLES, "Check currently executable smelting options and ranked furnace candidates.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(CHECK_SMELTABLES, true, tool(CHECK_SMELTABLES, "Check currently executable smelting options and ranked furnace candidates.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional smelting question."))
-			), List.of()),
-			tool(INSPECT_SMELTING, "Inspect Airicraft-owned smelting processes and nearby furnace observations.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(INSPECT_SMELTING, true, tool(INSPECT_SMELTING, "Inspect Airicraft-owned smelting processes and nearby furnace observations.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional smelting status question."))
-			), List.of()),
-			tool(INSPECT_NEARBY_ENTITIES, "List nearby loaded entities with exact selectors such as uuid, name, entityTypeId, distance, and health when available.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(INSPECT_NEARBY_ENTITIES, true, tool(INSPECT_NEARBY_ENTITIES, "List nearby loaded entities with exact selectors such as uuid, name, entityTypeId, distance, and health when available.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional nearby-entity question."))
-			), List.of()),
-			tool(FOLLOW_PLAYER, "Follow a named player.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(FOLLOW_PLAYER, false, tool(FOLLOW_PLAYER, "Follow a named player.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("targetPlayer", string("Player name to follow."))
-			), List.of("targetPlayer")),
-			tool(NAVIGATE_TO, "Navigate to a block position.", properties(
+			), List.of("targetPlayer")), PlannerToolCatalog::validateFollowPlayerArguments),
+		builtInTool(NAVIGATE_TO, false, tool(NAVIGATE_TO, "Navigate to a block position.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("x", number("Block x coordinate.")),
 				prop("y", number("Block y coordinate.")),
 				prop("z", number("Block z coordinate.")),
 				prop("exactY", bool("Whether y must match exactly."))
-			), List.of("x", "y", "z", "exactY")),
-			tool(MINE_BLOCKS, "Mine matching blocks.", properties(
+			), List.of("x", "y", "z", "exactY")), PlannerToolCatalog::validateNavigateToArguments),
+		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("blockIds", stringArray("Namespaced block ids to mine.")),
 				prop("quantity", integer("Number of blocks to mine."))
-			), List.of("blockIds", "quantity")),
-			tool(COLLECT_RESOURCE, "Collect a supported resource kind.", properties(
+			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
+		builtInTool(COLLECT_RESOURCE, false, tool(COLLECT_RESOURCE, "Collect a supported resource kind.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("resourceKind", enumString("Resource kind.", List.of("WOOD_LOGS"))),
 				prop("quantity", integer("Quantity to collect."))
-			), List.of("resourceKind", "quantity")),
-			tool(CRAFT_RECIPE, "Run a listed crafting recipe, including automatic crafting-table setup for 3x3 recipes.", properties(
+			), List.of("resourceKind", "quantity")), PlannerToolCatalog::validateCollectResourceArguments),
+		builtInTool(CRAFT_RECIPE, false, tool(CRAFT_RECIPE, "Run a listed crafting recipe, including automatic crafting-table setup for 3x3 recipes.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("recipeId", string("Exact recipe id from check_craftables.")),
 				prop("times", integer("Recipe run count."))
-			), List.of("recipeId", "times")),
-			tool(SMELT_ITEMS, "Start one background smelting process from an exact optionId returned by check_smeltables.", properties(
+			), List.of("recipeId", "times")), PlannerToolCatalog::validateCraftRecipeArguments),
+		builtInTool(SMELT_ITEMS, false, tool(SMELT_ITEMS, "Start one background smelting process from an exact optionId returned by check_smeltables.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("optionId", string("Exact optionId from check_smeltables.")),
 				prop("inputQuantity", integer("Number of input items to smelt.")),
@@ -116,55 +115,64 @@ public final class PlannerToolCatalog {
 				prop("fuelItemId", optionalString("Required when fuelMode is manual. Exact namespaced fuel item id.")),
 				prop("fuelQuantity", integer("Fuel item quantity for manual fuel. Use 0 or omit for auto fuel.")),
 				prop("confirmationToken", optionalString("Short-lived token returned when an occupied or stale furnace requires confirmation."))
-			), List.of("optionId", "inputQuantity")),
-			tool(COLLECT_SMELTED_ITEMS, "Collect output from an Airicraft-owned smelting process, or from an untracked occupied furnace with confirmation.", properties(
+			), List.of("optionId", "inputQuantity")), PlannerToolCatalog::validateSmeltItemsArguments),
+		builtInTool(COLLECT_SMELTED_ITEMS, false, tool(COLLECT_SMELTED_ITEMS, "Collect output from an Airicraft-owned smelting process, or from an untracked occupied furnace with confirmation.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("processId", optionalString("Airicraft-owned process id from smelt_items or inspect_smelting.")),
 				prop("confirmationToken", optionalString("Short-lived token required for untracked or occupied furnace collection."))
-			), List.of()),
-			tool(CANCEL_SMELTING, "Stop tracking an Airicraft-owned smelting process without reclaiming furnace contents.", properties(
+			), List.of()), PlannerToolCatalog::validateCollectSmeltedItemsArguments),
+		builtInTool(CANCEL_SMELTING, false, tool(CANCEL_SMELTING, "Stop tracking an Airicraft-owned smelting process without reclaiming furnace contents.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("processId", string("Airicraft-owned process id to stop tracking."))
-			), List.of("processId")),
-			tool(DROP_ITEMS, "Drop exact items from current inventory at the current position.", properties(
+			), List.of("processId")), PlannerToolCatalog::validateCancelSmeltingArguments),
+		builtInTool(DROP_ITEMS, false, tool(DROP_ITEMS, "Drop exact items from current inventory at the current position.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
-			), List.of("itemId", "quantity")),
-			tool(GIVE_PLAYER, "Drop exact items for a named nearby player to pick up.", properties(
+			), List.of("itemId", "quantity")), PlannerToolCatalog::validateDropItemsArguments),
+		builtInTool(GIVE_PLAYER, false, tool(GIVE_PLAYER, "Drop exact items for a named nearby player to pick up.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("targetPlayer", string("Nearby player name receiving the items.")),
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
-			), List.of("targetPlayer", "itemId", "quantity")),
-			tool(ATTACK_ENTITY, "Attack one nearby entity. Default mode kill keeps attacking until the target dies; hit_once stops after one landed hit. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+			), List.of("targetPlayer", "itemId", "quantity")), PlannerToolCatalog::validateGivePlayerArguments),
+		builtInTool(ATTACK_ENTITY, false, tool(ATTACK_ENTITY, "Attack one nearby entity. Default mode kill keeps attacking until the target dies; hit_once stops after one landed hit. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
 				prop("mode", enumString("Attack mode. Use kill unless the user asks for one hit.", List.of("kill", "hit_once")))
-			), List.of("uuid")),
-			tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+			), List.of("uuid")), PlannerToolCatalog::validateAttackEntityArguments),
+		builtInTool(USE_ENTITY, false, tool(USE_ENTITY, "Use current hand or an optional item on one nearby entity. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
 				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:shears."))
-			), List.of("uuid")),
-			tool(CANCEL_TASK, "Cancel the current task or job.", properties(
+			), List.of("uuid")), PlannerToolCatalog::validateUseEntityArguments),
+		builtInTool(CANCEL_TASK, false, tool(CANCEL_TASK, "Cancel the current task or job.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("reason", string("Optional cancellation reason."))
-			), List.of()),
-			tool(CLEAR_GOAL, "Clear the current goal.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(CLEAR_GOAL, false, tool(CLEAR_GOAL, "Clear the current goal.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed."))
-			), List.of()),
-			tool(UPDATE_EVENT_POLICY, "Update future event routing policy.", properties(
+			), List.of()), NO_ARGUMENT_VALIDATION),
+		builtInTool(UPDATE_EVENT_POLICY, false, tool(UPDATE_EVENT_POLICY, "Update future event routing policy.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("clearAll", bool("Clear all active planner policy rules.")),
 				prop("removeRuleIds", stringArray("Rule ids to remove.")),
 				prop("upserts", array("Policy rule upserts.", policyUpsertSchema()))
-			), List.of())
-		);
+			), List.of()), PlannerToolCatalog::validatePolicyArguments)
+	);
+	private static final Map<String, BuiltInTool> BUILT_IN_TOOLS_BY_NAME = builtInToolsByName();
+
+	private PlannerToolCatalog() {
+	}
+
+	public static List<Map<String, Object>> openAiTools() {
+		return BUILT_IN_TOOLS.stream()
+			.map(BuiltInTool::openAiTool)
+			.toList();
 	}
 
 	public static PlannerToolCall parseToolCall(JsonObject object) {
@@ -223,37 +231,12 @@ public final class PlannerToolCatalog {
 	}
 
 	public static boolean isReadTool(String name) {
-		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK, INSPECT_INVENTORY, CHECK_CRAFTABLES, CHECK_SMELTABLES, INSPECT_SMELTING, INSPECT_NEARBY_ENTITIES -> true;
-			default -> false;
-		};
+		BuiltInTool tool = builtInTool(name);
+		return tool != null && tool.readTool();
 	}
 
 	public static boolean isKnownTool(String name) {
-		return switch (normalizeName(name)) {
-			case TAKE_A_LOOK,
-				INSPECT_INVENTORY,
-				CHECK_CRAFTABLES,
-				CHECK_SMELTABLES,
-				INSPECT_SMELTING,
-				INSPECT_NEARBY_ENTITIES,
-				FOLLOW_PLAYER,
-				NAVIGATE_TO,
-				MINE_BLOCKS,
-				COLLECT_RESOURCE,
-				CRAFT_RECIPE,
-				SMELT_ITEMS,
-				COLLECT_SMELTED_ITEMS,
-				CANCEL_SMELTING,
-				DROP_ITEMS,
-				GIVE_PLAYER,
-				ATTACK_ENTITY,
-				USE_ENTITY,
-				CANCEL_TASK,
-				CLEAR_GOAL,
-				UPDATE_EVENT_POLICY -> true;
-			default -> false;
-		};
+		return builtInTool(name) != null;
 	}
 
 	public static String normalizeName(String name) {
@@ -318,67 +301,96 @@ public final class PlannerToolCatalog {
 	}
 
 	private static void validateArguments(String name, JsonObject arguments) {
-		switch (normalizeName(name)) {
-			case TAKE_A_LOOK -> validateTakeALookArguments(arguments);
-			case INSPECT_INVENTORY, CHECK_CRAFTABLES, INSPECT_NEARBY_ENTITIES, CLEAR_GOAL -> {
+		BuiltInTool tool = builtInTool(name);
+		if (tool == null) {
+			throw new JsonParseException("Unknown planner tool: " + name);
+		}
+		tool.validate(arguments);
+	}
+
+	private static BuiltInTool builtInTool(String name) {
+		return BUILT_IN_TOOLS_BY_NAME.get(normalizeName(name));
+	}
+
+	private static BuiltInTool builtInTool(String name, boolean readTool, Map<String, Object> openAiTool, Consumer<JsonObject> validator) {
+		return new BuiltInTool(normalizeName(name), readTool, openAiTool, validator);
+	}
+
+	private static Map<String, BuiltInTool> builtInToolsByName() {
+		LinkedHashMap<String, BuiltInTool> tools = new LinkedHashMap<>();
+		for (BuiltInTool tool : BUILT_IN_TOOLS) {
+			BuiltInTool previous = tools.put(tool.name(), tool);
+			if (previous != null) {
+				throw new IllegalStateException("Duplicate planner tool: " + tool.name());
 			}
-			case FOLLOW_PLAYER -> requireString(arguments, "targetPlayer");
-			case NAVIGATE_TO -> {
-				requireInt(arguments, "x");
-				requireInt(arguments, "y");
-				requireInt(arguments, "z");
-				requireBoolean(arguments, "exactY");
-			}
-			case MINE_BLOCKS -> {
-				requireStringArray(arguments, "blockIds");
-				requirePositiveInt(arguments, "quantity");
-			}
-			case COLLECT_RESOURCE -> {
-				String kind = requireString(arguments, "resourceKind");
-				if (!"WOOD_LOGS".equals(kind)) {
-					throw new JsonParseException("Unsupported resourceKind: " + kind);
-				}
-				requirePositiveInt(arguments, "quantity");
-			}
-			case CRAFT_RECIPE -> {
-				requireString(arguments, "recipeId");
-				requirePositiveInt(arguments, "times");
-			}
-			case SMELT_ITEMS -> validateSmeltItemsArguments(arguments);
-			case COLLECT_SMELTED_ITEMS -> {
-				if (arguments.has("processId") && !arguments.get("processId").isJsonNull()) {
-					requireString(arguments, "processId");
-				}
-				if (arguments.has("confirmationToken") && !arguments.get("confirmationToken").isJsonNull()) {
-					requireString(arguments, "confirmationToken");
-				}
-			}
-			case CANCEL_SMELTING -> requireString(arguments, "processId");
-			case DROP_ITEMS -> {
-				requireString(arguments, "itemId");
-				requirePositiveInt(arguments, "quantity");
-			}
-			case GIVE_PLAYER -> {
-				requireString(arguments, "targetPlayer");
-				requireString(arguments, "itemId");
-				requirePositiveInt(arguments, "quantity");
-			}
-			case ATTACK_ENTITY -> {
-				requireEntitySelector(arguments);
-				if (arguments.has("mode") && !arguments.get("mode").isJsonNull()) {
-					requireAttackMode(arguments);
-				}
-			}
-			case USE_ENTITY -> {
-				requireEntitySelector(arguments);
-				if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
-					requireString(arguments, "itemId");
-				}
-			}
-			case CANCEL_TASK -> {
-			}
-			case UPDATE_EVENT_POLICY -> validatePolicyArguments(arguments);
-			default -> throw new JsonParseException("Unknown planner tool: " + name);
+		}
+		return Map.copyOf(tools);
+	}
+
+	private static void validateFollowPlayerArguments(JsonObject arguments) {
+		requireString(arguments, "targetPlayer");
+	}
+
+	private static void validateNavigateToArguments(JsonObject arguments) {
+		requireInt(arguments, "x");
+		requireInt(arguments, "y");
+		requireInt(arguments, "z");
+		requireBoolean(arguments, "exactY");
+	}
+
+	private static void validateMineBlocksArguments(JsonObject arguments) {
+		requireStringArray(arguments, "blockIds");
+		requirePositiveInt(arguments, "quantity");
+	}
+
+	private static void validateCollectResourceArguments(JsonObject arguments) {
+		String kind = requireString(arguments, "resourceKind");
+		if (!"WOOD_LOGS".equals(kind)) {
+			throw new JsonParseException("Unsupported resourceKind: " + kind);
+		}
+		requirePositiveInt(arguments, "quantity");
+	}
+
+	private static void validateCraftRecipeArguments(JsonObject arguments) {
+		requireString(arguments, "recipeId");
+		requirePositiveInt(arguments, "times");
+	}
+
+	private static void validateCollectSmeltedItemsArguments(JsonObject arguments) {
+		if (arguments.has("processId") && !arguments.get("processId").isJsonNull()) {
+			requireString(arguments, "processId");
+		}
+		if (arguments.has("confirmationToken") && !arguments.get("confirmationToken").isJsonNull()) {
+			requireString(arguments, "confirmationToken");
+		}
+	}
+
+	private static void validateCancelSmeltingArguments(JsonObject arguments) {
+		requireString(arguments, "processId");
+	}
+
+	private static void validateDropItemsArguments(JsonObject arguments) {
+		requireString(arguments, "itemId");
+		requirePositiveInt(arguments, "quantity");
+	}
+
+	private static void validateGivePlayerArguments(JsonObject arguments) {
+		requireString(arguments, "targetPlayer");
+		requireString(arguments, "itemId");
+		requirePositiveInt(arguments, "quantity");
+	}
+
+	private static void validateAttackEntityArguments(JsonObject arguments) {
+		requireEntitySelector(arguments);
+		if (arguments.has("mode") && !arguments.get("mode").isJsonNull()) {
+			requireAttackMode(arguments);
+		}
+	}
+
+	private static void validateUseEntityArguments(JsonObject arguments) {
+		requireEntitySelector(arguments);
+		if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
+			requireString(arguments, "itemId");
 		}
 	}
 
@@ -640,5 +652,16 @@ public final class PlannerToolCatalog {
 			"required", List.of("effect", "match"),
 			"additionalProperties", false
 		);
+	}
+
+	private record BuiltInTool(
+		String name,
+		boolean readTool,
+		Map<String, Object> openAiTool,
+		Consumer<JsonObject> validator
+	) {
+		private void validate(JsonObject arguments) {
+			validator.accept(arguments);
+		}
 	}
 }
