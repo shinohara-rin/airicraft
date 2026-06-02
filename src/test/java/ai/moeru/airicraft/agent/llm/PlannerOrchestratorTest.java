@@ -1462,6 +1462,97 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void multipleReadToolCallsExecuteAndReturnAllResultsInOneFollowUp() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:oak_log=3}",
+			"Tool result for check_craftables: availableCrafts=oak_planks"
+		);
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent inspect and craft"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, PlannerResponse.toolCalls(List.of(
+			new PlannerToolCall("call_inv", "inspect_inventory", new JsonObject(), null, null),
+			new PlannerToolCall("call_craftables", "check_craftables", new JsonObject(), null, null)
+		), null));
+
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+		assertEquals(1, inventoryTool.inventoryRequestCount());
+		assertEquals(1, inventoryTool.craftablesRequestCount());
+
+		LlmConversation followUp = backend.conversation(1);
+		LlmChatMessage replayedToolCalls = followUp.messages().stream()
+			.filter(message -> "assistant".equals(message.role()) && message.hasToolCalls())
+			.filter(message -> message.toolCalls().stream().anyMatch(toolCall -> "inspect_inventory".equals(toolCall.name())))
+			.findFirst()
+			.orElseThrow();
+		assertEquals(2, replayedToolCalls.toolCalls().size());
+		assertEquals("inspect_inventory", replayedToolCalls.toolCalls().get(0).name());
+		assertEquals("check_craftables", replayedToolCalls.toolCalls().get(1).name());
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_inv".equals(message.toolCallId())
+				&& message.content().contains("minecraft:oak_log=3")));
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_craftables".equals(message.toolCallId())
+				&& message.content().contains("oak_planks")));
+		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
+		assertTrue(taskCard.text().contains("Tool calls: inspect_inventory,check_craftables"));
+	}
+
+	@Test
+	void multipleActionToolCallsAreRejectedBeforeDispatch() {
+		RecordingBackend backend = new RecordingBackend();
+		ArrayList<String> invokedTools = new ArrayList<>();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			3,
+			10,
+			10,
+			100,
+			128,
+			Clock.systemUTC(),
+			toolCall -> {
+				invokedTools.add(toolCall.name());
+				return CompletableFuture.completedFuture("Tool result for " + toolCall.name() + ": ok");
+			},
+			PlannerToolNarrationSink.NO_OP
+		);
+
+		JsonObject navigateArgs = new JsonObject();
+		navigateArgs.addProperty("x", 1);
+		navigateArgs.addProperty("y", 64);
+		navigateArgs.addProperty("z", 2);
+		navigateArgs.addProperty("exactY", false);
+		JsonObject craftArgs = new JsonObject();
+		craftArgs.addProperty("recipeId", "minecraft:oak_planks");
+		craftArgs.addProperty("times", 1);
+
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent move and craft"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, PlannerResponse.toolCalls(List.of(
+			new PlannerToolCall("call_nav", PlannerToolCatalog.NAVIGATE_TO, navigateArgs, null, null),
+			new PlannerToolCall("call_craft", PlannerToolCatalog.CRAFT_RECIPE, craftArgs, null, null)
+		), null));
+
+		PlannerExecutionResult result = awaitResult(orchestrator);
+		assertFalse(result.succeeded());
+		assertEquals(LlmFailureType.PARSE_ERROR, result.failureType());
+		assertTrue(result.failureMessage().contains("only read-only text tools can be batched"));
+		assertTrue(invokedTools.isEmpty());
+	}
+
+	@Test
 	void consecutiveToolFollowUpKeepsPriorToolExchangeInPrompt() {
 		RecordingBackend backend = new RecordingBackend();
 		StubInventoryTool inventoryTool = new StubInventoryTool(

@@ -711,17 +711,17 @@ public final class PlannerOrchestrator {
 	private PlannerExecutionResult finishSuccessfulPlannerResult(PlannerExecutionResult plannerResult) {
 		contextAggregator.recordUsage(plannerResult.usage());
 		lifecycleListener.onPlannerExecutionSucceeded(plannerResult);
-		PlannerToolCall toolCall = effectiveToolCall(plannerResult.response());
-		if (toolCall == null) {
+		List<PlannerToolCall> toolCalls = effectiveToolCalls(plannerResult.response());
+		if (toolCalls.isEmpty()) {
 			acceptPlannerReply(plannerResult);
 			return plannerResult;
 		}
 
-		PlannerExecutionResult toolRequestFailure = validateToolRequest(plannerResult, toolCall);
+		PlannerExecutionResult toolRequestFailure = validateToolRequest(plannerResult, toolCalls);
 		if (toolRequestFailure != null) {
 			return toolRequestFailure;
 		}
-		startToolExecution(plannerResult, toolCall);
+		startToolExecution(plannerResult, toolCalls);
 		return null;
 	}
 
@@ -732,30 +732,40 @@ public final class PlannerOrchestrator {
 		acceptGeneration(plannerResult);
 	}
 
-	private PlannerExecutionResult validateToolRequest(PlannerExecutionResult plannerResult, PlannerToolCall toolCall) {
+	private PlannerExecutionResult validateToolRequest(PlannerExecutionResult plannerResult, List<PlannerToolCall> toolCalls) {
 		if (
 			plannerResult.phase() == PlannerSessionPhase.TOOL_FOLLOW_UP
-				&& completedToolCallCount(plannerResult.generation()) >= MAX_TOOL_CALLS_PER_TOOL_PLAN
+				&& completedToolCallCount(plannerResult.generation()) + toolCalls.size() > MAX_TOOL_CALLS_PER_TOOL_PLAN
 		) {
 			return rejectToolRequest(plannerResult, "Planner requested too many tools for one goal");
 		}
+		PlannerToolCall firstToolCall = toolCalls.getFirst();
 		if (plannerResult.response().toolCall() == null && !hasToolCompatibleIntent(plannerResult.response())) {
 			String toolIntentType = toolIntentType(plannerResult.response());
 			Airicraft.LOGGER.warn(
 				"Planner returned invalid legacy tool response intentType={} toolCallName={} replyText={}",
 				toolIntentType,
-				toolCall.name(),
+				firstToolCall.name(),
 				summarizeForLog(plannerResult.response().replyText())
 			);
 			return rejectToolRequest(plannerResult, "Tool requests cannot set goal intents");
 		}
-		if (!isValidToolCall(toolCall)) {
+		for (PlannerToolCall toolCall : toolCalls) {
+			if (!isValidToolCall(toolCall)) {
+				Airicraft.LOGGER.warn(
+					"Planner returned invalid tool call name={} narration={}",
+					toolCall.name(),
+					summarizeForLog(toolCall.narration())
+				);
+				return rejectToolRequest(plannerResult, "Planner requested an invalid tool");
+			}
+		}
+		if (toolCalls.size() > 1 && !canBatchToolCalls(toolCalls)) {
 			Airicraft.LOGGER.warn(
-				"Planner returned invalid tool call name={} narration={}",
-				toolCall.name(),
-				summarizeForLog(toolCall.narration())
+				"Planner returned unsupported multi-tool batch names={}",
+				toolCallNames(toolCalls)
 			);
-			return rejectToolRequest(plannerResult, "Planner requested an invalid tool");
+			return rejectToolRequest(plannerResult, "Planner requested multiple tools; only read-only text tools can be batched");
 		}
 
 		String toolIntentType = toolIntentType(plannerResult.response());
@@ -763,14 +773,14 @@ public final class PlannerOrchestrator {
 			Airicraft.LOGGER.info(
 				"Planner returned legacy tool request with non-none intent; ignoring intentType={} toolCallName={}",
 				toolIntentType,
-				toolCall.name()
+				firstToolCall.name()
 			);
 		}
 		if (plannerResult.response().replyText() != null && !plannerResult.response().replyText().isBlank()) {
 			Airicraft.LOGGER.info(
 				"Planner returned tool call with stray replyText; ignoring text={} toolCallName={}",
 				summarizeForLog(plannerResult.response().replyText()),
-				toolCall.name()
+				firstToolCall.name()
 			);
 		}
 		return null;
@@ -784,23 +794,27 @@ public final class PlannerOrchestrator {
 		return failure;
 	}
 
-	private void startToolExecution(PlannerExecutionResult plannerResult, PlannerToolCall toolCall) {
-		narrationSink.onToolNarration(toolCall);
-		appendToolRequestCard(plannerResult, toolCall);
+	private void startToolExecution(PlannerExecutionResult plannerResult, List<PlannerToolCall> toolCalls) {
+		for (PlannerToolCall toolCall : toolCalls) {
+			narrationSink.onToolNarration(toolCall);
+		}
+		appendToolRequestCard(plannerResult, toolCalls);
 		debugRecorder.recordPlannerCompletion(plannerResult);
-		lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
+		for (PlannerToolCall toolCall : toolCalls) {
+			lifecycleListener.onToolRequested(plannerResult.generation(), toolCall);
+		}
 		sessionCoordinator.markToolWait(plannerResult.generation());
 		pendingToolExecution = new PendingToolExecution(
 			plannerResult.generation(),
-			toolCallSummary(toolCall),
-			requestPlannerTool(toolCall),
+			toolCallsSummary(toolCalls),
+			requestPlannerTools(toolCalls),
 			plannerResult.response().rawAssistantContent(),
-			toolCall
+			toolCalls
 		);
 	}
 
 	private boolean pendingSideEffectToolExecution() {
-		return pendingToolExecution != null && isSideEffectTool(pendingToolExecution.toolCall());
+		return pendingToolExecution != null && pendingToolExecution.toolCalls().stream().anyMatch(PlannerOrchestrator::isSideEffectTool);
 	}
 
 	private static boolean isSideEffectTool(PlannerToolCall toolCall) {
@@ -1096,22 +1110,47 @@ public final class PlannerOrchestrator {
 			snapshot,
 			recordedToolExchanges(toolExecution.generation())
 		);
-		recordToolExchange(
-			toolExecution.generation(),
-			snapshot,
-			toolExecution.assistantRawContent(),
-			toolExecution.toolCall(),
-			toolOutcome.toolResultText(),
-			toolOutcome instanceof ImageToolExecutionOutcome
-		);
+		for (ToolExecutionResult toolResult : toolOutcome.toolResults(toolExecution.toolCalls())) {
+			recordToolExchange(
+				toolExecution.generation(),
+				snapshot,
+				toolExecution.assistantRawContent(),
+				toolResult.toolCall(),
+				toolResult.toolResultText(),
+				toolResult.imageAttached()
+			);
+		}
 		sessionCoordinator.submitToolFollowUp(
 			toolExecution.generation(),
 			followUpRequest,
-			toolOutcome.appendFollowUp(contextAggregator, followUpSnapshot, toolExecution.assistantRawContent(), toolExecution.toolCall())
+			toolOutcome.appendFollowUp(contextAggregator, followUpSnapshot, toolExecution.assistantRawContent(), toolExecution.toolCalls())
 		);
-		lifecycleListener.onToolCompleted(toolExecution.generation(), toolOutcome.toolResultText(), toolOutcome instanceof ImageToolExecutionOutcome);
+		lifecycleListener.onToolCompleted(toolExecution.generation(), toolOutcome.toolResultText(), toolOutcome.hasImageAttachment());
 		appendToolFollowUpCard(toolExecution);
 		return null;
+	}
+
+	private CompletableFuture<ToolExecutionOutcome> requestPlannerTools(List<PlannerToolCall> toolCalls) {
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			return CompletableFuture.completedFuture(new TextToolExecutionOutcome("Tool result: none"));
+		}
+		if (toolCalls.size() == 1) {
+			return requestPlannerTool(toolCalls.getFirst());
+		}
+		List<CompletableFuture<ToolExecutionResult>> futures = toolCalls.stream()
+			.map(toolCall -> requestPlannerTool(toolCall).handle((outcome, throwable) -> {
+				if (throwable != null) {
+					String resultText = failedToolResultText(toolCall, throwable);
+					Airicraft.LOGGER.warn("Planner batched tool future failed tool={}", toolCall.name(), throwable);
+					return new ToolExecutionResult(toolCall, resultText, false);
+				}
+				return new ToolExecutionResult(toolCall, outcome.toolResultText(), outcome.hasImageAttachment());
+			}))
+			.toList();
+		return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+			.thenApply(ignored -> new MultiTextToolExecutionOutcome(futures.stream()
+				.map(CompletableFuture::join)
+				.toList()));
 	}
 
 	private CompletableFuture<ToolExecutionOutcome> requestPlannerTool(PlannerToolCall toolCall) {
@@ -1340,14 +1379,15 @@ public final class PlannerOrchestrator {
 		recordConversationSources();
 	}
 
-	private PlannerToolCall effectiveToolCall(PlannerResponse response) {
+	private List<PlannerToolCall> effectiveToolCalls(PlannerResponse response) {
 		if (response == null) {
-			return null;
+			return List.of();
 		}
-		if (response.toolCall() != null) {
-			return response.toolCall();
+		if (response.toolCalls() != null && !response.toolCalls().isEmpty()) {
+			return response.toolCalls();
 		}
-		return legacyToolCall(response.toolRequest());
+		PlannerToolCall legacyToolCall = legacyToolCall(response.toolRequest());
+		return legacyToolCall == null ? List.of() : List.of(legacyToolCall);
 	}
 
 	private boolean isValidToolCall(PlannerToolCall toolCall) {
@@ -1358,6 +1398,18 @@ public final class PlannerOrchestrator {
 		return switch (name) {
 			case VISUAL_TOOL_NAME -> visionMode == PlannerVisionMode.NATIVE_TOOL_IMAGE || !toolPrompt(toolCall).isBlank();
 			default -> true;
+		};
+	}
+
+	private static boolean canBatchToolCalls(List<PlannerToolCall> toolCalls) {
+		return toolCalls != null && toolCalls.stream().allMatch(PlannerOrchestrator::isBatchableTextReadTool);
+	}
+
+	private static boolean isBatchableTextReadTool(PlannerToolCall toolCall) {
+		String name = normalizedToolName(toolCall);
+		return switch (name) {
+			case INVENTORY_TOOL_NAME, CRAFTABLES_TOOL_NAME, NEARBY_ENTITIES_TOOL_NAME -> true;
+			default -> false;
 		};
 	}
 
@@ -1470,6 +1522,18 @@ public final class PlannerOrchestrator {
 		);
 	}
 
+	private void appendToolRequestCard(PlannerExecutionResult result, List<PlannerToolCall> toolCalls) {
+		if (result == null || toolCalls == null || toolCalls.isEmpty()) {
+			return;
+		}
+		appendOperationCard(
+			result.generation(),
+			result.phase().name(),
+			result.attempt(),
+			toolCallsSummary(toolCalls)
+		);
+	}
+
 	private void appendToolFollowUpCard(PendingToolExecution toolExecution) {
 		if (toolExecution == null || toolExecution.toolSummary() == null || toolExecution.toolSummary().isBlank()) {
 			return;
@@ -1539,25 +1603,51 @@ public final class PlannerOrchestrator {
 		debugRecorder.recordConversationSources(conversationDebugSnapshot(), projectedConversationDebugSnapshot());
 	}
 
-	private sealed interface ToolExecutionOutcome permits TextToolExecutionOutcome, ImageToolExecutionOutcome {
+	private record ToolExecutionResult(
+		PlannerToolCall toolCall,
+		String toolResultText,
+		boolean imageAttached
+	) {
+		private ToolExecutionResult {
+			toolResultText = toolResultText == null ? "" : toolResultText;
+		}
+	}
+
+	private sealed interface ToolExecutionOutcome permits TextToolExecutionOutcome, ImageToolExecutionOutcome, MultiTextToolExecutionOutcome {
 		String toolResultText();
+
+		List<ToolExecutionResult> toolResults(List<PlannerToolCall> toolCalls);
+
+		boolean hasImageAttachment();
 
 		LlmConversation appendFollowUp(
 			PlannerContextAggregator contextAggregator,
 			PlannerContextSnapshot snapshot,
 			JsonElement assistantRawContent,
-			PlannerToolCall toolCall
+			List<PlannerToolCall> toolCalls
 		);
 	}
 
 	private record TextToolExecutionOutcome(String toolResultText) implements ToolExecutionOutcome {
 		@Override
+		public List<ToolExecutionResult> toolResults(List<PlannerToolCall> toolCalls) {
+			PlannerToolCall toolCall = toolCalls == null || toolCalls.isEmpty() ? null : toolCalls.getFirst();
+			return List.of(new ToolExecutionResult(toolCall, toolResultText, false));
+		}
+
+		@Override
+		public boolean hasImageAttachment() {
+			return false;
+		}
+
+		@Override
 		public LlmConversation appendFollowUp(
 			PlannerContextAggregator contextAggregator,
 			PlannerContextSnapshot snapshot,
 			JsonElement assistantRawContent,
-			PlannerToolCall toolCall
+			List<PlannerToolCall> toolCalls
 		) {
+			PlannerToolCall toolCall = toolCalls == null || toolCalls.isEmpty() ? null : toolCalls.getFirst();
 			if (toolCall != null) {
 				return contextAggregator.buildPlannerFollowUpConversation(snapshot, toolCall, toolResultText);
 			}
@@ -1567,16 +1657,68 @@ public final class PlannerOrchestrator {
 
 	private record ImageToolExecutionOutcome(String toolResultText, LlmImageAttachment imageAttachment) implements ToolExecutionOutcome {
 		@Override
+		public List<ToolExecutionResult> toolResults(List<PlannerToolCall> toolCalls) {
+			PlannerToolCall toolCall = toolCalls == null || toolCalls.isEmpty() ? null : toolCalls.getFirst();
+			return List.of(new ToolExecutionResult(toolCall, toolResultText, imageAttachment != null));
+		}
+
+		@Override
+		public boolean hasImageAttachment() {
+			return imageAttachment != null;
+		}
+
+		@Override
 		public LlmConversation appendFollowUp(
 			PlannerContextAggregator contextAggregator,
 			PlannerContextSnapshot snapshot,
 			JsonElement assistantRawContent,
-			PlannerToolCall toolCall
+			List<PlannerToolCall> toolCalls
 		) {
+			PlannerToolCall toolCall = toolCalls == null || toolCalls.isEmpty() ? null : toolCalls.getFirst();
 			if (toolCall != null) {
 				return contextAggregator.buildPlannerFollowUpConversation(snapshot, toolCall, toolResultText, imageAttachment);
 			}
 			return contextAggregator.buildPlannerFollowUpConversation(snapshot, assistantRawContent, toolResultText, imageAttachment);
+		}
+	}
+
+	private record MultiTextToolExecutionOutcome(List<ToolExecutionResult> results) implements ToolExecutionOutcome {
+		private MultiTextToolExecutionOutcome {
+			results = results == null ? List.of() : List.copyOf(results);
+		}
+
+		@Override
+		public String toolResultText() {
+			if (results.isEmpty()) {
+				return "Tool result: none";
+			}
+			return String.join("\n", results.stream()
+				.map(ToolExecutionResult::toolResultText)
+				.toList());
+		}
+
+		@Override
+		public List<ToolExecutionResult> toolResults(List<PlannerToolCall> toolCalls) {
+			return results;
+		}
+
+		@Override
+		public boolean hasImageAttachment() {
+			return results.stream().anyMatch(ToolExecutionResult::imageAttached);
+		}
+
+		@Override
+		public LlmConversation appendFollowUp(
+			PlannerContextAggregator contextAggregator,
+			PlannerContextSnapshot snapshot,
+			JsonElement assistantRawContent,
+			List<PlannerToolCall> toolCalls
+		) {
+			return contextAggregator.buildPlannerFollowUpConversation(
+				snapshot,
+				results.stream().map(ToolExecutionResult::toolCall).toList(),
+				results.stream().map(ToolExecutionResult::toolResultText).toList()
+			);
 		}
 	}
 
@@ -1585,8 +1727,11 @@ public final class PlannerOrchestrator {
 		String toolSummary,
 		CompletableFuture<ToolExecutionOutcome> future,
 		JsonElement assistantRawContent,
-		PlannerToolCall toolCall
+		List<PlannerToolCall> toolCalls
 	) {
+		private PendingToolExecution {
+			toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
+		}
 	}
 
 	private static String visionFailureCode(Throwable throwable) {
@@ -1642,6 +1787,34 @@ public final class PlannerOrchestrator {
 			summary.append(" | ").append(prompt);
 		}
 		return summary.toString();
+	}
+
+	private static String toolCallsSummary(List<PlannerToolCall> toolCalls) {
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			return null;
+		}
+		if (toolCalls.size() == 1) {
+			return toolCallSummary(toolCalls.getFirst());
+		}
+		return "Tool calls: " + toolCallNames(toolCalls);
+	}
+
+	private static String toolCallNames(List<PlannerToolCall> toolCalls) {
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			return "";
+		}
+		return String.join(",", toolCalls.stream()
+			.map(toolCall -> PlannerToolCatalog.normalizeName(toolCall == null ? "" : toolCall.name()))
+			.filter(name -> !name.isBlank())
+			.toList());
+	}
+
+	private static String failedToolResultText(PlannerToolCall toolCall, Throwable throwable) {
+		String name = normalizedToolName(toolCall);
+		String code = throwable instanceof CompletionException completionException && completionException.getCause() != null
+			? completionException.getCause().getClass().getSimpleName()
+			: throwable == null ? "unknown" : throwable.getClass().getSimpleName();
+		return "Tool result for " + (name.isBlank() ? "unknown_tool" : name) + ": failed error=" + code;
 	}
 
 	private static String intentOperationSummary(PlannerIntent intent) {

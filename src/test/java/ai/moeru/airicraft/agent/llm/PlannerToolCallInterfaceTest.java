@@ -276,7 +276,7 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
-	void rejectsMultipleToolCallsInOneAssistantMessage() throws Exception {
+	void parsesMultipleToolCallsInOneAssistantMessage() throws Exception {
 		AtomicReference<String> bodyRef = new AtomicReference<>();
 		try (TestServer server = TestServer.start(bodyRef, """
 			{
@@ -295,13 +295,15 @@ class PlannerToolCallInterfaceTest {
 			""")) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port()));
 
-			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-				backend.generate(LlmConversation.of(List.of(
+			PlannerResponse response = backend.generate(LlmConversation.of(List.of(
 					LlmChatMessage.system("system"),
 					LlmChatMessage.user("Alice said just now: @agent inspect", LlmMessageKind.USER_TURN)
-				)))
-			);
-			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+				))).payload();
+
+			assertEquals("inspect_inventory", response.toolCall().name());
+			assertEquals(2, response.toolCalls().size());
+			assertEquals("inspect_inventory", response.toolCalls().get(0).name());
+			assertEquals("check_craftables", response.toolCalls().get(1).name());
 		}
 	}
 

@@ -137,7 +137,7 @@ class OpenAiCompatibleLlmBackendTest {
 	}
 
 	@Test
-	void generateRejectsMultipleToolCalls() throws Exception {
+	void generateParsesMultipleToolCalls() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -157,16 +157,18 @@ class OpenAiCompatibleLlmBackendTest {
 		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
 
-			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-				backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))))
-			);
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
 
-			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+			assertEquals("", result.payload().replyText());
+			assertEquals("inspect_inventory", result.payload().toolCall().name());
+			assertEquals(2, result.payload().toolCalls().size());
+			assertEquals("inspect_inventory", result.payload().toolCalls().get(0).name());
+			assertEquals("check_craftables", result.payload().toolCalls().get(1).name());
 		}
 	}
 
 	@Test
-	void generatePrefersSingleEntityActionWhenMixedWithReadToolCalls() throws Exception {
+	void generateParsesMixedReadAndEntityActionToolCalls() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -194,13 +196,15 @@ class OpenAiCompatibleLlmBackendTest {
 			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
 
 			assertNotNull(result.payload().toolCall());
-			assertEquals("attack_entity", result.payload().toolCall().name());
-			assertEquals("slime-1", result.payload().toolCall().arguments().get("uuid").getAsString());
+			assertEquals("inspect_nearby_entities", result.payload().toolCall().name());
+			assertEquals(2, result.payload().toolCalls().size());
+			assertEquals("attack_entity", result.payload().toolCalls().get(1).name());
+			assertEquals("slime-1", result.payload().toolCalls().get(1).arguments().get("uuid").getAsString());
 		}
 	}
 
 	@Test
-	void generateIncludesToolNamesInMultipleToolCallParseErrors() throws Exception {
+	void generateParsesMultipleActionToolCallsForExecutionValidation() throws Exception {
 		String responseBody = """
 			{
 			  "choices": [
@@ -225,13 +229,11 @@ class OpenAiCompatibleLlmBackendTest {
 		try (TestServer server = TestServer.start(bodyRef, responseBody)) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
 
-			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-				backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))))
-			);
+			LlmCallResult<PlannerResponse> result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.system("system"))));
 
-			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
-			assertTrue(exception.getMessage().contains("attack_entity"));
-			assertTrue(exception.getMessage().contains("clear_goal"));
+			assertEquals(2, result.payload().toolCalls().size());
+			assertEquals("attack_entity", result.payload().toolCalls().get(0).name());
+			assertEquals("clear_goal", result.payload().toolCalls().get(1).name());
 		}
 	}
 

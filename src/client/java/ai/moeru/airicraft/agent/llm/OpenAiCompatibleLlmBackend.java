@@ -13,6 +13,7 @@ import com.google.gson.JsonParser;
 import io.opentelemetry.context.Context;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -96,14 +97,14 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 
 			JsonElement rawAssistantContent = OpenAiCompatibleMessageContent.rawContentForReplay(message.get("content"));
 			String visibleText = OpenAiCompatibleMessageContent.extractVisibleText(message.get("content"));
-			PlannerToolCall toolCall = parseToolCall(message);
-			if (toolCall != null) {
+			List<PlannerToolCall> toolCalls = parseToolCalls(message);
+			if (!toolCalls.isEmpty()) {
 				Airicraft.LOGGER.info(
-					"Planner parsed tool_call name={} narration={}",
-					toolCall.name(),
-					summarizeForLog(toolCall.narration())
+					"Planner parsed tool_calls names={} firstNarration={}",
+					summarizeToolCallNames(toolCalls),
+					summarizeForLog(toolCalls.getFirst().narration())
 				);
-				return new PlannerResponse("", toolCall, rawAssistantContent);
+				return PlannerResponse.toolCalls(toolCalls, rawAssistantContent);
 			}
 			String replyText = visibleText.strip();
 			Airicraft.LOGGER.info("Planner parsed plaintext reply={}", summarizeForLog(replyText));
@@ -125,96 +126,28 @@ public final class OpenAiCompatibleLlmBackend implements LlmBackend {
 		}
 	}
 
-	private PlannerToolCall parseToolCall(JsonObject message) {
+	private List<PlannerToolCall> parseToolCalls(JsonObject message) {
 		if (message == null || !message.has("tool_calls") || !message.get("tool_calls").isJsonArray()) {
-			return null;
+			return List.of();
 		}
 		JsonArray toolCalls = message.getAsJsonArray("tool_calls");
 		if (toolCalls.isEmpty()) {
-			return null;
+			return List.of();
 		}
-		if (toolCalls.size() > 1) {
-			PlannerToolCall selected = selectEntityActionToolCall(toolCalls);
-			if (selected != null) {
-				Airicraft.LOGGER.warn("Planner returned multiple tool calls names={} selected={}", summarizeToolCallNames(toolCalls), selected.name());
-				return selected;
-			}
-			throw new JsonParseException("Planner returned multiple tool calls: " + summarizeToolCallNames(toolCalls));
-		}
-		if (!toolCalls.get(0).isJsonObject()) {
-			throw new JsonParseException("Planner tool call must be an object");
-		}
-		return PlannerToolCatalog.parseToolCall(toolCalls.get(0).getAsJsonObject(), toolRegistry);
-	}
-
-	private PlannerToolCall selectEntityActionToolCall(JsonArray toolCalls) {
-		List<JsonObject> callObjects = toolCalls.asList().stream()
-			.filter(JsonElement::isJsonObject)
-			.map(JsonElement::getAsJsonObject)
-			.toList();
-		if (callObjects.size() != toolCalls.size()) {
-			return null;
-		}
-
-		List<JsonObject> entityActionCalls = callObjects.stream()
-			.filter(this::isEntityInteractionToolCall)
-			.toList();
-		if (entityActionCalls.isEmpty()) {
-			return null;
-		}
-
-		boolean onlyReadOrEntityActions = callObjects.stream().allMatch(call ->
-			isEntityInteractionToolCall(call) || PlannerToolCatalog.isReadTool(rawToolName(call))
-		);
-		if (!onlyReadOrEntityActions) {
-			return null;
-		}
-
-		long distinctEntityActionNames = entityActionCalls.stream()
-			.map(this::rawToolName)
-			.distinct()
-			.count();
-		if (distinctEntityActionNames != 1L) {
-			return null;
-		}
-
-		return PlannerToolCatalog.parseToolCall(entityActionCalls.getFirst(), toolRegistry);
-	}
-
-	private boolean isEntityInteractionToolCall(JsonObject toolCall) {
-		String name = rawToolName(toolCall);
-		return PlannerToolCatalog.ATTACK_ENTITY.equals(name) || PlannerToolCatalog.USE_ENTITY.equals(name);
-	}
-
-	private String rawToolName(JsonObject toolCall) {
-		if (toolCall == null || !toolCall.has("function") || !toolCall.get("function").isJsonObject()) {
-			return "";
-		}
-		JsonObject function = toolCall.getAsJsonObject("function");
-		if (!function.has("name") || function.get("name").isJsonNull()) {
-			return "";
-		}
-		return PlannerToolCatalog.normalizeName(function.get("name").getAsString());
-	}
-
-	private static String summarizeToolCallNames(JsonArray toolCalls) {
-		LinkedHashSet<String> names = new LinkedHashSet<>();
+		ArrayList<PlannerToolCall> parsedToolCalls = new ArrayList<>();
 		for (JsonElement toolCall : toolCalls) {
 			if (!toolCall.isJsonObject()) {
-				names.add("<non_object>");
-				continue;
+				throw new JsonParseException("Planner tool call must be an object");
 			}
-			JsonObject object = toolCall.getAsJsonObject();
-			if (!object.has("function") || !object.get("function").isJsonObject()) {
-				names.add("<missing_function>");
-				continue;
-			}
-			JsonObject function = object.getAsJsonObject("function");
-			if (!function.has("name") || function.get("name").isJsonNull()) {
-				names.add("<missing_name>");
-				continue;
-			}
-			names.add(PlannerToolCatalog.normalizeName(function.get("name").getAsString()));
+			parsedToolCalls.add(PlannerToolCatalog.parseToolCall(toolCall.getAsJsonObject(), toolRegistry));
+		}
+		return List.copyOf(parsedToolCalls);
+	}
+
+	private static String summarizeToolCallNames(List<PlannerToolCall> toolCalls) {
+		LinkedHashSet<String> names = new LinkedHashSet<>();
+		for (PlannerToolCall toolCall : toolCalls == null ? List.<PlannerToolCall>of() : toolCalls) {
+			names.add(PlannerToolCatalog.normalizeName(toolCall == null ? "" : toolCall.name()));
 		}
 		return String.join(",", names);
 	}

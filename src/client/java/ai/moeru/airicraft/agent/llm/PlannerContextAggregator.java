@@ -241,6 +241,27 @@ public final class PlannerContextAggregator {
 
 	public LlmConversation buildPlannerFollowUpConversation(
 		PlannerContextSnapshot snapshot,
+		List<PlannerToolCall> toolCalls,
+		List<String> toolResults
+	) {
+		if (snapshot == null) {
+			throw new IllegalStateException("No planner context snapshot");
+		}
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			throw new IllegalArgumentException("toolCalls");
+		}
+		LlmConversation conversation = snapshot.plannerConversation()
+			.withAppended(LlmChatMessage.assistantToolCalls("", toolCalls));
+		for (int index = 0; index < toolCalls.size(); index++) {
+			PlannerToolCall toolCall = toolCalls.get(index);
+			String toolResult = toolResults == null || index >= toolResults.size() ? "" : toolResults.get(index);
+			conversation = conversation.withAppended(LlmChatMessage.tool(toolCall.id(), toolResultContent(toolResult)));
+		}
+		return conversation;
+	}
+
+	public LlmConversation buildPlannerFollowUpConversation(
+		PlannerContextSnapshot snapshot,
 		JsonElement priorAssistantRawContent,
 		String toolResult,
 		LlmImageAttachment imageAttachment
