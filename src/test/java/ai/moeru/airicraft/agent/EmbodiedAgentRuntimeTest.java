@@ -729,6 +729,48 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void directGoalTerminalFailureCreatesDialogueTaskUpdate() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.NAVIGATE_TO,
+			null,
+			new GoalPosition(12, 64, -8, true),
+			null,
+			20L,
+			"test"
+		);
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			"navigate-task",
+			goal,
+			TaskExecutionState.FAILED,
+			"Path calculation failed",
+			TaskTerminationCause.CALCULATION_FAILED
+		));
+
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+		runtime.injectGoalForTests(goal);
+
+		runtime.onClientTick(null);
+
+		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.failed".equals(event.type())));
+		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
+			"system".equals(turn.speaker())
+				&& turn.text().contains("TASK UPDATE: state=FAILED")
+				&& turn.text().contains("goalType=NAVIGATE_TO")
+				&& turn.text().contains("Path calculation failed")
+		));
+	}
+
+	@Test
 	void submitTaskPlannerResponseThreadsTaskSnapshotIntoRuntimeSnapshot() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

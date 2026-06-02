@@ -61,6 +61,7 @@ final class OtelObservability implements AgentObservability {
 	private static final AttributeKey<String> AIRICRAFT_ACTIVE_GOAL_TYPE = AttributeKey.stringKey("airicraft.active_goal_type");
 	private static final AttributeKey<String> AIRICRAFT_PLANNER_VISION_MODE = AttributeKey.stringKey("airicraft.planner_vision_mode");
 	private static final AttributeKey<String> AIRICRAFT_TOOL_NAME = AttributeKey.stringKey("airicraft.tool_name");
+	private static final AttributeKey<String> AIRICRAFT_TOOL_NAMES = AttributeKey.stringKey("airicraft.tool_names");
 	private static final AttributeKey<String> AIRICRAFT_FAILURE_TYPE = AttributeKey.stringKey("airicraft.failure_type");
 	private static final AttributeKey<Long> AIRICRAFT_MESSAGE_COUNT = AttributeKey.longKey("airicraft.message_count");
 	private static final AttributeKey<Boolean> AIRICRAFT_HAS_IMAGE = AttributeKey.booleanKey("airicraft.has_image_attachment");
@@ -437,12 +438,18 @@ final class OtelObservability implements AgentObservability {
 			if (plannerResponse.toolRequest() != null && plannerResponse.toolRequest().type() != null) {
 				span.setAttribute(AIRICRAFT_TOOL_REQUEST_TYPE, normalizeValue(plannerResponse.toolRequest().type()));
 			}
-			if (plannerResponse.toolCall() != null && plannerResponse.toolCall().name() != null) {
-				span.setAttribute(AIRICRAFT_TOOL_NAME, normalizeValue(plannerResponse.toolCall().name()));
-				if (plannerResponse.toolCall().narration() != null && !plannerResponse.toolCall().narration().isBlank()) {
-					span.setAttribute(AIRICRAFT_TOOL_NARRATION, normalizeValue(plannerResponse.toolCall().narration()));
+				if (!plannerResponse.toolCalls().isEmpty()) {
+					span.setAttribute(AIRICRAFT_TOOL_NAMES, normalizeValue(plannerResponse.toolCalls().stream()
+						.map(toolCall -> toolCall.name() == null ? "" : toolCall.name())
+						.filter(name -> !name.isBlank())
+						.collect(java.util.stream.Collectors.joining(","))));
+					if (plannerResponse.toolCall() != null && plannerResponse.toolCall().name() != null) {
+						span.setAttribute(AIRICRAFT_TOOL_NAME, normalizeValue(plannerResponse.toolCall().name()));
+					}
+					if (plannerResponse.toolCall() != null && plannerResponse.toolCall().narration() != null && !plannerResponse.toolCall().narration().isBlank()) {
+						span.setAttribute(AIRICRAFT_TOOL_NARRATION, normalizeValue(plannerResponse.toolCall().narration()));
+					}
 				}
-			}
 		if (config.captureOutputs()) {
 			span.setAttribute(OUTPUT_VALUE, TraceSanitizer.sanitizePlannerResponseForTrace(plannerResponse));
 			span.setAttribute(GEN_AI_COMPLETION, TraceSanitizer.sanitizePlannerCompletionForGenAi(plannerResponse));

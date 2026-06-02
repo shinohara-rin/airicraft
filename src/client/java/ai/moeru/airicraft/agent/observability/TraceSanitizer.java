@@ -238,21 +238,40 @@ public final class TraceSanitizer {
 			}
 			root.add("toolCall", tool);
 		}
+		if (response.toolCalls().size() > 1) {
+			JsonArray toolCalls = new JsonArray();
+			for (PlannerToolCall call : response.toolCalls()) {
+				JsonObject tool = new JsonObject();
+				tool.addProperty("name", sanitizeTraceText(call.name(), 64));
+				if (call.narration() != null && !call.narration().isBlank()) {
+					tool.addProperty("narration", sanitizeTraceText(call.narration(), TRACE_TEXT_LIMIT));
+				}
+				toolCalls.add(tool);
+			}
+			root.add("toolCalls", toolCalls);
+		}
 		return TRACE_GSON.toJson(root);
 	}
 
-	public static String sanitizePlannerCompletionForGenAi(PlannerResponse response) {
-		if (response == null) {
-			return "";
-		}
-		if (response.toolCall() != null) {
-			JsonObject root = new JsonObject();
-			root.addProperty("tool_call", sanitizeTraceText(response.toolCall().name(), 64));
-			if (response.toolCall().narration() != null && !response.toolCall().narration().isBlank()) {
-				root.addProperty("narration", sanitizeTraceText(response.toolCall().narration(), TRACE_TEXT_LIMIT));
+		public static String sanitizePlannerCompletionForGenAi(PlannerResponse response) {
+			if (response == null) {
+				return "";
 			}
-			return TRACE_GSON.toJson(root);
-		}
+			if (response.toolCall() != null) {
+				JsonObject root = new JsonObject();
+				root.addProperty("tool_call", sanitizeTraceText(response.toolCall().name(), 64));
+				if (response.toolCall().narration() != null && !response.toolCall().narration().isBlank()) {
+					root.addProperty("narration", sanitizeTraceText(response.toolCall().narration(), TRACE_TEXT_LIMIT));
+				}
+				if (response.toolCalls().size() > 1) {
+					JsonArray toolCalls = new JsonArray();
+					for (PlannerToolCall call : response.toolCalls()) {
+						toolCalls.add(sanitizeTraceText(call.name(), 64));
+					}
+					root.add("tool_calls", toolCalls);
+				}
+				return TRACE_GSON.toJson(root);
+			}
 		if (response.replyText() == null) {
 			return "";
 		}

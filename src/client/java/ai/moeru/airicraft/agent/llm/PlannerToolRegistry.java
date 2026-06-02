@@ -63,7 +63,11 @@ public final class PlannerToolRegistry {
 	}
 
 	public boolean isReadTool(String toolName) {
-		return PlannerToolCatalog.isReadTool(toolName) || providerFor(toolName).isPresent();
+		String normalized = PlannerToolCatalog.normalizeName(toolName);
+		return PlannerToolCatalog.isReadTool(normalized)
+			|| providerFor(normalized)
+				.map(provider -> provider.isReadTool(normalized))
+				.orElse(false);
 	}
 
 	public Optional<PlannerToolProvider> providerFor(String toolName) {

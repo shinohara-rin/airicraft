@@ -21,6 +21,10 @@ public interface PlannerToolProvider {
 
 	boolean handles(String toolName);
 
+	default boolean isReadTool(String toolName) {
+		return true;
+	}
+
 	default void validateArguments(String toolName, JsonObject arguments) {
 	}
 

@@ -116,6 +116,12 @@ public final class MapPlannerToolProvider implements PlannerToolProvider {
 	}
 
 	@Override
+	public boolean isReadTool(String toolName) {
+		String normalized = PlannerToolCatalog.normalizeName(toolName);
+		return INSPECT_WAYPOINTS.equals(normalized) || TAKE_MAP_LOOK.equals(normalized);
+	}
+
+	@Override
 	public void validateArguments(String toolName, JsonObject arguments) {
 		String normalized = PlannerToolCatalog.normalizeName(toolName);
 		if (SET_WAYPOINT.equals(normalized)) {

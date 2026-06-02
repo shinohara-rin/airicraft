@@ -3,6 +3,7 @@ package ai.moeru.airicraft.agent.llm;
 import ai.moeru.airicraft.agent.semantic.SemanticContextUpdate;
 import com.google.gson.JsonElement;
 
+import java.util.List;
 import java.util.Objects;
 
 public record PlannerContextEntry(
@@ -10,11 +11,11 @@ public record PlannerContextEntry(
 	String speaker,
 	String text,
 	long tick,
-		long timestampMs,
-		SemanticContextUpdate semanticUpdate,
-		JsonElement rawAssistantContent,
-		PlannerToolCall toolCall
-	) {
+	long timestampMs,
+	SemanticContextUpdate semanticUpdate,
+	JsonElement rawAssistantContent,
+	List<PlannerToolCall> toolCalls
+) {
 	public PlannerContextEntry(
 		PlannerContextEntryType type,
 		String speaker,
@@ -22,16 +23,34 @@ public record PlannerContextEntry(
 		long tick,
 		long timestampMs
 	) {
-			this(type, speaker, text, tick, timestampMs, null, null, null);
+		this(type, speaker, text, tick, timestampMs, null, null, List.of());
 	}
 
-	public PlannerContextEntry {
-		type = Objects.requireNonNull(type, "type");
-		text = Objects.requireNonNull(text, "text");
-		rawAssistantContent = rawAssistantContent == null || rawAssistantContent.isJsonNull()
-			? null
-			: rawAssistantContent.deepCopy();
-	}
+		public PlannerContextEntry(
+			PlannerContextEntryType type,
+			String speaker,
+			String text,
+			long tick,
+			long timestampMs,
+			SemanticContextUpdate semanticUpdate,
+			JsonElement rawAssistantContent,
+			PlannerToolCall toolCall
+		) {
+			this(type, speaker, text, tick, timestampMs, semanticUpdate, rawAssistantContent, toolCall == null ? List.of() : List.of(toolCall));
+		}
+
+		public PlannerContextEntry {
+			type = Objects.requireNonNull(type, "type");
+			text = Objects.requireNonNull(text, "text");
+			toolCalls = toolCalls == null ? List.of() : List.copyOf(toolCalls);
+			rawAssistantContent = rawAssistantContent == null || rawAssistantContent.isJsonNull()
+				? null
+				: rawAssistantContent.deepCopy();
+		}
+
+		public PlannerToolCall toolCall() {
+			return toolCalls.isEmpty() ? null : toolCalls.getFirst();
+		}
 
 	public static PlannerContextEntry semanticNotice(SemanticContextUpdate update) {
 		Objects.requireNonNull(update, "update");
@@ -40,11 +59,11 @@ public record PlannerContextEntry(
 			null,
 			update.text(),
 			update.tick(),
-				update.timestampMs(),
-				update,
-				null,
-				null
-			);
+			update.timestampMs(),
+			update,
+			null,
+			List.of()
+		);
 	}
 
 	public static PlannerContextEntry toolRequest(JsonElement assistantRawContent, long tick, long timestampMs) {
@@ -55,15 +74,20 @@ public record PlannerContextEntry(
 			null,
 			visibleText == null ? "" : visibleText,
 			tick,
-				timestampMs,
-				null,
-				assistantRawContent,
-				null
-			);
+			timestampMs,
+			null,
+			assistantRawContent,
+			List.of()
+		);
 	}
 
 	public static PlannerContextEntry toolRequest(PlannerToolCall toolCall, long tick, long timestampMs) {
 		Objects.requireNonNull(toolCall, "toolCall");
+		return toolRequest(List.of(toolCall), tick, timestampMs);
+	}
+
+	public static PlannerContextEntry toolRequest(List<PlannerToolCall> toolCalls, long tick, long timestampMs) {
+		Objects.requireNonNull(toolCalls, "toolCalls");
 		return new PlannerContextEntry(
 			PlannerContextEntryType.TOOL_REQUEST,
 			null,
@@ -72,7 +96,7 @@ public record PlannerContextEntry(
 			timestampMs,
 			null,
 			null,
-			toolCall
+			List.copyOf(toolCalls)
 		);
 	}
 

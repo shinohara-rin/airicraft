@@ -8,6 +8,7 @@ import ai.moeru.airicraft.agent.llm.PlannerConversationDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerExecutionResult;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
 import ai.moeru.airicraft.agent.llm.PlannerSessionPhase;
+import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -406,12 +407,14 @@ public final class AgentDebugRecorder {
 		if (response == null) {
 			return "Planner completed without response";
 		}
-			String reply = response.replyText() == null ? "" : response.replyText();
-			if (reply.isBlank() && response.toolCall() != null) {
-				reply = "Tool call: " + response.toolCall().name();
-			}
-			if (reply.isBlank() && response.toolRequest() != null) {
-				reply = "Tool request: " + response.toolRequest().type();
+				String reply = response.replyText() == null ? "" : response.replyText();
+				if (reply.isBlank() && response.toolCall() != null) {
+					reply = response.toolCalls().size() == 1
+						? "Tool call: " + response.toolCall().name()
+						: "Tool calls: " + response.toolCalls().stream().map(PlannerToolCall::name).toList();
+				}
+				if (reply.isBlank() && response.toolRequest() != null) {
+					reply = "Tool request: " + response.toolRequest().type();
 			}
 		return reply.isBlank() ? "Planner completed" : reply;
 	}

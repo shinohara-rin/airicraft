@@ -353,6 +353,45 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void providerReadToolsCanBeParsedInToolCallBatch() throws Exception {
+		PlannerToolRegistry registry = PlannerToolRegistry.of(new StubPlannerToolProvider(
+			"smelting",
+			"check_smeltables",
+			"Check currently executable smelting options.",
+			"Use check_smeltables for furnace options.",
+			"Tool result for check_smeltables: provider=stub"
+		));
+		AtomicReference<String> bodyRef = new AtomicReference<>();
+		try (TestServer server = TestServer.start(bodyRef, """
+			{
+			  "choices": [
+			    {
+			      "message": {
+			        "role": "assistant",
+			        "tool_calls": [
+			          {"id":"call_craft","type":"function","function":{"name":"check_craftables","arguments":"{}"}},
+			          {"id":"call_smelt","type":"function","function":{"name":"check_smeltables","arguments":"{\\"query\\":\\"iron ore\\"}"}}
+			        ]
+			      }
+			    }
+			  ]
+			}
+			""")) {
+			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port()), registry);
+
+			PlannerResponse response = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent what can I make?", LlmMessageKind.USER_TURN)
+			))).payload();
+
+			assertEquals(List.of("check_craftables", "check_smeltables"), response.toolCalls().stream()
+				.map(PlannerToolCall::name)
+				.toList());
+			assertEquals("iron ore", response.toolCalls().get(1).arguments().get("query").getAsString());
+		}
+	}
+
+	@Test
 	void rejectsGivePlayerWithoutTargetPlayer() {
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("give_player", """
@@ -371,7 +410,7 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
-	void rejectsMultipleToolCallsInOneAssistantMessage() throws Exception {
+	void parsesMultipleReadToolCallsInOneAssistantMessage() throws Exception {
 		AtomicReference<String> bodyRef = new AtomicReference<>();
 		try (TestServer server = TestServer.start(bodyRef, """
 			{
@@ -390,13 +429,15 @@ class PlannerToolCallInterfaceTest {
 			""")) {
 			OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(config(server.port()));
 
-			LlmBackendException exception = assertThrows(LlmBackendException.class, () ->
-				backend.generate(LlmConversation.of(List.of(
-					LlmChatMessage.system("system"),
-					LlmChatMessage.user("Alice said just now: @agent inspect", LlmMessageKind.USER_TURN)
-				)))
-			);
-			assertEquals(LlmFailureType.PARSE_ERROR, exception.failureType());
+			PlannerResponse response = backend.generate(LlmConversation.of(List.of(
+				LlmChatMessage.system("system"),
+				LlmChatMessage.user("Alice said just now: @agent inspect", LlmMessageKind.USER_TURN)
+			))).payload();
+
+			assertEquals(List.of("inspect_inventory", "check_craftables"), response.toolCalls().stream()
+				.map(PlannerToolCall::name)
+				.toList());
+			assertEquals("inspect_inventory", response.toolCall().name());
 		}
 	}
 

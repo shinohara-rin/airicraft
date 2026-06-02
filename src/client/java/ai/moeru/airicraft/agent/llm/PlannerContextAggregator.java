@@ -234,9 +234,23 @@ public final class PlannerContextAggregator {
 		if (toolCall == null) {
 			throw new IllegalArgumentException("toolCall");
 		}
-		return snapshot.plannerConversation()
-			.withAppended(LlmChatMessage.assistantToolCall("", toolCall))
-			.withAppended(LlmChatMessage.tool(toolCall.id(), toolResultContent(toolResult)));
+		return buildPlannerFollowUpConversation(snapshot, List.of(toolCall), List.of(toolResult));
+	}
+
+	public LlmConversation buildPlannerFollowUpConversation(PlannerContextSnapshot snapshot, List<PlannerToolCall> toolCalls, List<String> toolResults) {
+		if (snapshot == null) {
+			throw new IllegalStateException("No planner context snapshot");
+		}
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			throw new IllegalArgumentException("toolCalls");
+		}
+		LlmConversation conversation = snapshot.plannerConversation()
+			.withAppended(LlmChatMessage.assistantToolCalls("", toolCalls));
+		for (int index = 0; index < toolCalls.size(); index++) {
+			String toolResult = toolResults == null || index >= toolResults.size() ? null : toolResults.get(index);
+			conversation = conversation.withAppended(LlmChatMessage.tool(toolCalls.get(index).id(), toolResultContent(toolResult)));
+		}
+		return conversation;
 	}
 
 	public LlmConversation buildPlannerFollowUpConversation(
@@ -322,6 +336,13 @@ public final class PlannerContextAggregator {
 			return;
 		}
 		state = PlannerContextReducer.recordAcceptedToolExchange(state, toolCall, toolResultText, tick, timestampMs);
+	}
+
+	public void recordAcceptedToolExchange(List<PlannerToolCall> toolCalls, List<String> toolResultTexts, long tick, long timestampMs) {
+		if (toolCalls == null || toolCalls.isEmpty()) {
+			return;
+		}
+		state = PlannerContextReducer.recordAcceptedToolExchange(state, toolCalls, toolResultTexts, tick, timestampMs);
 	}
 
 	public void recordAgentTurn(DialogueTurn turn) {
@@ -428,9 +449,9 @@ public final class PlannerContextAggregator {
 		return switch (entry.type()) {
 			case USER_TURN -> LlmChatMessage.user(entry.text(), LlmMessageKind.USER_TURN);
 			case ASSISTANT_TURN -> LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent());
-				case TOOL_REQUEST -> entry.toolCall() == null
+				case TOOL_REQUEST -> entry.toolCalls().isEmpty()
 					? LlmChatMessage.assistant(entry.text(), entry.rawAssistantContent())
-					: LlmChatMessage.assistantToolCall(entry.text(), entry.toolCall());
+					: LlmChatMessage.assistantToolCalls(entry.text(), entry.toolCalls());
 				case TOOL_RESULT -> entry.toolCall() == null
 					? LlmChatMessage.user(entry.text(), LlmMessageKind.TOOL_RESULT)
 					: LlmChatMessage.tool(entry.toolCall().id(), toolResultContent(entry.text()));
