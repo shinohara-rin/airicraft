@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChatServiceTest {
 	@Test
@@ -21,5 +22,17 @@ class ChatServiceTest {
 
 		assertFalse(sanitized.contains("§"));
 		assertEquals(ChatService.MAX_CHAT_MESSAGE_LENGTH, sanitized.length());
+	}
+
+	@Test
+	void recentSentChatKeepsMultipleLinesFromSameTick() {
+		ChatService chatService = new ChatService();
+
+		chatService.rememberSentChat("Checking my inventory...", 100L);
+		chatService.rememberSentChat("Let me see what I can craft...", 100L);
+
+		assertTrue(chatService.isRecentSentChat("Checking my inventory...", 101L, 20L));
+		assertTrue(chatService.isRecentSentChat("Let me see what I can craft...", 101L, 20L));
+		assertFalse(chatService.isRecentSentChat("Checking my inventory...", 121L, 20L));
 	}
 }

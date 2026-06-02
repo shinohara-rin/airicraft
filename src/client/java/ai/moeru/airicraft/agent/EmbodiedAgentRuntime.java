@@ -785,9 +785,8 @@ public final class EmbodiedAgentRuntime {
 			senderName,
 			plainTextMessage,
 			localPlayerName(),
-			chatService.lastChatText(),
 			tickCount,
-			chatService.lastChatTick()
+			chatService
 		)) {
 			return;
 		}
@@ -1635,23 +1634,41 @@ public final class EmbodiedAgentRuntime {
 		String senderName,
 		String plainTextMessage,
 		String localPlayerName,
+		long currentTick,
+		ChatService chatService
+	) {
+		if (chatService == null) {
+			return false;
+		}
+		return isAgentChatEchoSender(senderName, plainTextMessage, localPlayerName)
+			&& chatService.isRecentSentChat(plainTextMessage, currentTick, CHAT_ECHO_SUPPRESSION_TICKS);
+	}
+
+	static boolean isAgentChatEcho(
+		String senderName,
+		String plainTextMessage,
+		String localPlayerName,
 		String lastAgentChatText,
 		long currentTick,
 		long lastAgentChatTick
 	) {
-		if (senderName == null || plainTextMessage == null || localPlayerName == null || lastAgentChatText == null) {
+		if (!isAgentChatEchoSender(senderName, plainTextMessage, localPlayerName)) {
 			return false;
 		}
-		if (!senderName.equals(localPlayerName)) {
-			return false;
-		}
-		if (!plainTextMessage.equals(lastAgentChatText)) {
+		if (lastAgentChatText == null || !plainTextMessage.equals(lastAgentChatText)) {
 			return false;
 		}
 		if (lastAgentChatTick < 0L || currentTick < lastAgentChatTick) {
 			return false;
 		}
 		return currentTick - lastAgentChatTick <= CHAT_ECHO_SUPPRESSION_TICKS;
+	}
+
+	private static boolean isAgentChatEchoSender(String senderName, String plainTextMessage, String localPlayerName) {
+		if (senderName == null || plainTextMessage == null || localPlayerName == null) {
+			return false;
+		}
+		return senderName.equals(localPlayerName);
 	}
 
 	static boolean isLocalControllerMessage(String senderName, String localPlayerName) {
