@@ -256,7 +256,7 @@ public final class DialogueRuntime {
 	) {
 		long timestampMs = clock.millis();
 		appendTurn(new DialogueTurn("system", updateMessage, tick, timestampMs));
-		if (state.degraded() || plannerOrchestrator.hasInFlight() || !plannerOrchestrator.isConfigured()) {
+		if (state.degraded() || !plannerOrchestrator.isConfigured()) {
 			return;
 		}
 		plannerOrchestrator.recordEvents(eventBuffer.query(null), timestampMs);
@@ -268,8 +268,9 @@ public final class DialogueRuntime {
 			activeGoal.orElse(null),
 			activeTask,
 			missionExecution,
-			"system",
-			updateMessage,
+			PlannerTriggerBatch.of(List.of(
+				PlannerTrigger.pending(PlannerTriggerType.SYSTEM, "runtime", updateMessage, tick, timestampMs)
+			)),
 			null
 		));
 		pendingTimeoutVisibleReply = false;

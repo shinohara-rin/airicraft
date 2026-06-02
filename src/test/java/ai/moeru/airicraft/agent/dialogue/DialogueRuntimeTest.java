@@ -383,6 +383,41 @@ class DialogueRuntimeTest {
 	}
 
 	@Test
+	void internalTaskUpdateDuringInFlightPlannerQueuesFollowUp() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(configuredLlmConfig());
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+		backend.injectMockResponse(new PlannerResponse(
+			"Working on it.",
+			new PlannerIntent("reply_only", null, null)
+		));
+		backend.injectMockResponse(new PlannerResponse(
+			"Completion noted.",
+			new PlannerIntent("reply_only", null, null)
+		));
+
+		runtime.onPlayerChat("Alice", "@agent craft planks", 10L, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+		runtime.onInternalTaskUpdate(
+			"TASK UPDATE: state=COMPLETED activeStepKind=CRAFT_RECIPE",
+			11L,
+			SessionSnapshot.initial(),
+			Optional.empty(),
+			TaskSnapshot.idle(),
+			MissionExecutionSnapshot.idle(),
+			eventBuffer
+		);
+		DialogueResponse response = awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
+		DialogueResponse followUp = awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
+
+		assertEquals("Working on it.", response.text());
+		assertEquals("Completion noted.", followUp.text());
+		assertTrue(runtime.plannerConversationDebugSnapshot().messages().stream().anyMatch(message ->
+			message.text().contains("[system][runtime] TASK UPDATE: state=COMPLETED activeStepKind=CRAFT_RECIPE")
+		));
+		runtime.shutdown();
+	}
+
+	@Test
 	void plannerConversationDebugSnapshotShowsAcceptedNativeVisionReply() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		DialogueRuntime runtime = newDialogueRuntime(
@@ -532,6 +567,30 @@ class DialogueRuntimeTest {
 			Thread.currentThread().interrupt();
 			throw new AssertionError("Interrupted while waiting", exception);
 		}
+	}
+
+	private static AgentConfig.LlmConfig configuredLlmConfig() {
+		AgentConfig.LlmConfig defaults = AgentConfig.LlmConfig.defaults();
+		return new AgentConfig.LlmConfig(
+			defaults.providerBaseUrl(),
+			"test-key",
+			"test-model",
+			defaults.visionProviderBaseUrl(),
+			defaults.visionApiKey(),
+			defaults.visionModel(),
+			defaults.requestTimeoutMillis(),
+			defaults.visionRequestTimeoutMillis(),
+			defaults.maxRecentConversationTurns(),
+			defaults.plannerCompactionTriggerTokens(),
+			defaults.plannerPendingSemanticEventCap(),
+			defaults.plannerSessionMaxConcurrentAttempts(),
+			defaults.plannerSessionCoalesceStepMillis(),
+			defaults.plannerSessionCoalesceMinMillis(),
+			defaults.plannerSessionCoalesceMaxMillis(),
+			defaults.visionImageDetail(),
+			defaults.plannerNativeVisionEnabled(),
+			defaults.plannerUseJsonObjectResponseFormat()
+		);
 	}
 
 	private static DialogueRuntime newDialogueRuntime(OpenAiCompatibleLlmBackend backend) {

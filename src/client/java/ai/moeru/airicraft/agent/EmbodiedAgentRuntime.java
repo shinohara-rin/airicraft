@@ -2231,20 +2231,18 @@ public final class EmbodiedAgentRuntime {
 			eventBuffer.append(tickCount, eventType, payload);
 		}
 
-		if (event.terminalState() != TaskExecutionState.FAILED) {
-				dialogueRuntime.onInternalTaskUpdate(
-					"TASK UPDATE: state=" + event.terminalState().name()
-						+ " taskId=" + event.taskId()
-						+ " goalType=" + event.goal().type().name()
-						+ " message=" + (event.message() == null ? "" : event.message()),
-					tickCount,
-					sessionSnapshot,
-					activeGoal(),
-					taskSnapshot,
-					missionExecutionSnapshot,
-					eventBuffer
-				);
-		}
+		dialogueRuntime.onInternalTaskUpdate(
+			"TASK UPDATE: state=" + event.terminalState().name()
+				+ " taskId=" + event.taskId()
+				+ " goalType=" + event.goal().type().name()
+				+ " message=" + (event.message() == null ? "" : event.message()),
+			tickCount,
+			sessionSnapshot,
+			activeGoal(),
+			taskSnapshot,
+			missionExecutionSnapshot,
+			eventBuffer
+		);
 	}
 
 	private void completePendingCraftToolResult(TaskTerminalEvent event) {
