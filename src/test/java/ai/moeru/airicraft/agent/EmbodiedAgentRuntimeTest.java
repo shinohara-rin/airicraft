@@ -268,6 +268,40 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void mineBlocksToolResultWarnsPlannerToWaitForTaskUpdate() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
+			SessionMode.REMOTE_MULTIPLAYER,
+			true,
+			true,
+			"minecraft:overworld",
+			false,
+			0,
+			0L
+		));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_mine",
+			"mine_blocks",
+			JsonParser.parseString("""
+				{"blockIds":["minecraft:dirt"],"quantity":1}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("queued"));
+		assertTrue(result.contains("does not mean completed"));
+		assertTrue(result.contains("TASK UPDATE"));
+		assertEquals(WorldTaskType.MINE, request.type());
+		assertEquals(new GoalMineSpec(List.of("minecraft:dirt"), 1), request.goal().mineSpec());
+	}
+
+	@Test
 	void attackEntityToolRoutesWorldTaskRequest() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

@@ -1104,7 +1104,7 @@ public final class EmbodiedAgentRuntime {
 				}
 				String targetPlayer = stringArg(args, "targetPlayer").orElseThrow(() -> new IllegalArgumentException("targetPlayer is required"));
 				applyPlannerJobTool(ActiveJobProposal.followPlayer(targetPlayer));
-				yield "Tool result for follow_player: accepted targetPlayer=" + targetPlayer;
+				yield queuedActionToolResult("follow_player", "targetPlayer=" + targetPlayer);
 			}
 			case PlannerToolCatalog.NAVIGATE_TO -> {
 				if (plannerToolWouldPreemptActiveTask(toolCall)) {
@@ -1117,7 +1117,7 @@ public final class EmbodiedAgentRuntime {
 					booleanArg(args, "exactY").orElse(false)
 				);
 				applyPlannerJobTool(ActiveJobProposal.navigateTo(position));
-				yield "Tool result for navigate_to: accepted x=" + position.x() + " y=" + position.y() + " z=" + position.z() + " exactY=" + position.exactY();
+				yield queuedActionToolResult("navigate_to", "x=" + position.x() + " y=" + position.y() + " z=" + position.z() + " exactY=" + position.exactY());
 			}
 			case PlannerToolCatalog.MINE_BLOCKS -> {
 				if (plannerToolWouldPreemptActiveTask(toolCall)) {
@@ -1128,7 +1128,7 @@ public final class EmbodiedAgentRuntime {
 					intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required"))
 				);
 				applyPlannerJobTool(ActiveJobProposal.mineBlocks(mineSpec));
-				yield "Tool result for mine_blocks: accepted blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity();
+				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
 			}
 			case PlannerToolCatalog.COLLECT_RESOURCE -> {
 				TaskResourceKind resourceKind = resourceKindArg(args, "resourceKind");

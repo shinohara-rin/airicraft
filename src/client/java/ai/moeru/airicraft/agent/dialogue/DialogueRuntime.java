@@ -19,7 +19,9 @@ import ai.moeru.airicraft.agent.tasks.MissionExecutionSnapshot;
 import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
 
 import java.time.Clock;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +30,7 @@ public final class DialogueRuntime {
 	private final Clock clock;
 	private final int maxRecentTurns;
 	private final List<DialogueTurn> recentTurns = new ArrayList<>();
+	private final Deque<PendingInternalTaskUpdate> pendingInternalTaskUpdates = new ArrayDeque<>();
 
 	private DialogueState state = DialogueCore.initialState();
 	private int queuedTimeoutInjections;
@@ -256,23 +259,21 @@ public final class DialogueRuntime {
 	) {
 		long timestampMs = clock.millis();
 		appendTurn(new DialogueTurn("system", updateMessage, tick, timestampMs));
-		if (state.degraded() || plannerOrchestrator.hasInFlight() || !plannerOrchestrator.isConfigured()) {
+		if (state.degraded() || !plannerOrchestrator.isConfigured()) {
 			return;
 		}
-		plannerOrchestrator.recordEvents(eventBuffer.query(null), timestampMs);
-		plannerOrchestrator.submit(new PlannerRequest(
+		PendingInternalTaskUpdate pendingUpdate = new PendingInternalTaskUpdate(
+			updateMessage,
 			tick,
 			timestampMs,
-			sessionSnapshot.mode(),
-			null,
+			sessionSnapshot == null ? SessionSnapshot.initial() : sessionSnapshot,
 			activeGoal.orElse(null),
 			activeTask,
-			missionExecution,
-			"system",
-			updateMessage,
-			null
-		));
-		pendingTimeoutVisibleReply = false;
+			missionExecution
+		);
+		if (!submitInternalTaskUpdate(pendingUpdate, eventBuffer)) {
+			pendingInternalTaskUpdates.addLast(pendingUpdate);
+		}
 	}
 
 	public void onInternalTaskUpdate(
@@ -290,6 +291,9 @@ public final class DialogueRuntime {
 			queuedTimeoutInjections--;
 			applyTransition(DialogueCore.onPlannerFailure(state, LlmFailureType.TIMEOUT, "Injected LLM timeout", pendingTimeoutVisibleReply, tick), tick, eventBuffer);
 			pendingTimeoutVisibleReply = false;
+			return null;
+		}
+		if (submitNextPendingInternalTaskUpdate(eventBuffer)) {
 			return null;
 		}
 
@@ -312,6 +316,7 @@ public final class DialogueRuntime {
 				eventBuffer
 			);
 			pendingTimeoutVisibleReply = false;
+			submitNextPendingInternalTaskUpdate(eventBuffer);
 			return null;
 		}
 
@@ -319,6 +324,7 @@ public final class DialogueRuntime {
 		applyTransition(transition, tick, eventBuffer);
 		pendingTimeoutVisibleReply = false;
 		plannerOrchestrator.onAcceptedReplyRecorded();
+		submitNextPendingInternalTaskUpdate(eventBuffer);
 		return transition.lastVisibleResponse();
 	}
 
@@ -336,6 +342,7 @@ public final class DialogueRuntime {
 		state = DialogueCore.initialState();
 		queuedTimeoutInjections = 0;
 		pendingTimeoutVisibleReply = false;
+		pendingInternalTaskUpdates.clear();
 		recentTurns.clear();
 		plannerOrchestrator.reset();
 	}
@@ -344,6 +351,7 @@ public final class DialogueRuntime {
 		state = DialogueCore.initialState();
 		queuedTimeoutInjections = 0;
 		pendingTimeoutVisibleReply = false;
+		pendingInternalTaskUpdates.clear();
 		recentTurns.clear();
 		plannerOrchestrator.shutdown();
 	}
@@ -379,6 +387,56 @@ public final class DialogueRuntime {
 		);
 		pendingTimeoutVisibleReply = timeoutVisibleReply;
 		plannerOrchestrator.submit(request);
+	}
+
+	private boolean submitNextPendingInternalTaskUpdate(SemanticEventBuffer eventBuffer) {
+		if (pendingInternalTaskUpdates.isEmpty()) {
+			return false;
+		}
+		if (state.degraded() || !plannerOrchestrator.isConfigured()) {
+			pendingInternalTaskUpdates.clear();
+			return false;
+		}
+		if (plannerOrchestrator.hasInFlight()) {
+			return false;
+		}
+		PendingInternalTaskUpdate pendingUpdate = pendingInternalTaskUpdates.removeFirst();
+		if (submitInternalTaskUpdate(pendingUpdate, eventBuffer)) {
+			return true;
+		}
+		pendingInternalTaskUpdates.addFirst(pendingUpdate);
+		return false;
+	}
+
+	private boolean submitInternalTaskUpdate(PendingInternalTaskUpdate pendingUpdate, SemanticEventBuffer eventBuffer) {
+		if (pendingUpdate == null || state.degraded() || plannerOrchestrator.hasInFlight() || !plannerOrchestrator.isConfigured()) {
+			return false;
+		}
+		Long sinceSeqNo = plannerOrchestrator.lastObservedEventSeqNo();
+		plannerOrchestrator.recordEvents(
+			eventBuffer.query(sinceSeqNo <= 0L ? null : sinceSeqNo),
+			new PlannerRequestSeed(
+				pendingUpdate.tick(),
+				pendingUpdate.timestampMs(),
+				pendingUpdate.sessionSnapshot().mode(),
+				null,
+				pendingUpdate.activeGoal()
+			)
+		);
+		plannerOrchestrator.submit(new PlannerRequest(
+			pendingUpdate.tick(),
+			pendingUpdate.timestampMs(),
+			pendingUpdate.sessionSnapshot().mode(),
+			null,
+			pendingUpdate.activeGoal(),
+			pendingUpdate.activeTask(),
+			pendingUpdate.missionExecution(),
+			"system",
+			pendingUpdate.updateMessage(),
+			null
+		));
+		pendingTimeoutVisibleReply = false;
+		return true;
 	}
 
 	private void recordAgentTurn(String text, long tick) {
@@ -421,6 +479,17 @@ public final class DialogueRuntime {
 				&& trigger.speaker() != null
 				&& !"system".equalsIgnoreCase(trigger.speaker())
 		);
+	}
+
+	private record PendingInternalTaskUpdate(
+		String updateMessage,
+		long tick,
+		long timestampMs,
+		SessionSnapshot sessionSnapshot,
+		GoalSnapshot activeGoal,
+		TaskSnapshot activeTask,
+		MissionExecutionSnapshot missionExecution
+	) {
 	}
 
 }
