@@ -201,6 +201,7 @@ public final class EvaluationWorldFixtureService {
 		CompletableFuture<Boolean> future = new CompletableFuture<>();
 		server.executeSync(() -> {
 			try {
+				server.getPlayerManager().saveAllPlayerData();
 				future.complete(server.save(false, true, true));
 			}
 			catch (Throwable throwable) {
