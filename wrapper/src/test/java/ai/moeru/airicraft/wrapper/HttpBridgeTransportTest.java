@@ -470,95 +470,89 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
-	void verificationStatusReadsPayload(@TempDir Path tempDir) throws Exception {
+	void evaluationStatusReadsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
-			server.respondJson("/v1/verification/status", 0, 200, """
-				{"available":true,"sessionMode":"SINGLEPLAYER_LOCAL","worldLoaded":true,"capabilities":["player_state","scenario_run"]}
+			server.respondJson("/v1/evaluation/status", 0, 200, """
+				{"available":true,"sessionMode":"SINGLEPLAYER_LOCAL","worldLoaded":true,"capabilities":["scenario_run","planner_loop"]}
 				""");
 			writeBridgeState(tempDir, server.port());
 			System.setProperty("user.home", tempDir.toString());
 
 			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.getVerificationStatus();
+			Map<String, Object> payload = transport.getEvaluationStatus();
 
 			assertEquals(true, payload.get("available"));
 			assertEquals("SINGLEPLAYER_LOCAL", payload.get("sessionMode"));
-			assertEquals(1, server.requestCount("/v1/verification/status"));
+			assertEquals(1, server.requestCount("/v1/evaluation/status"));
 		}
 	}
 
 	@Test
-	void teleportVerificationPlayerPostsCoordinates(@TempDir Path tempDir) throws Exception {
+	void evaluationScenariosReadsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
-			server.respondJson("/v1/verification/player/teleport", 0, 200, """
-				{"available":true,"teleported":true,"x":10.5,"y":94.0,"z":-3.0}
+			server.respondJson("/v1/evaluation/scenarios", 0, 200, """
+				{"available":true,"scenarios":[{"id":"smelting-basic","name":"Smelting Basic","frozen":true}]}
 				""");
 			writeBridgeState(tempDir, server.port());
 			System.setProperty("user.home", tempDir.toString());
 
 			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.teleportVerificationPlayer(10.5D, 94.0D, -3.0D);
+			Map<String, Object> payload = transport.getEvaluationScenarios();
 
-			assertEquals(true, payload.get("teleported"));
-			assertEquals(1, server.requestCount("/v1/verification/player/teleport"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/teleport").contains("\"x\":10.5"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/teleport").contains("\"y\":94.0"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/teleport").contains("\"z\":-3.0"));
+			assertEquals(true, payload.get("available"));
+			assertEquals(1, server.requestCount("/v1/evaluation/scenarios"));
 		}
 	}
 
 	@Test
-	void setVerificationPlayerVelocityPostsComponents(@TempDir Path tempDir) throws Exception {
+	void evaluationRunPostsScenario(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
-			server.respondJson("/v1/verification/player/velocity", 0, 200, """
-				{"available":true,"applied":true,"x":0.0,"y":1.5,"z":-0.25}
+			server.respondJson("/v1/evaluation/run", 0, 200, """
+				{"accepted":true,"scenario":"smelting-basic","running":true}
 				""");
 			writeBridgeState(tempDir, server.port());
 			System.setProperty("user.home", tempDir.toString());
 
 			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.setVerificationPlayerVelocity(0.0D, 1.5D, -0.25D);
-
-			assertEquals(true, payload.get("applied"));
-			assertEquals(1, server.requestCount("/v1/verification/player/velocity"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/velocity").contains("\"x\":0.0"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/velocity").contains("\"y\":1.5"));
-			assertTrue(server.lastRequestBody("/v1/verification/player/velocity").contains("\"z\":-0.25"));
-		}
-	}
-
-	@Test
-	void respawnVerificationPlayerPostsToRespawnEndpoint(@TempDir Path tempDir) throws Exception {
-		try (TestBridgeServer server = TestBridgeServer.start()) {
-			server.respondJson("/v1/verification/player/respawn", 0, 200, """
-				{"available":true,"respawned":true,"health":20.0,"currentScreen":"in_game"}
-				""");
-			writeBridgeState(tempDir, server.port());
-			System.setProperty("user.home", tempDir.toString());
-
-			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.respawnVerificationPlayer();
-
-			assertEquals(true, payload.get("respawned"));
-			assertEquals(1, server.requestCount("/v1/verification/player/respawn"));
-			assertEquals("", server.lastRequestBody("/v1/verification/player/respawn"));
-		}
-	}
-
-	@Test
-	void verificationRunPostsScenario(@TempDir Path tempDir) throws Exception {
-		try (TestBridgeServer server = TestBridgeServer.start()) {
-			server.respondJson("/v1/verification/run", 0, 200, """
-				{"accepted":true,"scenario":"damage.fall_context","running":true}
-				""");
-			writeBridgeState(tempDir, server.port());
-			System.setProperty("user.home", tempDir.toString());
-
-			HttpBridgeTransport transport = new HttpBridgeTransport();
-			Map<String, Object> payload = transport.runVerificationScenario("damage.fall_context");
+			Map<String, Object> payload = transport.runEvaluationScenario("smelting-basic");
 
 			assertEquals(true, payload.get("accepted"));
-			assertTrue(server.lastRequestBody("/v1/verification/run").contains("\"scenario\":\"damage.fall_context\""));
+			assertEquals(1, server.requestCount("/v1/evaluation/run"));
+			assertTrue(server.lastRequestBody("/v1/evaluation/run").contains("\"scenario\":\"smelting-basic\""));
+		}
+	}
+
+	@Test
+	void evaluationResultsReadsPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/evaluation/results", 0, 200, """
+				{"available":true,"report":{"scenarioId":"smelting-basic","status":"PASSED","reason":"all checks passed"}}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.getEvaluationResults();
+
+			assertEquals(true, payload.get("available"));
+			assertEquals(1, server.requestCount("/v1/evaluation/results"));
+		}
+	}
+
+	@Test
+	void evaluationEvidenceReadsPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/evaluation/evidence", 0, 200, """
+				{"available":true,"report":{"scenarioId":"smelting-basic","status":"FAILED"},"evidence":{"plannerJournal":[],"recentEvents":[]}}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.getEvaluationEvidence();
+
+			assertEquals(true, payload.get("available"));
+			assertEquals(1, server.requestCount("/v1/evaluation/evidence"));
 		}
 	}
 

@@ -650,149 +650,139 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
-	void verificationStatusShowsCapabilities() {
+	void evaluationStatusShowsCapabilities() {
 		TestTransport transport = new TestTransport();
-		transport.verificationStatusPayload = linkedMap(
+		transport.evaluationStatusPayload = linkedMap(
 			"available", true,
 			"sessionMode", "SINGLEPLAYER_LOCAL",
 			"worldLoaded", true,
-			"capabilities", List.of("player_state", "scenario_run")
+			"scenarioRoot", "scenarios",
+			"capabilities", List.of("scenario_list", "planner_loop"),
+			"report", linkedMap(
+				"status", "IDLE",
+				"plannerTurns", 0,
+				"elapsedTicks", 0,
+				"evidenceReviewRequired", false
+			)
 		);
 
-		CliResult result = execute(transport, "verification", "status", "--verbose");
+		CliResult result = execute(transport, "evaluation", "status", "--verbose");
 
 		assertEquals(0, result.exitCode());
-		assertTrue(result.output().contains("command: verification status\n"));
+		assertTrue(result.output().contains("command: evaluation status\n"));
 		assertTrue(result.output().contains("capabilityCount: 2\n"));
+		assertTrue(result.output().contains("scenarioRoot: scenarios\n"));
 		assertTrue(result.output().contains("[capability 1]\n"));
-		assertTrue(result.output().contains("value: player_state\n"));
+		assertTrue(result.output().contains("value: scenario_list\n"));
 	}
 
 	@Test
-	void verificationPlayerTeleportPassesCoordinates() {
+	void evaluationScenariosRendersTrackedScenarioSummary() {
 		TestTransport transport = new TestTransport();
-		transport.verificationPlayerPayload = linkedMap(
+		transport.evaluationScenariosPayload = linkedMap(
 			"available", true,
-			"sessionMode", "SINGLEPLAYER_LOCAL",
-			"worldLoaded", true,
-			"teleported", true,
-			"x", 10.5D,
-			"y", 94.0D,
-			"z", -3.0D,
-			"health", 20.0D,
-			"maxHealth", 20.0D,
-			"food", 20,
-			"saturation", 5.0D,
-			"onGround", false,
-			"fallDistance", 0.0D,
-			"gameMode", "survival",
-			"dimensionId", "minecraft:overworld"
+			"scenarioRoot", "scenarios",
+			"scenarios", List.of(linkedMap(
+				"id", "smelting-basic",
+				"name", "Smelting basic",
+				"frozen", true,
+				"promptConfigured", true,
+				"checkCount", 1,
+				"maxPlannerTurns", 8,
+				"maxElapsedTicks", 1200
+			))
 		);
 
-		CliResult result = execute(transport, "verification", "player", "teleport", "--x", "10.5", "--y", "94", "--z", "-3");
+		CliResult result = execute(transport, "evaluation", "scenarios");
 
 		assertEquals(0, result.exitCode());
-		assertEquals(10.5D, transport.lastTeleportX);
-		assertEquals(94.0D, transport.lastTeleportY);
-		assertEquals(-3.0D, transport.lastTeleportZ);
-		assertTrue(result.output().contains("teleported: true\n"));
-		assertTrue(result.output().contains("gameMode: survival\n"));
+		assertTrue(result.output().contains("command: evaluation scenarios\n"));
+		assertTrue(result.output().contains("scenarioCount: 1\n"));
+		assertTrue(result.output().contains("id: smelting-basic\n"));
+		assertTrue(result.output().contains("promptConfigured: true\n"));
 	}
 
 	@Test
-	void verificationPlayerVelocityPassesComponents() {
+	void evaluationRunPassesScenarioName() {
 		TestTransport transport = new TestTransport();
-		transport.verificationPlayerPayload = linkedMap(
-			"available", true,
-			"sessionMode", "SINGLEPLAYER_LOCAL",
-			"worldLoaded", true,
-			"applied", true,
-			"x", 10.5D,
-			"y", 94.0D,
-			"z", -3.0D,
-			"health", 20.0D,
-			"maxHealth", 20.0D,
-			"food", 20,
-			"saturation", 5.0D,
-			"onGround", false,
-			"fallDistance", 0.0D,
-			"gameMode", "survival",
-			"dimensionId", "minecraft:overworld"
-		);
-
-		CliResult result = execute(transport, "verification", "player", "velocity", "--x", "0", "--y", "1.5", "--z", "-0.25");
-
-		assertEquals(0, result.exitCode());
-		assertEquals(0.0D, transport.lastVelocityX);
-		assertEquals(1.5D, transport.lastVelocityY);
-		assertEquals(-0.25D, transport.lastVelocityZ);
-		assertTrue(result.output().contains("applied: true\n"));
-	}
-
-	@Test
-	void verificationPlayerRespawnCallsTransport() {
-		TestTransport transport = new TestTransport();
-		transport.verificationPlayerPayload = linkedMap(
-			"available", true,
-			"sessionMode", "SINGLEPLAYER_LOCAL",
-			"worldLoaded", true,
-			"respawned", true,
-			"health", 20.0D,
-			"currentScreen", "in_game"
-		);
-
-		CliResult result = execute(transport, "verification", "player", "respawn");
-
-		assertEquals(0, result.exitCode());
-		assertTrue(transport.verificationRespawnCalled);
-		assertTrue(result.output().contains("respawned: true\n"));
-	}
-
-	@Test
-	void verificationRunPassesScenarioName() {
-		TestTransport transport = new TestTransport();
-		transport.verificationRunPayload = linkedMap(
+		transport.evaluationRunPayload = linkedMap(
 			"accepted", true,
-			"scenario", "damage.fall_context",
-			"running", true
+			"scenario", "smelting-basic",
+			"worldName", "airicraft_eval_smelting-basic_1",
+			"report", linkedMap(
+				"status", "PENDING_WORLD",
+				"scenarioId", "smelting-basic",
+				"message", "Waiting for evaluation world",
+				"plannerTurns", 0,
+				"elapsedTicks", 0,
+				"evidenceReviewRequired", false
+			)
 		);
 
-		CliResult result = execute(transport, "verification", "run", "--scenario", "damage.fall_context");
+		CliResult result = execute(transport, "evaluation", "run", "--scenario", "smelting-basic");
 
 		assertEquals(0, result.exitCode());
-		assertEquals("damage.fall_context", transport.lastVerificationScenario);
-		assertTrue(result.output().contains("scenario: damage.fall_context\n"));
+		assertEquals("smelting-basic", transport.lastEvaluationScenario);
+		assertTrue(result.output().contains("scenario: smelting-basic\n"));
+		assertTrue(result.output().contains("reportStatus: PENDING_WORLD\n"));
 	}
 
 	@Test
-	void verificationResultsVerboseShowsDiagnostics() {
+	void evaluationResultsVerboseShowsDiagnostics() {
 		TestTransport transport = new TestTransport();
-		transport.verificationResultsPayload = linkedMap(
+		transport.evaluationResultsPayload = linkedMap(
 			"available", true,
-			"scenarios", List.of("damage.fall_context"),
 			"report", linkedMap(
 				"status", "FAILED",
-				"scenarioName", "damage.fall_context",
-				"message", "Timed out after 300 ticks",
-				"steps", List.of(linkedMap(
-					"description", "planner context shows new damage notice",
-					"status", "FAILED",
-					"waitedTicks", 300,
-					"message", "Timed out after 300 ticks"
+				"scenarioId", "smelting-basic",
+				"message", "Evaluation budget exhausted before expected outcome",
+				"plannerTurns", 8,
+				"elapsedTicks", 1200,
+				"checks", List.of(linkedMap(
+					"type", "inventory_contains",
+					"passed", false,
+					"message", "inventory contains 0x minecraft:iron_ingot, expected at least 1"
 				)),
+				"evidenceReviewRequired", true,
 				"diagnostics", linkedMap(
-					"failureReason", "Timed out after 300 ticks"
+					"maxPlannerTurns", 8
 				)
 			)
 		);
 
-		CliResult result = execute(transport, "verification", "results", "--verbose");
+		CliResult result = execute(transport, "evaluation", "results", "--verbose");
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("reportStatus: FAILED\n"));
-		assertTrue(result.output().contains("[report]\n"));
+		assertTrue(result.output().contains("reportScenarioId: smelting-basic\n"));
 		assertTrue(result.output().contains("[diagnostics]\n"));
-		assertTrue(result.output().contains("failureReason: Timed out after 300 ticks\n"));
+		assertTrue(result.output().contains("maxPlannerTurns: 8\n"));
+	}
+
+	@Test
+	void evaluationEvidenceVerboseShowsEvidenceBundle() {
+		TestTransport transport = new TestTransport();
+		transport.evaluationEvidencePayload = linkedMap(
+			"available", true,
+			"evidence", linkedMap(
+				"report", linkedMap(
+					"status", "NEEDS_REVIEW",
+					"scenarioId", "smelting-basic",
+					"plannerTurns", 8,
+					"elapsedTicks", 1200,
+					"evidenceReviewRequired", true
+				),
+				"plannerJournal", List.of(linkedMap("kind", "planner_succeeded"))
+			)
+		);
+
+		CliResult result = execute(transport, "evaluation", "evidence", "--verbose");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("command: evaluation evidence\n"));
+		assertTrue(result.output().contains("reportStatus: NEEDS_REVIEW\n"));
+		assertTrue(result.output().contains("[evidence]\n"));
+		assertTrue(result.output().contains("[plannerJournal 1]\n"));
 	}
 
 	@Test
@@ -1103,10 +1093,11 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentEventsPayload = Map.of("events", List.of());
 		private Map<String, Object> agentCompactPayload = Map.of("started", true);
 		private Map<String, Object> agentEventPolicyPayload = Map.of("activeRules", List.of(), "recentInterventions", List.of());
-		private Map<String, Object> verificationStatusPayload = Map.of("capabilities", List.of());
-		private Map<String, Object> verificationPlayerPayload = Map.of();
-		private Map<String, Object> verificationRunPayload = Map.of("accepted", true);
-		private Map<String, Object> verificationResultsPayload = Map.of("scenarios", List.of(), "report", Map.of());
+		private Map<String, Object> evaluationStatusPayload = Map.of("capabilities", List.of(), "report", Map.of());
+		private Map<String, Object> evaluationScenariosPayload = Map.of("scenarios", List.of(), "report", Map.of());
+		private Map<String, Object> evaluationRunPayload = Map.of("accepted", true);
+		private Map<String, Object> evaluationResultsPayload = Map.of("report", Map.of());
+		private Map<String, Object> evaluationEvidencePayload = Map.of("evidence", Map.of());
 		private Map<String, Object> blockHighlightPayload = Map.of("highlightId", "highlight-1");
 		private Map<String, Object> regionHighlightPayload = Map.of("highlightId", "highlight-2");
 		private Map<String, Object> highlightsPayload = Map.of("highlights", List.of());
@@ -1130,16 +1121,7 @@ class AiricraftCliMainTest {
 		private boolean lastCompactWait = true;
 		private Integer lastCompactTimeoutMs;
 		private boolean agentDebugIdleTriggerCalled;
-		private String lastVerificationScenario;
-		private Double lastTeleportX;
-		private Double lastTeleportY;
-		private Double lastTeleportZ;
-		private Double lastVelocityX;
-		private Double lastVelocityY;
-		private Double lastVelocityZ;
-		private String lastVerificationGameMode;
-		private String lastVerificationCommand;
-		private boolean verificationRespawnCalled;
+		private String lastEvaluationScenario;
 		private boolean agentEventPolicyCleared;
 		private boolean reloadCalled;
 		private Map<String, Object> lastSubmittedTask;
@@ -1421,58 +1403,30 @@ class AiricraftCliMainTest {
 		}
 
 		@Override
-		public Map<String, Object> getVerificationStatus() {
-			return verificationStatusPayload;
+		public Map<String, Object> getEvaluationStatus() {
+			return evaluationStatusPayload;
 		}
 
 		@Override
-		public Map<String, Object> getVerificationPlayerState() {
-			return verificationPlayerPayload;
+		public Map<String, Object> getEvaluationScenarios() {
+			return evaluationScenariosPayload;
 		}
 
 		@Override
-		public Map<String, Object> teleportVerificationPlayer(double x, double y, double z) {
-			lastTeleportX = x;
-			lastTeleportY = y;
-			lastTeleportZ = z;
-			return verificationPlayerPayload;
+		public Map<String, Object> runEvaluationScenario(String scenario) {
+			lastEvaluationScenario = scenario;
+			return evaluationRunPayload;
 		}
 
 		@Override
-		public Map<String, Object> setVerificationPlayerVelocity(double x, double y, double z) {
-			lastVelocityX = x;
-			lastVelocityY = y;
-			lastVelocityZ = z;
-			return verificationPlayerPayload;
+		public Map<String, Object> getEvaluationResults() {
+			return evaluationResultsPayload;
 		}
 
 		@Override
-		public Map<String, Object> respawnVerificationPlayer() {
-			verificationRespawnCalled = true;
-			return verificationPlayerPayload;
+		public Map<String, Object> getEvaluationEvidence() {
+			return evaluationEvidencePayload;
 		}
 
-		@Override
-		public Map<String, Object> setVerificationPlayerGameMode(String mode) {
-			lastVerificationGameMode = mode;
-			return verificationPlayerPayload;
-		}
-
-		@Override
-		public Map<String, Object> runVerificationCommand(String command) {
-			lastVerificationCommand = command;
-			return verificationPlayerPayload;
-		}
-
-		@Override
-		public Map<String, Object> runVerificationScenario(String scenario) {
-			lastVerificationScenario = scenario;
-			return verificationRunPayload;
-		}
-
-		@Override
-		public Map<String, Object> getVerificationResults() {
-			return verificationResultsPayload;
-		}
 	}
 }

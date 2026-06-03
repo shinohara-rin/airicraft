@@ -382,51 +382,28 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
-	public Map<String, Object> getVerificationStatus() {
-		return get("/v1/verification/status");
+	public Map<String, Object> getEvaluationStatus() {
+		return get("/v1/evaluation/status");
 	}
 
 	@Override
-	public Map<String, Object> getVerificationPlayerState() {
-		return get("/v1/verification/player");
+	public Map<String, Object> getEvaluationScenarios() {
+		return get("/v1/evaluation/scenarios");
 	}
 
 	@Override
-	public Map<String, Object> teleportVerificationPlayer(double x, double y, double z) {
-		return send("POST", "/v1/verification/player/teleport", Map.of(
-			"x", x,
-			"y", y,
-			"z", z
-		));
+	public Map<String, Object> runEvaluationScenario(String scenario) {
+		return send("POST", "/v1/evaluation/run", Map.of("scenario", scenario));
 	}
 
 	@Override
-	public Map<String, Object> setVerificationPlayerVelocity(double x, double y, double z) {
-		return send("POST", "/v1/verification/player/velocity", Map.of(
-			"x", x,
-			"y", y,
-			"z", z
-		));
+	public Map<String, Object> getEvaluationResults() {
+		return get("/v1/evaluation/results");
 	}
 
 	@Override
-	public Map<String, Object> respawnVerificationPlayer() {
-		return send("POST", "/v1/verification/player/respawn", null);
-	}
-
-	@Override
-	public Map<String, Object> setVerificationPlayerGameMode(String mode) {
-		return send("POST", "/v1/verification/player/gamemode", Map.of("mode", mode));
-	}
-
-	@Override
-	public Map<String, Object> runVerificationCommand(String command) {
-		return send("POST", "/v1/verification/command", Map.of("command", command));
-	}
-
-	@Override
-	public Map<String, Object> runVerificationScenario(String scenario) {
-		return send("POST", "/v1/verification/run", Map.of("scenario", scenario));
+	public Map<String, Object> getEvaluationEvidence() {
+		return get("/v1/evaluation/evidence");
 	}
 
 	private static Map<String, Object> entitySelectorBody(String uuid, String name, String entityTypeId, String itemId, String mode) {
@@ -447,11 +424,6 @@ final class HttpBridgeTransport implements MinecraftTransport {
 			body.put("mode", mode);
 		}
 		return body;
-	}
-
-	@Override
-	public Map<String, Object> getVerificationResults() {
-		return get("/v1/verification/results");
 	}
 
 	private Map<String, Object> get(String path) {
@@ -513,7 +485,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 			case "/v1/camera/screenshot" -> SCREENSHOT_REQUEST_TIMEOUT;
 			case "/v1/map/image" -> SCREENSHOT_REQUEST_TIMEOUT;
 			case "/v1/vision/describe" -> VISION_REQUEST_TIMEOUT;
-			case "/v1/worlds/join", "/v1/servers/join" -> JOIN_REQUEST_TIMEOUT;
+			case "/v1/worlds/join", "/v1/servers/join", "/v1/evaluation/run" -> JOIN_REQUEST_TIMEOUT;
 			case "/v1/agent/debug/compact" -> DEBUG_COMPACTION_REQUEST_TIMEOUT;
 			default -> DEFAULT_REQUEST_TIMEOUT;
 		};

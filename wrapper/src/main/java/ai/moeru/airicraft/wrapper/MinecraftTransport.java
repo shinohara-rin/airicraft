@@ -105,21 +105,13 @@ interface MinecraftTransport {
 
 	Map<String, Object> clearAgentEventPolicy();
 
-	Map<String, Object> getVerificationStatus();
+	Map<String, Object> getEvaluationStatus();
 
-	Map<String, Object> getVerificationPlayerState();
+	Map<String, Object> getEvaluationScenarios();
 
-	Map<String, Object> teleportVerificationPlayer(double x, double y, double z);
+	Map<String, Object> runEvaluationScenario(String scenario);
 
-	Map<String, Object> setVerificationPlayerVelocity(double x, double y, double z);
+	Map<String, Object> getEvaluationResults();
 
-	Map<String, Object> respawnVerificationPlayer();
-
-	Map<String, Object> setVerificationPlayerGameMode(String mode);
-
-	Map<String, Object> runVerificationCommand(String command);
-
-	Map<String, Object> runVerificationScenario(String scenario);
-
-	Map<String, Object> getVerificationResults();
+	Map<String, Object> getEvaluationEvidence();
 }
