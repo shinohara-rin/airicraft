@@ -8,8 +8,10 @@
 		"CraftingResultSlotMixin",
 		"GameRendererMixin",
 		"GameRendererPauseMixin",
+		"LevelSummaryMixin",
 		"MessageHandlerMixin",
-		"SlotMixin"
+		"SlotMixin",
+		"WorldEntryFrozenLoadMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
