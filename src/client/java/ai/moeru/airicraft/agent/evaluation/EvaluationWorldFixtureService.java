@@ -33,7 +33,7 @@ public final class EvaluationWorldFixtureService {
 
 	private static final Gson GSON = new Gson();
 	private static final long SAVE_TIMEOUT_SECONDS = 10L;
-	private static final DateTimeFormatter DISPOSABLE_WORLD_SUFFIX = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS");
+	private static final DateTimeFormatter DISPOSABLE_WORLD_SUFFIX = DateTimeFormatter.ofPattern("yy-MM-dd_HH-mm-ss");
 
 	private final Path gameDir;
 	private final EvaluationScenarioRepository repository;

@@ -58,7 +58,7 @@ class EvaluationWorldFixtureServiceTest {
 
 		assertEquals("smelting", restored.scenarioId());
 		assertTrue(restored.worldName().startsWith("airicraft_eval_smelting_"));
-		assertTrue(restored.worldName().matches("airicraft_eval_smelting_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}-\\d{3}(-\\d+)?"));
+		assertTrue(restored.worldName().matches("airicraft_eval_smelting_\\d{2}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}(-\\d+)?"));
 		assertTrue(Files.exists(restored.path().resolve("level.dat")));
 		String metadata = Files.readString(restored.path().resolve(EvaluationWorldFixtureService.METADATA_FILENAME), StandardCharsets.UTF_8);
 		assertTrue(metadata.contains("\"scenarioId\":\"smelting\""));
