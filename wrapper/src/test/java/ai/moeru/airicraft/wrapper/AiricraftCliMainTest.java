@@ -703,6 +703,34 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void evaluationConfigShowsCurrentWorldScenarioConfig() {
+		TestTransport transport = new TestTransport();
+		transport.evaluationConfigPayload = linkedMap(
+			"available", true,
+			"scenarioId", "smelting-basic",
+			"configPath", "/repo/scenarios/smelting-basic/scenario.yml",
+			"worldArchivePath", "/repo/scenarios/smelting-basic/world.zip",
+			"scenarioRoot", "/repo/scenarios",
+			"scenario", linkedMap(
+				"id", "smelting-basic",
+				"name", "Smelting basic",
+				"frozen", true,
+				"promptConfigured", true,
+				"checkCount", 1,
+				"worldArchive", "world.zip"
+			)
+		);
+
+		CliResult result = execute(transport, "evaluation", "config");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("command: evaluation config\n"));
+		assertTrue(result.output().contains("scenarioId: smelting-basic\n"));
+		assertTrue(result.output().contains("configPath: /repo/scenarios/smelting-basic/scenario.yml\n"));
+		assertTrue(result.output().contains("frozen: true\n"));
+	}
+
+	@Test
 	void evaluationRunPassesScenarioName() {
 		TestTransport transport = new TestTransport();
 		transport.evaluationRunPayload = linkedMap(
@@ -1095,6 +1123,7 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentEventPolicyPayload = Map.of("activeRules", List.of(), "recentInterventions", List.of());
 		private Map<String, Object> evaluationStatusPayload = Map.of("capabilities", List.of(), "report", Map.of());
 		private Map<String, Object> evaluationScenariosPayload = Map.of("scenarios", List.of(), "report", Map.of());
+		private Map<String, Object> evaluationConfigPayload = Map.of("scenario", Map.of());
 		private Map<String, Object> evaluationRunPayload = Map.of("accepted", true);
 		private Map<String, Object> evaluationResultsPayload = Map.of("report", Map.of());
 		private Map<String, Object> evaluationEvidencePayload = Map.of("evidence", Map.of());
@@ -1410,6 +1439,11 @@ class AiricraftCliMainTest {
 		@Override
 		public Map<String, Object> getEvaluationScenarios() {
 			return evaluationScenariosPayload;
+		}
+
+		@Override
+		public Map<String, Object> getEvaluationConfig() {
+			return evaluationConfigPayload;
 		}
 
 		@Override

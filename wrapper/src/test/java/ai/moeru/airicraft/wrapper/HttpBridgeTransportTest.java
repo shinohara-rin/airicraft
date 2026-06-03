@@ -505,6 +505,24 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
+	void evaluationConfigReadsPayload(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/evaluation/config", 0, 200, """
+				{"available":true,"scenarioId":"smelting-basic","configPath":"/repo/scenarios/smelting-basic/scenario.yml"}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> payload = transport.getEvaluationConfig();
+
+			assertEquals(true, payload.get("available"));
+			assertEquals("smelting-basic", payload.get("scenarioId"));
+			assertEquals(1, server.requestCount("/v1/evaluation/config"));
+		}
+	}
+
+	@Test
 	void evaluationRunPostsScenario(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
 			server.respondJson("/v1/evaluation/run", 0, 200, """

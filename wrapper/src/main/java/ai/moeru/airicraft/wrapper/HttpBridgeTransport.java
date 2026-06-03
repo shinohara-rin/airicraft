@@ -392,6 +392,11 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> getEvaluationConfig() {
+		return get("/v1/evaluation/config");
+	}
+
+	@Override
 	public Map<String, Object> runEvaluationScenario(String scenario) {
 		return send("POST", "/v1/evaluation/run", Map.of("scenario", scenario));
 	}

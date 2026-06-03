@@ -2,6 +2,7 @@ package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
+import ai.moeru.airicraft.agent.evaluation.EvaluationScenarioLoader;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenarioRepository;
 import ai.moeru.airicraft.agent.evaluation.EvaluationWorldFixtureService;
 import ai.moeru.airicraft.agent.integration.map.MapImageCapture;
@@ -53,6 +54,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -80,6 +82,7 @@ public final class ModBridgeServer {
 	private static final List<String> EVALUATION_CAPABILITIES = List.of(
 		"scenario_list",
 		"world_restore",
+		"current_config",
 		"planner_loop",
 		"results",
 		"evidence"
@@ -159,6 +162,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/debug/timeline", exchange -> handleJson(exchange, () -> createAgentDebugTimelineResponse(exchange)));
 			httpServer.createContext("/v1/evaluation/status", exchange -> handleJson(exchange, this::createEvaluationStatusResponse));
 			httpServer.createContext("/v1/evaluation/scenarios", exchange -> handleJson(exchange, this::createEvaluationScenariosResponse));
+			httpServer.createContext("/v1/evaluation/config", exchange -> handleJson(exchange, this::createEvaluationConfigResponse));
 			httpServer.createContext("/v1/evaluation/results", exchange -> handleJson(exchange, this::createEvaluationResultsResponse));
 			httpServer.createContext("/v1/evaluation/evidence", exchange -> handleJson(exchange, this::createEvaluationEvidenceResponse));
 			httpServer.createContext("/v1/evaluation/run", this::handleEvaluationRun);
@@ -1047,6 +1051,33 @@ public final class ModBridgeServer {
 		catch (EvaluationScenarioRepository.EvaluationScenarioRepositoryException exception) {
 			throw new BridgeUnavailableException(exception.code(), exception.getMessage());
 		}
+	}
+
+	private Object createEvaluationConfigResponse() {
+		return onClientThread(() -> {
+			try {
+				Path configPath = evaluationWorldFixtureService.resolveCurrentScenarioConfig()
+					.orElseThrow(() -> new BridgeUnavailableException("scenario_not_found", "No scenario config is associated with the current world"));
+				EvaluationScenario scenario = EvaluationScenarioLoader.load(configPath);
+				Map<String, Object> response = new LinkedHashMap<>();
+				response.put("available", true);
+				response.put("scenarioId", scenario.id());
+				response.put("scenarioRoot", evaluationWorldFixtureService.repository().root().toString());
+				response.put("configPath", configPath.toString());
+				response.put("worldArchivePath", evaluationWorldFixtureService.repository().archivePath(scenario).toString());
+				response.put("scenario", evaluationScenarioPayload(scenario));
+				return response;
+			}
+			catch (BridgeUnavailableException exception) {
+				throw exception;
+			}
+			catch (EvaluationWorldFixtureService.EvaluationWorldFixtureException exception) {
+				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
+			}
+			catch (IOException exception) {
+				throw new BridgeUnavailableException("scenario_load_failed", "Failed to load current scenario config: " + exception.getMessage());
+			}
+		});
 	}
 
 	private Object createEvaluationResultsResponse() {

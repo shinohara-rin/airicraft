@@ -109,6 +109,8 @@ interface MinecraftTransport {
 
 	Map<String, Object> getEvaluationScenarios();
 
+	Map<String, Object> getEvaluationConfig();
+
 	Map<String, Object> runEvaluationScenario(String scenario);
 
 	Map<String, Object> getEvaluationResults();

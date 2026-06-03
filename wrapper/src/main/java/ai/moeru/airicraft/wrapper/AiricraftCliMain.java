@@ -92,6 +92,7 @@ public final class AiricraftCliMain {
 		CommandLine evaluation = root.getSubcommands().get("evaluation");
 		evaluation.addSubcommand(new EvaluationStatusCommand(context));
 		evaluation.addSubcommand(new EvaluationScenariosCommand(context));
+		evaluation.addSubcommand(new EvaluationConfigCommand(context));
 		evaluation.addSubcommand(new EvaluationRunCommand(context));
 		evaluation.addSubcommand(new EvaluationResultsCommand(context));
 		evaluation.addSubcommand(new EvaluationEvidenceCommand(context));
@@ -613,6 +614,18 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.evaluationScenarios(transport().getEvaluationScenarios(), verbose());
+		}
+	}
+
+	@Command(name = "config", mixinStandardHelpOptions = true, description = "Inspect the scenario config associated with the current world.")
+	private static final class EvaluationConfigCommand extends BaseCommand {
+		private EvaluationConfigCommand(CliContext context) {
+			super(context, "evaluation config");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.evaluationConfig(transport().getEvaluationConfig(), verbose());
 		}
 	}
 
@@ -1690,6 +1703,17 @@ public final class AiricraftCliMain {
 			));
 			if (verbose && payload.containsKey("report")) {
 				view.put("report", payload.get("report"));
+			}
+			return view;
+		}
+
+		private static Map<String, Object> evaluationConfig(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			Map<String, Object> scenario = map(payload.get("scenario"));
+			copy(view, payload, "available", "scenarioId", "configPath", "worldArchivePath", "scenarioRoot");
+			copy(view, scenario, "name", "frozen", "promptConfigured", "checkCount", "worldArchive");
+			if (verbose) {
+				view.put("scenario", scenario);
 			}
 			return view;
 		}
