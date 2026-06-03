@@ -21,7 +21,18 @@ public class LevelSummaryMixin {
 			.ifPresent(label -> cir.setReturnValue(
 				Text.empty()
 					.append(cir.getReturnValue())
-					.append(Text.literal(", " + label).formatted(Formatting.AQUA))
+					.append(Text.literal(", " + label).formatted(airicraft$fixtureFormatting()))
 			));
+	}
+
+	private Formatting airicraft$fixtureFormatting() {
+		String directoryName = ((LevelSummary) (Object) this).getName();
+		return switch (AIRICRAFT_FROZEN_WORLDS.statusForDirectory(directoryName).state()) {
+			case FROZEN -> Formatting.GOLD;
+			case FROZEN_MISSING_ARCHIVE -> Formatting.RED;
+			case DISPOSABLE_COPY -> Formatting.AQUA;
+			case UNFROZEN -> Formatting.GREEN;
+			case NONE -> Formatting.GRAY;
+		};
 	}
 }

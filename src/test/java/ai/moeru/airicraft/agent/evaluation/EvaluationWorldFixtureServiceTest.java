@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -57,9 +58,37 @@ class EvaluationWorldFixtureServiceTest {
 
 		assertEquals("smelting", restored.scenarioId());
 		assertTrue(restored.worldName().startsWith("airicraft_eval_smelting_"));
+		assertTrue(restored.worldName().matches("airicraft_eval_smelting_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}-\\d{3}(-\\d+)?"));
 		assertTrue(Files.exists(restored.path().resolve("level.dat")));
 		String metadata = Files.readString(restored.path().resolve(EvaluationWorldFixtureService.METADATA_FILENAME), StandardCharsets.UTF_8);
 		assertTrue(metadata.contains("\"scenarioId\":\"smelting\""));
 		assertTrue(metadata.contains("scenario.yml"));
+	}
+
+	@Test
+	void cleanupDisposableWorldsDeletesOnlyMetadataMarkedCopies(@TempDir Path tempDir) throws Exception {
+		Path gameDir = tempDir.resolve("run");
+		Path scenarios = tempDir.resolve("scenarios");
+		Path world = tempDir.resolve("setup-world");
+		Files.createDirectories(world);
+		Files.writeString(world.resolve("level.dat"), "level", StandardCharsets.UTF_8);
+		EvaluationWorldFixtureService service = new EvaluationWorldFixtureService(gameDir, new EvaluationScenarioRepository(scenarios));
+		service.freezeWorld(world, "smelting", () -> {
+		});
+		EvaluationScenario scenario = service.repository().require("smelting");
+		EvaluationWorldFixtureService.RestoredWorld first = service.restoreScenarioWorld(scenario);
+		EvaluationWorldFixtureService.RestoredWorld second = service.restoreScenarioWorld(scenario);
+		Path regularSave = gameDir.resolve("saves").resolve("regular");
+		Files.createDirectories(regularSave);
+		Files.writeString(regularSave.resolve("level.dat"), "regular", StandardCharsets.UTF_8);
+
+		assertEquals(2, service.disposableWorldCount());
+		EvaluationWorldFixtureService.CleanupResult result = service.cleanupDisposableWorlds();
+
+		assertEquals(2, result.deletedCount());
+		assertEquals(0, service.disposableWorldCount());
+		assertFalse(Files.exists(first.path()));
+		assertFalse(Files.exists(second.path()));
+		assertTrue(Files.exists(regularSave.resolve("level.dat")));
 	}
 }

@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,6 +33,7 @@ public final class EvaluationWorldFixtureService {
 
 	private static final Gson GSON = new Gson();
 	private static final long SAVE_TIMEOUT_SECONDS = 10L;
+	private static final DateTimeFormatter DISPOSABLE_WORLD_SUFFIX = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS");
 
 	private final Path gameDir;
 	private final EvaluationScenarioRepository repository;
@@ -153,21 +156,59 @@ public final class EvaluationWorldFixtureService {
 			throw new EvaluationWorldFixtureException("world_archive_not_found", "World archive not found for scenario: " + scenario.id());
 		}
 		Path savesDir = gameDir.resolve("saves").normalize();
-		String worldName = disposableWorldName(scenario.id());
-		Path targetDir = savesDir.resolve(worldName).normalize();
+		DisposableWorldTarget target = null;
 		try {
+			target = nextDisposableWorldTarget(savesDir, scenario.id());
 			Files.createDirectories(savesDir);
-			unzipDirectory(archivePath, targetDir);
-			writeMetadata(targetDir.resolve(METADATA_FILENAME), new EvaluationWorldMetadata(
+			unzipDirectory(archivePath, target.path());
+			writeMetadata(target.path().resolve(METADATA_FILENAME), new EvaluationWorldMetadata(
 				scenario.id(),
 				repository.configPath(scenario.id()).toAbsolutePath().normalize().toString(),
 				archivePath.toAbsolutePath().normalize().toString()
 			));
-			return new RestoredWorld(scenario.id(), worldName, targetDir);
+			return new RestoredWorld(scenario.id(), target.worldName(), target.path());
 		}
 		catch (IOException exception) {
-			deleteQuietly(targetDir);
+			if (target != null) {
+				deleteQuietly(target.path());
+			}
 			throw new EvaluationWorldFixtureException("world_restore_failed", "Failed to restore scenario world: " + scenario.id(), exception);
+		}
+	}
+
+	public int disposableWorldCount() {
+		Path savesDir = gameDir.resolve("saves").normalize();
+		if (Files.notExists(savesDir)) {
+			return 0;
+		}
+		try (var stream = Files.list(savesDir)) {
+			return (int) stream
+				.filter(Files::isDirectory)
+				.filter(this::isDisposableWorldDirectory)
+				.count();
+		}
+		catch (IOException exception) {
+			throw new EvaluationWorldFixtureException("disposable_world_list_failed", "Failed to list evaluation world copies", exception);
+		}
+	}
+
+	public CleanupResult cleanupDisposableWorlds() {
+		Path savesDir = gameDir.resolve("saves").normalize();
+		if (Files.notExists(savesDir)) {
+			return new CleanupResult(0);
+		}
+		int deletedCount = 0;
+		try (var stream = Files.list(savesDir)) {
+			for (Path worldDir : stream.filter(Files::isDirectory).sorted(Comparator.comparing(Path::toString)).toList()) {
+				if (isDisposableWorldDirectory(worldDir)) {
+					deleteDirectory(worldDir);
+					deletedCount++;
+				}
+			}
+			return new CleanupResult(deletedCount);
+		}
+		catch (IOException exception) {
+			throw new EvaluationWorldFixtureException("disposable_world_cleanup_failed", "Failed to clean evaluation world copies", exception);
 		}
 	}
 
@@ -271,9 +312,31 @@ public final class EvaluationWorldFixtureService {
 		return "session.lock".equals(normalized) || METADATA_FILENAME.equals(normalized);
 	}
 
+	private DisposableWorldTarget nextDisposableWorldTarget(Path savesDir, String scenarioId) throws IOException {
+		Files.createDirectories(savesDir);
+		String baseName = disposableWorldName(scenarioId);
+		for (int attempt = 0; attempt < 100; attempt++) {
+			String worldName = attempt == 0 ? baseName : baseName + "-" + attempt;
+			Path targetDir = savesDir.resolve(worldName).normalize();
+			if (!targetDir.startsWith(savesDir)) {
+				throw new IOException("Unsafe disposable world directory: " + worldName);
+			}
+			if (Files.notExists(targetDir)) {
+				return new DisposableWorldTarget(worldName, targetDir);
+			}
+		}
+		throw new IOException("Failed to allocate unique disposable world directory for scenario: " + scenarioId);
+	}
+
+	private boolean isDisposableWorldDirectory(Path worldDir) {
+		Path savesDir = gameDir.resolve("saves").normalize();
+		Path normalized = worldDir.toAbsolutePath().normalize();
+		return normalized.startsWith(savesDir) && Files.exists(normalized.resolve(METADATA_FILENAME));
+	}
+
 	private static String disposableWorldName(String scenarioId) {
 		String safeId = scenarioId.replaceAll("[^a-zA-Z0-9._-]+", "-");
-		return "airicraft_eval_" + safeId + "_" + System.currentTimeMillis();
+		return "airicraft_eval_" + safeId + "_" + LocalDateTime.now().format(DISPOSABLE_WORLD_SUFFIX);
 	}
 
 	private static Optional<EvaluationWorldMetadata> readMetadata(Path metadataPath) {
@@ -301,12 +364,18 @@ public final class EvaluationWorldFixtureService {
 		if (path == null || Files.notExists(path)) {
 			return;
 		}
+		try {
+			deleteDirectory(path);
+		}
+		catch (IOException ignored) {
+		}
+	}
+
+	private static void deleteDirectory(Path path) throws IOException {
 		try (var stream = Files.walk(path)) {
 			for (Path current : stream.sorted(Comparator.reverseOrder()).toList()) {
 				Files.deleteIfExists(current);
 			}
-		}
-		catch (IOException ignored) {
 		}
 	}
 
@@ -322,6 +391,12 @@ public final class EvaluationWorldFixtureService {
 	}
 
 	public record RestoredWorld(String scenarioId, String worldName, Path path) {
+	}
+
+	public record CleanupResult(int deletedCount) {
+	}
+
+	private record DisposableWorldTarget(String worldName, Path path) {
 	}
 
 	private record CurrentWorld(IntegratedServer server, Path path, String directoryName) {

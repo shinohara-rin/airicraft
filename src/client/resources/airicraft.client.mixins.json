@@ -10,8 +10,11 @@
 		"GameRendererPauseMixin",
 		"LevelSummaryMixin",
 		"MessageHandlerMixin",
+		"SelectWorldScreenEvaluationControlsMixin",
 		"SlotMixin",
-		"WorldEntryFrozenLoadMixin"
+		"WorldEntryFrozenLoadMixin",
+		"WorldListWidgetEvaluationFilterMixin",
+		"WorldListWidgetInvoker"
 	],
 	"injectors": {
 		"defaultRequire": 1
