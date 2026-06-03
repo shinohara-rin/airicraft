@@ -431,8 +431,9 @@ public final class DialogueRuntime {
 			pendingUpdate.activeGoal(),
 			pendingUpdate.activeTask(),
 			pendingUpdate.missionExecution(),
-			"system",
-			pendingUpdate.updateMessage(),
+			PlannerTriggerBatch.of(List.of(
+				PlannerTrigger.pending(PlannerTriggerType.SYSTEM, "runtime", pendingUpdate.updateMessage(), pendingUpdate.tick(), pendingUpdate.timestampMs())
+			)),
 			null
 		));
 		pendingTimeoutVisibleReply = false;

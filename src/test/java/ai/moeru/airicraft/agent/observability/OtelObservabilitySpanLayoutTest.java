@@ -375,8 +375,8 @@ class OtelObservabilitySpanLayoutTest {
 			      "message": {
 			        "content": null,
 			        "tool_calls": [
-			          {"id":"call_attack","type":"function","function":{"name":"attack_entity","arguments":"{\\"uuid\\":\\"slime-1\\"}"}},
-			          {"id":"call_clear","type":"function","function":{"name":"clear_goal","arguments":"{}"}}
+			          {"id":"call_inventory","type":"function","function":{"name":"inspect_inventory","arguments":"{}"}},
+			          {"id":"call_craftables","type":"function","function":{"name":"check_craftables","arguments":"{}"}}
 			        ]
 			      }
 			    }
@@ -395,11 +395,11 @@ class OtelObservabilitySpanLayoutTest {
 			try (Scope ignored = plannerContext.makeCurrent()) {
 				PlannerResponse response = backend.generate(LlmConversation.of(List.of(
 						LlmChatMessage.system("You are Airicraft."),
-						LlmChatMessage.user("Attack the slime.", LlmMessageKind.USER_TURN)
+						LlmChatMessage.user("Inspect inventory and craftables.", LlmMessageKind.USER_TURN)
 					))).payload();
 				assertEquals(2, response.toolCalls().size());
-				assertEquals("attack_entity", response.toolCalls().get(0).name());
-				assertEquals("clear_goal", response.toolCalls().get(1).name());
+				assertEquals("inspect_inventory", response.toolCalls().get(0).name());
+				assertEquals("check_craftables", response.toolCalls().get(1).name());
 			}
 			finally {
 				observability.endSpan(plannerContext);
@@ -418,10 +418,10 @@ class OtelObservabilitySpanLayoutTest {
 		String failureType = plannerSpan.getAttributes().get(AttributeKey.stringKey("airicraft.failure_type"));
 		assertNotNull(outputValue);
 		assertNotNull(completionValue);
-		assertTrue(outputValue.contains("attack_entity"));
-		assertTrue(outputValue.contains("clear_goal"));
-		assertTrue(completionValue.contains("attack_entity"));
-		assertTrue(completionValue.contains("clear_goal"));
+		assertTrue(outputValue.contains("inspect_inventory"));
+		assertTrue(outputValue.contains("check_craftables"));
+		assertTrue(completionValue.contains("inspect_inventory"));
+		assertTrue(completionValue.contains("check_craftables"));
 		assertNull(failureType);
 	}
 
