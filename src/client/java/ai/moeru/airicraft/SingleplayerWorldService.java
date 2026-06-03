@@ -49,8 +49,22 @@ public final class SingleplayerWorldService {
 		}
 
 		LevelSummary summary = findSummaryByWorldId(worldId);
+		return joinSummary(client, summary, worldId);
+	}
+
+	public Map<String, Object> joinWorldDirectory(String directoryName) {
+		MinecraftClient client = requireClient();
+		if (isInWorld(client)) {
+			throw new SingleplayerWorldException("already_in_world", "A world is already loaded");
+		}
+
+		LevelSummary summary = findSummaryByDirectoryName(directoryName);
+		return joinSummary(client, summary, directoryName);
+	}
+
+	private Map<String, Object> joinSummary(MinecraftClient client, LevelSummary summary, String requestedId) {
 		if (summary == null) {
-			throw new SingleplayerWorldException("world_not_found", "World not found: " + worldId);
+			throw new SingleplayerWorldException("world_not_found", "World not found: " + requestedId);
 		}
 		if (!summary.isSelectable()) {
 			throw new SingleplayerWorldException("world_not_selectable", "World is not selectable: " + summary.getName());
@@ -75,6 +89,24 @@ public final class SingleplayerWorldService {
 		try {
 			for (LevelSummary summary : loadSummaries()) {
 				if (worldId(summary).equals(normalized)) {
+					return summary;
+				}
+			}
+			return null;
+		}
+		catch (LevelStorageException exception) {
+			throw new SingleplayerWorldException("singleplayer_list_failed", nonEmpty(exception.getMessage(), "Failed to read world list"), exception);
+		}
+	}
+
+	private LevelSummary findSummaryByDirectoryName(String directoryName) {
+		String normalized = nonEmpty(directoryName, "").trim();
+		if (normalized.isBlank()) {
+			throw new SingleplayerWorldException("world_not_found", "World not found: " + directoryName);
+		}
+		try {
+			for (LevelSummary summary : loadSummaries()) {
+				if (summary.getName().equals(normalized)) {
 					return summary;
 				}
 			}

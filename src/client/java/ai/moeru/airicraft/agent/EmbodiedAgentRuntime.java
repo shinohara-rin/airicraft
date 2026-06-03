@@ -32,6 +32,10 @@ import ai.moeru.airicraft.agent.events.EventPolicyRule;
 import ai.moeru.airicraft.agent.events.EventPolicyRuleUpsert;
 import ai.moeru.airicraft.agent.events.EventPolicyState;
 import ai.moeru.airicraft.agent.events.EventRoutingProfile;
+import ai.moeru.airicraft.agent.evaluation.EvaluationEvidenceSettings;
+import ai.moeru.airicraft.agent.evaluation.EvaluationReport;
+import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
+import ai.moeru.airicraft.agent.evaluation.ScenarioEvaluationRunner;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.events.SemanticEventBuffer;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
@@ -110,40 +114,13 @@ import ai.moeru.airicraft.agent.tasks.SmeltingOption;
 import ai.moeru.airicraft.agent.tasks.SmeltingOutputReadyEvent;
 import ai.moeru.airicraft.agent.tasks.SmeltingPlannerService;
 import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
-import ai.moeru.airicraft.agent.verification.VerificationReport;
-import ai.moeru.airicraft.agent.verification.VerificationRunner;
-import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
-import ai.moeru.airicraft.agent.verification.scenarios.DialogueVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.DialogueChatSanitizationVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.DialogueClearGoalVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.DialogueProactiveSocialModeVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.DamageFallContextVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.EventPolicyIgnoreSystemVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.FollowVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.FollowSingleplayerLocalPauseVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.FollowReacquireTargetVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.LlmDegradationVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.LlmDegradationGoalPreservedVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.ManualInputIdlePassthroughVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.MineBlocksVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.NavigateVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.PlannerObservabilityVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.SessionLanVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.SessionVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.SocialPrimaryInteractionTtlVerification;
-import ai.moeru.airicraft.agent.verification.scenarios.SocialChatIngestVerification;
-import ai.moeru.airicraft.agent.session.SessionMode;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.registry.Registries;
-import net.minecraft.server.integrated.IntegratedServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.GameMode;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -158,9 +135,6 @@ import java.util.UUID;
 import java.time.Clock;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 
 public final class EmbodiedAgentRuntime {
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
@@ -170,7 +144,7 @@ public final class EmbodiedAgentRuntime {
 
 	private final AiricraftConfig airicraftConfig;
 	private final AgentConfig config;
-	private final VerificationRunner verificationRunner = new VerificationRunner();
+	private final ScenarioEvaluationRunner evaluationRunner = new ScenarioEvaluationRunner();
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SessionRuntime sessionRuntime = new SessionRuntime();
 	private final LanHostingService lanHostingService = new LanHostingService();
@@ -255,7 +229,6 @@ public final class EmbodiedAgentRuntime {
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
 		this.plannerJournal = plannerShell.plannerJournal();
 		this.debugRecorder.recordDialogueState(this.dialogueRuntime.snapshot());
-		registerDefaultScenarios();
 	}
 
 	public EmbodiedAgentRuntime(
@@ -340,14 +313,6 @@ public final class EmbodiedAgentRuntime {
 		return snapshot;
 	}
 
-	public VerificationRunner verificationRunner() {
-		return verificationRunner;
-	}
-
-	public List<String> verificationScenarioNames() {
-		return verificationRunner.scenarioNames();
-	}
-
 	public void onClientStarted(MinecraftClient client) {
 		initialized = true;
 		sessionRuntime.onClientStarted(client, tickCount, eventBuffer);
@@ -367,6 +332,7 @@ public final class EmbodiedAgentRuntime {
 		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=world_left");
 		dialogueRuntime.clear();
 		worldTaskExecutor.onWorldLeave();
+		evaluationRunner.reset();
 		activeJobRuntime.clear();
 		idleIdeaScheduler.reset();
 		followCapability.clear();
@@ -482,7 +448,7 @@ public final class EmbodiedAgentRuntime {
 		}
 		drainEventPipeline();
 
-		verificationRunner.onTick();
+		evaluationRunner.onTick(new LiveEvaluationContext(client));
 		lastKnownPlayerHealth = currentPlayerHealth(client);
 	}
 
@@ -515,7 +481,7 @@ public final class EmbodiedAgentRuntime {
 		worldLoadTick = -1L;
 		sessionSnapshotOverrideForTests = null;
 		autoLanOpenState.clear();
-		verificationRunner.reset();
+		evaluationRunner.reset();
 		localDamageTracker.clear();
 		nearbyPlayerTracker.clear(tickCount, eventBuffer);
 		eventPipeline.clear();
@@ -553,12 +519,56 @@ public final class EmbodiedAgentRuntime {
 			taskSnapshot,
 			taskExecutionSnapshot,
 			missionExecutionSnapshot,
-			verificationRunner.report()
+			evaluationRunner.report(tickCount)
 		);
 	}
 
-	public VerificationReport verificationReport() {
-		return verificationRunner.report();
+	public EvaluationReport evaluationReport() {
+		return evaluationRunner.report(tickCount);
+	}
+
+	public Map<String, Object> evaluationEvidence() {
+		LinkedHashMap<String, Object> evidence = new LinkedHashMap<>();
+		EvaluationScenario scenario = evaluationRunner.scenario();
+		EvaluationEvidenceSettings settings = scenario == null ? EvaluationEvidenceSettings.defaults() : scenario.evidence();
+		evidence.put("report", evaluationReport());
+		evidence.put("session", sessionSnapshot());
+		if (settings.includeTaskState()) {
+			evidence.put("activeGoal", activeGoal().orElse(null));
+			evidence.put("task", taskSnapshot);
+			evidence.put("taskExecution", taskExecutionSnapshot);
+			evidence.put("missionExecution", missionExecutionSnapshot);
+			evidence.put("activeJob", activeJobRuntime.current());
+		}
+		if (settings.includePlannerJournal()) {
+			evidence.put("planner", plannerDebugSnapshot());
+			evidence.put("plannerJournal", plannerShellJournal());
+			evidence.put("contextExcerpt", plannerContextExcerpt());
+		}
+		if (settings.includeDebugTimeline()) {
+			evidence.put("debugTimeline", debugTimeline(null));
+		}
+		if (settings.includeRecentEvents()) {
+			evidence.put("recentEvents", recentEvents(null));
+		}
+		if (settings.includeWorldSnapshot()) {
+			evidence.put("worldEvidence", currentWorldEvidence(MinecraftClient.getInstance()));
+		}
+		evidence.put("lastChatText", lastChatText());
+		return evidence;
+	}
+
+	public boolean startEvaluation(EvaluationScenario scenario) {
+		if (scenario == null) {
+			return false;
+		}
+		if (scenario.prompt() == null || scenario.prompt().isBlank()) {
+			throw new BridgeUnavailableException("invalid_scenario", "Scenario prompt is empty: " + scenario.id());
+		}
+		proactiveSocialModeOverride = null;
+		prepareClientForEvaluation();
+		evaluationRunner.start(scenario, tickCount, System.currentTimeMillis());
+		return true;
 	}
 
 	public Optional<GoalSnapshot> activeGoal() {
@@ -681,88 +691,8 @@ public final class EmbodiedAgentRuntime {
 		eventPolicyState.clear();
 	}
 
-	public boolean verificationAvailable() {
-		MinecraftClient client = MinecraftClient.getInstance();
-		return isIntegratedSingleplayerMode(sessionSnapshot.mode())
-			&& sessionSnapshot.worldLoaded()
-			&& client != null
-			&& client.player != null
-			&& client.isIntegratedServerRunning()
-			&& client.getServer() != null;
-	}
-
 	public long latestEventSeqNo() {
 		return eventBuffer.latestSeqNo();
-	}
-
-	public VerificationPlayerProbe verificationPlayerProbe() {
-		prepareClientForVerification();
-		return onVerificationServer((server, player) -> verificationPlayerProbe(player));
-	}
-
-	public VerificationPlayerProbe verificationTeleportPlayer(double x, double y, double z) {
-		if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
-			throw new BridgeUnavailableException("invalid_request", "x, y, and z must be finite numbers");
-		}
-		prepareClientForVerification();
-		return onVerificationServer((server, player) -> {
-			player.requestTeleport(x, y, z);
-			return verificationPlayerProbe(player);
-		});
-	}
-
-	public VerificationPlayerProbe verificationSetPlayerVelocity(double x, double y, double z) {
-		if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
-			throw new BridgeUnavailableException("invalid_request", "x, y, and z must be finite numbers");
-		}
-		prepareClientForVerification();
-		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Local verification player is unavailable");
-		}
-		client.player.setVelocityClient(x, y, z);
-		client.player.setOnGround(false);
-		return onVerificationServer((server, player) -> {
-			player.setVelocity(x, y, z);
-			player.velocityDirty = true;
-			player.setOnGround(false);
-			return verificationPlayerProbe(player);
-		});
-	}
-
-	public VerificationPlayerProbe verificationSetGameMode(String modeId) {
-		GameMode gameMode = verificationGameMode(modeId);
-		prepareClientForVerification();
-		return onVerificationServer((server, player) -> {
-			player.changeGameMode(gameMode);
-			return verificationPlayerProbe(player);
-		});
-	}
-
-	public VerificationPlayerProbe verificationRunCommand(String command) {
-		String normalizedCommand = normalizedVerificationCommand(command);
-		prepareClientForVerification();
-		return onVerificationServer((server, player) -> {
-			server.getCommandManager().executeWithPrefix(
-				server.getCommandSource()
-					.withEntity(player)
-					.withPosition(new Vec3d(player.getX(), player.getY(), player.getZ()))
-					.withWorld((ServerWorld) player.getWorld())
-					.withSilent(),
-				normalizedCommand
-			);
-			return verificationPlayerProbe(player);
-		});
-	}
-
-	public boolean verificationRequestRespawn() {
-		prepareClientForVerification();
-		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Local verification player is unavailable");
-		}
-		client.player.requestRespawn();
-		return true;
 	}
 
 	public boolean startDebugCompaction() {
@@ -809,12 +739,6 @@ public final class EmbodiedAgentRuntime {
 
 	public String lastChatText() {
 		return chatService.lastChatText();
-	}
-
-	public boolean startVerification(String scenarioName) {
-		proactiveSocialModeOverride = null;
-		prepareClientForVerification();
-		return verificationRunner.start(scenarioName);
 	}
 
 	public void onChatReceived(String senderName, String plainTextMessage) {
@@ -2551,309 +2475,6 @@ public final class EmbodiedAgentRuntime {
 			+ failure;
 	}
 
-	private void registerDefaultScenarios() {
-		verificationRunner.register(new SessionVerification(
-			() -> sessionSnapshot.mode(),
-			this::joinFirstWorld,
-			this::leaveCurrentWorld,
-			() -> eventBuffer.containsType("session.world_loaded"),
-			() -> worldLoadTick >= 0L && tickCount - worldLoadTick >= 20L
-		));
-		verificationRunner.register(new SessionLanVerification(
-			() -> sessionSnapshot.mode(),
-			this::openLan,
-			() -> sessionSnapshot.lanPort() > 0,
-			() -> eventBuffer.containsType("session.lan_opened")
-		));
-		verificationRunner.register(new SocialChatIngestVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("Alice", new Vec3d(5.0D, 64.0D, 0.0D), tickCount, eventBuffer),
-			() -> chatIngestService.injectMessage("Alice", "hello everyone", tickCount, nearbyPlayerTracker, primaryInteractionResolver, eventBuffer),
-			() -> chatIngestService.injectMessage("Alice", "@agent follow me", tickCount, nearbyPlayerTracker, primaryInteractionResolver, eventBuffer),
-			() -> eventBuffer.containsTypeForPlayer("social.player_joined_nearby", "Alice"),
-			() -> eventBuffer.containsTypeForPlayer("social.player_spoke", "Alice"),
-			() -> eventBuffer.containsTypeForPlayer("social.player_addressed_agent", "Alice"),
-			() -> primaryInteractionResolver.current().map(PrimaryInteractionPlayer::name).filter("Alice"::equals).isPresent()
-		));
-		verificationRunner.register(new FollowSingleplayerLocalPauseVerification(
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL,
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"I'll follow once LAN or multiplayer is active.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "PausedAlice")
-			)),
-			() -> nearbyPlayerTracker.injectPlayerNearby("PausedAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> onChatReceived("PausedAlice", "@agent follow me"),
-			() -> lastDialogueResponse().isPresent(),
-			() -> lastDialogueResponse()
-				.map(response -> response.intent().type() == DialogueIntentType.SET_GOAL && "PausedAlice".equals(response.intent().targetPlayer()))
-				.orElse(false),
-			() -> eventBuffer.containsTypeForPlayer("follow.target_acquired", "PausedAlice"),
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "PausedAlice".equals(goal.targetPlayer())).orElse(false),
-			() -> behaviorTreeSnapshot().activeNodePath().contains("ActuationBlockedBySession"),
-			() -> !behaviorTreeSnapshot().movement().movingForward()
-				&& !behaviorTreeSnapshot().movement().sprinting()
-				&& !behaviorTreeSnapshot().movement().jumping()
-		));
-		verificationRunner.register(new ManualInputIdlePassthroughVerification(
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL,
-			() -> activeGoal().isEmpty(),
-			() -> setForwardKeyPressed(true),
-			this::isForwardKeyPressed,
-			() -> setForwardKeyPressed(false)
-		));
-		verificationRunner.register(new FollowVerification(
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL,
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"I'll follow once LAN is open.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "LanAlice")
-			)),
-			() -> nearbyPlayerTracker.injectPlayerNearby("LanAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> onChatReceived("LanAlice", "@agent follow me"),
-			() -> lastDialogueResponse().isPresent(),
-			() -> lastDialogueResponse()
-				.map(response -> response.intent().type() == DialogueIntentType.SET_GOAL && "LanAlice".equals(response.intent().targetPlayer()))
-				.orElse(false),
-			() -> eventBuffer.containsTypeForPlayer("follow.target_acquired", "LanAlice"),
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "LanAlice".equals(goal.targetPlayer())).orElse(false),
-			this::openLan,
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LAN_HOST,
-			() -> nearbyPlayerTracker.injectPlayerMove("LanAlice", playerOffset(20.0D), tickCount, eventBuffer),
-			() -> behaviorTreeSnapshot().activeNodePath().stream().anyMatch(node -> node.contains("MoveCloser")),
-			() -> nearbyPlayerTracker.injectPlayerDisconnect("LanAlice", tickCount, eventBuffer),
-			() -> eventBuffer.containsTypeForPlayer("follow.target_lost", "LanAlice")
-		));
-		GoalPosition[] navigateTarget = new GoalPosition[1];
-		long[] navigateTaskBaselineSeqNo = new long[1];
-		verificationRunner.register(new NavigateVerification(
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LOCAL,
-			this::openLan,
-			() -> sessionSnapshot.mode() == SessionMode.SINGLEPLAYER_LAN_HOST,
-			() -> navigateTarget[0] = findNearbyNavigationTarget(),
-			() -> navigateTaskBaselineSeqNo[0] = eventBuffer.latestSeqNo(),
-			() -> injectGoalForTests(new GoalSnapshot(
-				GoalType.NAVIGATE_TO,
-				null,
-				navigateTarget[0],
-				null,
-				tickCount,
-				"verification"
-			)),
-			() -> activeGoal()
-				.map(goal -> goal.type() == GoalType.NAVIGATE_TO && Objects.equals(goal.position(), navigateTarget[0]))
-				.orElse(false),
-			() -> taskExecutionSnapshot.state() == TaskExecutionState.RUNNING
-				&& behaviorTreeSnapshot().activeNodePath().contains("NavigateToSubtree"),
-			() -> eventBuffer.containsTypeSince(navigateTaskBaselineSeqNo[0], "task.completed")
-				|| taskExecutionSnapshot.state() == TaskExecutionState.COMPLETED,
-			() -> playerNear(navigateTarget[0], 1.75D)
-		));
-		verificationRunner.register(new MineBlocksVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> sessionSnapshot.companionActuationAllowed(),
-			() -> injectGoalForTests(new GoalSnapshot(
-				GoalType.MINE_BLOCKS,
-				null,
-				null,
-				new GoalMineSpec(List.of("minecraft:oak_log"), 1),
-				tickCount,
-				"verification"
-			)),
-			() -> activeGoal()
-				.map(goal -> goal.type() == GoalType.MINE_BLOCKS
-					&& goal.mineSpec() != null
-					&& List.of("minecraft:oak_log").equals(goal.mineSpec().blockIds()))
-				.orElse(false),
-			() -> taskExecutionSnapshot.state() == TaskExecutionState.RUNNING
-		));
-		verificationRunner.register(new DialogueVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("Alice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Sure, I'll follow you!",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "Alice")
-			)),
-			() -> onChatReceived("Alice", "@agent follow me"),
-			() -> lastDialogueResponse().isPresent(),
-			() -> lastDialogueResponse().map(response -> response.text() != null && !response.text().isBlank()).orElse(false),
-			() -> lastChatTick() > 0L,
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER).orElse(false)
-		));
-		verificationRunner.register(new DialogueChatSanitizationVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("SanitizeAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> lastChatTick(),
-			this::lastChatText,
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"/follow me\n\n§a".repeat(40),
-				new PlannerIntent("reply_only", null, null)
-			)),
-			() -> onChatReceived("SanitizeAlice", "@agent say something")
-		));
-		verificationRunner.register(new DialogueClearGoalVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("ClearGoalAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> eventBuffer.latestSeqNo(),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Following ClearGoalAlice.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "ClearGoalAlice")
-			)),
-			() -> onChatReceived("ClearGoalAlice", "@agent follow me"),
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "ClearGoalAlice".equals(goal.targetPlayer())).orElse(false),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Stopping.",
-				new PlannerIntent("clear_goal", null, null)
-			)),
-			() -> onChatReceived("ClearGoalAlice", "@agent stop following"),
-			() -> activeGoal().isEmpty(),
-			() -> !behaviorTreeSnapshot().activeNodePath().contains("FollowPlayerSubtree"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.goal_set"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.goal_cleared")
-		));
-		verificationRunner.register(new SocialPrimaryInteractionTtlVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("TtlAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> chatIngestService.injectMessage("TtlAlice", "hello", tickCount, nearbyPlayerTracker, primaryInteractionResolver, eventBuffer),
-			() -> primaryInteractionResolver.current().map(PrimaryInteractionPlayer::name).filter("TtlAlice"::equals).isPresent(),
-			() -> primaryInteractionResolver.current().isEmpty(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("TtlBob", playerOffset(6.0D), tickCount, eventBuffer),
-			() -> chatIngestService.injectMessage("TtlBob", "hey there", tickCount, nearbyPlayerTracker, primaryInteractionResolver, eventBuffer),
-			() -> primaryInteractionResolver.current().map(PrimaryInteractionPlayer::name).filter("TtlBob"::equals).isPresent()
-		));
-		verificationRunner.register(new DialogueProactiveSocialModeVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("ProactiveAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			enabled -> setProactiveSocialModeOverride(enabled),
-			() -> lastDialogueResponse().map(DialogueResponse::tick).orElse(-1L),
-			() -> tickCount,
-			() -> onChatReceived("ProactiveAlice", "hello there"),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Hi ProactiveAlice.",
-				new PlannerIntent("reply_only", null, null)
-			))
-		));
-		verificationRunner.register(new LlmDegradationVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> injectPlannerTimeout(),
-			() -> injectPlannerTimeout(),
-			() -> injectPlannerTimeout(),
-			() -> isDegraded(),
-			() -> behaviorTreeSnapshot().activeNodePath() != null && !behaviorTreeSnapshot().activeNodePath().isEmpty(),
-			() -> eventBuffer.containsType("planner.degraded_entered"),
-			() -> lastChatTick() > 0L,
-			() -> onChatReceived("Alice", "@agent reset"),
-			() -> !isDegraded(),
-			() -> eventBuffer.containsType("planner.degraded_cleared"),
-			() -> eventBuffer.containsType("planner.reset_requested"),
-			() -> "Planner state reset.".equals(lastChatText())
-		));
-		verificationRunner.register(new LlmDegradationGoalPreservedVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("DegradedAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Following DegradedAlice.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "DegradedAlice")
-			)),
-			() -> onChatReceived("DegradedAlice", "@agent follow me"),
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "DegradedAlice".equals(goal.targetPlayer())).orElse(false),
-			this::injectPlannerTimeout,
-			this::injectPlannerTimeout,
-			this::injectPlannerTimeout,
-			this::isDegraded,
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "DegradedAlice".equals(goal.targetPlayer())).orElse(false),
-			() -> behaviorTreeSnapshot().activeNodePath() != null && !behaviorTreeSnapshot().activeNodePath().isEmpty(),
-			() -> onChatReceived("DegradedAlice", "@agent reset"),
-			() -> !isDegraded()
-		));
-		verificationRunner.register(new FollowReacquireTargetVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("ReacquireAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> eventBuffer.latestSeqNo(),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Following ReacquireAlice.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "ReacquireAlice")
-			)),
-			() -> onChatReceived("ReacquireAlice", "@agent follow me"),
-			sinceSeqNo -> eventBuffer.containsTypeForPlayerSince(sinceSeqNo, "follow.target_acquired", "ReacquireAlice"),
-			() -> nearbyPlayerTracker.injectPlayerDisconnect("ReacquireAlice", tickCount, eventBuffer),
-			sinceSeqNo -> eventBuffer.containsTypeForPlayerSince(sinceSeqNo, "follow.target_lost", "ReacquireAlice"),
-			() -> activeGoal().isEmpty(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("ReacquireAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Following ReacquireAlice again.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "ReacquireAlice")
-			)),
-			() -> onChatReceived("ReacquireAlice", "@agent follow me"),
-			sinceSeqNo -> eventBuffer.containsTypeForPlayerSince(sinceSeqNo, "follow.target_acquired", "ReacquireAlice"),
-			() -> activeGoal().map(goal -> goal.type() == GoalType.FOLLOW_PLAYER && "ReacquireAlice".equals(goal.targetPlayer())).orElse(false)
-		));
-		verificationRunner.register(new DamageFallContextVerification(
-			this::verificationAvailable,
-			this::verificationPlayerProbe,
-			() -> verificationSetGameMode("survival"),
-			() -> verificationRunCommand("effect give @s resistance 10 3 true"),
-			(x, y, z) -> verificationSetPlayerVelocity(x, y, z),
-			this::latestEventSeqNo,
-			sinceSeqNo -> recentEvents(sinceSeqNo),
-			this::plannerContextExcerpt
-		));
-		verificationRunner.register(new PlannerObservabilityVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("ObserveAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> eventBuffer.latestSeqNo(),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Hi ObserveAlice.",
-				new PlannerIntent("reply_only", null, null)
-			)),
-			() -> onChatReceived("ObserveAlice", "@agent hi"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.response_applied"),
-			() -> lastDialogueResponse().map(response -> response.intent().type() == DialogueIntentType.REPLY_ONLY).orElse(false),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Following ObserveAlice.",
-				new PlannerIntent("set_goal", GoalType.FOLLOW_PLAYER, "ObserveAlice")
-			)),
-			() -> onChatReceived("ObserveAlice", "@agent follow me"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.goal_set"),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Stopping.",
-				new PlannerIntent("clear_goal", null, null)
-			)),
-			() -> onChatReceived("ObserveAlice", "@agent stop"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.goal_cleared")
-		));
-		verificationRunner.register(new EventPolicyIgnoreSystemVerification(
-			() -> sessionSnapshot.worldLoaded(),
-			() -> nearbyPlayerTracker.injectPlayerNearby("PolicyAlice", playerOffset(5.0D), tickCount, eventBuffer),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Okay, I'll ignore repeated system messages for now.",
-				new PlannerIntent("reply_only", null, null),
-				null,
-				new EventPolicyChanges(
-					false,
-					List.of(),
-					List.of(new EventPolicyRuleUpsert(
-						"mute-system-server",
-						"ignore",
-						new EventPolicyMatch("social.system_message", null, "server", null, null, null, null),
-						"Ignore repeated server system chatter for this session."
-					))
-				)
-			)),
-			() -> onChatReceived("PolicyAlice", "@agent ignore repeated server system messages"),
-			this::activeEventPolicyRules,
-			this::recentEventPolicyInterventions,
-			() -> onSystemChatReceived("Policy harness system noise"),
-			() -> injectMockPlannerResponse(new PlannerResponse(
-				"Bypass chat still works.",
-				new PlannerIntent("reply_only", null, null)
-			)),
-			() -> onChatReceived("PolicyAlice", "@agent say hi again"),
-			this::latestEventSeqNo,
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "planner.response_applied"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "social.system_message"),
-			sinceSeqNo -> eventBuffer.containsTypeSince(sinceSeqNo, "policy.event_intervened")
-		));
-	}
-
 	private static String stringPayloadValue(Map<String, Object> payload, String key) {
 		if (payload == null) {
 			return null;
@@ -2911,24 +2532,11 @@ public final class EmbodiedAgentRuntime {
 		return text.substring(0, trimIndex);
 	}
 
-	private void ensureVerificationSessionAvailable() {
-		if (!isIntegratedSingleplayerMode(sessionSnapshot.mode())) {
-			throw new BridgeUnavailableException("unsupported_session_state", "Verification actions require an integrated singleplayer world");
-		}
-		if (!sessionSnapshot.worldLoaded()) {
-			throw new BridgeUnavailableException("verification_unavailable", "No singleplayer local world is loaded for verification");
-		}
-		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null || !client.isIntegratedServerRunning() || client.getServer() == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Integrated singleplayer verification controls are unavailable");
-		}
+	private static String nonEmpty(String value, String fallback) {
+		return value == null || value.isBlank() ? fallback : value;
 	}
 
-	private static boolean isIntegratedSingleplayerMode(SessionMode mode) {
-		return mode == SessionMode.SINGLEPLAYER_LOCAL || mode == SessionMode.SINGLEPLAYER_LAN_HOST;
-	}
-
-	private void prepareClientForVerification() {
+	private void prepareClientForEvaluation() {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client == null) {
 			return;
@@ -2942,84 +2550,114 @@ public final class EmbodiedAgentRuntime {
 		}
 	}
 
-	private <T> T onVerificationServer(BiFunction<IntegratedServer, ServerPlayerEntity, T> action) {
-		ensureVerificationSessionAvailable();
-		MinecraftClient client = MinecraftClient.getInstance();
-		if (client == null || client.player == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Local verification player is unavailable");
+	private void emitEvaluationTrigger(PlannerTriggerType type, String speaker, String message) {
+		if (message == null || message.isBlank()) {
+			return;
 		}
-		IntegratedServer server = client.getServer();
-		if (server == null) {
-			throw new BridgeUnavailableException("verification_unavailable", "Integrated server is unavailable");
-		}
-		UUID playerUuid = client.player.getUuid();
-		CompletableFuture<T> future = new CompletableFuture<>();
-		server.executeSync(() -> {
-			try {
-				ServerPlayerEntity serverPlayer = server.getPlayerManager().getPlayer(playerUuid);
-				if (serverPlayer == null) {
-					throw new BridgeUnavailableException("verification_unavailable", "Server-side verification player is unavailable");
-				}
-				future.complete(action.apply(server, serverPlayer));
-			}
-			catch (Throwable throwable) {
-				future.completeExceptionally(throwable);
-			}
-		});
-
-		try {
-			return future.get(5L, TimeUnit.SECONDS);
-		}
-		catch (ExecutionException exception) {
-			if (exception.getCause() instanceof RuntimeException runtimeException) {
-				throw runtimeException;
-			}
-			throw new IllegalStateException("Verification action failed on integrated server thread", exception.getCause());
-		}
-		catch (Exception exception) {
-			throw new BridgeUnavailableException("verification_unavailable", "Timed out waiting for integrated server verification action");
-		}
-	}
-
-	private static VerificationPlayerProbe verificationPlayerProbe(ServerPlayerEntity player) {
-		return new VerificationPlayerProbe(
-			player.getX(),
-			player.getY(),
-			player.getZ(),
-			player.getHealth(),
-			player.getMaxHealth(),
-			player.getHungerManager().getFoodLevel(),
-			player.getHungerManager().getSaturationLevel(),
-			player.isOnGround(),
-			player.fallDistance,
-			player.getGameMode().asString(),
-			player.getWorld().getRegistryKey().getValue().toString()
+		idleIdeaScheduler.recordActivity();
+		String primaryInteractionPlayer = primaryInteractionResolver.current().map(PrimaryInteractionPlayer::name).orElse(null);
+		dialogueRuntime.onPlannerTrigger(
+			PlannerTrigger.pending(type, speaker, message, tickCount, System.currentTimeMillis()),
+			sessionSnapshot,
+			primaryInteractionPlayer,
+			activeGoal(),
+			taskSnapshot,
+			missionExecutionSnapshot,
+			plannerEventBuffer
 		);
 	}
 
-	private static GameMode verificationGameMode(String modeId) {
-		if (modeId == null || modeId.isBlank()) {
-			throw new BridgeUnavailableException("invalid_request", "mode must be survival, creative, or spectator");
-		}
-		GameMode mode = GameMode.byId(modeId.trim().toLowerCase(java.util.Locale.ROOT), null);
-		if (mode != GameMode.SURVIVAL && mode != GameMode.CREATIVE && mode != GameMode.SPECTATOR) {
-			throw new BridgeUnavailableException("invalid_request", "mode must be survival, creative, or spectator");
-		}
-		return mode;
-	}
+	private final class LiveEvaluationContext implements ScenarioEvaluationRunner.Context {
+		private final MinecraftClient client;
 
-	private static String normalizedVerificationCommand(String command) {
-		if (command == null) {
-			throw new BridgeUnavailableException("invalid_request", "Missing command");
+		private LiveEvaluationContext(MinecraftClient client) {
+			this.client = client;
 		}
-		String normalized = command.trim();
-		if (normalized.startsWith("/")) {
-			normalized = normalized.substring(1).trim();
+
+		@Override
+		public long tick() {
+			return tickCount;
 		}
-		if (normalized.isBlank()) {
-			throw new BridgeUnavailableException("invalid_request", "Missing command");
+
+		@Override
+		public long nowMs() {
+			return System.currentTimeMillis();
 		}
-		return normalized;
+
+		@Override
+		public boolean worldLoaded() {
+			return sessionSnapshot.worldLoaded();
+		}
+
+		@Override
+		public boolean plannerConfigured() {
+			return llmAvailable();
+		}
+
+		@Override
+		public boolean plannerInFlight() {
+			return plannerDebugSnapshot().inFlight();
+		}
+
+		@Override
+		public Optional<String> declaredFailure() {
+			if (isDegraded()) {
+				return Optional.of("Planner entered degraded mode");
+			}
+			if (taskSnapshot.state() == TaskState.FAILED) {
+				return Optional.of("Task failed: " + nonEmpty(taskSnapshot.lastFailure(), "unknown"));
+			}
+			if (taskExecutionSnapshot.state() == TaskExecutionState.FAILED) {
+				return Optional.of("Task execution failed");
+			}
+			return Optional.empty();
+		}
+
+		@Override
+		public int inventoryCount(String itemId) {
+			if (client == null || client.player == null || itemId == null || itemId.isBlank()) {
+				return 0;
+			}
+			return inventoryItemCounter.count(client.player.getInventory()).getOrDefault(itemId, 0);
+		}
+
+		@Override
+		public String blockIdAt(int x, int y, int z) {
+			if (client == null || client.world == null) {
+				return null;
+			}
+			return Registries.BLOCK.getId(client.world.getBlockState(new BlockPos(x, y, z)).getBlock()).toString();
+		}
+
+		@Override
+		public boolean eventContains(String eventType) {
+			return eventType != null && eventBuffer.containsType(eventType);
+		}
+
+		@Override
+		public String lastChatText() {
+			return EmbodiedAgentRuntime.this.lastChatText();
+		}
+
+		@Override
+		public String taskState() {
+			return taskSnapshot.state().name();
+		}
+
+		@Override
+		public String taskExecutionState() {
+			return taskExecutionSnapshot.state().name();
+		}
+
+		@Override
+		public void emitInitialPrompt(String prompt) {
+			emitEvaluationTrigger(PlannerTriggerType.CHAT, "evaluation", prompt);
+		}
+
+		@Override
+		public void emitHeartbeat(String message) {
+			emitEvaluationTrigger(PlannerTriggerType.SYSTEM, "evaluation", message);
+		}
 	}
 
 	private void joinFirstWorld() {

@@ -1,5 +1,6 @@
 package ai.moeru.airicraft;
 
+import ai.moeru.airicraft.agent.evaluation.EvaluationWorldFixtureService;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -22,6 +23,7 @@ import java.util.WeakHashMap;
 
 public class AiricraftClient implements ClientModInitializer {
 	private static final ClientRuntimeController RUNTIME_CONTROLLER = new ClientRuntimeController();
+	private static final EvaluationWorldFixtureService EVALUATION_FIXTURES = EvaluationWorldFixtureService.createDefault();
 	private static final Identifier PLANNER_DEBUG_OVERLAY_ID = Identifier.of("airicraft", "planner_debug_overlay");
 	private static final Set<Screen> SCREEN_OVERLAY_HOOKS = Collections.newSetFromMap(new WeakHashMap<>());
 
@@ -44,6 +46,43 @@ public class AiricraftClient implements ClientModInitializer {
 							return 0;
 						}
 					}))
+				.then(ClientCommandManager.literal("freeze")
+					.executes(context -> {
+						try {
+							var result = EVALUATION_FIXTURES.freezeCurrentWorld();
+							context.getSource().sendFeedback(Text.literal("Airicraft scenario frozen: " + result.scenarioId()));
+							return 1;
+						}
+						catch (EvaluationWorldFixtureService.EvaluationWorldFixtureException exception) {
+							context.getSource().sendError(Text.literal("Airicraft freeze failed: " + exception.getMessage()));
+							return 0;
+						}
+					}))
+				.then(ClientCommandManager.literal("unfreeze")
+					.executes(context -> {
+						try {
+							var result = EVALUATION_FIXTURES.unfreezeCurrentWorld();
+							context.getSource().sendFeedback(Text.literal("Airicraft scenario unfrozen: " + result.scenarioId()));
+							return 1;
+						}
+						catch (EvaluationWorldFixtureService.EvaluationWorldFixtureException exception) {
+							context.getSource().sendError(Text.literal("Airicraft unfreeze failed: " + exception.getMessage()));
+							return 0;
+						}
+					}))
+				.then(ClientCommandManager.literal("evaluation")
+					.then(ClientCommandManager.literal("config")
+						.executes(context -> {
+							try {
+								var path = EVALUATION_FIXTURES.openCurrentScenarioConfig();
+								context.getSource().sendFeedback(Text.literal("Opened Airicraft scenario config: " + path));
+								return 1;
+							}
+							catch (EvaluationWorldFixtureService.EvaluationWorldFixtureException exception) {
+								context.getSource().sendError(Text.literal("Airicraft scenario config failed: " + exception.getMessage()));
+								return 0;
+							}
+						})))
 				.then(ClientCommandManager.literal("debug")
 					.then(ClientCommandManager.literal("states")
 						.executes(context -> {

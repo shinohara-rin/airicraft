@@ -1,6 +1,9 @@
 package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
+import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
+import ai.moeru.airicraft.agent.evaluation.EvaluationScenarioRepository;
+import ai.moeru.airicraft.agent.evaluation.EvaluationWorldFixtureService;
 import ai.moeru.airicraft.agent.integration.map.MapImageCapture;
 import ai.moeru.airicraft.agent.integration.map.MapImageRequest;
 import ai.moeru.airicraft.agent.integration.map.MapIntegrationBridge;
@@ -9,7 +12,6 @@ import ai.moeru.airicraft.agent.integration.map.MapIntegrationRegistry;
 import ai.moeru.airicraft.agent.integration.map.MapWaypoint;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointQuery;
 import ai.moeru.airicraft.agent.integration.map.MapWaypointWrite;
-import ai.moeru.airicraft.agent.verification.VerificationPlayerProbe;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
@@ -75,17 +77,12 @@ public final class ModBridgeServer {
 	private static final long DEBUG_COMPACTION_DEFAULT_TIMEOUT_MILLIS = 30_000L;
 	private static final long DEBUG_COMPACTION_MAX_TIMEOUT_MILLIS = 120_000L;
 	private static final long DEBUG_COMPACTION_POLL_INTERVAL_MILLIS = 25L;
-	private static final long VERIFICATION_RESPAWN_TIMEOUT_MILLIS = 5_000L;
-	private static final long VERIFICATION_RESPAWN_POLL_INTERVAL_MILLIS = 25L;
-	private static final List<String> VERIFICATION_CAPABILITIES = List.of(
-		"player_state",
-		"player_teleport",
-		"player_velocity",
-		"player_respawn",
-		"player_gamemode",
-		"command",
-		"scenario_run",
-		"results"
+	private static final List<String> EVALUATION_CAPABILITIES = List.of(
+		"scenario_list",
+		"world_restore",
+		"planner_loop",
+		"results",
+		"evidence"
 	);
 
 	private final Supplier<HighlightManager> highlightManagerSupplier;
@@ -95,6 +92,7 @@ public final class ModBridgeServer {
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
 	private final PlayerViewService playerViewService = new PlayerViewService();
+	private final EvaluationWorldFixtureService evaluationWorldFixtureService = EvaluationWorldFixtureService.createDefault();
 
 	private volatile HttpServer server;
 	private volatile String token;
@@ -159,15 +157,11 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
 			httpServer.createContext("/v1/agent/debug/state", exchange -> handleJson(exchange, this::createAgentDebugStateResponse));
 			httpServer.createContext("/v1/agent/debug/timeline", exchange -> handleJson(exchange, () -> createAgentDebugTimelineResponse(exchange)));
-				httpServer.createContext("/v1/verification/status", exchange -> handleJson(exchange, this::createVerificationStatusResponse));
-				httpServer.createContext("/v1/verification/player", exchange -> handleJson(exchange, this::createVerificationPlayerResponse));
-				httpServer.createContext("/v1/verification/player/teleport", this::handleVerificationPlayerTeleport);
-				httpServer.createContext("/v1/verification/player/velocity", this::handleVerificationPlayerVelocity);
-				httpServer.createContext("/v1/verification/player/respawn", this::handleVerificationPlayerRespawn);
-				httpServer.createContext("/v1/verification/player/gamemode", this::handleVerificationPlayerGameMode);
-				httpServer.createContext("/v1/verification/command", this::handleVerificationCommand);
-				httpServer.createContext("/v1/verification/results", exchange -> handleJson(exchange, this::createVerificationResultsResponse));
-			httpServer.createContext("/v1/verification/run", this::handleVerificationRun);
+			httpServer.createContext("/v1/evaluation/status", exchange -> handleJson(exchange, this::createEvaluationStatusResponse));
+			httpServer.createContext("/v1/evaluation/scenarios", exchange -> handleJson(exchange, this::createEvaluationScenariosResponse));
+			httpServer.createContext("/v1/evaluation/results", exchange -> handleJson(exchange, this::createEvaluationResultsResponse));
+			httpServer.createContext("/v1/evaluation/evidence", exchange -> handleJson(exchange, this::createEvaluationEvidenceResponse));
+			httpServer.createContext("/v1/evaluation/run", this::handleEvaluationRun);
 			httpServer.start();
 
 			server = httpServer;
@@ -544,112 +538,38 @@ public final class ModBridgeServer {
 		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
 	}
 
-	private void handleVerificationRun(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", VerificationRunRequest.class, request -> {
+	private void handleEvaluationRun(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", EvaluationRunRequest.class, request -> {
 			if (request == null || request.scenario() == null || request.scenario().isBlank()) {
 				throw new BridgeUnavailableException("invalid_request", "Missing scenario");
 			}
 
-			return onClientThread(() -> {
-				boolean accepted = agentRuntime().startVerification(request.scenario());
-				if (!accepted) {
-					throw new BridgeUnavailableException("unknown_scenario", "Unknown verification scenario: " + request.scenario());
-				}
-
-				return Map.of(
-					"accepted", true,
-					"scenario", request.scenario(),
-					"running", true
-				);
-			});
-		});
-	}
-
-	private void handleVerificationPlayerTeleport(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", VerificationPlayerTeleportRequest.class, request -> {
-			if (request == null || !isFinite(request.x()) || !isFinite(request.y()) || !isFinite(request.z())) {
-				throw new BridgeUnavailableException("invalid_request", "x, y, and z must be finite numbers");
-			}
-			return onClientThread(() -> verificationPlayerActionResponse(
-				agentRuntime().verificationTeleportPlayer(request.x(), request.y(), request.z()),
-				"teleported",
-				true
-			));
-		});
-	}
-
-	private void handleVerificationPlayerVelocity(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", VerificationPlayerVelocityRequest.class, request -> {
-			if (request == null || !isFinite(request.x()) || !isFinite(request.y()) || !isFinite(request.z())) {
-				throw new BridgeUnavailableException("invalid_request", "x, y, and z must be finite numbers");
-			}
-			return onClientThread(() -> verificationPlayerActionResponse(
-				agentRuntime().verificationSetPlayerVelocity(request.x(), request.y(), request.z()),
-				"applied",
-				true
-			));
-		});
-	}
-
-	private void handleVerificationPlayerGameMode(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", VerificationPlayerGameModeRequest.class, request -> {
-			if (request == null || request.mode() == null || request.mode().isBlank()) {
-				throw new BridgeUnavailableException("invalid_request", "Missing mode");
-			}
-			return onClientThread(() -> verificationPlayerActionResponse(
-				agentRuntime().verificationSetGameMode(request.mode()),
-				"changed",
-				true
-			));
-		});
-	}
-
-	private void handleVerificationPlayerRespawn(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", Object.class, request -> {
-			onClientThread(() -> agentRuntime().verificationRequestRespawn());
-			long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(VERIFICATION_RESPAWN_TIMEOUT_MILLIS);
-			while (System.nanoTime() < deadline) {
-				Map<String, Object> response = onClientThread(() -> {
-					MinecraftClient client = getClient();
-					if (client.currentScreen != null && "DeathScreen".equals(client.currentScreen.getClass().getSimpleName())) {
-						return null;
-					}
-					VerificationPlayerProbe probe = agentRuntime().verificationPlayerProbe();
-					LinkedHashMap<String, Object> payload = verificationPlayerActionResponse(probe, "respawned", true);
-					payload.put("currentScreen", currentScreenName(client));
-					return payload;
+			try {
+				EvaluationScenario scenario = evaluationWorldFixtureService.repository().require(request.scenario());
+				var restoredWorld = evaluationWorldFixtureService.restoreScenarioWorld(scenario);
+				Map<String, Object> joinPayload = singleplayerWorldService.joinWorldDirectory(restoredWorld.worldName());
+				onClientThread(() -> {
+					agentRuntime().startEvaluation(scenario);
+					return null;
 				});
-				if (response != null) {
-					return response;
-				}
-				try {
-					Thread.sleep(VERIFICATION_RESPAWN_POLL_INTERVAL_MILLIS);
-				}
-				catch (InterruptedException exception) {
-					Thread.currentThread().interrupt();
-					throw new BridgeUnavailableException("bridge_interrupted", "Respawn wait interrupted");
-				}
+				Map<String, Object> payload = new LinkedHashMap<>();
+				payload.put("accepted", true);
+				payload.put("scenario", scenario.id());
+				payload.put("worldName", restoredWorld.worldName());
+				payload.put("worldPath", restoredWorld.path().toString());
+				payload.put("join", joinPayload);
+				payload.put("report", agentRuntime().evaluationReport());
+				return payload;
 			}
-			throw new BridgeUnavailableException("verification_unavailable", "Timed out waiting for player respawn");
-		});
-	}
-
-	private void handleVerificationCommand(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", VerificationCommandRequest.class, request -> {
-			if (request == null || request.command() == null || request.command().isBlank()) {
-				throw new BridgeUnavailableException("invalid_request", "Missing command");
+			catch (EvaluationScenarioRepository.EvaluationScenarioRepositoryException exception) {
+				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
 			}
-			return onClientThread(() -> {
-				VerificationPlayerProbe probe = agentRuntime().verificationRunCommand(request.command());
-				LinkedHashMap<String, Object> response = new LinkedHashMap<>();
-				response.put("available", true);
-				response.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
-				response.put("worldLoaded", agentRuntime().sessionSnapshot().worldLoaded());
-				response.put("executed", true);
-				response.put("command", request.command().trim());
-				response.putAll(verificationPlayerPayload(probe));
-				return response;
-			});
+			catch (EvaluationWorldFixtureService.EvaluationWorldFixtureException exception) {
+				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
+			}
+			catch (SingleplayerWorldService.SingleplayerWorldException exception) {
+				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
+			}
 		});
 	}
 
@@ -1095,42 +1015,72 @@ public final class ModBridgeServer {
 			response.put("degraded", agentRuntime().isDegraded());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("eventPolicy", eventPolicySummaryPayload());
-			response.put("verification", snapshot.verification());
+			response.put("evaluation", snapshot.evaluation());
 			return response;
 		});
 	}
 
-	private Object createVerificationResultsResponse() {
+	private Object createEvaluationStatusResponse() {
 		return onClientThread(() -> {
 			Map<String, Object> response = new LinkedHashMap<>();
 			response.put("available", true);
-			response.put("scenarios", agentRuntime().verificationScenarioNames());
-			response.put("report", agentRuntime().verificationReport());
+			response.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
+			response.put("worldLoaded", agentRuntime().sessionSnapshot().worldLoaded());
+			response.put("capabilities", EVALUATION_CAPABILITIES);
+			response.put("scenarioRoot", evaluationWorldFixtureService.repository().root().toString());
+			response.put("report", agentRuntime().evaluationReport());
 			return response;
 		});
 	}
 
-	private Object createVerificationStatusResponse() {
+	private Object createEvaluationScenariosResponse() {
+		try {
+			Map<String, Object> response = new LinkedHashMap<>();
+			response.put("available", true);
+			response.put("scenarioRoot", evaluationWorldFixtureService.repository().root().toString());
+			response.put("scenarios", evaluationWorldFixtureService.repository().list().stream()
+				.map(this::evaluationScenarioPayload)
+				.toList());
+			response.put("report", agentRuntime().evaluationReport());
+			return response;
+		}
+		catch (EvaluationScenarioRepository.EvaluationScenarioRepositoryException exception) {
+			throw new BridgeUnavailableException(exception.code(), exception.getMessage());
+		}
+	}
+
+	private Object createEvaluationResultsResponse() {
 		return onClientThread(() -> {
 			Map<String, Object> response = new LinkedHashMap<>();
-			response.put("available", agentRuntime().verificationAvailable());
-			response.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
-			response.put("worldLoaded", agentRuntime().sessionSnapshot().worldLoaded());
-			response.put("capabilities", VERIFICATION_CAPABILITIES);
+			response.put("available", true);
+			response.put("report", agentRuntime().evaluationReport());
 			return response;
 		});
 	}
 
-	private Object createVerificationPlayerResponse() {
+	private Object createEvaluationEvidenceResponse() {
 		return onClientThread(() -> {
-			VerificationPlayerProbe probe = agentRuntime().verificationPlayerProbe();
-			LinkedHashMap<String, Object> response = new LinkedHashMap<>();
+			Map<String, Object> response = new LinkedHashMap<>();
 			response.put("available", true);
-			response.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
-			response.put("worldLoaded", agentRuntime().sessionSnapshot().worldLoaded());
-			response.putAll(verificationPlayerPayload(probe));
+			response.put("evidence", agentRuntime().evaluationEvidence());
 			return response;
 		});
+	}
+
+	private Map<String, Object> evaluationScenarioPayload(EvaluationScenario scenario) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("id", scenario.id());
+		payload.put("name", scenario.name());
+		payload.put("minecraftVersion", scenario.minecraftVersion());
+		payload.put("airicraftVersion", scenario.airicraftVersion());
+		payload.put("worldArchive", scenario.worldArchive());
+		payload.put("frozen", scenario.frozen());
+		payload.put("promptConfigured", scenario.prompt() != null && !scenario.prompt().isBlank());
+		payload.put("checkCount", scenario.checks().size());
+		payload.put("maxPlannerTurns", scenario.budget().maxPlannerTurns());
+		payload.put("maxElapsedTicks", scenario.budget().maxElapsedTicks());
+		payload.put("heartbeatIntervalTicks", scenario.budget().heartbeatIntervalTicks());
+		return payload;
 	}
 
 	private Object createAgentSessionResponse() {
@@ -1800,24 +1750,6 @@ public final class ModBridgeServer {
 		throw new BridgeUnavailableException("invalid_request", "kind must be block or region");
 	}
 
-	private LinkedHashMap<String, Object> verificationPlayerActionResponse(
-		VerificationPlayerProbe probe,
-		String resultKey,
-		boolean resultValue
-	) {
-		LinkedHashMap<String, Object> response = new LinkedHashMap<>();
-		response.put("available", true);
-		response.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
-		response.put("worldLoaded", agentRuntime().sessionSnapshot().worldLoaded());
-		response.put(resultKey, resultValue);
-		response.putAll(verificationPlayerPayload(probe));
-		return response;
-	}
-
-	private static Map<String, Object> verificationPlayerPayload(VerificationPlayerProbe probe) {
-		return probe == null ? Map.of() : probe.asMap();
-	}
-
 	private static boolean isFinite(Double value) {
 		return value != null && Double.isFinite(value);
 	}
@@ -1891,19 +1823,7 @@ public final class ModBridgeServer {
 	private record EntityInteractionRequest(String uuid, String name, String entityTypeId, String itemId, String mode) {
 	}
 
-	private record VerificationRunRequest(String scenario) {
-	}
-
-	private record VerificationPlayerTeleportRequest(Double x, Double y, Double z) {
-	}
-
-	private record VerificationPlayerVelocityRequest(Double x, Double y, Double z) {
-	}
-
-	private record VerificationPlayerGameModeRequest(String mode) {
-	}
-
-	private record VerificationCommandRequest(String command) {
+	private record EvaluationRunRequest(String scenario) {
 	}
 
 	private record VisionDescribeRequest(String prompt) {

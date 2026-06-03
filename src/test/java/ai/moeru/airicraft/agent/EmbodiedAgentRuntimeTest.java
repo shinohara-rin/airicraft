@@ -53,7 +53,11 @@ import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.WorldTaskType;
-import ai.moeru.airicraft.agent.verification.VerificationStatus;
+import ai.moeru.airicraft.agent.evaluation.EvaluationBudget;
+import ai.moeru.airicraft.agent.evaluation.EvaluationCheck;
+import ai.moeru.airicraft.agent.evaluation.EvaluationEvidenceSettings;
+import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
+import ai.moeru.airicraft.agent.evaluation.EvaluationStatus;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
@@ -1341,30 +1345,57 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void mineBlocksVerificationRegistersAndReachesRunningTaskState() {
+	void startEvaluationTracksScenarioReport() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
-		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
-			SessionMode.REMOTE_MULTIPLAYER,
+		EvaluationScenario scenario = new EvaluationScenario(
+			"mine-blocks-basic",
+			"Mine Blocks Basic",
+			"1.21.8",
+			"test",
+			null,
+			"world.zip",
 			true,
+			"Mine one oak log.",
+			new EvaluationBudget(3, 120L, 0L, 20L),
+			List.of(new EvaluationCheck("task_execution_state", Map.of("state", "RUNNING"))),
+			EvaluationEvidenceSettings.defaults()
+		);
+
+		assertTrue(runtime.startEvaluation(scenario));
+		assertEquals(EvaluationStatus.PENDING_WORLD, runtime.evaluationReport().status());
+		assertEquals("mine-blocks-basic", runtime.evaluationReport().scenarioId());
+		assertEquals("Waiting for evaluation world", runtime.evaluationReport().message());
+	}
+
+	@Test
+	void evaluationEvidenceHonorsScenarioSettings() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		EvaluationScenario scenario = new EvaluationScenario(
+			"minimal-evidence",
+			"Minimal Evidence",
+			"1.21.8",
+			"test",
+			null,
+			"world.zip",
 			true,
-			"minecraft:overworld",
-			false,
-			0,
-			0L
-		));
+			"Do the task.",
+			EvaluationBudget.defaults(),
+			List.of(new EvaluationCheck("subjective", Map.of())),
+			new EvaluationEvidenceSettings(false, false, false, false, false)
+		);
 
-		assertTrue(runtime.verificationScenarioNames().contains("mine_blocks.basic"));
-		assertTrue(runtime.startVerification("mine_blocks.basic"));
+		assertTrue(runtime.startEvaluation(scenario));
+		Map<String, Object> evidence = runtime.evaluationEvidence();
 
-		for (int tick = 0; tick < 8 && runtime.verificationReport().status() == VerificationStatus.RUNNING; tick++) {
-			runtime.onClientTick(null);
-		}
-
-		assertEquals(VerificationStatus.PASSED, runtime.verificationReport().status());
-		assertEquals("mine_blocks.basic", runtime.verificationReport().scenarioName());
-		assertEquals(GoalType.MINE_BLOCKS, runtime.activeGoal().orElseThrow().type());
-		assertEquals(TaskExecutionState.RUNNING, runtime.taskExecutionSnapshot().state());
+		assertTrue(evidence.containsKey("report"));
+		assertTrue(evidence.containsKey("session"));
+		assertTrue(evidence.containsKey("lastChatText"));
+		assertFalse(evidence.containsKey("plannerJournal"));
+		assertFalse(evidence.containsKey("debugTimeline"));
+		assertFalse(evidence.containsKey("recentEvents"));
+		assertFalse(evidence.containsKey("task"));
+		assertFalse(evidence.containsKey("worldEvidence"));
 	}
 
 	private static final class FakeWorldTaskExecutor implements WorldTaskExecutor {
