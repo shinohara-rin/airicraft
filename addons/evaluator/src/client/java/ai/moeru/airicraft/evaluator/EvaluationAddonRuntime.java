@@ -12,6 +12,7 @@ import ai.moeru.airicraft.agent.evaluation.ScenarioEvaluationRunner;
 import ai.moeru.airicraft.bridge.BridgeRouteContext;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.math.BlockPos;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -311,6 +312,21 @@ public final class EvaluationAddonRuntime {
 		}
 
 		@Override
+		public int playerBlockX() {
+			return playerBlockPos().getX();
+		}
+
+		@Override
+		public int playerBlockY() {
+			return playerBlockPos().getY();
+		}
+
+		@Override
+		public int playerBlockZ() {
+			return playerBlockPos().getZ();
+		}
+
+		@Override
 		public boolean eventContains(String eventType) {
 			return runtime.semanticEventContains(eventType);
 		}
@@ -338,6 +354,14 @@ public final class EvaluationAddonRuntime {
 		@Override
 		public void emitHeartbeat(String message) {
 			runtime.emitEvaluationSystem(message);
+		}
+
+		private static BlockPos playerBlockPos() {
+			MinecraftClient client = MinecraftClient.getInstance();
+			if (client == null || client.player == null) {
+				return BlockPos.ORIGIN;
+			}
+			return client.player.getBlockPos();
 		}
 	}
 

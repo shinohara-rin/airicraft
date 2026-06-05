@@ -1,0 +1,30 @@
+id: farm_easy
+name: Farm easy
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: world.zip
+frozen: true
+prompt: >-
+  Plant all 8 wheat seeds into the prepared farm. First inspect the farm with
+  inspect_world. Then use the guarded block interaction tool to plant seeds only
+  on the prepared farmland around the water. Stop when all eight farmland tiles
+  have wheat crops planted.
+budget:
+  maxPlannerTurns: 20
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: block_count
+    blockId: minecraft:wheat
+    count: 8
+    scope: self
+    horizontalRadius: 8
+    verticalRadius: 3
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

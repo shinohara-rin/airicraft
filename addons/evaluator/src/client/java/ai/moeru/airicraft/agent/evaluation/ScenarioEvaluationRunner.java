@@ -145,6 +145,21 @@ public final class ScenarioEvaluationRunner {
 					? EvaluationCheckResult.passed(check, "block matched at " + x + "," + y + "," + z)
 					: EvaluationCheckResult.failed(check, "block at " + x + "," + y + "," + z + " was " + actualBlockId + ", expected " + expectedBlockId);
 			}
+			case "block_count" -> {
+				String expectedBlockId = check.string("blockId");
+				if (expectedBlockId == null) {
+					yield EvaluationCheckResult.failed(check, "block_count missing blockId");
+				}
+				BlockCountQuery query = blockCountQuery(context, check);
+				if (query.errorMessage() != null) {
+					yield EvaluationCheckResult.failed(check, query.errorMessage());
+				}
+				int expected = check.integer("count", 1);
+				int actual = countBlocks(context, query, expectedBlockId);
+				yield actual >= expected
+					? EvaluationCheckResult.passed(check, "found " + actual + "x " + expectedBlockId + " in " + query.description())
+					: EvaluationCheckResult.failed(check, "found " + actual + "x " + expectedBlockId + " in " + query.description() + ", expected at least " + expected);
+			}
 			case "event_contains" -> {
 				String eventType = check.string("eventType");
 				yield context.eventContains(eventType)
@@ -207,6 +222,77 @@ public final class ScenarioEvaluationRunner {
 			+ ". Stop only when the expected outcome is reached, the task is impossible, or you need to report a blocking failure.";
 	}
 
+	private static BlockCountQuery blockCountQuery(Context context, EvaluationCheck check) {
+		String scope = check.string("scope");
+		if (scope == null || "self".equals(scope)) {
+			int horizontalRadius = clamp(check.integer("horizontalRadius", 8), 0, 16);
+			int verticalRadius = clamp(check.integer("verticalRadius", 4), 0, 8);
+			int x = context.playerBlockX();
+			int y = context.playerBlockY();
+			int z = context.playerBlockZ();
+			return new BlockCountQuery(
+				x - horizontalRadius,
+				y - verticalRadius,
+				z - horizontalRadius,
+				x + horizontalRadius,
+				y + verticalRadius,
+				z + horizontalRadius,
+				"self radius h=" + horizontalRadius + " v=" + verticalRadius,
+				null
+			);
+		}
+		if ("box".equals(scope)) {
+			String missing = firstMissing(check, "x1", "y1", "z1", "x2", "y2", "z2");
+			if (missing != null) {
+				return BlockCountQuery.error("block_count box missing " + missing);
+			}
+			int x1 = check.integer("x1", 0);
+			int y1 = check.integer("y1", 0);
+			int z1 = check.integer("z1", 0);
+			int x2 = check.integer("x2", 0);
+			int y2 = check.integer("y2", 0);
+			int z2 = check.integer("z2", 0);
+			return new BlockCountQuery(
+				Math.min(x1, x2),
+				Math.min(y1, y2),
+				Math.min(z1, z2),
+				Math.max(x1, x2),
+				Math.max(y1, y2),
+				Math.max(z1, z2),
+				"box " + x1 + "," + y1 + "," + z1 + " to " + x2 + "," + y2 + "," + z2,
+				null
+			);
+		}
+		return BlockCountQuery.error("unsupported block_count scope: " + scope);
+	}
+
+	private static int countBlocks(Context context, BlockCountQuery query, String blockId) {
+		int count = 0;
+		for (int y = query.y1(); y <= query.y2(); y++) {
+			for (int z = query.z1(); z <= query.z2(); z++) {
+				for (int x = query.x1(); x <= query.x2(); x++) {
+					if (blockId.equals(context.blockIdAt(x, y, z))) {
+						count++;
+					}
+				}
+			}
+		}
+		return count;
+	}
+
+	private static String firstMissing(EvaluationCheck check, String... keys) {
+		for (String key : keys) {
+			if (!check.fields().containsKey(key)) {
+				return key;
+			}
+		}
+		return null;
+	}
+
+	private static int clamp(int value, int min, int max) {
+		return Math.max(min, Math.min(max, value));
+	}
+
 	private Map<String, Object> diagnostics() {
 		LinkedHashMap<String, Object> diagnostics = new LinkedHashMap<>();
 		if (scenario != null) {
@@ -242,6 +328,12 @@ public final class ScenarioEvaluationRunner {
 
 		String blockIdAt(int x, int y, int z);
 
+		int playerBlockX();
+
+		int playerBlockY();
+
+		int playerBlockZ();
+
 		boolean eventContains(String eventType);
 
 		String lastChatText();
@@ -253,5 +345,32 @@ public final class ScenarioEvaluationRunner {
 		void emitInitialPrompt(String prompt);
 
 		void emitHeartbeat(String message);
+	}
+
+	private record BlockCountQuery(
+		int x1,
+		int y1,
+		int z1,
+		int x2,
+		int y2,
+		int z2,
+		String description,
+		String errorMessage
+	) {
+		private static final int MAX_VOLUME = 20_000;
+
+		private BlockCountQuery {
+			if (errorMessage == null && volume(x1, y1, z1, x2, y2, z2) > MAX_VOLUME) {
+				errorMessage = "block_count query too large, maxVolume=" + MAX_VOLUME;
+			}
+		}
+
+		private static BlockCountQuery error(String message) {
+			return new BlockCountQuery(0, 0, 0, 0, 0, 0, "", message);
+		}
+
+		private static int volume(int x1, int y1, int z1, int x2, int y2, int z2) {
+			return (x2 - x1 + 1) * (y2 - y1 + 1) * (z2 - z1 + 1);
+		}
 	}
 }
