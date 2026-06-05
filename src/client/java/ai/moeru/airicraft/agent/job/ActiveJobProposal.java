@@ -2,6 +2,8 @@ package ai.moeru.airicraft.agent.job;
 
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
+import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
@@ -24,6 +26,8 @@ public record ActiveJobProposal(
 	SmeltItemsStepArgs smeltItems,
 	CollectSmeltedItemsStepArgs collectSmeltedItems,
 	ReturnToSurfaceStepArgs returnToSurface,
+	BlockPlacementStepArgs blockPlacement,
+	BlockUseStepArgs blockUse,
 	String askPrompt
 ) {
 	public ActiveJobProposal(
@@ -36,7 +40,7 @@ public record ActiveJobProposal(
 		DropItemsStepArgs dropItems,
 		String askPrompt
 	) {
-		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, dropItems, null, null, null, null, askPrompt);
+		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, dropItems, null, null, null, null, null, null, askPrompt);
 	}
 
 	public ActiveJobProposal(
@@ -50,7 +54,7 @@ public record ActiveJobProposal(
 		EntityInteractionStepArgs entityInteraction,
 		String askPrompt
 	) {
-		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, dropItems, entityInteraction, null, null, null, askPrompt);
+		this(type, targetPlayer, position, mineSpec, taskSpec, craftRecipe, dropItems, entityInteraction, null, null, null, null, null, askPrompt);
 	}
 
 	public ActiveJobProposal {
@@ -60,54 +64,62 @@ public record ActiveJobProposal(
 	}
 
 	public static ActiveJobProposal followPlayer(String targetPlayer) {
-		return new ActiveJobProposal(ActiveJobType.FOLLOW_PLAYER, targetPlayer, null, null, null, null, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.FOLLOW_PLAYER, targetPlayer, null, null, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal navigateTo(GoalPosition position) {
-		return new ActiveJobProposal(ActiveJobType.NAVIGATE_TO, null, position, null, null, null, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.NAVIGATE_TO, null, position, null, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal mineBlocks(GoalMineSpec mineSpec) {
-		return new ActiveJobProposal(ActiveJobType.MINE_BLOCKS, null, null, mineSpec, null, null, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.MINE_BLOCKS, null, null, mineSpec, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal ensureBlocksInInventory(GoalMineSpec mineSpec) {
-		return new ActiveJobProposal(ActiveJobType.ENSURE_BLOCKS_IN_INVENTORY, null, null, mineSpec, null, null, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.ENSURE_BLOCKS_IN_INVENTORY, null, null, mineSpec, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal collectResource(TaskSpec taskSpec) {
-		return new ActiveJobProposal(ActiveJobType.COLLECT_RESOURCE, null, null, null, taskSpec, null, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.COLLECT_RESOURCE, null, null, null, taskSpec, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal craftRecipe(CraftRecipeStepArgs craftRecipe) {
-		return new ActiveJobProposal(ActiveJobType.CRAFT_RECIPE, null, null, null, null, craftRecipe, null, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.CRAFT_RECIPE, null, null, null, null, craftRecipe, null, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal dropItems(DropItemsStepArgs dropItems) {
-		return new ActiveJobProposal(ActiveJobType.DROP_ITEMS, null, null, null, null, null, dropItems, null, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.DROP_ITEMS, null, null, null, null, null, dropItems, null, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal smeltItems(SmeltItemsStepArgs smeltItems) {
-		return new ActiveJobProposal(ActiveJobType.SMELT_ITEMS, null, null, null, null, null, null, null, smeltItems, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.SMELT_ITEMS, null, null, null, null, null, null, null, smeltItems, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal collectSmeltedItems(CollectSmeltedItemsStepArgs collectSmeltedItems) {
-		return new ActiveJobProposal(ActiveJobType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, null, null, null, collectSmeltedItems, null, null);
+		return new ActiveJobProposal(ActiveJobType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, null, null, null, collectSmeltedItems, null, null, null, null);
 	}
 
 	public static ActiveJobProposal attackEntity(EntityInteractionStepArgs entityInteraction) {
-		return new ActiveJobProposal(ActiveJobType.ATTACK_ENTITY, null, null, null, null, null, null, entityInteraction, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.ATTACK_ENTITY, null, null, null, null, null, null, entityInteraction, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal useEntity(EntityInteractionStepArgs entityInteraction) {
-		return new ActiveJobProposal(ActiveJobType.USE_ENTITY, null, null, null, null, null, null, entityInteraction, null, null, null, null);
+		return new ActiveJobProposal(ActiveJobType.USE_ENTITY, null, null, null, null, null, null, entityInteraction, null, null, null, null, null, null);
 	}
 
 	public static ActiveJobProposal returnToSurface(ReturnToSurfaceStepArgs returnToSurface) {
-		return new ActiveJobProposal(ActiveJobType.RETURN_TO_SURFACE, null, null, null, null, null, null, null, null, null, returnToSurface, null);
+		return new ActiveJobProposal(ActiveJobType.RETURN_TO_SURFACE, null, null, null, null, null, null, null, null, null, returnToSurface, null, null, null);
+	}
+
+	public static ActiveJobProposal placeBlock(BlockPlacementStepArgs blockPlacement) {
+		return new ActiveJobProposal(ActiveJobType.PLACE_BLOCK, null, null, null, null, null, null, null, null, null, null, blockPlacement, null, null);
+	}
+
+	public static ActiveJobProposal useBlock(BlockUseStepArgs blockUse) {
+		return new ActiveJobProposal(ActiveJobType.USE_BLOCK, null, null, null, null, null, null, null, null, null, null, null, blockUse, null);
 	}
 
 	public static ActiveJobProposal askUser(String askPrompt) {
-		return new ActiveJobProposal(ActiveJobType.ASK_USER, null, null, null, null, null, null, null, null, null, null, askPrompt);
+		return new ActiveJobProposal(ActiveJobType.ASK_USER, null, null, null, null, null, null, null, null, null, null, null, null, askPrompt);
 	}
 }

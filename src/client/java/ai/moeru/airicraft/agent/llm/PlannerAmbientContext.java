@@ -158,6 +158,7 @@ public record PlannerAmbientContext(
 			case OPEN_CONTAINER -> String.valueOf(step.args().openContainer());
 			case TRANSFER_ITEMS -> String.valueOf(step.args().transferItems());
 			case PLACE_BLOCK -> String.valueOf(step.args().placeBlock());
+			case USE_BLOCK -> "use_block";
 			case DROP_ITEMS -> String.valueOf(step.args().dropItems());
 			case SMELT_ITEMS, COLLECT_SMELTED_ITEMS -> "smelting";
 			case ATTACK_ENTITY, USE_ENTITY -> String.valueOf(step.args().entityInteraction());

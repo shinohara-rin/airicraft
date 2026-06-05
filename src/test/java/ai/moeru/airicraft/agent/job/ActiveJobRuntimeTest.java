@@ -6,6 +6,8 @@ import ai.moeru.airicraft.agent.dialogue.DialogueResponse;
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalType;
+import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.DropItemsStepArgs;
@@ -475,6 +477,58 @@ class ActiveJobRuntimeTest {
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.RETURN_TO_SURFACE, runtime.current().type());
 		assertEquals(returnToSurface, runtime.current().returnToSurface());
+	}
+
+	@Test
+	void blockInteractionActiveJobsProjectWorldTaskRequests() {
+		ActiveJobRuntime placeRuntime = new ActiveJobRuntime();
+		BlockPlacementStepArgs place = new BlockPlacementStepArgs(
+			"minecraft:dirt",
+			new GoalPosition(1, 64, 2, true),
+			"down",
+			"air_or_replaceable"
+		);
+
+		placeRuntime.applyPlannerResponse(
+			new DialogueResponse(
+				"Placing dirt.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.placeBlock(place)),
+				1L
+			),
+			0,
+			"test",
+			1L
+		);
+
+		WorldTaskRequest placeRequest = placeRuntime.activeTaskRequest().orElseThrow();
+		assertEquals(WorldTaskType.PLACE_BLOCK, placeRequest.type());
+		assertEquals(place, placeRequest.blockPlacement());
+		assertEquals(ActiveJobType.PLACE_BLOCK, placeRuntime.current().type());
+
+		ActiveJobRuntime useRuntime = new ActiveJobRuntime();
+		BlockUseStepArgs use = new BlockUseStepArgs(
+			"minecraft:wheat_seeds",
+			new GoalPosition(1, 65, 2, true),
+			"down",
+			List.of("minecraft:farmland"),
+			"air"
+		);
+
+		useRuntime.applyPlannerResponse(
+			new DialogueResponse(
+				"Planting seeds.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.useBlock(use)),
+				2L
+			),
+			0,
+			"test",
+			2L
+		);
+
+		WorldTaskRequest useRequest = useRuntime.activeTaskRequest().orElseThrow();
+		assertEquals(WorldTaskType.USE_BLOCK, useRequest.type());
+		assertEquals(use, useRequest.blockUse());
+		assertEquals(ActiveJobType.USE_BLOCK, useRuntime.current().type());
 	}
 
 	@Test

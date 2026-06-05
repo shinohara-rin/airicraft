@@ -220,6 +220,35 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void exposesAndParsesBlockInteractionTools() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+
+		assertTrue(toolNames(tools).contains("place_block"));
+		assertTrue(toolNames(tools).contains("use_block"));
+		PlannerToolCall placeCall = PlannerToolCatalog.parseToolCall(toolCall("place_block", """
+			{"itemId":"minecraft:dirt","x":1,"y":64,"z":2,"facePreference":"down","requireCurrentTargetMaterial":"air_or_replaceable"}
+			"""));
+		PlannerToolCall useCall = PlannerToolCatalog.parseToolCall(toolCall("use_block", """
+			{"itemId":"minecraft:wheat_seeds","x":1,"y":65,"z":2,"expectedSupportBlockIds":["minecraft:farmland"],"expectedTargetMaterial":"air"}
+			"""));
+
+		assertEquals("place_block", placeCall.name());
+		assertEquals("minecraft:dirt", placeCall.arguments().get("itemId").getAsString());
+		assertEquals("use_block", useCall.name());
+		assertEquals("minecraft:wheat_seeds", useCall.arguments().get("itemId").getAsString());
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("place_block", """
+				{"itemId":"minecraft:dirt","x":1,"y":64,"z":2,"facePreference":"sideways"}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("use_block", """
+				{"x":1,"y":64,"z":2,"expectedTargetMaterial":"solid"}
+				"""))
+		);
+	}
+
+	@Test
 	void entityInteractionToolSchemasRequireUuid() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 		JsonObject attackParameters = toolSchema(tools, "attack_entity");

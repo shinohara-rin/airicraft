@@ -147,6 +147,8 @@ Scopes are bounded to prevent broad world scans:
 
 Every queried block must be within 64 blocks of the player. Radius defaults are 8 horizontal and 4 vertical, capped at 16 and 8. Search results default to 32 and cap at 64.
 
+Planner-facing block modification is guarded by the world-read ledger. `place_block` and `use_block` take an intended modified target `x/y/z`; for example, planting seeds targets the crop position above farmland, while the runtime derives the support click. The target position must have been returned by `inspect_world` within the last 10 planner tool calls. If not, the runtime does not queue the modification. It returns a `place_block`/`use_block` tool result containing a small `inspect_world` `inspect_area` query centered on the target and tells the planner to call the same tool again only if it still wants to proceed.
+
 ### Normal dev client
 
 Use this for Airicraft-only development. It runs the Fabric dev client and opens JDWP on `127.0.0.1:5005`.

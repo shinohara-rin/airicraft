@@ -40,6 +40,8 @@ public final class PlannerToolCatalog {
 	public static final String GIVE_PLAYER = "give_player";
 	public static final String ATTACK_ENTITY = "attack_entity";
 	public static final String USE_ENTITY = "use_entity";
+	public static final String PLACE_BLOCK = "place_block";
+	public static final String USE_BLOCK = "use_block";
 	public static final String CANCEL_TASK = "cancel_task";
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
@@ -193,6 +195,25 @@ public final class PlannerToolCatalog {
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
 				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:shears."))
 			), List.of("uuid")), PlannerToolCatalog::validateUseEntityArguments),
+		builtInTool(PLACE_BLOCK, false, tool(PLACE_BLOCK, "Place a block item at an intended modified target position. Target position must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
+				prop("x", integer("Intended modified target block x coordinate.")),
+				prop("y", integer("Intended modified target block y coordinate.")),
+				prop("z", integer("Intended modified target block z coordinate.")),
+				prop("facePreference", enumString("Optional adjacent support preference. auto derives best support.", List.of("auto", "down", "north", "south", "east", "west", "up"))),
+				prop("requireCurrentTargetMaterial", enumString("Required current target material before placement. Default air_or_replaceable.", List.of("air", "replaceable", "air_or_replaceable")))
+			), List.of("itemId", "x", "y", "z")), PlannerToolCatalog::validatePlaceBlockArguments),
+		builtInTool(USE_BLOCK, false, tool(USE_BLOCK, "Use current hand or an optional item on an intended modified target position. If target is air/replaceable, runtime clicks adjacent support such as farmland below seeds. Target position must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:wheat_seeds.")),
+				prop("x", integer("Intended modified target block x coordinate.")),
+				prop("y", integer("Intended modified target block y coordinate.")),
+				prop("z", integer("Intended modified target block z coordinate.")),
+				prop("facePreference", enumString("Optional adjacent support preference. auto derives best support.", List.of("auto", "down", "north", "south", "east", "west", "up"))),
+				prop("expectedSupportBlockIds", stringArray("Optional exact block ids expected on the clicked support block.")),
+				prop("expectedTargetMaterial", enumString("Optional current target material check before use.", List.of("air", "replaceable", "air_or_replaceable")))
+			), List.of("x", "y", "z")), PlannerToolCatalog::validateUseBlockArguments),
 		builtInTool(CANCEL_TASK, false, tool(CANCEL_TASK, "Cancel the current task or job.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("reason", string("Optional cancellation reason."))
@@ -443,6 +464,49 @@ public final class PlannerToolCatalog {
 		requireEntitySelector(arguments);
 		if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
 			requireString(arguments, "itemId");
+		}
+	}
+
+	private static void validatePlaceBlockArguments(JsonObject arguments) {
+		requireString(arguments, "itemId");
+		requireInt(arguments, "x");
+		requireInt(arguments, "y");
+		requireInt(arguments, "z");
+		validateFacePreference(arguments, "facePreference");
+		validateTargetMaterial(arguments, "requireCurrentTargetMaterial");
+	}
+
+	private static void validateUseBlockArguments(JsonObject arguments) {
+		if (arguments.has("itemId") && !arguments.get("itemId").isJsonNull()) {
+			requireString(arguments, "itemId");
+		}
+		requireInt(arguments, "x");
+		requireInt(arguments, "y");
+		requireInt(arguments, "z");
+		validateFacePreference(arguments, "facePreference");
+		if (arguments.has("expectedSupportBlockIds") && !arguments.get("expectedSupportBlockIds").isJsonNull()) {
+			requireStringArray(arguments, "expectedSupportBlockIds");
+		}
+		validateTargetMaterial(arguments, "expectedTargetMaterial");
+	}
+
+	private static void validateFacePreference(JsonObject arguments, String key) {
+		if (!arguments.has(key) || arguments.get(key).isJsonNull()) {
+			return;
+		}
+		String value = requireString(arguments, key);
+		if (!List.of("auto", "down", "north", "south", "east", "west", "up").contains(value)) {
+			throw new JsonParseException("Unsupported " + key + ": " + value);
+		}
+	}
+
+	private static void validateTargetMaterial(JsonObject arguments, String key) {
+		if (!arguments.has(key) || arguments.get(key).isJsonNull()) {
+			return;
+		}
+		String value = requireString(arguments, key);
+		if (!List.of("air", "replaceable", "air_or_replaceable").contains(value)) {
+			throw new JsonParseException("Unsupported " + key + ": " + value);
 		}
 	}
 

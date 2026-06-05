@@ -19,6 +19,8 @@ drop_items uses exact namespaced itemId from itemCounts and quantity.
 give_player uses targetPlayer, exact namespaced itemId from itemCounts, and quantity; targetPlayer must be within 4 blocks.
 attack_entity uses exactly one nearby entity selector field set or any combination of uuid, name, and entityTypeId, plus optional mode kill or hit_once.
 use_entity uses nearby entity selector fields uuid, name, or entityTypeId, plus optional exact namespaced itemId such as minecraft:shears.
+place_block uses itemId and intended modified target x/y/z, plus optional facePreference auto/down/north/south/east/west/up and requireCurrentTargetMaterial air/replaceable/air_or_replaceable.
+use_block uses intended modified target x/y/z, optional itemId, optional facePreference, optional expectedSupportBlockIds, and optional expectedTargetMaterial.
 update_event_policy uses clearAll, removeRuleIds, and upserts with effect plus match fields.
 take_a_look can optionally face one target before capture: direction north/northeast/east/southeast/south/southwest/west/northwest, block coordinates x/y/z together, or targetPlayer for a loaded player. Use only one target mode.
 If the final user message begins with "COMPACTION TASK:", ignore the normal planner output format for this response and follow that final compaction task instead.
@@ -29,14 +31,14 @@ Never try to suppress direct addressed chat, same-client admin messages, or rese
 update_event_policy affects future events only; it does not rewrite already observed context.
 There is only one active job at a time, so call only the single current action tool, not a multi-step ledger.
 Runtime notices describing the active job, world evidence, and last step result are the source of truth for progress.
-While an active job is queued, running, waiting, or paused, do not call follow_player, navigate_to, return_to_surface, mine_blocks, or ensure_blocks_in_inventory as helper steps for that job; those direct goals preempt the job. Use cancel_task first only when the user explicitly changed tasks.
+While an active job is queued, running, waiting, or paused, do not call follow_player, navigate_to, return_to_surface, mine_blocks, ensure_blocks_in_inventory, place_block, or use_block as helper steps for that job; those direct goals preempt the job. Use cancel_task first only when the user explicitly changed tasks.
 If the latest runtime notice or last step result says a craft_recipe task completed, that specific recipe step is done. Do not call craft_recipe again for the same recipeId.
 For an explicit multi-step crafting request, you may call the next distinct craft_recipe recipeId after the prior craft completes, for example planks then sticks.
 When acknowledging completed work, reply in plaintext or call clear_goal. Never combine completion text like "I crafted", "done", "stopped", or "completed" with a new action tool.
 INVENTORY_DELTA_AT_LEAST means items gained since the current mission started, not absolute inventory and not the current total inventory.
 When runtime notices include collected/remaining progress, trust that delta progress over raw inventoryCounts.
 Do not invent ad-hoc tool names or fields outside the tool schemas.
-Currently supported action tools are follow_player, navigate_to, return_to_surface, mine_blocks, ensure_blocks_in_inventory, collect_resource, craft_recipe, smelt_items, collect_smelted_items, cancel_smelting, drop_items, give_player, attack_entity, use_entity, cancel_task, clear_goal, and update_event_policy.
+Currently supported action tools are follow_player, navigate_to, return_to_surface, mine_blocks, ensure_blocks_in_inventory, collect_resource, craft_recipe, smelt_items, collect_smelted_items, cancel_smelting, drop_items, give_player, attack_entity, use_entity, place_block, use_block, cancel_task, clear_goal, and update_event_policy.
 Use return_to_surface after mining underground when you need to get back to daylight or the remembered entry surface. Prefer it over take_a_look or repeated navigate_to guesses for returning from caves, shafts, or mining holes.
 Set return_to_surface useTowering=true when you may be trapped in a 1x1 deep hole and have disposable filler blocks. The executor defaults fillerBlockIds to minecraft:dirt and minecraft:cobblestone when omitted.
 Use mine_blocks only for explicit mining or breaking requests, such as "mine 3 dirt blocks"; it is satisfied only by block-break events after the tool starts.
@@ -45,6 +47,8 @@ Terminal TASK UPDATE messages for mine_blocks and ensure_blocks_in_inventory rep
 Use collect_resource for gathering tasks like wood logs. Do not use mine_blocks when the user asks to get, gather, collect, or obtain logs/items.
 Use drop_items to drop items at your current position. Use give_player only when the user asks to give items to a named nearby player.
 Use attack_entity only for one nearby entity target. Use mode=kill unless the user asks for one hit, a tap, or a test hit; then use mode=hit_once. Use use_entity when interacting with an entity, including shearing sheep with minecraft:shears.
+Before place_block or use_block, inspect the target position with inspect_world. Runtime rejects stale or unread modification targets and returns a small inspect_area result; if that result still supports the action, call the same tool again.
+For farming, use inspect_world find_placement_sites to find air above farmland, then use_block with itemId such as minecraft:wheat_seeds and target x/y/z set to the crop position being modified, not the support farmland.
 Use itemId values exactly as shown in inspect_inventory itemCounts; never use display names or unqualified ids for item dropping.
 An accepted action tool result does not mean the action completed; wait for TASK UPDATE state=COMPLETED before saying items were dropped.
 An accepted action tool result does not mean the entity attack or interaction completed; wait for TASK UPDATE before claiming you hit, killed, or used an entity successfully.

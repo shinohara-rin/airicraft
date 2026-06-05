@@ -19,13 +19,17 @@ import ai.moeru.airicraft.agent.llm.PlannerCompactionService;
 import ai.moeru.airicraft.agent.llm.PlannerContextAggregator;
 import ai.moeru.airicraft.agent.llm.PlannerExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
+import ai.moeru.airicraft.agent.llm.PlannerToolExecutionObserver;
 import ai.moeru.airicraft.agent.llm.PlannerToolNarrationSink;
 import ai.moeru.airicraft.agent.llm.PlannerToolRegistry;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.util.math.BlockPos;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 public final class PlannerShellFactory {
 	private PlannerShellFactory() {
@@ -45,7 +49,10 @@ public final class PlannerShellFactory {
 			clock,
 			debugRecorder,
 			PlannerActionToolExecutor.DISABLED,
-			PlannerToolNarrationSink.NO_OP
+			PlannerToolNarrationSink.NO_OP,
+			PlannerToolExecutionObserver.NO_OP,
+			ignored -> {
+			}
 		);
 	}
 
@@ -58,11 +65,38 @@ public final class PlannerShellFactory {
 		PlannerActionToolExecutor actionToolExecutor,
 		PlannerToolNarrationSink narrationSink
 	) {
+		return create(
+			config,
+			screenshotService,
+			observability,
+			clock,
+			debugRecorder,
+			actionToolExecutor,
+			narrationSink,
+			PlannerToolExecutionObserver.NO_OP,
+			ignored -> {
+			}
+		);
+	}
+
+	public static PlannerShellComponents create(
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		AgentObservability observability,
+		Clock clock,
+		AgentDebugRecorder debugRecorder,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink,
+		PlannerToolExecutionObserver toolExecutionObserver,
+		Consumer<List<BlockPos>> worldReadObserver
+	) {
 		Objects.requireNonNull(config, "config");
 		Objects.requireNonNull(screenshotService, "screenshotService");
 		Objects.requireNonNull(observability, "observability");
 		PlannerActionToolExecutor effectiveActionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
 		PlannerToolNarrationSink effectiveNarrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
+		PlannerToolExecutionObserver effectiveToolExecutionObserver = Objects.requireNonNull(toolExecutionObserver, "toolExecutionObserver");
+		Consumer<List<BlockPos>> effectiveWorldReadObserver = Objects.requireNonNull(worldReadObserver, "worldReadObserver");
 		Clock effectiveClock = Objects.requireNonNull(clock, "clock");
 		PlannerShellJournal journal = new PlannerShellJournal(128, effectiveClock);
 		CurrentViewVisionService visionService = new CurrentViewVisionService(
@@ -74,7 +108,7 @@ public final class PlannerShellFactory {
 		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
 		CurrentWorldQueryService worldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 		PlannerToolRegistry toolRegistry = PlannerToolRegistry.of(
-			new CurrentWorldQueryToolProvider(worldQueryService),
+			new CurrentWorldQueryToolProvider(worldQueryService, result -> effectiveWorldReadObserver.accept(result.observedPositions())),
 			new ReiRecipeSearchToolProvider(),
 			new MapPlannerToolProvider(MapIntegrationBridge::registry)
 		);
@@ -102,7 +136,8 @@ public final class PlannerShellFactory {
 				debugRecorder,
 				effectiveActionToolExecutor,
 				effectiveNarrationSink,
-				toolRegistry
+				toolRegistry,
+				effectiveToolExecutionObserver
 			);
 		return new PlannerShellComponents(
 			visionService,

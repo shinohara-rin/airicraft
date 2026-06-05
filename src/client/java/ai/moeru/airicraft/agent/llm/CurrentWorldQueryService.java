@@ -44,22 +44,26 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 
 	@Override
 	public CompletableFuture<String> inspectWorld(JsonObject arguments) {
+		return inspectWorldDetailed(arguments).thenApply(WorldQueryResult::text);
+	}
+
+	public CompletableFuture<WorldQueryResult> inspectWorldDetailed(JsonObject arguments) {
 		MinecraftClient client = clientSupplier.get();
 		if (client == null || client.world == null || client.player == null) {
-			return CompletableFuture.completedFuture("WORLD_UNAVAILABLE: world_not_loaded");
+			return CompletableFuture.completedFuture(new WorldQueryResult("WORLD_UNAVAILABLE: world_not_loaded", List.of()));
 		}
 		try {
 			return CompletableFuture.completedFuture(inspectWorld(client, arguments == null ? new JsonObject() : arguments));
 		}
 		catch (WorldQueryException exception) {
-			return CompletableFuture.completedFuture("TOOL_ERROR: inspect_world " + exception.getMessage());
+			return CompletableFuture.completedFuture(new WorldQueryResult("TOOL_ERROR: inspect_world " + exception.getMessage(), List.of()));
 		}
 		catch (RuntimeException exception) {
-			return CompletableFuture.completedFuture("TOOL_ERROR: inspect_world " + safeMessage(exception));
+			return CompletableFuture.completedFuture(new WorldQueryResult("TOOL_ERROR: inspect_world " + safeMessage(exception), List.of()));
 		}
 	}
 
-	private static String inspectWorld(MinecraftClient client, JsonObject arguments) {
+	private static WorldQueryResult inspectWorld(MinecraftClient client, JsonObject arguments) {
 		String mode = stringArg(arguments, "mode").orElseThrow(() -> new WorldQueryException("mode is required"));
 		QueryBounds bounds = QueryBounds.from(client.player.getBlockPos(), arguments);
 		ensureWithinDistance(bounds, client.player.getBlockPos());
@@ -72,11 +76,13 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		};
 	}
 
-	private static String inspectArea(World world, ClientPlayerEntity player, QueryBounds bounds) {
+	private static WorldQueryResult inspectArea(World world, ClientPlayerEntity player, QueryBounds bounds) {
 		ArrayList<BlockRecord> records = new ArrayList<>();
+		ArrayList<BlockPos> observed = new ArrayList<>();
 		int scanned = 0;
 		for (BlockPos pos : bounds.positions()) {
 			scanned++;
+			observed.add(pos.toImmutable());
 			if (!world.isChunkLoaded(pos)) {
 				records.add(BlockRecord.unloaded(pos, distance(player.getBlockPos(), pos)));
 				continue;
@@ -88,13 +94,13 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		}
 		records.sort(BlockRecord.ORDERING);
 		List<BlockRecord> limited = records.stream().limit(INSPECT_AREA_BLOCK_CAP).toList();
-		return "Tool result for inspect_world: mode=inspect_area"
+		return new WorldQueryResult("Tool result for inspect_world: mode=inspect_area"
 			+ " scope=" + bounds.scope()
 			+ " bounds=" + bounds.compact()
 			+ " scanned=" + scanned
 			+ " matched=" + records.size()
 			+ " returned=" + limited.size()
-			+ " blocks=" + formatRecords(limited, INSPECT_AREA_BLOCK_CAP);
+			+ " blocks=" + formatRecords(limited, INSPECT_AREA_BLOCK_CAP), List.copyOf(observed));
 	}
 
 	private static boolean includeAreaRecord(World world, BlockPos pos, BlockState state) {
@@ -105,7 +111,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		return below != null && !below.isAir() && !below.isReplaceable();
 	}
 
-	private static String findBlocks(World world, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
+	private static WorldQueryResult findBlocks(World world, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
 		List<String> blockIds = stringArrayArg(arguments, "blockIds");
 		List<StateFilter> filters = stateFilters(arguments, "stateFilters");
 		int maxResults = boundedInt(arguments, "maxResults", DEFAULT_MAX_RESULTS, 1, MAX_RESULTS);
@@ -126,16 +132,16 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		}
 		matches.sort(BlockRecord.ORDERING);
 		List<BlockRecord> limited = matches.stream().limit(maxResults).toList();
-		return "Tool result for inspect_world: mode=find_blocks"
+		return new WorldQueryResult("Tool result for inspect_world: mode=find_blocks"
 			+ " scope=" + bounds.scope()
 			+ " bounds=" + bounds.compact()
 			+ " scanned=" + Math.min(scanned, SEARCH_BLOCK_CAP)
 			+ " matched=" + matches.size()
 			+ " returned=" + limited.size()
-			+ " blocks=" + formatRecords(limited, maxResults);
+			+ " blocks=" + formatRecords(limited, maxResults), limited.stream().map(record -> record.pos().toImmutable()).toList());
 	}
 
-	private static String findPlacementSites(World world, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
+	private static WorldQueryResult findPlacementSites(World world, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
 		PlacementConstraints constraints = PlacementConstraints.from(arguments);
 		int maxResults = boundedInt(arguments, "maxResults", DEFAULT_MAX_RESULTS, 1, MAX_RESULTS);
 		ArrayList<PlacementSite> matches = new ArrayList<>();
@@ -150,13 +156,13 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		}
 		matches.sort(PlacementSite.ORDERING);
 		List<PlacementSite> limited = matches.stream().limit(maxResults).toList();
-		return "Tool result for inspect_world: mode=find_placement_sites"
+		return new WorldQueryResult("Tool result for inspect_world: mode=find_placement_sites"
 			+ " scope=" + bounds.scope()
 			+ " bounds=" + bounds.compact()
 			+ " scanned=" + Math.min(scanned, SEARCH_BLOCK_CAP)
 			+ " matched=" + matches.size()
 			+ " returned=" + limited.size()
-			+ " sites=" + formatSites(limited);
+			+ " sites=" + formatSites(limited), observedPlacementPositions(limited));
 	}
 
 	private static Optional<PlacementSite> placementSite(
@@ -200,9 +206,13 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		if (constraints.requireWithinInteractionRange() && !withinInteractionRange(player, targetPos)) {
 			return Optional.empty();
 		}
-		if (!constraints.nearbyRequiredBlockIds().isEmpty()
-			&& !hasNearbyRequiredBlock(world, targetPos, constraints.nearbyRequiredBlockIds(), constraints.nearbyRequiredHorizontalRadius(), constraints.nearbyRequiredVerticalRadius())) {
-			return Optional.empty();
+		BlockPos nearbyRequiredPos = null;
+		if (!constraints.nearbyRequiredBlockIds().isEmpty()) {
+			Optional<BlockPos> nearbyRequired = nearbyRequiredBlock(world, targetPos, constraints.nearbyRequiredBlockIds(), constraints.nearbyRequiredHorizontalRadius(), constraints.nearbyRequiredVerticalRadius());
+			if (nearbyRequired.isEmpty()) {
+				return Optional.empty();
+			}
+			nearbyRequiredPos = nearbyRequired.get();
 		}
 		return Optional.of(new PlacementSite(
 			targetPos,
@@ -213,11 +223,12 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 			properties(support),
 			distance(player.getBlockPos(), targetPos),
 			standableAdjacent.orElse(null),
+			nearbyRequiredPos,
 			withinInteractionRange(player, targetPos)
 		));
 	}
 
-	private static boolean hasNearbyRequiredBlock(
+	private static Optional<BlockPos> nearbyRequiredBlock(
 		World world,
 		BlockPos origin,
 		List<String> blockIds,
@@ -229,12 +240,27 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 				for (int dz = -horizontalRadius; dz <= horizontalRadius; dz++) {
 					BlockPos pos = origin.add(dx, dy, dz);
 					if (world.isChunkLoaded(pos) && blockIds.contains(blockId(world.getBlockState(pos)))) {
-						return true;
+						return Optional.of(pos.toImmutable());
 					}
 				}
 			}
 		}
-		return false;
+		return Optional.empty();
+	}
+
+	private static List<BlockPos> observedPlacementPositions(List<PlacementSite> sites) {
+		ArrayList<BlockPos> positions = new ArrayList<>();
+		for (PlacementSite site : sites) {
+			positions.add(site.targetPos().toImmutable());
+			positions.add(site.supportPos().toImmutable());
+			if (site.standableAdjacent() != null) {
+				positions.add(site.standableAdjacent().toImmutable());
+			}
+			if (site.nearbyRequiredPos() != null) {
+				positions.add(site.nearbyRequiredPos().toImmutable());
+			}
+		}
+		return List.copyOf(positions);
 	}
 
 	private static Optional<BlockPos> standableAdjacentPosition(World world, BlockPos targetPos) {
@@ -437,6 +463,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		Map<String, String> supportProperties,
 		int distance,
 		BlockPos standableAdjacent,
+		BlockPos nearbyRequiredPos,
 		boolean withinInteractionRange
 	) {
 		static final Comparator<PlacementSite> ORDERING = Comparator
@@ -454,8 +481,21 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 				+ (supportProperties.isEmpty() ? "" : ", supportState=" + supportProperties)
 				+ ", distance=" + distance
 				+ ", standableAdjacent=" + (standableAdjacent == null ? "none" : compactPos(standableAdjacent))
+				+ ", nearbyRequiredPos=" + (nearbyRequiredPos == null ? "none" : compactPos(nearbyRequiredPos))
 				+ ", withinInteractionRange=" + withinInteractionRange
 				+ "}";
+		}
+	}
+
+	public record WorldQueryResult(String text, List<BlockPos> observedPositions) {
+		public WorldQueryResult {
+			text = text == null ? "" : text;
+			observedPositions = observedPositions == null
+				? List.of()
+				: observedPositions.stream()
+					.filter(Objects::nonNull)
+					.map(BlockPos::toImmutable)
+					.toList();
 		}
 	}
 

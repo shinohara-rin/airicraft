@@ -52,6 +52,7 @@ import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
+import ai.moeru.airicraft.agent.llm.CurrentWorldQueryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
@@ -70,6 +71,7 @@ import ai.moeru.airicraft.agent.llm.PlannerToolCatalog;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import ai.moeru.airicraft.agent.llm.VisionDescription;
+import ai.moeru.airicraft.agent.llm.WorldReadLedger;
 import ai.moeru.airicraft.agent.session.AutoLanOpenState;
 import ai.moeru.airicraft.agent.session.LanHostingService;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
@@ -95,6 +97,8 @@ import ai.moeru.airicraft.agent.tasks.MinedBlockDropMapper;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
+import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.TaskState;
 import ai.moeru.airicraft.agent.tasks.TaskSpec;
 import ai.moeru.airicraft.agent.tasks.TaskLedger;
@@ -183,6 +187,8 @@ public final class EmbodiedAgentRuntime {
 	private final SurfaceMemory surfaceMemory = new SurfaceMemory();
 	private final SmeltingProcessManager smeltingProcessManager;
 	private final SmeltingPlannerService smeltingPlannerService = new SmeltingPlannerService();
+	private final WorldReadLedger worldReadLedger = new WorldReadLedger();
+	private final CurrentWorldQueryService guardedWorldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 
 	private boolean initialized;
 	private long tickCount;
@@ -234,7 +240,9 @@ public final class EmbodiedAgentRuntime {
 				clock,
 				debugRecorder,
 				this::executePlannerToolCall,
-				this::emitPlannerToolNarration
+				this::emitPlannerToolNarration,
+				this::beforePlannerToolExecution,
+				worldReadLedger::recordObserved
 			);
 		this.visionService = plannerShell.visionService();
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
@@ -344,6 +352,7 @@ public final class EmbodiedAgentRuntime {
 		dialogueRuntime.clear();
 		worldTaskExecutor.onWorldLeave();
 		surfaceMemory.clear();
+		worldReadLedger.clear();
 		activeJobRuntime.clear();
 		idleIdeaScheduler.reset();
 		followCapability.clear();
@@ -1300,6 +1309,49 @@ public final class EmbodiedAgentRuntime {
 					+ (entityInteraction.itemId() == null ? "" : " itemId=" + entityInteraction.itemId());
 				yield queuedActionToolResult("use_entity", details);
 			}
+			case PlannerToolCatalog.PLACE_BLOCK -> {
+				BlockPlacementStepArgs blockPlacement = new BlockPlacementStepArgs(
+					stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required")),
+					new GoalPosition(
+						intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
+						intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
+						intArg(args, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
+						true
+					),
+					stringArg(args, "facePreference").orElse("auto"),
+					stringArg(args, "requireCurrentTargetMaterial").orElse("air_or_replaceable")
+				);
+				BlockPos targetPos = blockPos(blockPlacement.targetPosition());
+				if (!worldReadLedger.isFresh(targetPos)) {
+					yield guardedModificationNeedsInspect(PlannerToolCatalog.PLACE_BLOCK, targetPos);
+				}
+				applyPlannerJobTool(ActiveJobProposal.placeBlock(blockPlacement));
+				yield queuedActionToolResult("place_block", "itemId=" + blockPlacement.itemId()
+					+ " targetPos=" + compactPos(targetPos)
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(targetPos));
+			}
+			case PlannerToolCatalog.USE_BLOCK -> {
+				BlockUseStepArgs blockUse = new BlockUseStepArgs(
+					stringArg(args, "itemId").orElse(null),
+					new GoalPosition(
+						intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
+						intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
+						intArg(args, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
+						true
+					),
+					stringArg(args, "facePreference").orElse("auto"),
+					args != null && args.has("expectedSupportBlockIds") ? stringArrayArg(args, "expectedSupportBlockIds") : List.of(),
+					stringArg(args, "expectedTargetMaterial").orElse(null)
+				);
+				BlockPos targetPos = blockPos(blockUse.targetPosition());
+				if (!worldReadLedger.isFresh(targetPos)) {
+					yield guardedModificationNeedsInspect(PlannerToolCatalog.USE_BLOCK, targetPos);
+				}
+				applyPlannerJobTool(ActiveJobProposal.useBlock(blockUse));
+				yield queuedActionToolResult("use_block", (blockUse.itemId() == null ? "" : "itemId=" + blockUse.itemId() + " ")
+					+ "targetPos=" + compactPos(targetPos)
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(targetPos));
+			}
 			case PlannerToolCatalog.CANCEL_TASK -> {
 				String reason = stringArg(args, "reason").orElse("planner_tool_cancelled");
 				TaskSnapshot snapshot = cancelTask(reason);
@@ -1329,7 +1381,9 @@ public final class EmbodiedAgentRuntime {
 			|| PlannerToolCatalog.NAVIGATE_TO.equals(normalizedToolName)
 			|| PlannerToolCatalog.RETURN_TO_SURFACE.equals(normalizedToolName)
 			|| PlannerToolCatalog.MINE_BLOCKS.equals(normalizedToolName)
-			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName);
+			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName)
+			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
+			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName);
 	}
 
 	private String plannerActiveTaskPreemptionError(PlannerToolCall toolCall) {
@@ -1366,6 +1420,10 @@ public final class EmbodiedAgentRuntime {
 		smeltingProcessManager.registerOptions(options);
 	}
 
+	void recordWorldReadForTests(BlockPos pos) {
+		worldReadLedger.recordObserved(List.of(pos));
+	}
+
 	private CompletableFuture<String> executeCraftRecipePlannerTool(JsonObject args) {
 		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
 			stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
@@ -1393,6 +1451,36 @@ public final class EmbodiedAgentRuntime {
 			return;
 		}
 		chatService.send(MinecraftClient.getInstance(), toolCall.narration(), tickCount);
+	}
+
+	private void beforePlannerToolExecution(PlannerToolCall toolCall) {
+		worldReadLedger.advanceToolCall();
+	}
+
+	private String guardedModificationNeedsInspect(String toolName, BlockPos targetPos) {
+		JsonObject inspectArgs = new JsonObject();
+		inspectArgs.addProperty("mode", "inspect_area");
+		inspectArgs.addProperty("scope", "center");
+		inspectArgs.addProperty("x", targetPos.getX());
+		inspectArgs.addProperty("y", targetPos.getY());
+		inspectArgs.addProperty("z", targetPos.getZ());
+		inspectArgs.addProperty("horizontalRadius", 1);
+		inspectArgs.addProperty("verticalRadius", 1);
+		CurrentWorldQueryService.WorldQueryResult result = guardedWorldQueryService.inspectWorldDetailed(inspectArgs).join();
+		worldReadLedger.recordObserved(result.observedPositions());
+		return "Tool result for " + toolName + ": blocked reason=target_not_inspected"
+			+ " targetPos=" + compactPos(targetPos)
+			+ ". Runtime converted this request to inspect_world first.\n"
+			+ result.text()
+			+ "\nThe target has now been inspected. Call " + toolName + " again if you still want to modify it.";
+	}
+
+	private static BlockPos blockPos(GoalPosition position) {
+		return new BlockPos(position.x(), position.y(), position.z());
+	}
+
+	private static String compactPos(BlockPos pos) {
+		return pos.getX() + "," + pos.getY() + "," + pos.getZ();
 	}
 
 	private void applyPlannerJobTool(ActiveJobProposal proposal) {
@@ -2512,7 +2600,7 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		return switch (intent.activeJob().type()) {
-			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, ENSURE_BLOCKS_IN_INVENTORY, RETURN_TO_SURFACE -> true;
+			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, ENSURE_BLOCKS_IN_INVENTORY, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK -> true;
 			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, ATTACK_ENTITY, USE_ENTITY, ASK_USER -> false;
 		};
 	}
@@ -2537,6 +2625,8 @@ public final class EmbodiedAgentRuntime {
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_SMELTED_ITEMS
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ATTACK_ENTITY
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_ENTITY
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.PLACE_BLOCK
+			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_BLOCK
 			|| snapshot.activeStepKind() == ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
 	}
 
@@ -2693,7 +2783,7 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		return switch (kind) {
-			case COLLECT_RESOURCE, MINE_BLOCKS, CRAFT_RECIPE, TRANSFER_ITEMS, PLACE_BLOCK, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS -> true;
+			case COLLECT_RESOURCE, MINE_BLOCKS, CRAFT_RECIPE, TRANSFER_ITEMS, PLACE_BLOCK, USE_BLOCK, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS -> true;
 			case NAVIGATE_TO_POSITION, NAVIGATE_TO_BLOCK_KIND, OPEN_CONTAINER, ATTACK_ENTITY, USE_ENTITY, ASK_USER, FINISH -> false;
 		};
 	}
@@ -2703,7 +2793,7 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		return switch (type) {
-			case MINE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE -> true;
+			case MINE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK -> true;
 			case FOLLOW, NAVIGATE, ATTACK_ENTITY, USE_ENTITY -> false;
 		};
 	}

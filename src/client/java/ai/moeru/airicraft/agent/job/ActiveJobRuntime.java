@@ -7,6 +7,8 @@ import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.tasks.AskUserStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceTaskHandler;
@@ -292,6 +294,8 @@ public final class ActiveJobRuntime {
 			activeJob.smeltItems(),
 			activeJob.collectSmeltedItems(),
 			activeJob.returnToSurface(),
+			activeJob.blockPlacement(),
+			activeJob.blockUse(),
 			activeJob.askPrompt(),
 			activeJob.waitUntilTick(),
 			activeJob.baselineResourceCount(),
@@ -337,7 +341,7 @@ public final class ActiveJobRuntime {
 			case COLLECT_RESOURCE -> tickCollectResource(activeJob, lastPrimitiveExecution, lastEvidence, actuationAllowed, nearbyResourceTargetAvailable, tick);
 			case CRAFT_RECIPE -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case DROP_ITEMS -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, true, tick);
-			case SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
+			case SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case ATTACK_ENTITY, USE_ENTITY -> tickPrimitiveJob(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
 			case ASK_USER -> tickAskUser(activeJob, tick);
 			case MINE_BLOCKS -> tickMineBlocks(activeJob, lastPrimitiveExecution, actuationAllowed, tick);
@@ -391,6 +395,16 @@ public final class ActiveJobRuntime {
 		if (activeJob.type() == ActiveJobType.RETURN_TO_SURFACE && activeJob.returnToSurface() != null) {
 			clearAttemptState();
 			desiredPrimitiveTask = WorldTaskRequest.returnToSurface(activeJob.jobId(), activeJob.jobId(), activeJob.returnToSurface());
+			return;
+		}
+		if (activeJob.type() == ActiveJobType.PLACE_BLOCK && activeJob.blockPlacement() != null) {
+			clearAttemptState();
+			desiredPrimitiveTask = WorldTaskRequest.placeBlock(activeJob.jobId(), activeJob.jobId(), activeJob.blockPlacement());
+			return;
+		}
+		if (activeJob.type() == ActiveJobType.USE_BLOCK && activeJob.blockUse() != null) {
+			clearAttemptState();
+			desiredPrimitiveTask = WorldTaskRequest.useBlock(activeJob.jobId(), activeJob.jobId(), activeJob.blockUse());
 			return;
 		}
 		if (activeJob.type() == ActiveJobType.ATTACK_ENTITY && activeJob.entityInteraction() != null) {
@@ -639,6 +653,8 @@ public final class ActiveJobRuntime {
 			case COLLECT_SMELTED_ITEMS -> "collect_smelted_items_failed";
 			case ATTACK_ENTITY -> "attack_entity_failed";
 			case USE_ENTITY -> "use_entity_failed";
+			case PLACE_BLOCK -> "place_block_failed";
+			case USE_BLOCK -> "use_block_failed";
 			case RETURN_TO_SURFACE -> "return_to_surface_failed";
 			default -> "crafting_failed";
 		};
@@ -651,6 +667,8 @@ public final class ActiveJobRuntime {
 			case COLLECT_SMELTED_ITEMS -> "collect_smelted_items_cancelled";
 			case ATTACK_ENTITY -> "attack_entity_cancelled";
 			case USE_ENTITY -> "use_entity_cancelled";
+			case PLACE_BLOCK -> "place_block_cancelled";
+			case USE_BLOCK -> "use_block_cancelled";
 			case RETURN_TO_SURFACE -> "return_to_surface_cancelled";
 			default -> "crafting_cancelled";
 		};
@@ -813,6 +831,12 @@ public final class ActiveJobRuntime {
 			case DROP_ITEMS -> fromDropItemsStep(ledger.missionId(), activeStep.args().dropItems(), source, tick);
 			case ATTACK_ENTITY -> fromEntityInteractionStep(ledger.missionId(), ActiveJobType.ATTACK_ENTITY, activeStep.args().entityInteraction(), source, tick);
 			case USE_ENTITY -> fromEntityInteractionStep(ledger.missionId(), ActiveJobType.USE_ENTITY, activeStep.args().entityInteraction(), source, tick);
+			case PLACE_BLOCK -> fromBlockPlacementStep(ledger.missionId(), activeStep.args().placeBlock() == null ? null : new BlockPlacementStepArgs(
+				activeStep.args().placeBlock().itemId(),
+				activeStep.args().placeBlock().position(),
+				null,
+				null
+			), source, tick);
 			case ASK_USER -> fromAskUserStep(ledger.missionId(), activeStep.args().askUser(), source, tick);
 			case FINISH -> new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, null, -1L, 0, 0, source, null, null, tick);
 			default -> new ActiveJob(ledger.missionId(), ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, null, "Unsupported step: " + activeStep.kind().name(), -1L, 0, 0, source, "unsupported_step", null, tick);
@@ -854,6 +878,8 @@ public final class ActiveJobRuntime {
 			null,
 			null,
 			null,
+			null,
+			null,
 			-1L,
 			0,
 			0,
@@ -879,6 +905,8 @@ public final class ActiveJobRuntime {
 			null,
 			null,
 			collectSmeltedItems,
+			null,
+			null,
 			null,
 			null,
 			-1L,
@@ -908,6 +936,8 @@ public final class ActiveJobRuntime {
 			null,
 			returnToSurface,
 			null,
+			null,
+			null,
 			-1L,
 			0,
 			0,
@@ -929,6 +959,64 @@ public final class ActiveJobRuntime {
 			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, null, -1L, 0, 0, source, null, "missing_entity_interaction_args", tick);
 		}
 		return new ActiveJob(jobId, type, ActiveJobStatus.QUEUED, null, null, null, null, entityInteraction, null, -1L, 0, 0, source, null, null, tick);
+	}
+
+	private static ActiveJob fromBlockPlacementStep(String jobId, BlockPlacementStepArgs blockPlacement, String source, long tick) {
+		if (blockPlacement == null) {
+			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, -1L, 0, 0, source, null, "missing_place_block_args", tick);
+		}
+		return new ActiveJob(
+			jobId,
+			ActiveJobType.PLACE_BLOCK,
+			ActiveJobStatus.QUEUED,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			blockPlacement,
+			null,
+			null,
+			-1L,
+			0,
+			0,
+			source,
+			null,
+			null,
+			tick
+		);
+	}
+
+	private static ActiveJob fromBlockUseStep(String jobId, BlockUseStepArgs blockUse, String source, long tick) {
+		if (blockUse == null) {
+			return new ActiveJob(jobId, ActiveJobType.ASK_USER, ActiveJobStatus.FAILED, null, null, null, null, -1L, 0, 0, source, null, "missing_use_block_args", tick);
+		}
+		return new ActiveJob(
+			jobId,
+			ActiveJobType.USE_BLOCK,
+			ActiveJobStatus.QUEUED,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			blockUse,
+			null,
+			-1L,
+			0,
+			0,
+			source,
+			null,
+			null,
+			tick
+		);
 	}
 
 	private ActiveJob fromCollectResourceStep(String jobId, CollectResourceStepArgs args, int currentResourceCount, String source, long tick) {
@@ -1022,6 +1110,8 @@ public final class ActiveJobRuntime {
 			case COLLECT_SMELTED_ITEMS -> fromCollectSmeltedItemsStep(newJobId(), proposal.collectSmeltedItems(), source, tick);
 			case ATTACK_ENTITY -> fromEntityInteractionStep(newJobId(), ActiveJobType.ATTACK_ENTITY, proposal.entityInteraction(), source, tick);
 			case USE_ENTITY -> fromEntityInteractionStep(newJobId(), ActiveJobType.USE_ENTITY, proposal.entityInteraction(), source, tick);
+			case PLACE_BLOCK -> fromBlockPlacementStep(newJobId(), proposal.blockPlacement(), source, tick);
+			case USE_BLOCK -> fromBlockUseStep(newJobId(), proposal.blockUse(), source, tick);
 			case RETURN_TO_SURFACE -> fromReturnToSurfaceStep(newJobId(), proposal.returnToSurface(), source, tick);
 			case ASK_USER -> fromAskUserStep(newJobId(), new AskUserStepArgs(proposal.askPrompt()), source, tick);
 			case IDLE -> ActiveJob.idle();
@@ -1046,6 +1136,8 @@ public final class ActiveJobRuntime {
 				next.smeltItems(),
 				next.collectSmeltedItems(),
 				next.returnToSurface(),
+				next.blockPlacement(),
+				next.blockUse(),
 				next.askPrompt(),
 				next.waitUntilTick(),
 				activeJob.baselineResourceCount(),
@@ -1087,6 +1179,12 @@ public final class ActiveJobRuntime {
 		if (left.returnToSurface() != null || right.returnToSurface() != null) {
 			return Objects.equals(left.returnToSurface(), right.returnToSurface());
 		}
+		if (left.blockPlacement() != null || right.blockPlacement() != null) {
+			return Objects.equals(left.blockPlacement(), right.blockPlacement());
+		}
+		if (left.blockUse() != null || right.blockUse() != null) {
+			return Objects.equals(left.blockUse(), right.blockUse());
+		}
 		return Objects.equals(left.askPrompt(), right.askPrompt()) && left.waitUntilTick() == right.waitUntilTick();
 	}
 
@@ -1118,6 +1216,8 @@ public final class ActiveJobRuntime {
 			case SMELT_ITEMS -> activeJob.smeltItems() == null ? "Smelt items" : "Smelt " + activeJob.smeltItems().inputQuantity() + " via " + activeJob.smeltItems().optionId();
 			case COLLECT_SMELTED_ITEMS -> activeJob.collectSmeltedItems() == null ? "Collect smelted items" : "Collect smelted output";
 			case RETURN_TO_SURFACE -> "Return to surface";
+			case PLACE_BLOCK -> activeJob.blockPlacement() == null ? "Place block" : "Place " + activeJob.blockPlacement().itemId();
+			case USE_BLOCK -> activeJob.blockUse() == null ? "Use block" : "Use block at target";
 			case ATTACK_ENTITY -> activeJob.entityInteraction() == null ? "Attack entity" : "Attack " + activeJob.entityInteraction().selector();
 			case USE_ENTITY -> activeJob.entityInteraction() == null ? "Use entity" : "Use on " + activeJob.entityInteraction().selector();
 			case ASK_USER -> "Ask user";
@@ -1135,6 +1235,8 @@ public final class ActiveJobRuntime {
 			case SMELT_ITEMS -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.SMELT_ITEMS;
 			case COLLECT_SMELTED_ITEMS -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.COLLECT_SMELTED_ITEMS;
 			case RETURN_TO_SURFACE -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.NAVIGATE_TO_POSITION;
+			case PLACE_BLOCK -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.PLACE_BLOCK;
+			case USE_BLOCK -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_BLOCK;
 			case ATTACK_ENTITY -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.ATTACK_ENTITY;
 			case USE_ENTITY -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.USE_ENTITY;
 			case ASK_USER -> ai.moeru.airicraft.agent.tasks.LedgerStepKind.ASK_USER;
@@ -1211,6 +1313,8 @@ public final class ActiveJobRuntime {
 			job.smeltItems(),
 			job.collectSmeltedItems(),
 			job.returnToSurface(),
+			job.blockPlacement(),
+			job.blockUse(),
 			job.askPrompt(),
 			job.waitUntilTick(),
 			job.baselineResourceCount(),

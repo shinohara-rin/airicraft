@@ -8,6 +8,7 @@ import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.idle.IdleIdeasLoader;
 import ai.moeru.airicraft.agent.tasks.BaritoneTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.BlockInteractionTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.CraftingTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.DispatchingWorldTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.DropItemsTaskExecutor;
@@ -206,7 +207,8 @@ public final class ClientRuntimeController {
 			new DropItemsTaskExecutor(),
 			new EntityInteractionTaskExecutor(baritoneFacade),
 			new SmeltingTaskExecutor(smeltingProcessManager, baritoneFacade),
-			new ReturnToSurfaceTaskExecutor(baritoneFacade)
+			new ReturnToSurfaceTaskExecutor(baritoneFacade),
+			new BlockInteractionTaskExecutor()
 		);
 		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor, smeltingProcessManager);
 	}

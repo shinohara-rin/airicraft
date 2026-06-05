@@ -61,6 +61,7 @@ import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import com.google.gson.JsonParser;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Test;
 
@@ -746,6 +747,55 @@ class EmbodiedAgentRuntimeTest {
 			new EntitySelector(null, "Dinner", null),
 			"minecraft:shears"
 		), request.entityInteraction());
+	}
+
+	@Test
+	void blockModificationToolInspectsInsteadOfQueuingUnreadTarget() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_place",
+			"place_block",
+			JsonParser.parseString("""
+				{"itemId":"minecraft:dirt","x":1,"y":64,"z":2}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(result.contains("blocked reason=target_not_inspected"));
+		assertTrue(result.contains("Runtime converted this request to inspect_world first"));
+		assertTrue(result.contains("Call place_block again"));
+		assertTrue(executor.lastActiveTask.isEmpty());
+	}
+
+	@Test
+	void blockModificationToolQueuesAfterFreshWorldRead() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_use_block",
+			"use_block",
+			JsonParser.parseString("""
+				{"itemId":"minecraft:wheat_seeds","x":1,"y":65,"z":2,"expectedSupportBlockIds":["minecraft:farmland"],"expectedTargetMaterial":"air"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertEquals(WorldTaskType.USE_BLOCK, request.type());
+		assertEquals("minecraft:wheat_seeds", request.blockUse().itemId());
+		assertEquals(new GoalPosition(1, 65, 2, true), request.blockUse().targetPosition());
+		assertEquals(List.of("minecraft:farmland"), request.blockUse().expectedSupportBlockIds());
 	}
 
 	@Test

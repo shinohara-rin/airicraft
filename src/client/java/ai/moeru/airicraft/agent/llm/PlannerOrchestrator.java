@@ -62,6 +62,7 @@ public final class PlannerOrchestrator {
 	private final PlannerActionToolExecutor actionToolExecutor;
 	private final PlannerToolNarrationSink narrationSink;
 	private final PlannerToolRegistry toolRegistry;
+	private final PlannerToolExecutionObserver toolExecutionObserver;
 	private final PlannerTurnJournal turnJournal;
 	private final PlannerConversationProjector conversationProjector;
 
@@ -500,7 +501,8 @@ public final class PlannerOrchestrator {
 			debugRecorder,
 			actionToolExecutor,
 			narrationSink,
-			PlannerToolRegistry.empty()
+			PlannerToolRegistry.empty(),
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 
@@ -523,7 +525,51 @@ public final class PlannerOrchestrator {
 			PlannerActionToolExecutor actionToolExecutor,
 			PlannerToolNarrationSink narrationSink,
 			PlannerToolRegistry toolRegistry
-		) {
+	) {
+		this(
+			plannerExecutor,
+			compactionService,
+			contextAggregator,
+			visionTool,
+			inventoryTool,
+			visionMode,
+			imageDetail,
+			plannerSessionMaxConcurrentAttempts,
+			plannerSessionCoalesceStepMillis,
+			plannerSessionCoalesceMinMillis,
+			plannerSessionCoalesceMaxMillis,
+			clock,
+			observability,
+			lifecycleListener,
+			debugRecorder,
+			actionToolExecutor,
+			narrationSink,
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
+		);
+	}
+
+	public PlannerOrchestrator(
+		PlannerExecutor plannerExecutor,
+		PlannerCompactionService compactionService,
+		PlannerContextAggregator contextAggregator,
+		CurrentViewVisionTool visionTool,
+		CurrentInventoryTool inventoryTool,
+		PlannerVisionMode visionMode,
+		String imageDetail,
+		int plannerSessionMaxConcurrentAttempts,
+		int plannerSessionCoalesceStepMillis,
+		int plannerSessionCoalesceMinMillis,
+		int plannerSessionCoalesceMaxMillis,
+			Clock clock,
+			AgentObservability observability,
+			PlannerLifecycleListener lifecycleListener,
+			AgentDebugRecorder debugRecorder,
+			PlannerActionToolExecutor actionToolExecutor,
+			PlannerToolNarrationSink narrationSink,
+			PlannerToolRegistry toolRegistry,
+			PlannerToolExecutionObserver toolExecutionObserver
+	) {
 		this.plannerExecutor = Objects.requireNonNull(plannerExecutor, "plannerExecutor");
 		this.compactionService = Objects.requireNonNull(compactionService, "compactionService");
 		this.contextAggregator = Objects.requireNonNull(contextAggregator, "contextAggregator");
@@ -549,6 +595,7 @@ public final class PlannerOrchestrator {
 		this.actionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
 		this.narrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
 		this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
+		this.toolExecutionObserver = Objects.requireNonNull(toolExecutionObserver, "toolExecutionObserver");
 		this.turnJournal = new PlannerTurnJournal(this.clock, CONVERSATION_HISTORY_CARD_LIMIT * 4);
 		this.conversationProjector = new PlannerConversationProjector(CONVERSATION_HISTORY_CARD_LIMIT);
 	}
@@ -820,7 +867,7 @@ public final class PlannerOrchestrator {
 			+ " Previous response was rejected: "
 			+ (failureMessage == null || failureMessage.isBlank() ? "parse error" : failureMessage)
 			+ "\nCall exactly one tool in this response unless every tool call is a read-only text tool."
-			+ "\nDo not batch action tools such as navigate_to, mine_blocks, collect_resource, craft_recipe, smelt_items, drop_items, give_player, attack_entity, use_entity, cancel_task, clear_goal, or update_event_policy."
+			+ "\nDo not batch action tools such as navigate_to, mine_blocks, collect_resource, craft_recipe, smelt_items, drop_items, give_player, attack_entity, use_entity, place_block, use_block, cancel_task, clear_goal, or update_event_policy."
 			+ "\nIf multiple actions are needed, call only the next single action tool now and wait for the tool result or TASK UPDATE before another action."
 			+ "\nWhen calling a tool, leave assistant content empty and put visible pre-action text in the tool narration argument.";
 	}
@@ -1195,6 +1242,7 @@ public final class PlannerOrchestrator {
 	}
 
 	private CompletableFuture<ToolExecutionOutcome> requestPlannerTool(PlannerToolCall toolCall) {
+		toolExecutionObserver.beforePlannerToolExecution(toolCall);
 		return switch (normalizedToolName(toolCall)) {
 			case VISUAL_TOOL_NAME -> requestVisionTool(toolCall);
 			case INVENTORY_TOOL_NAME -> inventoryTool.inspectInventory(toolPrompt(toolCall)).thenApply(TextToolExecutionOutcome::new);
