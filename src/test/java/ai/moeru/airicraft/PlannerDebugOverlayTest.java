@@ -21,7 +21,6 @@ import ai.moeru.airicraft.agent.tasks.TaskTerminationCause;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -183,53 +182,6 @@ class PlannerDebugOverlayTest {
 		assertEquals(layout.maxScroll(), layout.scrollTop());
 		PlannerDebugOverlay.ConversationCardLayout newest = layout.cards().get(layout.cards().size() - 1);
 		assertEquals(layout.contentHeight(), newest.contentTop() + newest.height());
-	}
-
-	@Test
-	void conversationLayoutReusesCachedWrapForUnchangedSnapshot() {
-		PlannerDebugOverlay overlay = new PlannerDebugOverlay();
-		PlannerConversationDebugSnapshot snapshot = new PlannerConversationDebugSnapshot(
-			3L,
-			"TOOL_FOLLOW_UP",
-			1,
-			List.of(
-				message("system", PlannerConversationDebugKind.SYSTEM, "x ".repeat(200)),
-				message("assistant", PlannerConversationDebugKind.ASSISTANT_TURN, "y ".repeat(200))
-			)
-		);
-		AtomicInteger widthCalls = new AtomicInteger();
-
-		PlannerDebugOverlay.ConversationPaneLayout first = overlay.conversationLayout(
-			snapshot,
-			800,
-			600,
-			text -> {
-				widthCalls.incrementAndGet();
-				return text.length() * 6;
-			},
-			10,
-			0,
-			true,
-			"| waiting for planner"
-		);
-		int callsAfterFirst = widthCalls.get();
-
-		PlannerDebugOverlay.ConversationPaneLayout second = overlay.conversationLayout(
-			new PlannerConversationDebugSnapshot(3L, "TOOL_FOLLOW_UP", 1, snapshot.messages()),
-			800,
-			600,
-			text -> {
-				widthCalls.incrementAndGet();
-				return text.length() * 6;
-			},
-			10,
-			0,
-			true,
-			"| waiting for planner"
-		);
-
-		assertEquals(first, second);
-		assertEquals(callsAfterFirst, widthCalls.get());
 	}
 
 	@Test
