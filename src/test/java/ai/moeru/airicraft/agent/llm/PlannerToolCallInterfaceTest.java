@@ -295,6 +295,75 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void exposesAndParsesInspectWorldTool() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject parameters = toolSchema(tools, "inspect_world");
+
+		assertTrue(toolNames(tools).contains("inspect_world"));
+		assertTrue(parameters.getAsJsonObject("properties").has("mode"));
+		assertTrue(parameters.getAsJsonObject("properties").has("scope"));
+		assertTrue(parameters.getAsJsonObject("properties").has("x1"));
+		assertTrue(parameters.getAsJsonObject("properties").has("targetMaterial"));
+
+		PlannerToolCall areaCall = PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+			{"mode":"inspect_area","scope":"self","horizontalRadius":6,"verticalRadius":2}
+			"""));
+		PlannerToolCall boxCall = PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+			{"mode":"inspect_area","scope":"box","x1":10,"y1":63,"z1":10,"x2":18,"y2":66,"z2":18}
+			"""));
+		PlannerToolCall findBlocksCall = PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+			{"mode":"find_blocks","scope":"self","blockIds":["minecraft:wheat"],"stateFilters":["age=7"],"maxResults":16}
+			"""));
+		PlannerToolCall placementCall = PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+			{"mode":"find_placement_sites","scope":"self","supportBlockIds":["minecraft:farmland"],"supportStateFilters":["moisture=7"],"targetMaterial":"air","requireStandableAdjacent":true,"maxResults":16}
+			"""));
+
+		assertEquals("inspect_world", areaCall.name());
+		assertEquals("box", boxCall.arguments().get("scope").getAsString());
+		assertEquals("age=7", findBlocksCall.arguments().getAsJsonArray("stateFilters").get(0).getAsString());
+		assertEquals("air", placementCall.arguments().get("targetMaterial").getAsString());
+	}
+
+	@Test
+	void inspectWorldRejectsInvalidModeScopeAndFieldCombinations() {
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"inspect_area","scope":"self","x":1}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"inspect_area","scope":"center","x":1,"y":64,"z":1,"x1":0}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"inspect_area","scope":"box","x1":0,"y1":64,"z1":0,"x2":1,"y2":65,"z2":1,"horizontalRadius":4}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"inspect_area","scope":"self","blockIds":["minecraft:dirt"]}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"find_blocks","scope":"self","blockIds":["minecraft:wheat"],"stateFilters":["age"]}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"find_blocks","scope":"self","blockIds":["minecraft:wheat"],"horizontalRadius":17}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("inspect_world", """
+				{"mode":"find_placement_sites","scope":"self","targetMaterial":"solid"}
+				"""))
+		);
+	}
+
+	@Test
 	void exposesAndParsesSmeltingTools() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 

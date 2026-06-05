@@ -8,6 +8,8 @@ import ai.moeru.airicraft.agent.integration.map.MapIntegrationBridge;
 import ai.moeru.airicraft.agent.integration.map.MapPlannerToolProvider;
 import ai.moeru.airicraft.agent.integration.rei.ReiRecipeSearchToolProvider;
 import ai.moeru.airicraft.agent.llm.CurrentInventoryService;
+import ai.moeru.airicraft.agent.llm.CurrentWorldQueryService;
+import ai.moeru.airicraft.agent.llm.CurrentWorldQueryToolProvider;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
@@ -70,7 +72,9 @@ public final class PlannerShellFactory {
 			observability
 		);
 		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
+		CurrentWorldQueryService worldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 		PlannerToolRegistry toolRegistry = PlannerToolRegistry.of(
+			new CurrentWorldQueryToolProvider(worldQueryService),
 			new ReiRecipeSearchToolProvider(),
 			new MapPlannerToolProvider(MapIntegrationBridge::registry)
 		);

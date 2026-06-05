@@ -94,6 +94,19 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptExplainsWorldInspectionTool() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
+
+		assertTrue(prompt.contains("inspect_world"));
+		assertTrue(prompt.contains("inspect_area/find_blocks/find_placement_sites"));
+		assertTrue(prompt.contains("scope self/center/box"));
+		assertTrue(prompt.contains("within 64 blocks"));
+		assertTrue(prompt.contains("exact block ids"));
+		assertTrue(prompt.contains("placement affordances"));
+		assertTrue(prompt.contains("stateFilters like age=7 or moisture=7"));
+	}
+
+	@Test
 	void systemPromptExplainsSmeltingConfirmationAndAsyncCompletion() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 

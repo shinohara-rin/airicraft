@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 
 public final class PlannerToolCatalog {
 	public static final String TAKE_A_LOOK = "take_a_look";
+	public static final String INSPECT_WORLD = "inspect_world";
 	public static final String INSPECT_INVENTORY = "inspect_inventory";
 	public static final String CHECK_CRAFTABLES = "check_craftables";
 	public static final String CHECK_SMELTABLES = "check_smeltables";
@@ -64,6 +65,35 @@ public final class PlannerToolCatalog {
 				prop("z", integer("Optional target block z coordinate. Provide x, y, and z together.")),
 				prop("targetPlayer", optionalString("Optional loaded player name to look at before capture."))
 			), List.of()), PlannerToolCatalog::validateTakeALookArguments),
+		builtInTool(INSPECT_WORLD, true, tool(INSPECT_WORLD, "Inspect exact loaded world block state with fixed query modes.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("mode", enumString("World query mode.", List.of("inspect_area", "find_blocks", "find_placement_sites"))),
+				prop("scope", enumString("Query scope.", List.of("self", "center", "box"))),
+				prop("x", integer("Center block x coordinate for scope=center.")),
+				prop("y", integer("Center block y coordinate for scope=center.")),
+				prop("z", integer("Center block z coordinate for scope=center.")),
+				prop("x1", integer("First box corner x coordinate for scope=box.")),
+				prop("y1", integer("First box corner y coordinate for scope=box.")),
+				prop("z1", integer("First box corner z coordinate for scope=box.")),
+				prop("x2", integer("Second box corner x coordinate for scope=box.")),
+				prop("y2", integer("Second box corner y coordinate for scope=box.")),
+				prop("z2", integer("Second box corner z coordinate for scope=box.")),
+				prop("horizontalRadius", integer("Horizontal radius for scope=self or scope=center. Default 8, maximum 16.")),
+				prop("verticalRadius", integer("Vertical radius for scope=self or scope=center. Default 4, maximum 8.")),
+				prop("maxResults", integer("Maximum search results. Default 32, maximum 64.")),
+				prop("blockIds", stringArray("Block ids for find_blocks.")),
+				prop("stateFilters", stringArray("Exact block-state filters for find_blocks, using key=value syntax.")),
+				prop("targetMaterial", enumString("Allowed target block material for find_placement_sites.", List.of("air", "replaceable", "air_or_replaceable"))),
+				prop("supportBlockIds", stringArray("Optional block ids required directly below each placement target.")),
+				prop("supportStateFilters", stringArray("Exact support block-state filters using key=value syntax.")),
+				prop("requireSolidTopSupport", bool("Whether the support block top face must be solid.")),
+				prop("requireAirAbove", bool("Whether the block above the target must be air or replaceable.")),
+				prop("requireStandableAdjacent", bool("Whether at least one adjacent standable player position is required. Default true.")),
+				prop("requireWithinInteractionRange", bool("Whether the target must be within current interaction range.")),
+				prop("nearbyRequiredBlockIds", stringArray("Optional nearby block ids required around each placement target.")),
+				prop("nearbyRequiredHorizontalRadius", integer("Horizontal radius for nearbyRequiredBlockIds. Default 4, maximum 16.")),
+				prop("nearbyRequiredVerticalRadius", integer("Vertical radius for nearbyRequiredBlockIds. Default 1, maximum 8."))
+			), List.of("mode", "scope")), PlannerToolCatalog::validateInspectWorldArguments),
 		builtInTool(INSPECT_INVENTORY, true, tool(INSPECT_INVENTORY, "Inspect current inventory counts.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional inventory question."))
@@ -444,6 +474,120 @@ public final class PlannerToolCatalog {
 			requireInt(arguments, "x");
 			requireInt(arguments, "y");
 			requireInt(arguments, "z");
+		}
+	}
+
+	private static void validateInspectWorldArguments(JsonObject arguments) {
+		String mode = requireString(arguments, "mode");
+		String scope = requireString(arguments, "scope");
+		if (!List.of("inspect_area", "find_blocks", "find_placement_sites").contains(mode)) {
+			throw new JsonParseException("Unsupported inspect_world mode: " + mode);
+		}
+		validateInspectWorldScope(arguments, scope);
+		validateOptionalIntRange(arguments, "maxResults", 1, 64);
+		validateOptionalIntRange(arguments, "nearbyRequiredHorizontalRadius", 0, 16);
+		validateOptionalIntRange(arguments, "nearbyRequiredVerticalRadius", 0, 8);
+
+		if ("inspect_area".equals(mode)) {
+			rejectAny(arguments, "blockIds", "stateFilters", "targetMaterial", "supportBlockIds", "supportStateFilters",
+				"requireSolidTopSupport", "requireAirAbove", "requireStandableAdjacent", "requireWithinInteractionRange",
+				"nearbyRequiredBlockIds", "nearbyRequiredHorizontalRadius", "nearbyRequiredVerticalRadius", "maxResults");
+			return;
+		}
+		if ("find_blocks".equals(mode)) {
+			requireStringArray(arguments, "blockIds");
+			validateStateFilters(arguments, "stateFilters");
+			rejectAny(arguments, "targetMaterial", "supportBlockIds", "supportStateFilters",
+				"requireSolidTopSupport", "requireAirAbove", "requireStandableAdjacent", "requireWithinInteractionRange",
+				"nearbyRequiredBlockIds", "nearbyRequiredHorizontalRadius", "nearbyRequiredVerticalRadius");
+			return;
+		}
+
+		rejectAny(arguments, "blockIds", "stateFilters");
+		if (arguments.has("targetMaterial") && !arguments.get("targetMaterial").isJsonNull()) {
+			String targetMaterial = requireString(arguments, "targetMaterial");
+			if (!List.of("air", "replaceable", "air_or_replaceable").contains(targetMaterial)) {
+				throw new JsonParseException("Unsupported targetMaterial: " + targetMaterial);
+			}
+		}
+		if (arguments.has("supportBlockIds") && !arguments.get("supportBlockIds").isJsonNull()) {
+			requireStringArray(arguments, "supportBlockIds");
+		}
+		validateStateFilters(arguments, "supportStateFilters");
+		if (arguments.has("requireSolidTopSupport") && !arguments.get("requireSolidTopSupport").isJsonNull()) {
+			requireBoolean(arguments, "requireSolidTopSupport");
+		}
+		if (arguments.has("requireAirAbove") && !arguments.get("requireAirAbove").isJsonNull()) {
+			requireBoolean(arguments, "requireAirAbove");
+		}
+		if (arguments.has("requireStandableAdjacent") && !arguments.get("requireStandableAdjacent").isJsonNull()) {
+			requireBoolean(arguments, "requireStandableAdjacent");
+		}
+		if (arguments.has("requireWithinInteractionRange") && !arguments.get("requireWithinInteractionRange").isJsonNull()) {
+			requireBoolean(arguments, "requireWithinInteractionRange");
+		}
+		if (arguments.has("nearbyRequiredBlockIds") && !arguments.get("nearbyRequiredBlockIds").isJsonNull()) {
+			requireStringArray(arguments, "nearbyRequiredBlockIds");
+		}
+	}
+
+	private static void validateInspectWorldScope(JsonObject arguments, String scope) {
+		switch (scope) {
+			case "self" -> {
+				rejectAny(arguments, "x", "y", "z", "x1", "y1", "z1", "x2", "y2", "z2");
+				validateOptionalIntRange(arguments, "horizontalRadius", 0, 16);
+				validateOptionalIntRange(arguments, "verticalRadius", 0, 8);
+			}
+			case "center" -> {
+				requireInt(arguments, "x");
+				requireInt(arguments, "y");
+				requireInt(arguments, "z");
+				rejectAny(arguments, "x1", "y1", "z1", "x2", "y2", "z2");
+				validateOptionalIntRange(arguments, "horizontalRadius", 0, 16);
+				validateOptionalIntRange(arguments, "verticalRadius", 0, 8);
+			}
+			case "box" -> {
+				requireInt(arguments, "x1");
+				requireInt(arguments, "y1");
+				requireInt(arguments, "z1");
+				requireInt(arguments, "x2");
+				requireInt(arguments, "y2");
+				requireInt(arguments, "z2");
+				rejectAny(arguments, "x", "y", "z", "horizontalRadius", "verticalRadius");
+			}
+			default -> throw new JsonParseException("Unsupported inspect_world scope: " + scope);
+		}
+	}
+
+	private static void validateStateFilters(JsonObject arguments, String key) {
+		if (!arguments.has(key) || arguments.get(key).isJsonNull()) {
+			return;
+		}
+		requireStringArray(arguments, key);
+		for (JsonElement element : arguments.getAsJsonArray(key)) {
+			String filter = element.getAsString();
+			int separator = filter.indexOf('=');
+			if (separator <= 0 || separator != filter.lastIndexOf('=') || separator == filter.length() - 1) {
+				throw new JsonParseException(key + " values must use exact key=value syntax");
+			}
+		}
+	}
+
+	private static void validateOptionalIntRange(JsonObject arguments, String key, int min, int max) {
+		if (!arguments.has(key) || arguments.get(key).isJsonNull()) {
+			return;
+		}
+		int value = requireInt(arguments, key);
+		if (value < min || value > max) {
+			throw new JsonParseException(key + " must be between " + min + " and " + max);
+		}
+	}
+
+	private static void rejectAny(JsonObject arguments, String... keys) {
+		for (String key : keys) {
+			if (arguments.has(key) && !arguments.get(key).isJsonNull()) {
+				throw new JsonParseException("inspect_world field not allowed for this mode/scope: " + key);
+			}
 		}
 	}
 

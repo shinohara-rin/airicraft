@@ -27,6 +27,7 @@ import java.util.concurrent.CompletionException;
 
 public final class PlannerOrchestrator {
 	private static final String VISUAL_TOOL_NAME = "take_a_look";
+	private static final String WORLD_TOOL_NAME = "inspect_world";
 	private static final String INVENTORY_TOOL_NAME = "inspect_inventory";
 	private static final String CRAFTABLES_TOOL_NAME = "check_craftables";
 	private static final String NEARBY_ENTITIES_TOOL_NAME = "inspect_nearby_entities";
@@ -1502,7 +1503,7 @@ public final class PlannerOrchestrator {
 	private static boolean isBatchableTextReadTool(PlannerToolCall toolCall) {
 		String name = normalizedToolName(toolCall);
 		return switch (name) {
-			case INVENTORY_TOOL_NAME, CRAFTABLES_TOOL_NAME, NEARBY_ENTITIES_TOOL_NAME -> true;
+			case WORLD_TOOL_NAME, INVENTORY_TOOL_NAME, CRAFTABLES_TOOL_NAME, NEARBY_ENTITIES_TOOL_NAME -> true;
 			default -> false;
 		};
 	}

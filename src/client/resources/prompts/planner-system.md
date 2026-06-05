@@ -5,6 +5,7 @@ Normal visible replies are plaintext Minecraft chat only when no action or read 
 {{available_tool_line}}
 Tool args:
 inspect_nearby_entities uses optional prompt only.
+inspect_world uses mode inspect_area/find_blocks/find_placement_sites and scope self/center/box. Use self with horizontalRadius/verticalRadius around your current position; use center with x/y/z plus radii; use box with x1/y1/z1 and x2/y2/z2. World queries are limited to loaded blocks within 64 blocks of you.
 navigate_to uses x, y, z, exactY.
 return_to_surface uses optional useTowering and optional fillerBlockIds. Omit fillerBlockIds to use minecraft:dirt and minecraft:cobblestone.
 mine_blocks uses blockIds and quantity; quantity means that many additional matching blocks must be mined after the tool starts. Existing inventory and picked-up ground items do not count.
@@ -73,6 +74,8 @@ If you need current inventory item counts, call inspect_inventory.
 If you need current crafting options, call check_craftables.
 If you need current smelting options or furnace status, call check_smeltables or inspect_smelting.
 If you need nearby entities around you, call inspect_nearby_entities.
+If you need exact world block state, local terrain, crop age, placement-site candidates, support blocks, or coordinates that vision cannot prove, call inspect_world. Use take_a_look for visual semantics and inspect_world for exact block ids, block-state properties, and placement affordances.
+For inspect_world find_blocks, pass exact blockIds and optional stateFilters like age=7 or moisture=7. For inspect_world find_placement_sites, use supportBlockIds/supportStateFilters, targetMaterial, requireAirAbove, requireStandableAdjacent, requireWithinInteractionRange, and nearbyRequiredBlockIds to get conservative candidate positions.
 inspect_nearby_entities returns exact nearby selectors such as uuid, name, entityTypeId, distance, alive, and health when available.
 Always copy the uuid token exactly as shown in inspect_nearby_entities or focus when calling attack_entity or use_entity. Include name or entityTypeId only as extra context.
 If several nearby entities match the user's request, choose exactly one nearby alive target, prefer the nearest one, and call only one attack_entity or use_entity.

@@ -1600,6 +1600,50 @@ class PlannerOrchestratorTest {
 	}
 
 	@Test
+	void inspectWorldCanBatchWithTextReadTools() {
+		RecordingBackend backend = new RecordingBackend();
+		StubInventoryTool inventoryTool = new StubInventoryTool(
+			"Tool result for inspect_inventory: itemCounts={minecraft:wheat_seeds=4}",
+			"unused"
+		);
+		PlannerToolRegistry toolRegistry = PlannerToolRegistry.of(new CurrentWorldQueryToolProvider(arguments ->
+			CompletableFuture.completedFuture("Tool result for inspect_world: mode=find_placement_sites returned=1 sites=[{targetPos=1,64,1}]")
+		));
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			inventoryTool,
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			toolRegistry
+		);
+
+		JsonObject worldArgs = new JsonObject();
+		worldArgs.addProperty("mode", "find_placement_sites");
+		worldArgs.addProperty("scope", "self");
+		worldArgs.addProperty("targetMaterial", "air");
+		orchestrator.submit(requestAt(10L, 1_000L, "Alice", "@agent find farm spots"));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, PlannerResponse.toolCalls(List.of(
+			new PlannerToolCall("call_world", PlannerToolCatalog.INSPECT_WORLD, worldArgs, null, null),
+			new PlannerToolCall("call_inv", "inspect_inventory", new JsonObject(), null, null)
+		), null));
+
+		awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(1));
+
+		LlmConversation followUp = backend.conversation(1);
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_world".equals(message.toolCallId())
+				&& message.content().contains("targetPos=1,64,1")));
+		assertTrue(followUp.messages().stream()
+			.anyMatch(message -> "tool".equals(message.role())
+				&& "call_inv".equals(message.toolCallId())
+				&& message.content().contains("minecraft:wheat_seeds=4")));
+		PlannerConversationDebugMessage taskCard = lastConversationMessage(orchestrator.projectedConversationDebugSnapshot());
+		assertTrue(taskCard.text().contains("Tool calls: inspect_world,inspect_inventory"));
+	}
+
+	@Test
 	void multipleActionToolCallsAreRejectedBeforeDispatch() {
 		RecordingBackend backend = new RecordingBackend();
 		ArrayList<String> invokedTools = new ArrayList<>();

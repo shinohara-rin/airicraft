@@ -129,6 +129,24 @@ source .envrc
 ./gradlew test wrapper:test --rerun-tasks
 ```
 
+### Planner world inspection contract
+
+The planner has a read-only `inspect_world` tool for exact local block state. It complements vision: use `take_a_look` for visual semantics, and `inspect_world` when the planner needs precise coordinates, block ids, block-state properties, or placement affordances.
+
+`inspect_world` accepts fixed modes:
+
+- `inspect_area`: compact exact local block records.
+- `find_blocks`: exact `blockIds` plus optional `stateFilters` such as `age=7` or `moisture=7`.
+- `find_placement_sites`: conservative candidate target positions using constraints such as `targetMaterial`, `supportBlockIds`, `supportStateFilters`, `requireAirAbove`, `requireStandableAdjacent`, `requireWithinInteractionRange`, and nearby required blocks.
+
+Scopes are bounded to prevent broad world scans:
+
+- `scope=self`: player origin with `horizontalRadius` and `verticalRadius`.
+- `scope=center`: explicit `x/y/z` center with radii.
+- `scope=box`: explicit `x1/y1/z1` and `x2/y2/z2` corners.
+
+Every queried block must be within 64 blocks of the player. Radius defaults are 8 horizontal and 4 vertical, capped at 16 and 8. Search results default to 32 and cap at 64.
+
 ### Normal dev client
 
 Use this for Airicraft-only development. It runs the Fabric dev client and opens JDWP on `127.0.0.1:5005`.
