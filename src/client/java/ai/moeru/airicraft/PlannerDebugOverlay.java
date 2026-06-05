@@ -60,6 +60,7 @@ final class PlannerDebugOverlay {
 
 	private PlannerDebugOverlayMode mode = PlannerDebugOverlayMode.OFF;
 	private ConversationPaneLayout lastConversationLayout;
+	private ConversationLayoutCache conversationLayoutCache;
 	private int conversationScrollTop;
 	private boolean conversationPinnedToBottom = true;
 
@@ -80,6 +81,7 @@ final class PlannerDebugOverlay {
 		conversationScrollTop = 0;
 		conversationPinnedToBottom = true;
 		lastConversationLayout = null;
+		conversationLayoutCache = null;
 	}
 
 	boolean onMouseScroll(double mouseX, double mouseY, double verticalAmount) {
@@ -156,7 +158,7 @@ final class PlannerDebugOverlay {
 		}
 		String footerLine = formatConversationFooter(plannerSnapshot, agentRuntime.snapshot(), agentRuntime.activeJob(), nowMs);
 
-		ConversationPaneLayout layout = layoutConversationPane(
+		ConversationPaneLayout layout = conversationLayout(
 			snapshot,
 			drawContext.getScaledWindowWidth(),
 			drawContext.getScaledWindowHeight(),
@@ -212,6 +214,42 @@ final class PlannerDebugOverlay {
 			int footerY = pane.bottom() - PANEL_PADDING - textRenderer.fontHeight;
 			drawContext.drawText(textRenderer, layout.footerLine(), pane.left() + PANEL_PADDING, footerY, CONVERSATION_FOOTER_COLOR, false);
 		}
+	}
+
+	ConversationPaneLayout conversationLayout(
+		PlannerConversationDebugSnapshot snapshot,
+		int windowWidth,
+		int windowHeight,
+		TextWidthMeasurer textWidthMeasurer,
+		int lineHeight,
+		int requestedScrollTop,
+		boolean pinnedToBottom,
+		String footerLine
+	) {
+		ConversationLayoutKey key = ConversationLayoutKey.from(
+			snapshot,
+			windowWidth,
+			windowHeight,
+			lineHeight,
+			requestedScrollTop,
+			pinnedToBottom,
+			footerLine
+		);
+		if (conversationLayoutCache != null && conversationLayoutCache.key().equals(key)) {
+			return conversationLayoutCache.layout();
+		}
+		ConversationPaneLayout layout = layoutConversationPane(
+			snapshot,
+			windowWidth,
+			windowHeight,
+			textWidthMeasurer,
+			lineHeight,
+			requestedScrollTop,
+			pinnedToBottom,
+			footerLine
+		);
+		conversationLayoutCache = new ConversationLayoutCache(key, layout);
+		return layout;
 	}
 
 	static List<String> formatStateLines(
@@ -768,6 +806,33 @@ final class PlannerDebugOverlay {
 		return value != null && !value.isBlank();
 	}
 
+	private static int conversationSignature(PlannerConversationDebugSnapshot snapshot) {
+		if (snapshot == null || snapshot.messages() == null) {
+			return 0;
+		}
+		int result = Long.hashCode(snapshot.generation());
+		result = 31 * result + snapshot.phase().hashCode();
+		result = 31 * result + snapshot.attempt();
+		for (PlannerConversationDebugMessage message : snapshot.messages()) {
+			result = 31 * result + messageSignature(message);
+		}
+		return result;
+	}
+
+	private static int messageSignature(PlannerConversationDebugMessage message) {
+		if (message == null) {
+			return 0;
+		}
+		int result = message.role().hashCode();
+		result = 31 * result + message.kind().hashCode();
+		result = 31 * result + message.text().hashCode();
+		result = 31 * result + Long.hashCode(message.generation());
+		result = 31 * result + message.phase().hashCode();
+		result = 31 * result + message.attempt();
+		result = 31 * result + Boolean.hashCode(message.hasImageAttachment());
+		return result;
+	}
+
 	private static int clamp(int value, int min, int max) {
 		return Math.max(min, Math.min(max, value));
 	}
@@ -849,5 +914,49 @@ final class PlannerDebugOverlay {
 	}
 
 	record ConversationScrollUpdate(int scrollTop, boolean pinnedToBottom, boolean consumed) {
+	}
+
+	private record ConversationLayoutKey(
+		long generation,
+		String phase,
+		int attempt,
+		int messageCount,
+		int messageSignature,
+		int windowWidth,
+		int windowHeight,
+		int lineHeight,
+		int requestedScrollTop,
+		boolean pinnedToBottom,
+		String footerLine
+	) {
+		private static ConversationLayoutKey from(
+			PlannerConversationDebugSnapshot snapshot,
+			int windowWidth,
+			int windowHeight,
+			int lineHeight,
+			int requestedScrollTop,
+			boolean pinnedToBottom,
+			String footerLine
+		) {
+			PlannerConversationDebugSnapshot safeSnapshot = snapshot == null
+				? PlannerConversationDebugSnapshot.empty()
+				: snapshot;
+			return new ConversationLayoutKey(
+				safeSnapshot.generation(),
+				safeSnapshot.phase(),
+				safeSnapshot.attempt(),
+				safeSnapshot.messages().size(),
+				conversationSignature(safeSnapshot),
+				windowWidth,
+				windowHeight,
+				lineHeight,
+				requestedScrollTop,
+				pinnedToBottom,
+				footerLine
+			);
+		}
+	}
+
+	private record ConversationLayoutCache(ConversationLayoutKey key, ConversationPaneLayout layout) {
 	}
 }

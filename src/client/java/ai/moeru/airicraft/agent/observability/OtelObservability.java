@@ -27,7 +27,6 @@ import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.SpanProcessor;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
-import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
 
 import java.net.URI;
@@ -155,9 +154,7 @@ final class OtelObservability implements AgentObservability {
 		if (safeConfig.debugLogExports()) {
 			exporter = new DebugLoggingSpanExporter(exporter);
 		}
-		SpanProcessor spanProcessor = safeConfig.debugLogExports()
-			? SimpleSpanProcessor.create(exporter)
-			: BatchSpanProcessor.builder(exporter).build();
+		SpanProcessor spanProcessor = BatchSpanProcessor.builder(exporter).build();
 		return new OtelObservability(safeConfig, spanProcessor, weaveCallsCompleteClient);
 	}
 
