@@ -82,7 +82,6 @@ tasks.named("test") {
 
 def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
 def journeyMapCompatProject = rootProject.findProject(":compat:journeymap")
-def reiCompatProject = rootProject.findProject(":compat:rei")
 
 tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
 	group = "airicraft evaluation"
@@ -107,30 +106,22 @@ tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductio
 }
 
 if (journeyMapCompatProject != null) {
+	def journeyMapCompatCacheDir = rootProject.layout.projectDirectory.dir(".airicraft-compat/integration")
+	def journeyMapCompatModsDir = journeyMapCompatCacheDir.dir("mods")
+	def journeyMapCompatLibrariesDir = journeyMapCompatCacheDir.dir("libraries")
+
 	tasks.register("runClientCompatEvaluator", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
 		group = "airicraft evaluation"
 		description = "Runs a production-style Fabric client with Airicraft, the evaluator addon, and all compatibility smoke mods."
-		dependsOn rootProject.tasks.named("remapJar")
 		dependsOn tasks.named("remapJar")
-		dependsOn journeyMapCompatProject.tasks.named("remapJar")
-		if (reiCompatProject != null) {
-			dependsOn reiCompatProject.tasks.named("remapJar")
-		}
+		dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatMods")
+		dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatLibraries")
 		outputs.upToDateWhen { false }
 
-		mods.from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		mods.from(journeyMapCompatModsDir)
 		mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
-		mods.from(journeyMapCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
-		mods.from(journeyMapCompatProject.configurations.named("journeyMapCompatMods"))
-		if (reiCompatProject != null) {
-			mods.from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
-		}
-		mods.from(rootProject.layout.projectDirectory.files(
-			"libs/baritone-unoptimized-fabric-1.15.0.jar",
-			"libs/nether-pathfinder-1.4.1.jar"
-		))
 		classpath.from(configurations.evaluatorRuntimeLibraries)
-		classpath.from(journeyMapCompatProject.configurations.named("journeyMapCompatLibraries"))
+		classpath.from(journeyMapCompatLibrariesDir)
 		runDir = sharedDevRunDir.asFile
 		javaLauncher = javaToolchains.launcherFor {
 			languageVersion = JavaLanguageVersion.of(21)
