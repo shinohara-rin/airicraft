@@ -312,6 +312,11 @@ public final class EvaluationAddonRuntime {
 		}
 
 		@Override
+		public Map<String, String> blockPropertiesAt(int x, int y, int z) {
+			return runtime.blockPropertiesAt(x, y, z);
+		}
+
+		@Override
 		public int playerBlockX() {
 			return playerBlockPos().getX();
 		}

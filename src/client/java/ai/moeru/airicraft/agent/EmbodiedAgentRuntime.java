@@ -123,9 +123,11 @@ import ai.moeru.airicraft.agent.tasks.SmeltingPlannerService;
 import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.tasks.SurfaceMemory;
 import ai.moeru.airicraft.agent.tasks.WorldTaskType;
+import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.registry.Registries;
+import net.minecraft.state.property.Property;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
@@ -668,6 +670,23 @@ public final class EmbodiedAgentRuntime {
 			return null;
 		}
 		return Registries.BLOCK.getId(client.world.getBlockState(new BlockPos(x, y, z)).getBlock()).toString();
+	}
+
+	public Map<String, String> blockPropertiesAt(int x, int y, int z) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client == null || client.world == null) {
+			return Map.of();
+		}
+		BlockState state = client.world.getBlockState(new BlockPos(x, y, z));
+		Map<String, String> properties = new LinkedHashMap<>();
+		for (Property<?> property : state.getProperties()) {
+			properties.put(property.getName(), propertyValue(state, property));
+		}
+		return Map.copyOf(properties);
+	}
+
+	private static <T extends Comparable<T>> String propertyValue(BlockState state, Property<T> property) {
+		return property.name(state.get(property));
 	}
 
 	public boolean semanticEventContains(String eventType) {

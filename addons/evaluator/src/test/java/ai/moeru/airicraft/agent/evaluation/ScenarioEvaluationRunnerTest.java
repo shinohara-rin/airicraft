@@ -108,6 +108,54 @@ class ScenarioEvaluationRunnerTest {
 	}
 
 	@Test
+	void blockStateCanRequireExactStateProperties() {
+		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
+		FakeContext context = new FakeContext();
+		context.setBlock(1, 64, 1, "minecraft:water", Map.of("level", "8"));
+		EvaluationScenario scenario = scenario(List.of(new EvaluationCheck("block_state", Map.of(
+			"blockId", "minecraft:water",
+			"x", 1,
+			"y", 64,
+			"z", 1,
+			"state", Map.of("level", "0")
+		))), new EvaluationBudget(1, 200, 0, 5));
+
+		runner.start(scenario, 0, 0);
+		runner.onTick(context);
+
+		EvaluationReport report = runner.report(context.tick);
+		assertEquals(EvaluationStatus.FAILED, report.status());
+		assertTrue(report.checks().getFirst().message().contains("state level was 8, expected 0"));
+	}
+
+	@Test
+	void blockCountCanRequireExactStateProperties() {
+		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
+		FakeContext context = new FakeContext();
+		context.setBlock(2, 65, 2, "minecraft:wheat", Map.of("age", "0"));
+		context.setBlock(3, 65, 2, "minecraft:wheat", Map.of("age", "7"));
+		EvaluationScenario scenario = scenario(List.of(new EvaluationCheck("block_count", Map.of(
+			"blockId", "minecraft:wheat",
+			"count", 1,
+			"scope", "box",
+			"x1", 2,
+			"y1", 65,
+			"z1", 2,
+			"x2", 3,
+			"y2", 65,
+			"z2", 2,
+			"state", Map.of("age", "7")
+		))), new EvaluationBudget(4, 200, 0, 5));
+
+		runner.start(scenario, 0, 0);
+		runner.onTick(context);
+
+		EvaluationReport report = runner.report(context.tick);
+		assertEquals(EvaluationStatus.PASSED, report.status());
+		assertTrue(report.checks().getFirst().message().contains("found 1x minecraft:wheat state={age=7}"));
+	}
+
+	@Test
 	void marksScenarioForReviewWhenNoDeterministicChecksExist() {
 		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 		FakeContext context = new FakeContext();
@@ -146,11 +194,18 @@ class ScenarioEvaluationRunnerTest {
 		private int playerBlockY;
 		private int playerBlockZ;
 		private final Map<String, String> blocks = new HashMap<>();
+		private final Map<String, Map<String, String>> blockProperties = new HashMap<>();
 		private Optional<String> declaredFailure = Optional.empty();
 		private final ArrayList<String> triggers = new ArrayList<>();
 
 		private void setBlock(int x, int y, int z, String blockId) {
 			blocks.put(x + "," + y + "," + z, blockId);
+		}
+
+		private void setBlock(int x, int y, int z, String blockId, Map<String, String> properties) {
+			String key = x + "," + y + "," + z;
+			blocks.put(key, blockId);
+			blockProperties.put(key, Map.copyOf(properties));
 		}
 
 		@Override
@@ -191,6 +246,11 @@ class ScenarioEvaluationRunnerTest {
 		@Override
 		public String blockIdAt(int x, int y, int z) {
 			return blocks.getOrDefault(x + "," + y + "," + z, "minecraft:air");
+		}
+
+		@Override
+		public Map<String, String> blockPropertiesAt(int x, int y, int z) {
+			return blockProperties.getOrDefault(x + "," + y + "," + z, Map.of());
 		}
 
 		@Override

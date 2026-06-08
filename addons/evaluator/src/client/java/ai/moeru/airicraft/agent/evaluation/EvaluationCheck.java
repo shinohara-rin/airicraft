@@ -34,6 +34,19 @@ public record EvaluationCheck(String type, Map<String, Object> fields) {
 		}
 	}
 
+	public Map<String, String> stringMap(String key) {
+		Object value = fields.get(key);
+		if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
+			return Map.of();
+		}
+		return map.entrySet().stream()
+			.filter(entry -> entry.getKey() != null && entry.getValue() != null)
+			.collect(java.util.stream.Collectors.toUnmodifiableMap(
+				entry -> String.valueOf(entry.getKey()),
+				entry -> String.valueOf(entry.getValue())
+			));
+	}
+
 	public boolean hasSameField(String key, Object expected) {
 		return Objects.equals(fields.get(key), expected);
 	}

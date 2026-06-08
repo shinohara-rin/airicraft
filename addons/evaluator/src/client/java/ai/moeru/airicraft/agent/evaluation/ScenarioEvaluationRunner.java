@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class ScenarioEvaluationRunner {
@@ -137,13 +138,18 @@ public final class ScenarioEvaluationRunner {
 			}
 			case "block_state" -> {
 				String expectedBlockId = check.string("blockId");
+				Map<String, String> expectedState = check.stringMap("state");
 				int x = check.integer("x", 0);
 				int y = check.integer("y", 0);
 				int z = check.integer("z", 0);
 				String actualBlockId = context.blockIdAt(x, y, z);
-				yield expectedBlockId != null && expectedBlockId.equals(actualBlockId)
-					? EvaluationCheckResult.passed(check, "block matched at " + x + "," + y + "," + z)
-					: EvaluationCheckResult.failed(check, "block at " + x + "," + y + "," + z + " was " + actualBlockId + ", expected " + expectedBlockId);
+				if (expectedBlockId == null || !expectedBlockId.equals(actualBlockId)) {
+					yield EvaluationCheckResult.failed(check, "block at " + x + "," + y + "," + z + " was " + actualBlockId + ", expected " + expectedBlockId);
+				}
+				Optional<String> stateMismatch = firstStateMismatch(expectedState, context.blockPropertiesAt(x, y, z));
+				yield stateMismatch.isEmpty()
+					? EvaluationCheckResult.passed(check, "block matched at " + x + "," + y + "," + z + stateDescription(expectedState))
+					: EvaluationCheckResult.failed(check, "block at " + x + "," + y + "," + z + " matched " + expectedBlockId + " but " + stateMismatch.get());
 			}
 			case "block_count" -> {
 				String expectedBlockId = check.string("blockId");
@@ -155,10 +161,11 @@ public final class ScenarioEvaluationRunner {
 					yield EvaluationCheckResult.failed(check, query.errorMessage());
 				}
 				int expected = check.integer("count", 1);
-				int actual = countBlocks(context, query, expectedBlockId);
+				Map<String, String> expectedState = check.stringMap("state");
+				int actual = countBlocks(context, query, expectedBlockId, expectedState);
 				yield actual >= expected
-					? EvaluationCheckResult.passed(check, "found " + actual + "x " + expectedBlockId + " in " + query.description())
-					: EvaluationCheckResult.failed(check, "found " + actual + "x " + expectedBlockId + " in " + query.description() + ", expected at least " + expected);
+					? EvaluationCheckResult.passed(check, "found " + actual + "x " + expectedBlockId + stateDescription(expectedState) + " in " + query.description())
+					: EvaluationCheckResult.failed(check, "found " + actual + "x " + expectedBlockId + stateDescription(expectedState) + " in " + query.description() + ", expected at least " + expected);
 			}
 			case "event_contains" -> {
 				String eventType = check.string("eventType");
@@ -266,18 +273,36 @@ public final class ScenarioEvaluationRunner {
 		return BlockCountQuery.error("unsupported block_count scope: " + scope);
 	}
 
-	private static int countBlocks(Context context, BlockCountQuery query, String blockId) {
+	private static int countBlocks(Context context, BlockCountQuery query, String blockId, Map<String, String> expectedState) {
 		int count = 0;
 		for (int y = query.y1(); y <= query.y2(); y++) {
 			for (int z = query.z1(); z <= query.z2(); z++) {
 				for (int x = query.x1(); x <= query.x2(); x++) {
-					if (blockId.equals(context.blockIdAt(x, y, z))) {
+					if (blockId.equals(context.blockIdAt(x, y, z)) && firstStateMismatch(expectedState, context.blockPropertiesAt(x, y, z)).isEmpty()) {
 						count++;
 					}
 				}
 			}
 		}
 		return count;
+	}
+
+	private static Optional<String> firstStateMismatch(Map<String, String> expectedState, Map<String, String> actualState) {
+		if (expectedState == null || expectedState.isEmpty()) {
+			return Optional.empty();
+		}
+		Map<String, String> safeActual = actualState == null ? Map.of() : actualState;
+		for (Map.Entry<String, String> expected : expectedState.entrySet()) {
+			String actual = safeActual.get(expected.getKey());
+			if (!Objects.equals(expected.getValue(), actual)) {
+				return Optional.of("state " + expected.getKey() + " was " + actual + ", expected " + expected.getValue());
+			}
+		}
+		return Optional.empty();
+	}
+
+	private static String stateDescription(Map<String, String> expectedState) {
+		return expectedState == null || expectedState.isEmpty() ? "" : " state=" + expectedState;
 	}
 
 	private static String firstMissing(EvaluationCheck check, String... keys) {
@@ -327,6 +352,8 @@ public final class ScenarioEvaluationRunner {
 		int inventoryCount(String itemId);
 
 		String blockIdAt(int x, int y, int z);
+
+		Map<String, String> blockPropertiesAt(int x, int y, int z);
 
 		int playerBlockX();
 
