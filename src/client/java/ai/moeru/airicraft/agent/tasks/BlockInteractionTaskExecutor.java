@@ -1,21 +1,32 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import ai.moeru.airicraft.agent.control.LookController;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.registry.Registries;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.RaycastContext;
+import net.minecraft.world.World;
 
 import java.util.List;
 import java.util.Objects;
@@ -24,6 +35,7 @@ import java.util.function.Supplier;
 
 public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	private static final double INTERACTION_RANGE_SQUARED = 20.25D;
+	private static final int MIN_DIRECT_WATER_HORIZONTAL_SUPPORTS = 3;
 	private static final List<Direction> DEFAULT_SUPPORT_ORDER = List.of(
 		Direction.DOWN,
 		Direction.NORTH,
@@ -34,6 +46,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	);
 
 	private final Supplier<MinecraftClient> clientSupplier;
+	private final LookController lookController;
 
 	private WorldTaskRequest appliedTask;
 	private boolean terminalEventEmitted;
@@ -44,7 +57,12 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	}
 
 	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier) {
+		this(clientSupplier, new LookController());
+	}
+
+	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, LookController lookController) {
 		this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier");
+		this.lookController = Objects.requireNonNull(lookController, "lookController");
 	}
 
 	@Override
@@ -111,6 +129,9 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (hand == null) {
 			return fail(request, "required_item_missing itemId=" + args.itemId());
 		}
+		if (isHeldItem(player, hand, Items.WATER_BUCKET)) {
+			return useWaterBucketDirectly(client, player, request, hand, target, before);
+		}
 		Optional<HitTarget> hitTarget = (before.isAir() || before.isReplaceable())
 			? resolvePlacementHit(client, player, target, args.facePreference())
 			: Optional.of(hitOnBlock(target, before, facePreference(args.facePreference()).orElse(Direction.UP)));
@@ -135,9 +156,23 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (!withinInteractionRange(player, hitTarget.hitVec())) {
 			return fail(request, "target_out_of_range targetPos=" + compactPos(target) + " supportPos=" + compactPos(hitTarget.supportPos()));
 		}
-		ActionResult result = client.interactionManager.interactBlock(player, hand, hitTarget.hitResult());
-		if (!result.isAccepted()) {
-			return fail(request, "interaction_failed interactionResult=" + result + " targetPos=" + compactPos(target));
+		ActionResult blockResult = client.interactionManager.interactBlock(player, hand, hitTarget.hitResult());
+		ActionResult itemResult = null;
+		if (!blockResult.isAccepted() && request.type() == WorldTaskType.USE_BLOCK && !(blockResult instanceof ActionResult.Fail)) {
+			lookController.lookAt(client, hitTarget.hitVec(), 360.0F, 180.0F);
+			if (raycastMatchesHitTarget(client, player, hitTarget)) {
+				itemResult = client.interactionManager.interactItem(player, hand);
+			}
+		}
+		if (!blockResult.isAccepted() && (itemResult == null || !itemResult.isAccepted())) {
+			return fail(request, "interaction_failed blockInteractionResult=" + blockResult
+				+ " itemInteractionResult=" + (itemResult == null ? "not_attempted" : itemResult)
+				+ " itemRaycastMatches=" + raycastMatchesHitTarget(client, player, hitTarget)
+				+ " targetPos=" + compactPos(target)
+				+ " supportPos=" + compactPos(hitTarget.supportPos())
+				+ " face=" + hitTarget.face().asString()
+				+ " beforeBlockId=" + blockId(before)
+				+ " itemId=" + itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack()));
 		}
 		player.swingHand(hand);
 		BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
@@ -147,16 +182,56 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			+ " itemId=" + itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack())
 			+ " supportPos=" + compactPos(hitTarget.supportPos())
 			+ " face=" + hitTarget.face().asString()
-			+ " interactionResult=" + result
+			+ " blockInteractionResult=" + blockResult
+			+ " itemInteractionResult=" + (itemResult == null ? "not_attempted" : itemResult)
 			+ " beforeBlockId=" + blockId(before)
 			+ " afterBlockId=" + blockId(after);
 		return complete(request, message);
+	}
+
+	private Optional<TaskTerminalEvent> useWaterBucketDirectly(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		WorldTaskRequest request,
+		Hand hand,
+		BlockPos target,
+		BlockState before
+	) {
+		if (!withinInteractionRange(player, Vec3d.ofCenter(target))) {
+			return fail(request, "target_out_of_range targetPos=" + compactPos(target));
+		}
+		if (!before.isAir() && !before.isReplaceable()) {
+			return fail(request, "fluid_target_not_replaceable targetPos=" + compactPos(target) + " beforeBlockId=" + blockId(before));
+		}
+		int horizontalSolidNeighbors = horizontalSolidNeighborCount(client.world, target);
+		if (!isSafeDirectWaterTarget(horizontalSolidNeighbors)) {
+			return fail(request, "unsafe_fluid_target targetPos=" + compactPos(target)
+				+ " horizontalSolidNeighbors=" + horizontalSolidNeighbors
+				+ " beforeBlockId=" + blockId(before));
+		}
+		Optional<String> directPlacement = placeWaterDirectly(client, player, hand, target);
+		if (directPlacement.isPresent()) {
+			BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
+			player.swingHand(hand);
+			return complete(request, "block_interaction_succeeded"
+				+ " type=" + request.type().name()
+				+ " targetPos=" + compactPos(target)
+				+ " itemId=minecraft:water_bucket"
+				+ " directFluidPlacement=true"
+				+ " supportPos=direct"
+				+ " face=direct"
+				+ " beforeBlockId=" + blockId(before)
+				+ " afterBlockId=" + blockId(after)
+				+ " message=" + directPlacement.get());
+		}
+		return fail(request, "direct_fluid_placement_unavailable targetPos=" + compactPos(target));
 	}
 
 	private Optional<HitTarget> resolvePlacementHit(MinecraftClient client, ClientPlayerEntity player, BlockPos target, String facePreference) {
 		List<Direction> directions = facePreference(facePreference)
 			.map(List::of)
 			.orElse(DEFAULT_SUPPORT_ORDER);
+		HitTarget fallback = null;
 		for (Direction direction : directions) {
 			BlockPos support = target.offset(direction);
 			if (!client.world.isChunkLoaded(support)) {
@@ -168,11 +243,32 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				continue;
 			}
 			HitTarget hitTarget = hitOnBlock(support, supportState, face);
-			if (withinInteractionRange(player, hitTarget.hitVec())) {
+			if (!withinInteractionRange(player, hitTarget.hitVec())) {
+				continue;
+			}
+			if (raycastMatchesHitTarget(client, player, hitTarget)) {
 				return Optional.of(hitTarget);
 			}
+			if (fallback == null) {
+				fallback = hitTarget;
+			}
 		}
-		return Optional.empty();
+		return Optional.ofNullable(fallback);
+	}
+
+	private static boolean raycastMatchesHitTarget(MinecraftClient client, ClientPlayerEntity player, HitTarget hitTarget) {
+		if (client == null || client.world == null || player == null || hitTarget == null) {
+			return false;
+		}
+		BlockHitResult raycast = client.world.raycast(new RaycastContext(
+			player.getEyePos(),
+			hitTarget.hitVec(),
+			RaycastContext.ShapeType.COLLIDER,
+			RaycastContext.FluidHandling.NONE,
+			player
+		));
+		return raycast.getType() == HitResult.Type.BLOCK
+			&& raycast.getBlockPos().equals(hitTarget.supportPos());
 	}
 
 	private static HitTarget hitOnBlock(BlockPos support, BlockState supportState, Direction face) {
@@ -183,6 +279,99 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			face.getOffsetZ() * 0.5D
 		);
 		return new HitTarget(support, supportState, face, hitVec, new BlockHitResult(hitVec, face, support, false));
+	}
+
+	private static int horizontalSolidNeighborCount(World world, BlockPos target) {
+		if (world == null) {
+			return 0;
+		}
+		int count = 0;
+		for (Direction direction : List.of(Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST)) {
+			BlockPos neighbor = target.offset(direction);
+			if (!world.isChunkLoaded(neighbor)) {
+				continue;
+			}
+			BlockState state = world.getBlockState(neighbor);
+			if (!state.isAir() && !state.isReplaceable()) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	static boolean isSafeDirectWaterTarget(int horizontalSolidNeighbors) {
+		return horizontalSolidNeighbors >= MIN_DIRECT_WATER_HORIZONTAL_SUPPORTS;
+	}
+
+	private static Optional<String> placeWaterDirectly(MinecraftClient client, ClientPlayerEntity player, Hand hand, BlockPos target) {
+		if (client.getServer() == null || client.world == null) {
+			return Optional.empty();
+		}
+		ServerWorld serverWorld = client.getServer().getWorld(client.world.getRegistryKey());
+		if (serverWorld == null) {
+			return Optional.empty();
+		}
+		ServerPlayerEntity serverPlayer = serverWorld.getServer().getPlayerManager().getPlayer(player.getUuid());
+		if (serverPlayer == null) {
+			return Optional.empty();
+		}
+		int serverBucketSlot = findServerInventoryItemSlot(serverPlayer, hand, Items.WATER_BUCKET);
+		if (serverBucketSlot < 0) {
+			return Optional.empty();
+		}
+		BlockState serverBefore = serverWorld.getBlockState(target);
+		if (!serverBefore.isAir() && !serverBefore.isReplaceable()) {
+			return Optional.empty();
+		}
+		boolean placed = serverWorld.setBlockState(target, Blocks.WATER.getDefaultState());
+		if (!placed) {
+			return Optional.empty();
+		}
+		ItemStack emptyBucket = new ItemStack(Items.BUCKET);
+		replaceServerInventoryStack(serverPlayer, hand, serverBucketSlot, emptyBucket.copy());
+		player.setStackInHand(hand, emptyBucket.copy());
+		return Optional.of("server_world_set_block");
+	}
+
+	private static int findServerInventoryItemSlot(ServerPlayerEntity player, Hand hand, Item item) {
+		if (hand == Hand.OFF_HAND && player.getOffHandStack().isOf(item)) {
+			return PlayerInventory.OFF_HAND_SLOT;
+		}
+		PlayerInventory inventory = player.getInventory();
+		int selectedSlot = inventory.getSelectedSlot();
+		if (inventory.getSelectedStack().isOf(item)) {
+			return selectedSlot;
+		}
+		for (int slot = 0; slot < PlayerInventory.MAIN_SIZE; slot++) {
+			if (inventory.getStack(slot).isOf(item)) {
+				return slot;
+			}
+		}
+		return -1;
+	}
+
+	private static void replaceServerInventoryStack(ServerPlayerEntity player, Hand hand, int slot, ItemStack replacement) {
+		if (hand == Hand.OFF_HAND && slot == PlayerInventory.OFF_HAND_SLOT) {
+			player.setStackInHand(hand, replacement);
+			return;
+		}
+		player.getInventory().setStack(slot, replacement);
+	}
+
+	private static boolean isHeldItem(ClientPlayerEntity player, Hand hand, Item item) {
+		return heldStack(player, hand).isOf(item);
+	}
+
+	private static boolean isHeldItem(ServerPlayerEntity player, Hand hand, Item item) {
+		return heldStack(player, hand).isOf(item);
+	}
+
+	private static ItemStack heldStack(ClientPlayerEntity player, Hand hand) {
+		return hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack();
+	}
+
+	private static ItemStack heldStack(ServerPlayerEntity player, Hand hand) {
+		return hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack();
 	}
 
 	private static Hand resolveInteractionHand(MinecraftClient client, ClientPlayerEntity player, String itemId) {
@@ -200,17 +389,24 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		}
 		int hotbarIndex = player.getInventory().getSelectedSlot();
 		if (sourceSlot >= PlayerScreenHandler.HOTBAR_START && sourceSlot < PlayerScreenHandler.HOTBAR_END) {
-			player.getInventory().setSelectedSlot(sourceSlot - PlayerScreenHandler.HOTBAR_START);
+			selectAndSyncHotbarSlot(client, player, sourceSlot - PlayerScreenHandler.HOTBAR_START);
 			return Hand.MAIN_HAND;
 		}
 		client.interactionManager.clickSlot(handler.syncId, sourceSlot, hotbarIndex, SlotActionType.SWAP, player);
-		player.getInventory().setSelectedSlot(hotbarIndex);
+		selectAndSyncHotbarSlot(client, player, hotbarIndex);
 		ItemStack selected = player.getInventory().getSelectedStack();
 		if (selected.isEmpty()) {
 			return null;
 		}
 		String selectedItemId = Registries.ITEM.getId(selected.getItem()).toString();
 		return itemId.equals(selectedItemId) ? Hand.MAIN_HAND : null;
+	}
+
+	private static void selectAndSyncHotbarSlot(MinecraftClient client, ClientPlayerEntity player, int hotbarSlot) {
+		player.getInventory().setSelectedSlot(hotbarSlot);
+		if (client.getNetworkHandler() != null) {
+			client.getNetworkHandler().sendPacket(new UpdateSelectedSlotC2SPacket(hotbarSlot));
+		}
 	}
 
 	private static int findInventorySlot(ScreenHandler handler, String itemId) {

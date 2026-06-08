@@ -844,6 +844,8 @@ public final class ActiveJobRuntime {
 				null,
 				null
 			), source, tick);
+			case USE_BLOCK -> fromBlockUseStep(ledger.missionId(), activeStep.args().blockUse(), source, tick);
+			case BREAK_BLOCKS -> fromBlockBreakStep(ledger.missionId(), activeStep.args().blockBreak(), source, tick);
 			case ASK_USER -> fromAskUserStep(ledger.missionId(), activeStep.args().askUser(), source, tick);
 			case FINISH -> new ActiveJob(ledger.missionId(), ActiveJobType.IDLE, ActiveJobStatus.COMPLETED, null, null, null, null, -1L, 0, 0, source, null, null, tick);
 			default -> new ActiveJob(ledger.missionId(), ActiveJobType.ASK_USER, ActiveJobStatus.BLOCKED, null, null, null, "Unsupported step: " + activeStep.kind().name(), -1L, 0, 0, source, "unsupported_step", null, tick);
