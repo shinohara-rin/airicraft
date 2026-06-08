@@ -1265,8 +1265,8 @@ public final class ActiveJobRuntime {
 			case SMELT_ITEMS -> activeJob.smeltItems() == null ? "Smelt items" : "Smelt " + activeJob.smeltItems().inputQuantity() + " via " + activeJob.smeltItems().optionId();
 			case COLLECT_SMELTED_ITEMS -> activeJob.collectSmeltedItems() == null ? "Collect smelted items" : "Collect smelted output";
 			case RETURN_TO_SURFACE -> "Return to surface";
-			case PLACE_BLOCK -> activeJob.blockPlacement() == null ? "Place block" : "Place " + activeJob.blockPlacement().itemId();
-			case USE_BLOCK -> activeJob.blockUse() == null ? "Use block" : "Use block at target";
+			case PLACE_BLOCK -> activeJob.blockPlacement() == null ? "Place block" : "Place " + activeJob.blockPlacement().targets().size() + " " + activeJob.blockPlacement().itemId();
+			case USE_BLOCK -> activeJob.blockUse() == null ? "Use block" : "Use block at " + activeJob.blockUse().targets().size() + " target blocks";
 			case BREAK_BLOCKS -> activeJob.blockBreak() == null ? "Break blocks" : "Break " + activeJob.blockBreak().targets().size() + " target blocks";
 			case ATTACK_ENTITY -> activeJob.entityInteraction() == null ? "Attack entity" : "Attack " + activeJob.entityInteraction().selector();
 			case USE_ENTITY -> activeJob.entityInteraction() == null ? "Use entity" : "Use on " + activeJob.entityInteraction().selector();

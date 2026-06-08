@@ -51,6 +51,8 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	private WorldTaskRequest appliedTask;
 	private boolean terminalEventEmitted;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
+	private int targetIndex;
+	private int completedTargets;
 
 	public BlockInteractionTaskExecutor() {
 		this(MinecraftClient::getInstance);
@@ -89,45 +91,53 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			return fail(request, "interaction_busy");
 		}
 		return request.type() == WorldTaskType.PLACE_BLOCK
-			? placeBlock(client, player, request)
-			: useBlock(client, player, request);
+			? placeBlock(client, player, request, request.blockPlacement().targets().get(targetIndex))
+			: useBlock(client, player, request, request.blockUse().targets().get(targetIndex));
 	}
 
-	private Optional<TaskTerminalEvent> placeBlock(MinecraftClient client, ClientPlayerEntity player, WorldTaskRequest request) {
-		BlockPlacementStepArgs args = request.blockPlacement();
+	private Optional<TaskTerminalEvent> placeBlock(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		WorldTaskRequest request,
+		BlockPlacementStepArgs.Target args
+	) {
 		BlockPos target = blockPos(args.targetPosition());
 		if (!client.world.isChunkLoaded(target)) {
-			return fail(request, "target_unloaded targetPos=" + compactPos(target));
+			return fail(request, targetFailure(target, "target_unloaded"));
 		}
 		BlockState before = client.world.getBlockState(target);
 		if (!targetMaterial(args.requiredTargetMaterial(), "air_or_replaceable").matches(before)) {
-			return fail(request, "target_material_mismatch targetPos=" + compactPos(target) + " beforeBlockId=" + blockId(before));
+			return fail(request, targetFailure(target, "target_material_mismatch beforeBlockId=" + blockId(before)));
 		}
-		Hand hand = resolveInteractionHand(client, player, args.itemId());
+		Hand hand = resolveInteractionHand(client, player, request.blockPlacement().itemId());
 		if (hand == null) {
-			return fail(request, "required_item_missing itemId=" + args.itemId());
+			return fail(request, targetFailure(target, "required_item_missing itemId=" + request.blockPlacement().itemId()));
 		}
 		Optional<HitTarget> hitTarget = resolvePlacementHit(client, player, target, args.facePreference());
 		if (hitTarget.isEmpty()) {
-			return fail(request, "support_not_found targetPos=" + compactPos(target));
+			return fail(request, targetFailure(target, "support_not_found"));
 		}
 		return interact(client, player, request, hand, target, before, hitTarget.get());
 	}
 
-	private Optional<TaskTerminalEvent> useBlock(MinecraftClient client, ClientPlayerEntity player, WorldTaskRequest request) {
-		BlockUseStepArgs args = request.blockUse();
+	private Optional<TaskTerminalEvent> useBlock(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		WorldTaskRequest request,
+		BlockUseStepArgs.Target args
+	) {
 		BlockPos target = blockPos(args.targetPosition());
 		if (!client.world.isChunkLoaded(target)) {
-			return fail(request, "target_unloaded targetPos=" + compactPos(target));
+			return fail(request, targetFailure(target, "target_unloaded"));
 		}
 		BlockState before = client.world.getBlockState(target);
 		TargetMaterial expectedTargetMaterial = targetMaterial(args.expectedTargetMaterial(), null);
 		if (expectedTargetMaterial != null && !expectedTargetMaterial.matches(before)) {
-			return fail(request, "target_material_mismatch targetPos=" + compactPos(target) + " beforeBlockId=" + blockId(before));
+			return fail(request, targetFailure(target, "target_material_mismatch beforeBlockId=" + blockId(before)));
 		}
-		Hand hand = resolveInteractionHand(client, player, args.itemId());
+		Hand hand = resolveInteractionHand(client, player, request.blockUse().itemId());
 		if (hand == null) {
-			return fail(request, "required_item_missing itemId=" + args.itemId());
+			return fail(request, targetFailure(target, "required_item_missing itemId=" + request.blockUse().itemId()));
 		}
 		if (isHeldItem(player, hand, Items.WATER_BUCKET)) {
 			return useWaterBucketDirectly(client, player, request, hand, target, before);
@@ -136,10 +146,10 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			? resolvePlacementHit(client, player, target, args.facePreference())
 			: Optional.of(hitOnBlock(target, before, facePreference(args.facePreference()).orElse(Direction.UP)));
 		if (hitTarget.isEmpty()) {
-			return fail(request, "support_not_found targetPos=" + compactPos(target));
+			return fail(request, targetFailure(target, "support_not_found"));
 		}
 		if (!args.expectedSupportBlockIds().isEmpty() && !args.expectedSupportBlockIds().contains(blockId(hitTarget.get().supportState()))) {
-			return fail(request, "support_block_mismatch supportPos=" + compactPos(hitTarget.get().supportPos()) + " supportBlockId=" + blockId(hitTarget.get().supportState()));
+			return fail(request, targetFailure(target, "support_block_mismatch supportPos=" + compactPos(hitTarget.get().supportPos()) + " supportBlockId=" + blockId(hitTarget.get().supportState())));
 		}
 		return interact(client, player, request, hand, target, before, hitTarget.get());
 	}
@@ -154,7 +164,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		HitTarget hitTarget
 	) {
 		if (!withinInteractionRange(player, hitTarget.hitVec())) {
-			return fail(request, "target_out_of_range targetPos=" + compactPos(target) + " supportPos=" + compactPos(hitTarget.supportPos()));
+			return fail(request, targetFailure(target, "target_out_of_range supportPos=" + compactPos(hitTarget.supportPos())));
 		}
 		ActionResult blockResult = client.interactionManager.interactBlock(player, hand, hitTarget.hitResult());
 		ActionResult itemResult = null;
@@ -165,19 +175,20 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			}
 		}
 		if (!blockResult.isAccepted() && (itemResult == null || !itemResult.isAccepted())) {
-			return fail(request, "interaction_failed blockInteractionResult=" + blockResult
+			return fail(request, targetFailure(target, "interaction_failed blockInteractionResult=" + blockResult
 				+ " itemInteractionResult=" + (itemResult == null ? "not_attempted" : itemResult)
 				+ " itemRaycastMatches=" + raycastMatchesHitTarget(client, player, hitTarget)
-				+ " targetPos=" + compactPos(target)
 				+ " supportPos=" + compactPos(hitTarget.supportPos())
 				+ " face=" + hitTarget.face().asString()
 				+ " beforeBlockId=" + blockId(before)
-				+ " itemId=" + itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack()));
+				+ " itemId=" + itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack())));
 		}
 		player.swingHand(hand);
 		BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
 		String message = "block_interaction_succeeded"
 			+ " type=" + request.type().name()
+			+ " targetIndex=" + targetIndex
+			+ " targetCount=" + targetCount(request)
 			+ " targetPos=" + compactPos(target)
 			+ " itemId=" + itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack())
 			+ " supportPos=" + compactPos(hitTarget.supportPos())
@@ -186,7 +197,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			+ " itemInteractionResult=" + (itemResult == null ? "not_attempted" : itemResult)
 			+ " beforeBlockId=" + blockId(before)
 			+ " afterBlockId=" + blockId(after);
-		return complete(request, message);
+		return completeTarget(request, message);
 	}
 
 	private Optional<TaskTerminalEvent> useWaterBucketDirectly(
@@ -198,23 +209,25 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		BlockState before
 	) {
 		if (!withinInteractionRange(player, Vec3d.ofCenter(target))) {
-			return fail(request, "target_out_of_range targetPos=" + compactPos(target));
+			return fail(request, targetFailure(target, "target_out_of_range"));
 		}
 		if (!before.isAir() && !before.isReplaceable()) {
-			return fail(request, "fluid_target_not_replaceable targetPos=" + compactPos(target) + " beforeBlockId=" + blockId(before));
+			return fail(request, targetFailure(target, "fluid_target_not_replaceable beforeBlockId=" + blockId(before)));
 		}
 		int horizontalSolidNeighbors = horizontalSolidNeighborCount(client.world, target);
 		if (!isSafeDirectWaterTarget(horizontalSolidNeighbors)) {
-			return fail(request, "unsafe_fluid_target targetPos=" + compactPos(target)
+			return fail(request, targetFailure(target, "unsafe_fluid_target"
 				+ " horizontalSolidNeighbors=" + horizontalSolidNeighbors
-				+ " beforeBlockId=" + blockId(before));
+				+ " beforeBlockId=" + blockId(before)));
 		}
 		Optional<String> directPlacement = placeWaterDirectly(client, player, hand, target);
 		if (directPlacement.isPresent()) {
 			BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
 			player.swingHand(hand);
-			return complete(request, "block_interaction_succeeded"
+			return completeTarget(request, "block_interaction_succeeded"
 				+ " type=" + request.type().name()
+				+ " targetIndex=" + targetIndex
+				+ " targetCount=" + targetCount(request)
 				+ " targetPos=" + compactPos(target)
 				+ " itemId=minecraft:water_bucket"
 				+ " directFluidPlacement=true"
@@ -224,7 +237,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				+ " afterBlockId=" + blockId(after)
 				+ " message=" + directPlacement.get());
 		}
-		return fail(request, "direct_fluid_placement_unavailable targetPos=" + compactPos(target));
+		return fail(request, targetFailure(target, "direct_fluid_placement_unavailable"));
 	}
 
 	private Optional<HitTarget> resolvePlacementHit(MinecraftClient client, ClientPlayerEntity player, BlockPos target, String facePreference) {
@@ -428,6 +441,19 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		return Optional.of(new TaskTerminalEvent(request.taskId(), null, TaskExecutionState.COMPLETED, message, TaskTerminationCause.GOAL_REACHED));
 	}
 
+	private Optional<TaskTerminalEvent> completeTarget(WorldTaskRequest request, String message) {
+		completedTargets++;
+		targetIndex++;
+		if (targetIndex >= targetCount(request)) {
+			return complete(request, "block_interactions_succeeded"
+				+ " type=" + request.type().name()
+				+ " completedTargets=" + completedTargets
+				+ " lastResult=" + message);
+		}
+		snapshot = snapshot(TaskExecutionState.RUNNING, request, message);
+		return Optional.empty();
+	}
+
 	private Optional<TaskTerminalEvent> fail(WorldTaskRequest request, String reason) {
 		snapshot = snapshot(TaskExecutionState.FAILED, request, reason);
 		if (terminalEventEmitted) {
@@ -485,6 +511,16 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		return pos.getX() + "," + pos.getY() + "," + pos.getZ();
 	}
 
+	private String targetFailure(BlockPos target, String reason) {
+		return reason + " targetIndex=" + targetIndex + " targetPos=" + compactPos(target);
+	}
+
+	private static int targetCount(WorldTaskRequest request) {
+		return request.type() == WorldTaskType.PLACE_BLOCK
+			? request.blockPlacement().targets().size()
+			: request.blockUse().targets().size();
+	}
+
 	private static boolean sameTask(WorldTaskRequest left, WorldTaskRequest right) {
 		if (left == right) {
 			return true;
@@ -528,6 +564,8 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		appliedTask = null;
 		terminalEventEmitted = false;
 		snapshot = TaskExecutionSnapshot.idle();
+		targetIndex = 0;
+		completedTargets = 0;
 	}
 
 	private enum TargetMaterial {

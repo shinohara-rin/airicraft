@@ -1350,47 +1350,32 @@ public final class EmbodiedAgentRuntime {
 				yield queuedActionToolResult("use_entity", details);
 			}
 			case PlannerToolCatalog.PLACE_BLOCK -> {
-				BlockPlacementStepArgs blockPlacement = new BlockPlacementStepArgs(
-					stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required")),
-					new GoalPosition(
-						intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
-						intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
-						intArg(args, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
-						true
-					),
-					stringArg(args, "facePreference").orElse("auto"),
-					stringArg(args, "requireCurrentTargetMaterial").orElse("air_or_replaceable")
-				);
-				BlockPos targetPos = blockPos(blockPlacement.targetPosition());
-				if (!worldReadLedger.isFresh(targetPos)) {
-					yield guardedModificationNeedsInspect(PlannerToolCatalog.PLACE_BLOCK, targetPos);
+				BlockPlacementStepArgs blockPlacement = parseBlockPlacementArgs(args);
+				for (BlockPlacementStepArgs.Target target : blockPlacement.targets()) {
+					BlockPos targetPos = blockPos(target.targetPosition());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						yield guardedModificationNeedsInspect(PlannerToolCatalog.PLACE_BLOCK, targetPos);
+					}
 				}
 				applyPlannerJobTool(ActiveJobProposal.placeBlock(blockPlacement));
 				yield queuedActionToolResult("place_block", "itemId=" + blockPlacement.itemId()
-					+ " targetPos=" + compactPos(targetPos)
-					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(targetPos));
+					+ " targets=" + blockPlacement.targets().size()
+					+ " firstTargetPos=" + compactPos(blockPos(blockPlacement.targets().getFirst().targetPosition()))
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(blockPos(blockPlacement.targets().getFirst().targetPosition())));
 			}
 			case PlannerToolCatalog.USE_BLOCK -> {
-				BlockUseStepArgs blockUse = new BlockUseStepArgs(
-					stringArg(args, "itemId").orElse(null),
-					new GoalPosition(
-						intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
-						intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
-						intArg(args, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
-						true
-					),
-					stringArg(args, "facePreference").orElse("auto"),
-					args != null && args.has("expectedSupportBlockIds") ? stringArrayArg(args, "expectedSupportBlockIds") : List.of(),
-					stringArg(args, "expectedTargetMaterial").orElse(null)
-				);
-				BlockPos targetPos = blockPos(blockUse.targetPosition());
-				if (!worldReadLedger.isFresh(targetPos)) {
-					yield guardedModificationNeedsInspect(PlannerToolCatalog.USE_BLOCK, targetPos);
+				BlockUseStepArgs blockUse = parseBlockUseArgs(args);
+				for (BlockUseStepArgs.Target target : blockUse.targets()) {
+					BlockPos targetPos = blockPos(target.targetPosition());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						yield guardedModificationNeedsInspect(PlannerToolCatalog.USE_BLOCK, targetPos);
+					}
 				}
 				applyPlannerJobTool(ActiveJobProposal.useBlock(blockUse));
 				yield queuedActionToolResult("use_block", (blockUse.itemId() == null ? "" : "itemId=" + blockUse.itemId() + " ")
-					+ "targetPos=" + compactPos(targetPos)
-					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(targetPos));
+					+ "targets=" + blockUse.targets().size()
+					+ " firstTargetPos=" + compactPos(blockPos(blockUse.targets().getFirst().targetPosition()))
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(blockPos(blockUse.targets().getFirst().targetPosition())));
 			}
 			case PlannerToolCatalog.BREAK_BLOCKS -> {
 				if (plannerToolWouldPreemptActiveTask(toolCall)) {
@@ -1680,6 +1665,67 @@ public final class EmbodiedAgentRuntime {
 		}
 	}
 
+	private static BlockPlacementStepArgs parseBlockPlacementArgs(JsonObject args) {
+		String itemId = stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required"));
+		String rootFacePreference = stringArg(args, "facePreference").orElse("auto");
+		String rootRequiredTargetMaterial = stringArg(args, "requireCurrentTargetMaterial").orElse("air_or_replaceable");
+		if (hasTargets(args)) {
+			ArrayList<BlockPlacementStepArgs.Target> targets = new ArrayList<>();
+			for (JsonElement element : args.getAsJsonArray("targets")) {
+				if (!element.isJsonObject()) {
+					throw new IllegalArgumentException("targets must contain objects");
+				}
+				JsonObject target = element.getAsJsonObject();
+				targets.add(new BlockPlacementStepArgs.Target(
+					parseTargetPosition(target),
+					stringArg(target, "facePreference").orElse(rootFacePreference),
+					stringArg(target, "requireCurrentTargetMaterial").orElse(rootRequiredTargetMaterial)
+				));
+			}
+			return new BlockPlacementStepArgs(itemId, targets);
+		}
+		return new BlockPlacementStepArgs(
+			itemId,
+			parseTargetPosition(args),
+			rootFacePreference,
+			rootRequiredTargetMaterial
+		);
+	}
+
+	private static BlockUseStepArgs parseBlockUseArgs(JsonObject args) {
+		String rootFacePreference = stringArg(args, "facePreference").orElse("auto");
+		List<String> rootExpectedSupportBlockIds = args != null && args.has("expectedSupportBlockIds") && !args.get("expectedSupportBlockIds").isJsonNull()
+			? stringArrayArg(args, "expectedSupportBlockIds")
+			: List.of();
+		String rootExpectedTargetMaterial = stringArg(args, "expectedTargetMaterial").orElse(null);
+		if (hasTargets(args)) {
+			ArrayList<BlockUseStepArgs.Target> targets = new ArrayList<>();
+			for (JsonElement element : args.getAsJsonArray("targets")) {
+				if (!element.isJsonObject()) {
+					throw new IllegalArgumentException("targets must contain objects");
+				}
+				JsonObject target = element.getAsJsonObject();
+				List<String> expectedSupportBlockIds = target.has("expectedSupportBlockIds") && !target.get("expectedSupportBlockIds").isJsonNull()
+					? stringArrayArg(target, "expectedSupportBlockIds")
+					: rootExpectedSupportBlockIds;
+				targets.add(new BlockUseStepArgs.Target(
+					parseTargetPosition(target),
+					stringArg(target, "facePreference").orElse(rootFacePreference),
+					expectedSupportBlockIds,
+					stringArg(target, "expectedTargetMaterial").orElse(rootExpectedTargetMaterial)
+				));
+			}
+			return new BlockUseStepArgs(stringArg(args, "itemId").orElse(null), targets);
+		}
+		return new BlockUseStepArgs(
+			stringArg(args, "itemId").orElse(null),
+			parseTargetPosition(args),
+			rootFacePreference,
+			rootExpectedSupportBlockIds,
+			rootExpectedTargetMaterial
+		);
+	}
+
 	private static BlockBreakStepArgs parseBlockBreakArgs(JsonObject args) {
 		if (args == null || !args.has("targets") || !args.get("targets").isJsonArray()) {
 			throw new IllegalArgumentException("targets is required");
@@ -1701,6 +1747,19 @@ public final class EmbodiedAgentRuntime {
 			));
 		}
 		return new BlockBreakStepArgs(targets);
+	}
+
+	private static boolean hasTargets(JsonObject args) {
+		return args != null && args.has("targets") && args.get("targets").isJsonArray();
+	}
+
+	private static GoalPosition parseTargetPosition(JsonObject object) {
+		return new GoalPosition(
+			intArg(object, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
+			intArg(object, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
+			intArg(object, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
+			true
+		);
 	}
 
 	private static Optional<Boolean> booleanArg(JsonObject object, String key) {

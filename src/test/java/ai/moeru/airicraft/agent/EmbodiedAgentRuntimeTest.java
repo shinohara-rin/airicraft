@@ -848,6 +848,69 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void batchedBlockModificationToolInspectsInsteadOfQueuingUnreadTarget() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_use_block",
+			"use_block",
+			JsonParser.parseString("""
+				{"itemId":"minecraft:wheat_seeds","targets":[{"x":1,"y":65,"z":2},{"x":2,"y":65,"z":2}]}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(result.contains("blocked reason=target_not_inspected"));
+		assertTrue(result.contains("Runtime converted this request to inspect_world first"));
+		assertTrue(result.contains("Call use_block again"));
+		assertTrue(executor.lastActiveTask.isEmpty());
+	}
+
+	@Test
+	void batchedBlockModificationToolQueuesAfterFreshWorldReads() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
+		runtime.recordWorldReadForTests(new BlockPos(2, 64, 2));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_place",
+			"place_block",
+			JsonParser.parseString("""
+				{
+				  "itemId":"minecraft:dirt",
+				  "facePreference":"down",
+				  "targets":[
+				    {"x":1,"y":64,"z":2},
+				    {"x":2,"y":64,"z":2,"facePreference":"north","requireCurrentTargetMaterial":"air"}
+				  ]
+				}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertTrue(result.contains("targets=2"));
+		assertEquals(WorldTaskType.PLACE_BLOCK, request.type());
+		assertEquals("minecraft:dirt", request.blockPlacement().itemId());
+		assertEquals(2, request.blockPlacement().targets().size());
+		assertEquals(new GoalPosition(1, 64, 2, true), request.blockPlacement().targets().get(0).targetPosition());
+		assertEquals("down", request.blockPlacement().targets().get(0).facePreference());
+		assertEquals(new GoalPosition(2, 64, 2, true), request.blockPlacement().targets().get(1).targetPosition());
+		assertEquals("north", request.blockPlacement().targets().get(1).facePreference());
+		assertEquals("air", request.blockPlacement().targets().get(1).requiredTargetMaterial());
+	}
+
+	@Test
 	void breakBlocksToolInspectsInsteadOfQueuingUnreadTarget() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

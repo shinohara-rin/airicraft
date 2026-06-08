@@ -261,6 +261,70 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void parsesBatchedBlockInteractionTools() {
+		PlannerToolCall placeCall = PlannerToolCatalog.parseToolCall(toolCall("place_block", """
+			{
+			  "itemId":"minecraft:dirt",
+			  "facePreference":"down",
+			  "requireCurrentTargetMaterial":"air_or_replaceable",
+			  "targets":[
+			    {"x":1,"y":64,"z":2},
+			    {"x":2,"y":64,"z":2,"facePreference":"north","requireCurrentTargetMaterial":"air"}
+			  ]
+			}
+			"""));
+		PlannerToolCall useCall = PlannerToolCatalog.parseToolCall(toolCall("use_block", """
+			{
+			  "itemId":"minecraft:wheat_seeds",
+			  "expectedSupportBlockIds":["minecraft:farmland"],
+			  "expectedTargetMaterial":"air",
+			  "targets":[
+			    {"x":1,"y":65,"z":2},
+			    {"x":2,"y":65,"z":2,"facePreference":"down","expectedSupportBlockIds":["minecraft:farmland"]}
+			  ]
+			}
+			"""));
+
+		assertEquals("place_block", placeCall.name());
+		assertEquals(2, placeCall.arguments().getAsJsonArray("targets").size());
+		assertEquals("use_block", useCall.name());
+		assertEquals(2, useCall.arguments().getAsJsonArray("targets").size());
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("place_block", """
+				{"itemId":"minecraft:dirt","x":1,"y":64,"z":2,"targets":[{"x":2,"y":64,"z":2}]}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("use_block", """
+				{"targets":[]}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("use_block", """
+				{"targets":[
+				  {"x":1,"y":64,"z":2},
+				  {"x":2,"y":64,"z":2},
+				  {"x":3,"y":64,"z":2},
+				  {"x":4,"y":64,"z":2},
+				  {"x":5,"y":64,"z":2},
+				  {"x":6,"y":64,"z":2},
+				  {"x":7,"y":64,"z":2},
+				  {"x":8,"y":64,"z":2},
+				  {"x":9,"y":64,"z":2},
+				  {"x":10,"y":64,"z":2},
+				  {"x":11,"y":64,"z":2},
+				  {"x":12,"y":64,"z":2},
+				  {"x":13,"y":64,"z":2},
+				  {"x":14,"y":64,"z":2},
+				  {"x":15,"y":64,"z":2},
+				  {"x":16,"y":64,"z":2},
+				  {"x":17,"y":64,"z":2}
+				]}
+				"""))
+		);
+	}
+
+	@Test
 	void entityInteractionToolSchemasRequireUuid() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 		JsonObject attackParameters = toolSchema(tools, "attack_entity");

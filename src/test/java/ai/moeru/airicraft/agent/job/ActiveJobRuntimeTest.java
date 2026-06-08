@@ -577,6 +577,61 @@ class ActiveJobRuntimeTest {
 	}
 
 	@Test
+	void batchedBlockInteractionActiveJobsProjectWorldTaskRequests() {
+		ActiveJobRuntime placeRuntime = new ActiveJobRuntime();
+		BlockPlacementStepArgs place = new BlockPlacementStepArgs(
+			"minecraft:dirt",
+			List.of(
+				new BlockPlacementStepArgs.Target(new GoalPosition(1, 64, 2, true), "down", "air_or_replaceable"),
+				new BlockPlacementStepArgs.Target(new GoalPosition(2, 64, 2, true), "north", "air")
+			)
+		);
+
+		placeRuntime.applyPlannerResponse(
+			new DialogueResponse(
+				"Placing dirt.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.placeBlock(place)),
+				1L
+			),
+			0,
+			"test",
+			1L
+		);
+
+		WorldTaskRequest placeRequest = placeRuntime.activeTaskRequest().orElseThrow();
+		assertEquals(WorldTaskType.PLACE_BLOCK, placeRequest.type());
+		assertEquals(place, placeRequest.blockPlacement());
+		assertEquals(2, placeRequest.blockPlacement().targets().size());
+		assertEquals(ActiveJobType.PLACE_BLOCK, placeRuntime.current().type());
+
+		ActiveJobRuntime useRuntime = new ActiveJobRuntime();
+		BlockUseStepArgs use = new BlockUseStepArgs(
+			"minecraft:wheat_seeds",
+			List.of(
+				new BlockUseStepArgs.Target(new GoalPosition(1, 65, 2, true), "down", List.of("minecraft:farmland"), "air"),
+				new BlockUseStepArgs.Target(new GoalPosition(2, 65, 2, true), "down", List.of("minecraft:farmland"), "air")
+			)
+		);
+
+		useRuntime.applyPlannerResponse(
+			new DialogueResponse(
+				"Planting seeds.",
+				new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.useBlock(use)),
+				2L
+			),
+			0,
+			"test",
+			2L
+		);
+
+		WorldTaskRequest useRequest = useRuntime.activeTaskRequest().orElseThrow();
+		assertEquals(WorldTaskType.USE_BLOCK, useRequest.type());
+		assertEquals(use, useRequest.blockUse());
+		assertEquals(2, useRequest.blockUse().targets().size());
+		assertEquals(ActiveJobType.USE_BLOCK, useRuntime.current().type());
+	}
+
+	@Test
 	void breakBlocksLedgerStepProjectsWorldTaskRequest() {
 		ActiveJobRuntime runtime = new ActiveJobRuntime();
 		BlockBreakStepArgs blockBreak = new BlockBreakStepArgs(List.of(new BlockBreakStepArgs.Target(
