@@ -36,7 +36,7 @@ public final class PlannerOrchestrator {
 	private static final String NATIVE_TOOL_RESULT_TEXT = "Tool result for take_a_look: current first-person view attached.";
 	private static final String TOOL_CALL_REPAIR_PREFIX = "TOOL CALL FORMAT REMINDER:";
 	private static final int MAX_TOOL_CALLS_PER_TOOL_PLAN = 20;
-	private static final int SESSION_MAX_ATTEMPTS = 2;
+	private static final int SESSION_MAX_CONSECUTIVE_REPAIRABLE_FAILURES = 2;
 	private static final long SESSION_RETRY_BACKOFF_MS = 250L;
 	private static final int SESSION_COALESCE_STEP_MS = 10;
 	private static final int SESSION_COALESCE_MIN_MS = 10;
@@ -578,7 +578,7 @@ public final class PlannerOrchestrator {
 			plannerExecutor,
 			this.clock,
 			plannerSessionMaxConcurrentAttempts,
-			SESSION_MAX_ATTEMPTS,
+			SESSION_MAX_CONSECUTIVE_REPAIRABLE_FAILURES,
 			SESSION_RETRY_BACKOFF_MS,
 			this::recordSubmittedConversation
 		);

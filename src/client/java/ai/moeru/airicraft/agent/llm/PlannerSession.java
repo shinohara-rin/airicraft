@@ -10,6 +10,7 @@ final class PlannerSession {
 	private PlannerSessionPhase phase;
 	private LlmConversation conversation;
 	private int attemptCount;
+	private int consecutiveFailureCount;
 	private long retryReadyAtMs = -1L;
 
 	PlannerSession(long generation, PlannerContextSnapshot contextSnapshot) {
@@ -53,6 +54,10 @@ final class PlannerSession {
 		return attemptCount;
 	}
 
+	int consecutiveFailureCount() {
+		return consecutiveFailureCount;
+	}
+
 	long retryReadyAtMs() {
 		return retryReadyAtMs;
 	}
@@ -89,6 +94,15 @@ final class PlannerSession {
 		retryReadyAtMs = whenMs;
 	}
 
+	int recordFailure() {
+		consecutiveFailureCount++;
+		return consecutiveFailureCount;
+	}
+
+	void clearConsecutiveFailures() {
+		consecutiveFailureCount = 0;
+	}
+
 	void clearRetry() {
 		retryReadyAtMs = -1L;
 	}
@@ -97,6 +111,7 @@ final class PlannerSession {
 		phase = PlannerSessionPhase.TOOL_WAIT;
 		conversation = null;
 		attemptCount = 0;
+		clearConsecutiveFailures();
 		retryReadyAtMs = -1L;
 	}
 
@@ -105,6 +120,7 @@ final class PlannerSession {
 		phase = PlannerSessionPhase.TOOL_FOLLOW_UP;
 		conversation = replacementConversation;
 		attemptCount = 0;
+		clearConsecutiveFailures();
 		retryReadyAtMs = -1L;
 	}
 
@@ -117,6 +133,7 @@ final class PlannerSession {
 	void markCompleted() {
 		phase = PlannerSessionPhase.COMPLETED;
 		conversation = null;
+		clearConsecutiveFailures();
 		retryReadyAtMs = -1L;
 	}
 

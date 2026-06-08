@@ -19,7 +19,7 @@ public final class PlannerSessionCoordinator {
 	private final PlannerExecutor plannerExecutor;
 	private final Clock clock;
 	private final int maxConcurrentAttempts;
-	private final int maxAttempts;
+	private final int maxConsecutiveRepairableFailures;
 	private final long retryBackoffMs;
 	private final SubmissionObserver submissionObserver;
 	private final ArrayDeque<PlannerExecutionResult> readyResults = new ArrayDeque<>();
@@ -28,22 +28,22 @@ public final class PlannerSessionCoordinator {
 	private long nextGeneration = 1L;
 	private long supersededCount;
 
-	public PlannerSessionCoordinator(PlannerExecutor plannerExecutor, Clock clock, int maxConcurrentAttempts, int maxAttempts, long retryBackoffMs) {
-		this(plannerExecutor, clock, maxConcurrentAttempts, maxAttempts, retryBackoffMs, NO_OP_SUBMISSION_OBSERVER);
+	public PlannerSessionCoordinator(PlannerExecutor plannerExecutor, Clock clock, int maxConcurrentAttempts, int maxConsecutiveRepairableFailures, long retryBackoffMs) {
+		this(plannerExecutor, clock, maxConcurrentAttempts, maxConsecutiveRepairableFailures, retryBackoffMs, NO_OP_SUBMISSION_OBSERVER);
 	}
 
 	public PlannerSessionCoordinator(
 		PlannerExecutor plannerExecutor,
 		Clock clock,
 		int maxConcurrentAttempts,
-		int maxAttempts,
+		int maxConsecutiveRepairableFailures,
 		long retryBackoffMs,
 		SubmissionObserver submissionObserver
 	) {
 		this.plannerExecutor = Objects.requireNonNull(plannerExecutor, "plannerExecutor");
 		this.clock = Objects.requireNonNull(clock, "clock");
 		this.maxConcurrentAttempts = Math.max(1, maxConcurrentAttempts);
-		this.maxAttempts = Math.max(1, maxAttempts);
+		this.maxConsecutiveRepairableFailures = Math.max(0, maxConsecutiveRepairableFailures);
 		this.retryBackoffMs = Math.max(0L, retryBackoffMs);
 		this.submissionObserver = Objects.requireNonNull(submissionObserver, "submissionObserver");
 	}
@@ -172,8 +172,10 @@ public final class PlannerSessionCoordinator {
 				|| activeSession.generation() != generation
 				|| !activeSession.replaceable()
 				|| activeSession.conversation() == null
-				|| activeSession.attemptCount() >= maxAttempts
 		) {
+			return false;
+		}
+		if (activeSession.recordFailure() > maxConsecutiveRepairableFailures) {
 			return false;
 		}
 		activeSession.scheduleRetry(clock.millis(), activeSession.conversation().withAppended(repairMessage));
@@ -246,7 +248,11 @@ public final class PlannerSessionCoordinator {
 			return;
 		}
 
-		if (!result.succeeded() && shouldRetry(result.failureType()) && result.attempt() < maxAttempts) {
+		if (
+			!result.succeeded()
+				&& shouldRetry(result.failureType())
+				&& activeSession.recordFailure() <= maxConsecutiveRepairableFailures
+		) {
 			activeSession.scheduleRetry(clock.millis() + retryBackoffMs);
 			return;
 		}
