@@ -13,15 +13,22 @@ public final class SurfaceMemory {
 	private static final int NEAREST_SURFACE_RADIUS = 12;
 	private static final int NEAREST_SURFACE_UP = 48;
 	private static final int NEAREST_SURFACE_DOWN = 96;
+	static final long NEAREST_SURFACE_FAST_REFRESH_TICKS = 10L;
+	static final long NEAREST_SURFACE_REFRESH_TICKS = 40L;
+	static final double NEAREST_SURFACE_MOVE_REFRESH_DISTANCE_SQUARED = 16.0;
 
 	private SurfaceTarget lastGround;
 	private SurfaceTarget lastSurface;
 	private SurfaceTarget nearestSurface;
+	private BlockPos lastNearestSurfaceScanOrigin;
+	private long lastNearestSurfaceScanTick = Long.MIN_VALUE;
 
 	public void clear() {
 		lastGround = null;
 		lastSurface = null;
 		nearestSurface = null;
+		lastNearestSurfaceScanOrigin = null;
+		lastNearestSurfaceScanTick = Long.MIN_VALUE;
 	}
 
 	public void tick(MinecraftClient client, long tick) {
@@ -37,9 +44,13 @@ public final class SurfaceMemory {
 				lastSurface = new SurfaceTarget(toGoalPosition(playerPos), "last_surface", tick);
 			}
 		}
-		SurfaceTarget nearby = findNearestSurface(client, playerPos, tick).orElse(null);
-		if (nearby != null) {
-			nearestSurface = nearby;
+		if (shouldRefreshNearestSurface(nearestSurface != null, lastNearestSurfaceScanOrigin, lastNearestSurfaceScanTick, playerPos, tick)) {
+			lastNearestSurfaceScanOrigin = playerPos;
+			lastNearestSurfaceScanTick = tick;
+			SurfaceTarget nearby = findNearestSurface(client, playerPos, tick).orElse(null);
+			if (nearby != null) {
+				nearestSurface = nearby;
+			}
 		}
 	}
 
@@ -102,6 +113,26 @@ public final class SurfaceMemory {
 			}
 		}
 		return Optional.ofNullable(best);
+	}
+
+	static boolean shouldRefreshNearestSurface(
+		boolean hasNearestSurface,
+		BlockPos lastScanOrigin,
+		long lastScanTick,
+		BlockPos currentOrigin,
+		long tick
+	) {
+		if (!hasNearestSurface || lastScanOrigin == null || currentOrigin == null || lastScanTick == Long.MIN_VALUE) {
+			return true;
+		}
+		long elapsed = tick - lastScanTick;
+		if (elapsed < NEAREST_SURFACE_FAST_REFRESH_TICKS) {
+			return false;
+		}
+		if (lastScanOrigin.getSquaredDistance(currentOrigin) >= NEAREST_SURFACE_MOVE_REFRESH_DISTANCE_SQUARED) {
+			return true;
+		}
+		return elapsed >= NEAREST_SURFACE_REFRESH_TICKS;
 	}
 
 	private static boolean isSafeStandingPosition(MinecraftClient client, BlockPos feetPos) {
