@@ -12,5 +12,6 @@ public enum WorldTaskType {
 	USE_ENTITY,
 	PLACE_BLOCK,
 	USE_BLOCK,
+	BREAK_BLOCKS,
 	RETURN_TO_SURFACE
 }

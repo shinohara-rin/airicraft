@@ -97,6 +97,7 @@ import ai.moeru.airicraft.agent.tasks.MinedBlockDropMapper;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.agent.tasks.TaskResourceKind;
 import ai.moeru.airicraft.agent.tasks.TaskSnapshot;
+import ai.moeru.airicraft.agent.tasks.BlockBreakStepArgs;
 import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
 import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.TaskState;
@@ -1352,6 +1353,30 @@ public final class EmbodiedAgentRuntime {
 					+ "targetPos=" + compactPos(targetPos)
 					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(targetPos));
 			}
+			case PlannerToolCatalog.BREAK_BLOCKS -> {
+				if (plannerToolWouldPreemptActiveTask(toolCall)) {
+					yield plannerActiveTaskPreemptionError(toolCall);
+				}
+				BlockBreakStepArgs blockBreak = parseBlockBreakArgs(args);
+				for (BlockBreakStepArgs.Target target : blockBreak.targets()) {
+					Optional<String> validationError = validateMineBlockIds(target.expectedBlockIds());
+					if (validationError.isPresent()) {
+						yield "TOOL_ERROR: break_blocks " + validationError.get();
+					}
+				}
+				for (BlockBreakStepArgs.Target target : blockBreak.targets()) {
+					BlockPos targetPos = blockPos(target.position());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						yield guardedModificationNeedsInspect(PlannerToolCatalog.BREAK_BLOCKS, targetPos);
+					}
+				}
+				applyPlannerJobTool(ActiveJobProposal.breakBlocks(blockBreak));
+				yield queuedActionToolResult(
+					"break_blocks",
+					"targets=" + blockBreak.targets().size()
+						+ " firstTargetPos=" + compactPos(blockPos(blockBreak.targets().getFirst().position()))
+				);
+			}
 			case PlannerToolCatalog.CANCEL_TASK -> {
 				String reason = stringArg(args, "reason").orElse("planner_tool_cancelled");
 				TaskSnapshot snapshot = cancelTask(reason);
@@ -1383,7 +1408,8 @@ public final class EmbodiedAgentRuntime {
 			|| PlannerToolCatalog.MINE_BLOCKS.equals(normalizedToolName)
 			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName)
 			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName);
+			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
+			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
 	}
 
 	private String plannerActiveTaskPreemptionError(PlannerToolCall toolCall) {
@@ -1613,6 +1639,29 @@ public final class EmbodiedAgentRuntime {
 		catch (RuntimeException exception) {
 			return Optional.empty();
 		}
+	}
+
+	private static BlockBreakStepArgs parseBlockBreakArgs(JsonObject args) {
+		if (args == null || !args.has("targets") || !args.get("targets").isJsonArray()) {
+			throw new IllegalArgumentException("targets is required");
+		}
+		ArrayList<BlockBreakStepArgs.Target> targets = new ArrayList<>();
+		for (JsonElement element : args.getAsJsonArray("targets")) {
+			if (!element.isJsonObject()) {
+				throw new IllegalArgumentException("targets must contain objects");
+			}
+			JsonObject target = element.getAsJsonObject();
+			targets.add(new BlockBreakStepArgs.Target(
+				new GoalPosition(
+					intArg(target, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
+					intArg(target, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
+					intArg(target, "z").orElseThrow(() -> new IllegalArgumentException("z is required")),
+					true
+				),
+				stringArrayArg(target, "expectedBlockIds")
+			));
+		}
+		return new BlockBreakStepArgs(targets);
 	}
 
 	private static Optional<Boolean> booleanArg(JsonObject object, String key) {
@@ -2600,7 +2649,7 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		return switch (intent.activeJob().type()) {
-			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, ENSURE_BLOCKS_IN_INVENTORY, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK -> true;
+			case FOLLOW_PLAYER, NAVIGATE_TO, MINE_BLOCKS, ENSURE_BLOCKS_IN_INVENTORY, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK, BREAK_BLOCKS -> true;
 			case IDLE, COLLECT_RESOURCE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, ATTACK_ENTITY, USE_ENTITY, ASK_USER -> false;
 		};
 	}
@@ -2793,7 +2842,7 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		return switch (type) {
-			case MINE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK -> true;
+			case MINE, CRAFT_RECIPE, DROP_ITEMS, SMELT_ITEMS, COLLECT_SMELTED_ITEMS, RETURN_TO_SURFACE, PLACE_BLOCK, USE_BLOCK, BREAK_BLOCKS -> true;
 			case FOLLOW, NAVIGATE, ATTACK_ENTITY, USE_ENTITY -> false;
 		};
 	}

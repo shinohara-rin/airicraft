@@ -799,6 +799,54 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void breakBlocksToolInspectsInsteadOfQueuingUnreadTarget() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_break",
+			"break_blocks",
+			JsonParser.parseString("""
+				{"targets":[{"x":1,"y":64,"z":2,"expectedBlockIds":["minecraft:grass_block"]}]}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(result.contains("blocked reason=target_not_inspected"));
+		assertTrue(result.contains("Runtime converted this request to inspect_world first"));
+		assertTrue(result.contains("Call break_blocks again"));
+		assertTrue(executor.lastActiveTask.isEmpty());
+	}
+
+	@Test
+	void breakBlocksToolQueuesAfterFreshWorldRead() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_break",
+			"break_blocks",
+			JsonParser.parseString("""
+				{"targets":[{"x":1,"y":64,"z":2,"expectedBlockIds":["minecraft:grass_block","minecraft:dirt"]}]}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		assertTrue(result.contains("accepted"));
+		assertEquals(WorldTaskType.BREAK_BLOCKS, request.type());
+		assertEquals(new GoalPosition(1, 64, 2, true), request.blockBreak().targets().getFirst().position());
+		assertEquals(List.of("minecraft:grass_block", "minecraft:dirt"), request.blockBreak().targets().getFirst().expectedBlockIds());
+	}
+
+	@Test
 	void manualAttackEntitySubmitRoutesWorldTaskRequest() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);

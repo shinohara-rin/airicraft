@@ -13,14 +13,15 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 	private final WorldTaskExecutor smeltingExecutor;
 	private final WorldTaskExecutor returnToSurfaceExecutor;
 	private final WorldTaskExecutor blockInteractionExecutor;
+	private final WorldTaskExecutor blockBreakExecutor;
 	private WorldTaskType activeType;
 
 	public DispatchingWorldTaskExecutor(WorldTaskExecutor baritoneExecutor, WorldTaskExecutor craftingExecutor) {
-		this(baritoneExecutor, craftingExecutor, new DropItemsTaskExecutor(), new EntityInteractionTaskExecutor(), new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor());
+		this(baritoneExecutor, craftingExecutor, new DropItemsTaskExecutor(), new EntityInteractionTaskExecutor(), new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor(), new BlockBreakTaskExecutor());
 	}
 
 	public DispatchingWorldTaskExecutor(WorldTaskExecutor baritoneExecutor, WorldTaskExecutor craftingExecutor, WorldTaskExecutor dropItemsExecutor) {
-		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, new EntityInteractionTaskExecutor(), new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor());
+		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, new EntityInteractionTaskExecutor(), new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor(), new BlockBreakTaskExecutor());
 	}
 
 	public DispatchingWorldTaskExecutor(
@@ -29,7 +30,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		WorldTaskExecutor dropItemsExecutor,
 		WorldTaskExecutor entityInteractionExecutor
 	) {
-		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor());
+		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, new SmeltingTaskExecutor(), new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor(), new BlockBreakTaskExecutor());
 	}
 
 	public DispatchingWorldTaskExecutor(
@@ -39,7 +40,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		WorldTaskExecutor entityInteractionExecutor,
 		WorldTaskExecutor smeltingExecutor
 	) {
-		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, smeltingExecutor, new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor());
+		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, smeltingExecutor, new ReturnToSurfaceTaskExecutor(null), new BlockInteractionTaskExecutor(), new BlockBreakTaskExecutor());
 	}
 
 	public DispatchingWorldTaskExecutor(
@@ -50,7 +51,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		WorldTaskExecutor smeltingExecutor,
 		WorldTaskExecutor returnToSurfaceExecutor
 	) {
-		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, smeltingExecutor, returnToSurfaceExecutor, new BlockInteractionTaskExecutor());
+		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, smeltingExecutor, returnToSurfaceExecutor, new BlockInteractionTaskExecutor(), new BlockBreakTaskExecutor());
 	}
 
 	public DispatchingWorldTaskExecutor(
@@ -62,6 +63,19 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		WorldTaskExecutor returnToSurfaceExecutor,
 		WorldTaskExecutor blockInteractionExecutor
 	) {
+		this(baritoneExecutor, craftingExecutor, dropItemsExecutor, entityInteractionExecutor, smeltingExecutor, returnToSurfaceExecutor, blockInteractionExecutor, new BlockBreakTaskExecutor());
+	}
+
+	public DispatchingWorldTaskExecutor(
+		WorldTaskExecutor baritoneExecutor,
+		WorldTaskExecutor craftingExecutor,
+		WorldTaskExecutor dropItemsExecutor,
+		WorldTaskExecutor entityInteractionExecutor,
+		WorldTaskExecutor smeltingExecutor,
+		WorldTaskExecutor returnToSurfaceExecutor,
+		WorldTaskExecutor blockInteractionExecutor,
+		WorldTaskExecutor blockBreakExecutor
+	) {
 		this.baritoneExecutor = Objects.requireNonNull(baritoneExecutor, "baritoneExecutor");
 		this.craftingExecutor = Objects.requireNonNull(craftingExecutor, "craftingExecutor");
 		this.dropItemsExecutor = Objects.requireNonNull(dropItemsExecutor, "dropItemsExecutor");
@@ -69,6 +83,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		this.smeltingExecutor = Objects.requireNonNull(smeltingExecutor, "smeltingExecutor");
 		this.returnToSurfaceExecutor = Objects.requireNonNull(returnToSurfaceExecutor, "returnToSurfaceExecutor");
 		this.blockInteractionExecutor = Objects.requireNonNull(blockInteractionExecutor, "blockInteractionExecutor");
+		this.blockBreakExecutor = Objects.requireNonNull(blockBreakExecutor, "blockBreakExecutor");
 	}
 
 	@Override
@@ -82,6 +97,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return Optional.empty();
 		}
 
@@ -95,6 +111,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return craftingExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.DROP_ITEMS) {
@@ -104,6 +121,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return dropItemsExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.ATTACK_ENTITY || request.type() == WorldTaskType.USE_ENTITY) {
@@ -115,6 +133,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return entityInteractionExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.SMELT_ITEMS || request.type() == WorldTaskType.COLLECT_SMELTED_ITEMS) {
@@ -124,6 +143,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			entityInteractionExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return smeltingExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.RETURN_TO_SURFACE) {
@@ -133,6 +153,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			entityInteractionExecutor.tick(sessionSnapshot, Optional.empty());
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return returnToSurfaceExecutor.tick(sessionSnapshot, activeTask);
 		}
 		if (request.type() == WorldTaskType.PLACE_BLOCK || request.type() == WorldTaskType.USE_BLOCK) {
@@ -142,7 +163,18 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 			entityInteractionExecutor.tick(sessionSnapshot, Optional.empty());
 			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
+			blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 			return blockInteractionExecutor.tick(sessionSnapshot, activeTask);
+		}
+		if (request.type() == WorldTaskType.BREAK_BLOCKS) {
+			baritoneExecutor.tick(sessionSnapshot, Optional.empty());
+			craftingExecutor.tick(sessionSnapshot, Optional.empty());
+			dropItemsExecutor.tick(sessionSnapshot, Optional.empty());
+			entityInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			smeltingExecutor.tick(sessionSnapshot, Optional.empty());
+			returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
+			blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+			return blockBreakExecutor.tick(sessionSnapshot, activeTask);
 		}
 
 		craftingExecutor.tick(sessionSnapshot, Optional.empty());
@@ -151,6 +183,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		smeltingExecutor.tick(sessionSnapshot, Optional.empty());
 		returnToSurfaceExecutor.tick(sessionSnapshot, Optional.empty());
 		blockInteractionExecutor.tick(sessionSnapshot, Optional.empty());
+		blockBreakExecutor.tick(sessionSnapshot, Optional.empty());
 		return baritoneExecutor.tick(sessionSnapshot, activeTask);
 	}
 
@@ -178,6 +211,9 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		if (activeType == WorldTaskType.PLACE_BLOCK || activeType == WorldTaskType.USE_BLOCK) {
 			return blockInteractionExecutor.snapshot();
 		}
+		if (activeType == WorldTaskType.BREAK_BLOCKS) {
+			return blockBreakExecutor.snapshot();
+		}
 		if (activeType != null) {
 			return baritoneExecutor.snapshot();
 		}
@@ -194,6 +230,7 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		smeltingExecutor.onWorldLeave();
 		returnToSurfaceExecutor.onWorldLeave();
 		blockInteractionExecutor.onWorldLeave();
+		blockBreakExecutor.onWorldLeave();
 	}
 
 	@Override
@@ -206,5 +243,6 @@ public final class DispatchingWorldTaskExecutor implements WorldTaskExecutor {
 		smeltingExecutor.shutdown();
 		returnToSurfaceExecutor.shutdown();
 		blockInteractionExecutor.shutdown();
+		blockBreakExecutor.shutdown();
 	}
 }

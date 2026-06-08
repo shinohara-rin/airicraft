@@ -17,18 +17,19 @@ public record WorldTaskRequest(
 	CollectSmeltedItemsStepArgs collectSmeltedItems,
 	ReturnToSurfaceStepArgs returnToSurface,
 	BlockPlacementStepArgs blockPlacement,
-	BlockUseStepArgs blockUse
+	BlockUseStepArgs blockUse,
+	BlockBreakStepArgs blockBreak
 ) {
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal) {
-		this(taskId, sourceJobId, type, goal, null, null, null, null, null, null, null, null);
+		this(taskId, sourceJobId, type, goal, null, null, null, null, null, null, null, null, null);
 	}
 
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, null, null, null, null, null, null, null);
+		this(taskId, sourceJobId, type, goal, craftRecipe, null, null, null, null, null, null, null, null);
 	}
 
 	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe, DropItemsStepArgs dropItems) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, null, null, null, null, null, null);
+		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, null, null, null, null, null, null, null);
 	}
 
 	public WorldTaskRequest {
@@ -59,6 +60,9 @@ public record WorldTaskRequest(
 		else if (type == WorldTaskType.USE_BLOCK) {
 			blockUse = Objects.requireNonNull(blockUse, "blockUse");
 		}
+		else if (type == WorldTaskType.BREAK_BLOCKS) {
+			blockBreak = Objects.requireNonNull(blockBreak, "blockBreak");
+		}
 		else {
 			goal = Objects.requireNonNull(goal, "goal");
 		}
@@ -73,39 +77,43 @@ public record WorldTaskRequest(
 	}
 
 	public static WorldTaskRequest craftRecipe(String taskId, String sourceJobId, CraftRecipeStepArgs craftRecipe) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.CRAFT_RECIPE, null, craftRecipe, null, null, null, null, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.CRAFT_RECIPE, null, craftRecipe, null, null, null, null, null, null, null, null);
 	}
 
 	public static WorldTaskRequest dropItems(String taskId, String sourceJobId, DropItemsStepArgs dropItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.DROP_ITEMS, null, null, dropItems, null, null, null, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.DROP_ITEMS, null, null, dropItems, null, null, null, null, null, null, null);
 	}
 
 	public static WorldTaskRequest attackEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.ATTACK_ENTITY, null, null, null, entityInteraction, null, null, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.ATTACK_ENTITY, null, null, null, entityInteraction, null, null, null, null, null, null);
 	}
 
 	public static WorldTaskRequest useEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_ENTITY, null, null, null, entityInteraction, null, null, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_ENTITY, null, null, null, entityInteraction, null, null, null, null, null, null);
 	}
 
 	public static WorldTaskRequest smeltItems(String taskId, String sourceJobId, SmeltItemsStepArgs smeltItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.SMELT_ITEMS, null, null, null, null, smeltItems, null, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.SMELT_ITEMS, null, null, null, null, smeltItems, null, null, null, null, null);
 	}
 
 	public static WorldTaskRequest collectSmeltedItems(String taskId, String sourceJobId, CollectSmeltedItemsStepArgs collectSmeltedItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, collectSmeltedItems, null, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, collectSmeltedItems, null, null, null, null);
 	}
 
 	public static WorldTaskRequest returnToSurface(String taskId, String sourceJobId, ReturnToSurfaceStepArgs returnToSurface) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.RETURN_TO_SURFACE, null, null, null, null, null, null, returnToSurface, null, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.RETURN_TO_SURFACE, null, null, null, null, null, null, returnToSurface, null, null, null);
 	}
 
 	public static WorldTaskRequest placeBlock(String taskId, String sourceJobId, BlockPlacementStepArgs blockPlacement) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.PLACE_BLOCK, null, null, null, null, null, null, null, blockPlacement, null);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.PLACE_BLOCK, null, null, null, null, null, null, null, blockPlacement, null, null);
 	}
 
 	public static WorldTaskRequest useBlock(String taskId, String sourceJobId, BlockUseStepArgs blockUse) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_BLOCK, null, null, null, null, null, null, null, null, blockUse);
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_BLOCK, null, null, null, null, null, null, null, null, blockUse, null);
+	}
+
+	public static WorldTaskRequest breakBlocks(String taskId, String sourceJobId, BlockBreakStepArgs blockBreak) {
+		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.BREAK_BLOCKS, null, null, null, null, null, null, null, null, null, blockBreak);
 	}
 
 	private static WorldTaskType typeFor(GoalSnapshot goal) {

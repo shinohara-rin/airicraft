@@ -42,6 +42,7 @@ public final class PlannerToolCatalog {
 	public static final String USE_ENTITY = "use_entity";
 	public static final String PLACE_BLOCK = "place_block";
 	public static final String USE_BLOCK = "use_block";
+	public static final String BREAK_BLOCKS = "break_blocks";
 	public static final String CANCEL_TASK = "cancel_task";
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
@@ -214,6 +215,10 @@ public final class PlannerToolCatalog {
 				prop("expectedSupportBlockIds", stringArray("Optional exact block ids expected on the clicked support block.")),
 				prop("expectedTargetMaterial", enumString("Optional current target material check before use.", List.of("air", "replaceable", "air_or_replaceable")))
 			), List.of("x", "y", "z")), PlannerToolCatalog::validateUseBlockArguments),
+		builtInTool(BREAK_BLOCKS, false, tool(BREAK_BLOCKS, "Break exact target blocks in order. Use this for precise terrain editing, not resource mining. Every target position must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("targets", array("Ordered target blocks to break. Maximum 16.", breakBlockTargetSchema()))
+			), List.of("targets")), PlannerToolCatalog::validateBreakBlocksArguments),
 		builtInTool(CANCEL_TASK, false, tool(CANCEL_TASK, "Cancel the current task or job.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("reason", string("Optional cancellation reason."))
@@ -488,6 +493,29 @@ public final class PlannerToolCatalog {
 			requireStringArray(arguments, "expectedSupportBlockIds");
 		}
 		validateTargetMaterial(arguments, "expectedTargetMaterial");
+	}
+
+	private static void validateBreakBlocksArguments(JsonObject arguments) {
+		if (!arguments.has("targets") || !arguments.get("targets").isJsonArray()) {
+			throw new JsonParseException("targets must be an array");
+		}
+		JsonArray targets = arguments.getAsJsonArray("targets");
+		if (targets.isEmpty()) {
+			throw new JsonParseException("targets must not be empty");
+		}
+		if (targets.size() > ai.moeru.airicraft.agent.tasks.BlockBreakStepArgs.MAX_TARGETS) {
+			throw new JsonParseException("targets must contain at most " + ai.moeru.airicraft.agent.tasks.BlockBreakStepArgs.MAX_TARGETS + " entries");
+		}
+		for (JsonElement element : targets) {
+			if (!element.isJsonObject()) {
+				throw new JsonParseException("targets entries must be objects");
+			}
+			JsonObject target = element.getAsJsonObject();
+			requireInt(target, "x");
+			requireInt(target, "y");
+			requireInt(target, "z");
+			requireStringArray(target, "expectedBlockIds");
+		}
 	}
 
 	private static void validateFacePreference(JsonObject arguments, String key) {
@@ -855,6 +883,20 @@ public final class PlannerToolCatalog {
 		schema.put("description", description);
 		schema.put("items", items);
 		return schema;
+	}
+
+	private static Map<String, Object> breakBlockTargetSchema() {
+		return Map.of(
+			"type", "object",
+			"properties", properties(
+				prop("x", integer("Target block x coordinate.")),
+				prop("y", integer("Target block y coordinate.")),
+				prop("z", integer("Target block z coordinate.")),
+				prop("expectedBlockIds", stringArray("Exact block ids allowed at this target, copied from inspect_world."))
+			),
+			"required", List.of("x", "y", "z", "expectedBlockIds"),
+			"additionalProperties", false
+		);
 	}
 
 	private static Map<String, Object> policyUpsertSchema() {

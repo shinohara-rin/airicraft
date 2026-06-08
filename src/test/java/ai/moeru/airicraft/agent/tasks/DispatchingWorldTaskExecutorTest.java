@@ -194,6 +194,46 @@ class DispatchingWorldTaskExecutorTest {
 		assertEquals(Optional.empty(), returnToSurface.lastTask);
 	}
 
+	@Test
+	void blockBreakRequestsRouteToBlockBreakExecutor() {
+		RecordingExecutor baritone = new RecordingExecutor();
+		RecordingExecutor crafting = new RecordingExecutor();
+		RecordingExecutor dropItems = new RecordingExecutor();
+		RecordingExecutor entityInteraction = new RecordingExecutor();
+		RecordingExecutor smelting = new RecordingExecutor();
+		RecordingExecutor returnToSurface = new RecordingExecutor();
+		RecordingExecutor blockInteraction = new RecordingExecutor();
+		RecordingExecutor blockBreak = new RecordingExecutor();
+		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
+			baritone,
+			crafting,
+			dropItems,
+			entityInteraction,
+			smelting,
+			returnToSurface,
+			blockInteraction,
+			blockBreak
+		);
+
+		executor.tick(snapshot(), Optional.of(WorldTaskRequest.breakBlocks(
+			"task-7",
+			"job-7",
+			new BlockBreakStepArgs(List.of(new BlockBreakStepArgs.Target(
+				new GoalPosition(1, 64, 2, true),
+				List.of("minecraft:grass_block")
+			)))
+		)));
+
+		assertEquals(WorldTaskType.BREAK_BLOCKS, blockBreak.lastTask.orElseThrow().type());
+		assertEquals(Optional.empty(), baritone.lastTask);
+		assertEquals(Optional.empty(), crafting.lastTask);
+		assertEquals(Optional.empty(), dropItems.lastTask);
+		assertEquals(Optional.empty(), entityInteraction.lastTask);
+		assertEquals(Optional.empty(), smelting.lastTask);
+		assertEquals(Optional.empty(), returnToSurface.lastTask);
+		assertEquals(Optional.empty(), blockInteraction.lastTask);
+	}
+
 	private static SessionSnapshot snapshot() {
 		return new SessionSnapshot(SessionMode.REMOTE_MULTIPLAYER, true, true, "minecraft:overworld", false, 0, 0L);
 	}

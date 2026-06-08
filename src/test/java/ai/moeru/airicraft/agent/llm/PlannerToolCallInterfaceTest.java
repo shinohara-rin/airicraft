@@ -225,6 +225,7 @@ class PlannerToolCallInterfaceTest {
 
 		assertTrue(toolNames(tools).contains("place_block"));
 		assertTrue(toolNames(tools).contains("use_block"));
+		assertTrue(toolNames(tools).contains("break_blocks"));
 		PlannerToolCall placeCall = PlannerToolCatalog.parseToolCall(toolCall("place_block", """
 			{"itemId":"minecraft:dirt","x":1,"y":64,"z":2,"facePreference":"down","requireCurrentTargetMaterial":"air_or_replaceable"}
 			"""));
@@ -236,6 +237,12 @@ class PlannerToolCallInterfaceTest {
 		assertEquals("minecraft:dirt", placeCall.arguments().get("itemId").getAsString());
 		assertEquals("use_block", useCall.name());
 		assertEquals("minecraft:wheat_seeds", useCall.arguments().get("itemId").getAsString());
+		PlannerToolCall breakCall = PlannerToolCatalog.parseToolCall(toolCall("break_blocks", """
+			{"targets":[{"x":1,"y":64,"z":2,"expectedBlockIds":["minecraft:grass_block","minecraft:dirt"]}]}
+			"""));
+
+		assertEquals("break_blocks", breakCall.name());
+		assertEquals(1, breakCall.arguments().getAsJsonArray("targets").size());
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("place_block", """
 				{"itemId":"minecraft:dirt","x":1,"y":64,"z":2,"facePreference":"sideways"}
@@ -244,6 +251,11 @@ class PlannerToolCallInterfaceTest {
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("use_block", """
 				{"x":1,"y":64,"z":2,"expectedTargetMaterial":"solid"}
+				"""))
+		);
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("break_blocks", """
+				{"targets":[{"x":1,"y":64,"z":2}]}
 				"""))
 		);
 	}
