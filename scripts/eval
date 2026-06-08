@@ -14,7 +14,7 @@ case "$command" in
 			# shellcheck disable=SC1091
 			source .envrc
 		fi
-		exec ./gradlew -Pairicraft.includeEvaluator=true :runClientEvaluator "$@"
+		exec ./gradlew -Pairicraft.includeEvaluator=true -Pairicraft.includeCompat=true :runClientCompatEvaluator "$@"
 		;;
 	*)
 		printf 'usage: scripts/eval run [gradle args...]\n' >&2

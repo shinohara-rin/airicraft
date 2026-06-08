@@ -204,6 +204,14 @@ gradle.projectsEvaluated {
 			description = "Runs a production-style Fabric client with Airicraft and the evaluator addon."
 			dependsOn evaluatorProject.tasks.named("runClientEvaluator")
 		}
+
+		if (evaluatorProject.tasks.findByName("runClientCompatEvaluator") != null) {
+			tasks.register("runClientCompatEvaluator") {
+				group = "airicraft evaluation"
+				description = "Runs a production-style Fabric client with Airicraft, the evaluator addon, and all compatibility smoke mods."
+				dependsOn evaluatorProject.tasks.named("runClientCompatEvaluator")
+			}
+		}
 	}
 
 	def journeyMapCompatProject = findProject(":compat:journeymap")

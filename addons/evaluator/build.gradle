@@ -81,6 +81,8 @@ tasks.named("test") {
 }
 
 def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
+def journeyMapCompatProject = rootProject.findProject(":compat:journeymap")
+def reiCompatProject = rootProject.findProject(":compat:rei")
 
 tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
 	group = "airicraft evaluation"
@@ -102,4 +104,37 @@ tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductio
 		languageVersion = JavaLanguageVersion.of(21)
 	}
 	jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
+}
+
+if (journeyMapCompatProject != null) {
+	tasks.register("runClientCompatEvaluator", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+		group = "airicraft evaluation"
+		description = "Runs a production-style Fabric client with Airicraft, the evaluator addon, and all compatibility smoke mods."
+		dependsOn rootProject.tasks.named("remapJar")
+		dependsOn tasks.named("remapJar")
+		dependsOn journeyMapCompatProject.tasks.named("remapJar")
+		if (reiCompatProject != null) {
+			dependsOn reiCompatProject.tasks.named("remapJar")
+		}
+		outputs.upToDateWhen { false }
+
+		mods.from(rootProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
+		mods.from(journeyMapCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		mods.from(journeyMapCompatProject.configurations.named("journeyMapCompatMods"))
+		if (reiCompatProject != null) {
+			mods.from(reiCompatProject.tasks.named("remapJar").flatMap { it.archiveFile })
+		}
+		mods.from(rootProject.layout.projectDirectory.files(
+			"libs/baritone-unoptimized-fabric-1.15.0.jar",
+			"libs/nether-pathfinder-1.4.1.jar"
+		))
+		classpath.from(configurations.evaluatorRuntimeLibraries)
+		classpath.from(journeyMapCompatProject.configurations.named("journeyMapCompatLibraries"))
+		runDir = sharedDevRunDir.asFile
+		javaLauncher = javaToolchains.launcherFor {
+			languageVersion = JavaLanguageVersion.of(21)
+		}
+		jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
+	}
 }
