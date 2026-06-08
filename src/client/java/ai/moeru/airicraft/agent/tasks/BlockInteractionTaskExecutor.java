@@ -47,24 +47,35 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 
 	private final Supplier<MinecraftClient> clientSupplier;
 	private final LookController lookController;
+	private final int targetDelayTicks;
 
 	private WorldTaskRequest appliedTask;
 	private boolean terminalEventEmitted;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 	private int targetIndex;
 	private int completedTargets;
+	private long nextInteractionTick;
 
 	public BlockInteractionTaskExecutor() {
-		this(MinecraftClient::getInstance);
+		this(0);
+	}
+
+	public BlockInteractionTaskExecutor(int targetDelayTicks) {
+		this(MinecraftClient::getInstance, new LookController(), targetDelayTicks);
 	}
 
 	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier) {
-		this(clientSupplier, new LookController());
+		this(clientSupplier, new LookController(), 0);
 	}
 
 	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, LookController lookController) {
+		this(clientSupplier, lookController, 0);
+	}
+
+	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, LookController lookController, int targetDelayTicks) {
 		this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier");
 		this.lookController = Objects.requireNonNull(lookController, "lookController");
+		this.targetDelayTicks = Math.max(0, targetDelayTicks);
 	}
 
 	@Override
@@ -90,12 +101,22 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (player.currentScreenHandler != player.playerScreenHandler || !player.currentScreenHandler.getCursorStack().isEmpty()) {
 			return fail(request, "interaction_busy");
 		}
+		long tick = sessionSnapshot == null ? 0L : sessionSnapshot.tickCount();
+		if (targetIndex > 0 && tick < nextInteractionTick) {
+			snapshot = snapshot(
+				TaskExecutionState.RUNNING,
+				request,
+				"waiting_between_targets targetIndex=" + targetIndex + " remainingTicks=" + (nextInteractionTick - tick)
+			);
+			return Optional.empty();
+		}
 		return request.type() == WorldTaskType.PLACE_BLOCK
-			? placeBlock(client, player, request, request.blockPlacement().targets().get(targetIndex))
-			: useBlock(client, player, request, request.blockUse().targets().get(targetIndex));
+			? placeBlock(tick, client, player, request, request.blockPlacement().targets().get(targetIndex))
+			: useBlock(tick, client, player, request, request.blockUse().targets().get(targetIndex));
 	}
 
 	private Optional<TaskTerminalEvent> placeBlock(
+		long tick,
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		WorldTaskRequest request,
@@ -117,10 +138,11 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (hitTarget.isEmpty()) {
 			return fail(request, targetFailure(target, "support_not_found"));
 		}
-		return interact(client, player, request, hand, target, before, hitTarget.get());
+		return interact(tick, client, player, request, hand, target, before, hitTarget.get());
 	}
 
 	private Optional<TaskTerminalEvent> useBlock(
+		long tick,
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		WorldTaskRequest request,
@@ -140,7 +162,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			return fail(request, targetFailure(target, "required_item_missing itemId=" + request.blockUse().itemId()));
 		}
 		if (isHeldItem(player, hand, Items.WATER_BUCKET)) {
-			return useWaterBucketDirectly(client, player, request, hand, target, before);
+			return useWaterBucketDirectly(tick, client, player, request, hand, target, before);
 		}
 		Optional<HitTarget> hitTarget = (before.isAir() || before.isReplaceable())
 			? resolvePlacementHit(client, player, target, args.facePreference())
@@ -151,10 +173,11 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (!args.expectedSupportBlockIds().isEmpty() && !args.expectedSupportBlockIds().contains(blockId(hitTarget.get().supportState()))) {
 			return fail(request, targetFailure(target, "support_block_mismatch supportPos=" + compactPos(hitTarget.get().supportPos()) + " supportBlockId=" + blockId(hitTarget.get().supportState())));
 		}
-		return interact(client, player, request, hand, target, before, hitTarget.get());
+		return interact(tick, client, player, request, hand, target, before, hitTarget.get());
 	}
 
 	private Optional<TaskTerminalEvent> interact(
+		long tick,
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		WorldTaskRequest request,
@@ -166,6 +189,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (!withinInteractionRange(player, hitTarget.hitVec())) {
 			return fail(request, targetFailure(target, "target_out_of_range supportPos=" + compactPos(hitTarget.supportPos())));
 		}
+		lookController.lookAt(client, hitTarget.hitVec(), 360.0F, 180.0F);
 		ActionResult blockResult = client.interactionManager.interactBlock(player, hand, hitTarget.hitResult());
 		ActionResult itemResult = null;
 		if (!blockResult.isAccepted() && request.type() == WorldTaskType.USE_BLOCK && !(blockResult instanceof ActionResult.Fail)) {
@@ -197,10 +221,11 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			+ " itemInteractionResult=" + (itemResult == null ? "not_attempted" : itemResult)
 			+ " beforeBlockId=" + blockId(before)
 			+ " afterBlockId=" + blockId(after);
-		return completeTarget(request, message);
+		return completeTarget(tick, request, message);
 	}
 
 	private Optional<TaskTerminalEvent> useWaterBucketDirectly(
+		long tick,
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		WorldTaskRequest request,
@@ -220,11 +245,12 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				+ " horizontalSolidNeighbors=" + horizontalSolidNeighbors
 				+ " beforeBlockId=" + blockId(before)));
 		}
+		lookController.lookAt(client, Vec3d.ofCenter(target), 360.0F, 180.0F);
 		Optional<String> directPlacement = placeWaterDirectly(client, player, hand, target);
 		if (directPlacement.isPresent()) {
 			BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
 			player.swingHand(hand);
-			return completeTarget(request, "block_interaction_succeeded"
+			return completeTarget(tick, request, "block_interaction_succeeded"
 				+ " type=" + request.type().name()
 				+ " targetIndex=" + targetIndex
 				+ " targetCount=" + targetCount(request)
@@ -441,7 +467,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		return Optional.of(new TaskTerminalEvent(request.taskId(), null, TaskExecutionState.COMPLETED, message, TaskTerminationCause.GOAL_REACHED));
 	}
 
-	private Optional<TaskTerminalEvent> completeTarget(WorldTaskRequest request, String message) {
+	private Optional<TaskTerminalEvent> completeTarget(long tick, WorldTaskRequest request, String message) {
 		completedTargets++;
 		targetIndex++;
 		if (targetIndex >= targetCount(request)) {
@@ -450,7 +476,8 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				+ " completedTargets=" + completedTargets
 				+ " lastResult=" + message);
 		}
-		snapshot = snapshot(TaskExecutionState.RUNNING, request, message);
+		nextInteractionTick = tick + targetDelayTicks;
+		snapshot = snapshot(TaskExecutionState.RUNNING, request, message + " nextTargetDelayTicks=" + targetDelayTicks);
 		return Optional.empty();
 	}
 
@@ -566,6 +593,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		snapshot = TaskExecutionSnapshot.idle();
 		targetIndex = 0;
 		completedTargets = 0;
+		nextInteractionTick = 0L;
 	}
 
 	private enum TargetMaterial {

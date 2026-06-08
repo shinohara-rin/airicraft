@@ -10,3 +10,7 @@ enableProactiveSocialMode: true
 
 # When true, the game does not open the pause menu after the window loses focus.
 suppressAutoPauseOnFocusLost: true
+
+# Delay in client ticks between batched place_block/use_block target interactions.
+# Use 0 to disable pacing.
+blockInteractionDelayTicks: 2

@@ -209,7 +209,7 @@ public final class ClientRuntimeController {
 			new EntityInteractionTaskExecutor(baritoneFacade),
 			new SmeltingTaskExecutor(smeltingProcessManager, baritoneFacade),
 			new ReturnToSurfaceTaskExecutor(baritoneFacade),
-			new BlockInteractionTaskExecutor(),
+			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks()),
 			new BlockBreakTaskExecutor()
 		);
 		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor, smeltingProcessManager);
