@@ -72,6 +72,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EmbodiedAgentRuntimeTest {
@@ -637,7 +638,55 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(
 			"Smelting output ready: processId=smelt-process-1 output=minecraft:iron_ingotx1 station=minecraft:overworld@1,64,1.",
 			trigger.text()
-			);
+		);
+	}
+
+	@Test
+	void finishEvaluationSuppressesAutonomousPlannerTriggersUntilNextEvaluationStarts() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+
+		runtime.finishEvaluation();
+		PlannerTrigger suppressed = runtime.createPlannerTriggerForTests(new SemanticEvent(
+			1L,
+			20L,
+			1000L,
+			"smelting.output_ready",
+			Map.of(
+				"processId", "smelt-process-1",
+				"station", "minecraft:overworld@1,64,1",
+				"outputItemId", "minecraft:iron_ingot",
+				"outputCount", 1
+			)
+		), new EventRoutingProfile("smelting.output_ready", true, PlannerTriggerType.SYSTEM, true));
+		PlannerTrigger explicitChat = runtime.createPlannerTriggerForTests(new SemanticEvent(
+			2L,
+			21L,
+			1001L,
+			"social.player_addressed_agent",
+			Map.of(
+				"player", "Player",
+				"message", "@agent are you there?"
+			)
+		), new EventRoutingProfile("social.player_addressed_agent", false, PlannerTriggerType.CHAT, true));
+
+		assertNull(suppressed);
+		assertEquals(PlannerTriggerType.CHAT, explicitChat.type());
+
+		runtime.prepareForEvaluation();
+		PlannerTrigger resumed = runtime.createPlannerTriggerForTests(new SemanticEvent(
+			3L,
+			22L,
+			1002L,
+			"smelting.output_ready",
+			Map.of(
+				"processId", "smelt-process-2",
+				"station", "minecraft:overworld@1,64,1",
+				"outputItemId", "minecraft:gold_ingot",
+				"outputCount", 1
+			)
+		), new EventRoutingProfile("smelting.output_ready", true, PlannerTriggerType.SYSTEM, true));
+
+		assertEquals(PlannerTriggerType.SYSTEM, resumed.type());
 	}
 
 	@Test

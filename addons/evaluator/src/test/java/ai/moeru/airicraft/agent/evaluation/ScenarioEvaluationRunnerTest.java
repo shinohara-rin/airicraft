@@ -37,6 +37,34 @@ class ScenarioEvaluationRunnerTest {
 	}
 
 	@Test
+	void freezesReportAndStopsTriggersAfterTerminalStatus() {
+		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
+		FakeContext context = new FakeContext();
+		EvaluationScenario scenario = scenario(List.of(new EvaluationCheck("inventory_contains", Map.of(
+			"itemId", "minecraft:iron_ingot",
+			"count", 1
+		))), new EvaluationBudget(4, 200, 0, 5));
+
+		runner.start(scenario, 0, 0);
+		runner.onTick(context);
+		context.tick = 6;
+		context.inventoryCount = 1;
+		runner.onTick(context);
+
+		EvaluationReport terminalReport = runner.report(context.tick);
+		assertEquals(EvaluationStatus.PASSED, terminalReport.status());
+		assertEquals(6, terminalReport.elapsedTicks());
+		assertTrue(runner.terminal());
+		assertEquals(1, context.triggers.size());
+
+		context.tick = 100;
+		runner.onTick(context);
+
+		assertEquals(1, context.triggers.size());
+		assertEquals(6, runner.report(context.tick).elapsedTicks());
+	}
+
+	@Test
 	void failsWhenPlannerTurnBudgetIsExhaustedBeforeCheckPasses() {
 		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 		FakeContext context = new FakeContext();

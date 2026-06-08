@@ -13,6 +13,7 @@ public final class ScenarioEvaluationRunner {
 	private String message;
 	private long startTick;
 	private long startMillis;
+	private long finishTick = Long.MIN_VALUE;
 	private long lastTriggerTick;
 	private int plannerTurns;
 	private List<EvaluationCheckResult> latestCheckResults = List.of();
@@ -24,6 +25,7 @@ public final class ScenarioEvaluationRunner {
 		this.message = "Waiting for evaluation world";
 		this.startTick = tick;
 		this.startMillis = nowMs;
+		this.finishTick = Long.MIN_VALUE;
 		this.lastTriggerTick = Long.MIN_VALUE;
 		this.plannerTurns = 0;
 		this.latestCheckResults = List.of();
@@ -40,12 +42,12 @@ public final class ScenarioEvaluationRunner {
 			return;
 		}
 		if (!context.plannerConfigured()) {
-			fail("Planner LLM is not configured", true);
+			finish(EvaluationStatus.FAILED, "Planner LLM is not configured", true, context.tick());
 			return;
 		}
 		Optional<String> declaredFailure = context.declaredFailure();
 		if (declaredFailure.isPresent()) {
-			fail(declaredFailure.get(), true);
+			finish(EvaluationStatus.FAILED, declaredFailure.get(), true, context.tick());
 			return;
 		}
 
@@ -59,19 +61,21 @@ public final class ScenarioEvaluationRunner {
 
 		latestCheckResults = evaluateChecks(context);
 		if (checksPassed(latestCheckResults) && scenario.hasDeterministicChecks()) {
-			status = EvaluationStatus.PASSED;
-			message = "Expected outcome reached";
+			finish(EvaluationStatus.PASSED, "Expected outcome reached", false, context.tick());
 			return;
 		}
 
 		if (budgetExhausted(context)) {
 			if (scenario.hasDeterministicChecks()) {
-				fail("Evaluation budget exhausted before expected outcome", true);
+				finish(EvaluationStatus.FAILED, "Evaluation budget exhausted before expected outcome", true, context.tick());
 			}
 			else {
-				status = EvaluationStatus.NEEDS_REVIEW;
-				message = "Evaluation budget exhausted; no deterministic expected outcome is configured";
-				evidenceReviewRequired = true;
+				finish(
+					EvaluationStatus.NEEDS_REVIEW,
+					"Evaluation budget exhausted; no deterministic expected outcome is configured",
+					true,
+					context.tick()
+				);
 			}
 			return;
 		}
@@ -87,11 +91,12 @@ public final class ScenarioEvaluationRunner {
 		if (scenario == null) {
 			return EvaluationReport.idle();
 		}
+		long effectiveTick = terminal() && finishTick != Long.MIN_VALUE ? finishTick : currentTick;
 		return new EvaluationReport(
 			status,
 			scenario.id(),
 			message,
-			Math.max(0L, currentTick - startTick),
+			Math.max(0L, effectiveTick - startTick),
 			plannerTurns,
 			latestCheckResults,
 			evidenceReviewRequired,
@@ -106,6 +111,7 @@ public final class ScenarioEvaluationRunner {
 		startTick = 0L;
 		startMillis = 0L;
 		lastTriggerTick = Long.MIN_VALUE;
+		finishTick = Long.MIN_VALUE;
 		plannerTurns = 0;
 		latestCheckResults = List.of();
 		evidenceReviewRequired = false;
@@ -113,6 +119,10 @@ public final class ScenarioEvaluationRunner {
 
 	public EvaluationScenario scenario() {
 		return scenario;
+	}
+
+	public boolean terminal() {
+		return terminal(status);
 	}
 
 	private List<EvaluationCheckResult> evaluateChecks(Context context) {
@@ -218,10 +228,11 @@ public final class ScenarioEvaluationRunner {
 			&& context.nowMs() - startMillis >= scenario.budget().maxElapsedMillis();
 	}
 
-	private void fail(String failureMessage, boolean reviewRequired) {
-		status = EvaluationStatus.FAILED;
-		message = failureMessage;
+	private void finish(EvaluationStatus nextStatus, String nextMessage, boolean reviewRequired, long tick) {
+		status = nextStatus;
+		message = nextMessage;
 		evidenceReviewRequired = reviewRequired;
+		finishTick = tick;
 	}
 
 	private String heartbeatMessage() {

@@ -46,12 +46,18 @@ public final class EvaluationAddonRuntime {
 	}
 
 	public void onClientTick(MinecraftClient client) {
-		if (scenario == null) {
+		EvaluationScenario activeScenario = scenario;
+		if (activeScenario == null) {
 			return;
 		}
 		EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
 		runner.onTick(new RuntimeEvaluationContext(runtime));
-		recorder.recordTick(scenario, runner.report(runtime.tickCount()), runtime, this::evidencePayload);
+		var report = runner.report(runtime.tickCount());
+		recorder.recordTick(activeScenario, report, runtime, this::evidencePayload);
+		if (runner.terminal()) {
+			scenario = null;
+			runtime.finishEvaluation();
+		}
 	}
 
 	public void handleStatus(BridgeRouteContext context) throws Exception {

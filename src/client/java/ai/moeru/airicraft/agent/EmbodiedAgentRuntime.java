@@ -197,6 +197,7 @@ public final class EmbodiedAgentRuntime {
 	private long tickCount;
 	private long worldLoadTick = -1L;
 	private Boolean proactiveSocialModeOverride;
+	private boolean evaluationPlannerSuppressed;
 	private SessionSnapshot sessionSnapshot = SessionSnapshot.initial();
 	private SessionSnapshot sessionSnapshotOverrideForTests;
 	private FollowState followState = FollowState.idle();
@@ -366,6 +367,7 @@ public final class EmbodiedAgentRuntime {
 		behaviorTreeRuntime.stop(MinecraftClient.getInstance());
 		chatService.clear();
 		proactiveSocialModeOverride = null;
+		evaluationPlannerSuppressed = false;
 		lastSystemChatTick = -1L;
 		lastSystemChatText = null;
 		lastKnownPlayerHealth = null;
@@ -534,6 +536,7 @@ public final class EmbodiedAgentRuntime {
 		behaviorTreeRuntime.stop(MinecraftClient.getInstance());
 		chatService.clear();
 		proactiveSocialModeOverride = null;
+		evaluationPlannerSuppressed = false;
 		lastSystemChatTick = -1L;
 		lastSystemChatText = null;
 		lastKnownPlayerHealth = null;
@@ -695,7 +698,24 @@ public final class EmbodiedAgentRuntime {
 
 	public void prepareForEvaluation() {
 		proactiveSocialModeOverride = null;
+		evaluationPlannerSuppressed = false;
 		prepareClientForEvaluation();
+	}
+
+	public void finishEvaluation() {
+		evaluationPlannerSuppressed = true;
+		eventPipeline.clearPlannerFeed();
+		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=evaluation_finished");
+		dialogueRuntime.clear();
+		activeJobRuntime.clear();
+		worldTaskExecutor.onWorldLeave();
+		idleIdeaScheduler.reset();
+		followCapability.clear();
+		followState = FollowState.idle();
+		taskSnapshot = TaskSnapshot.idle();
+		taskExecutionSnapshot = TaskExecutionSnapshot.idle();
+		missionExecutionSnapshot = MissionExecutionSnapshot.idle();
+		behaviorTreeRuntime.stop(MinecraftClient.getInstance());
 	}
 
 	public void emitEvaluationChat(String message) {
@@ -2170,7 +2190,7 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private void maybeFireIdleIdeaTrigger(Optional<GoalSnapshot> activeGoal) {
-		if (!sessionSnapshot.companionActuationAllowed() || !config.llm().isConfigured()) {
+		if (evaluationPlannerSuppressed || !sessionSnapshot.companionActuationAllowed() || !config.llm().isConfigured()) {
 			idleIdeaScheduler.reset();
 			return;
 		}
@@ -2210,6 +2230,9 @@ public final class EmbodiedAgentRuntime {
 		if (eventType == null) {
 			return null;
 		}
+		if (evaluationPlannerSuppressed && suppressAutonomousPlannerTriggerAfterEvaluation(eventType)) {
+			return null;
+		}
 		return switch (eventType) {
 			case "social.player_spoke" -> createPlayerSpokeTrigger(event);
 			case "social.player_addressed_agent" -> createAddressedChatTrigger(event);
@@ -2221,6 +2244,19 @@ public final class EmbodiedAgentRuntime {
 			case "smelting.output_ready" -> createSmeltingOutputReadyTrigger(event);
 			case "task.blocked" -> createTaskBlockedTrigger(event);
 			default -> null;
+		};
+	}
+
+	private static boolean suppressAutonomousPlannerTriggerAfterEvaluation(String eventType) {
+		return switch (eventType) {
+			case "social.player_spoke",
+				"social.system_message",
+				"pickup.item_picked_up",
+				"crafting.item_crafted",
+				"combat.damage_taken",
+				"smelting.output_ready",
+				"task.blocked" -> true;
+			default -> false;
 		};
 	}
 
