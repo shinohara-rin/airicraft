@@ -1,43 +1,33 @@
 package ai.moeru.airicraft;
 
+import ai.moeru.airicraft.agent.control.CameraController;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public final class PlayerViewService {
+	private final CameraController cameraController;
+
+	public PlayerViewService() {
+		this(new CameraController());
+	}
+
+	public PlayerViewService(CameraController cameraController) {
+		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
+	}
+
 	public Map<String, Object> lookAt(double x, double y, double z) {
 		MinecraftClient client = requireClient();
 		if (client.world == null || client.player == null) {
 			throw new PlayerViewException("world_not_loaded", "No world is currently loaded");
 		}
 
-		ClientPlayerEntity player = client.player;
-		Vec3d eyePos = player.getEyePos();
 		Vec3d target = new Vec3d(x, y, z);
-		Vec3d delta = target.subtract(eyePos);
-		double horizontalDistance = Math.sqrt(delta.x * delta.x + delta.z * delta.z);
-		if (horizontalDistance < 1.0E-7 && Math.abs(delta.y) < 1.0E-7) {
-			throw new PlayerViewException("invalid_request", "Target must differ from the current camera position");
-		}
-
-		float yaw = (float) Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0F;
-		float pitch = (float) -Math.toDegrees(Math.atan2(delta.y, horizontalDistance));
-		pitch = Math.max(-90.0F, Math.min(90.0F, pitch));
-
-		player.setAngles(yaw, pitch);
-		player.setYaw(yaw);
-		player.setPitch(pitch);
-		player.setHeadYaw(yaw);
-		player.setBodyYaw(yaw);
-		player.lastYaw = yaw;
-		player.lastPitch = pitch;
-		player.renderYaw = yaw;
-		player.lastRenderYaw = yaw;
-		player.renderPitch = pitch;
-		player.lastRenderPitch = pitch;
+		CameraController.Rotation rotation = cameraController.lookAtNow(client, target)
+			.orElseThrow(() -> new PlayerViewException("invalid_request", "Target must differ from the current camera position"));
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
@@ -48,8 +38,8 @@ public final class PlayerViewService {
 			"z", z
 		));
 		payload.put("rotation", Map.of(
-			"yaw", yaw,
-			"pitch", pitch
+			"yaw", rotation.yaw(),
+			"pitch", rotation.pitch()
 		));
 		return payload;
 	}

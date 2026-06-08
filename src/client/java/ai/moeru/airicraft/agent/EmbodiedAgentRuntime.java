@@ -6,6 +6,7 @@ import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.SingleplayerWorldService;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeRuntime;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.behavior.BehaviorTreeSnapshot;
 import ai.moeru.airicraft.agent.chat.ChatService;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
@@ -179,7 +180,7 @@ public final class EmbodiedAgentRuntime {
 	private final ActiveJobRuntime activeJobRuntime = new ActiveJobRuntime();
 	private final IdleIdeaScheduler idleIdeaScheduler;
 	private final FollowCapability followCapability = new FollowCapability();
-	private final BehaviorTreeRuntime behaviorTreeRuntime = new BehaviorTreeRuntime();
+	private final BehaviorTreeRuntime behaviorTreeRuntime;
 	private final ChatService chatService = new ChatService();
 	private final CurrentViewVisionService visionService;
 	private final DialogueRuntime dialogueRuntime;
@@ -229,11 +230,39 @@ public final class EmbodiedAgentRuntime {
 		AgentObservability observability,
 		SmeltingProcessManager smeltingProcessManager
 	) {
+		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, smeltingProcessManager, new CameraController(airicraftConfig.cameraLerpDefaultTicks()));
+	}
+
+	public EmbodiedAgentRuntime(
+		AiricraftConfig airicraftConfig,
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		WorldTaskExecutor worldTaskExecutor,
+		SmeltingProcessManager smeltingProcessManager,
+		CameraController cameraController
+	) {
+		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
+			AgentObservability.create(config == null ? null : config.observability()),
+			smeltingProcessManager,
+			cameraController);
+	}
+
+	public EmbodiedAgentRuntime(
+		AiricraftConfig airicraftConfig,
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		WorldTaskExecutor worldTaskExecutor,
+		AgentObservability observability,
+		SmeltingProcessManager smeltingProcessManager,
+		CameraController cameraController
+	) {
 		this.airicraftConfig = Objects.requireNonNull(airicraftConfig, "airicraftConfig");
 		this.config = Objects.requireNonNull(config, "config");
 		this.worldTaskExecutor = Objects.requireNonNull(worldTaskExecutor, "worldTaskExecutor");
 		this.observability = new FlightRecordingObservability(Objects.requireNonNull(observability, "observability"), llmFlightRecorder);
 		this.smeltingProcessManager = Objects.requireNonNull(smeltingProcessManager, "smeltingProcessManager");
+		CameraController effectiveCameraController = Objects.requireNonNull(cameraController, "cameraController");
+		this.behaviorTreeRuntime = new BehaviorTreeRuntime(effectiveCameraController);
 		this.nearbyPlayerTracker = new NearbyPlayerTracker(resolveNearbyPlayerTrackingRadius(airicraftConfig));
 		this.idleIdeaScheduler = new IdleIdeaScheduler(effectiveIdleIdeasConfig(IdleIdeasConfig.defaults()));
 		Clock clock = Clock.systemDefaultZone();
@@ -246,7 +275,8 @@ public final class EmbodiedAgentRuntime {
 				this::executePlannerToolCall,
 				this::emitPlannerToolNarration,
 				this::beforePlannerToolExecution,
-				worldReadLedger::recordObserved
+				worldReadLedger::recordObserved,
+				effectiveCameraController
 			);
 		this.visionService = plannerShell.visionService();
 		this.dialogueRuntime = plannerShell.dialogueRuntime();

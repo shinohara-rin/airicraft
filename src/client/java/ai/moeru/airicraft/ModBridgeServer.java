@@ -1,6 +1,7 @@
 package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.bridge.BridgeExtensionRegistry;
 import ai.moeru.airicraft.bridge.BridgeRoute;
 import ai.moeru.airicraft.bridge.BridgeRouteContext;
@@ -87,7 +88,7 @@ public final class ModBridgeServer {
 	private final Supplier<ClientRuntimeController.ReloadResult> reloadSupplier;
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
-	private final PlayerViewService playerViewService = new PlayerViewService();
+	private final PlayerViewService playerViewService;
 
 	private volatile HttpServer server;
 	private volatile String token;
@@ -96,12 +97,14 @@ public final class ModBridgeServer {
 		Supplier<HighlightManager> highlightManagerSupplier,
 		Supplier<EmbodiedAgentRuntime> agentRuntimeSupplier,
 		Supplier<FirstPersonScreenshotService> screenshotServiceSupplier,
-		Supplier<ClientRuntimeController.ReloadResult> reloadSupplier
+		Supplier<ClientRuntimeController.ReloadResult> reloadSupplier,
+		CameraController cameraController
 	) {
 		this.highlightManagerSupplier = Objects.requireNonNull(highlightManagerSupplier, "highlightManagerSupplier");
 		this.agentRuntimeSupplier = Objects.requireNonNull(agentRuntimeSupplier, "agentRuntimeSupplier");
 		this.screenshotServiceSupplier = Objects.requireNonNull(screenshotServiceSupplier, "screenshotServiceSupplier");
 		this.reloadSupplier = Objects.requireNonNull(reloadSupplier, "reloadSupplier");
+		this.playerViewService = new PlayerViewService(Objects.requireNonNull(cameraController, "cameraController"));
 	}
 
 	public synchronized void start() {

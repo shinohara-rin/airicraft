@@ -5,6 +5,7 @@ import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.AgentConfigLoader;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.idle.IdleIdeasLoader;
 import ai.moeru.airicraft.agent.tasks.BaritoneTaskExecutor;
@@ -34,15 +35,17 @@ public final class ClientRuntimeController {
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
 	private final BaritoneFacade baritoneFacade = new LiveBaritoneFacade();
+	private final CameraController cameraController;
 	private volatile EmbodiedAgentRuntime agentRuntime;
 	private final ModBridgeServer bridgeServer;
 	private final PlannerDebugOverlay plannerDebugOverlay = new PlannerDebugOverlay();
 
 	public ClientRuntimeController() {
 		this.config = AiricraftConfigLoader.load();
+		this.cameraController = new CameraController(config.cameraLerpDefaultTicks());
 		this.agentRuntime = createRuntime(config, AgentConfigLoader.load());
 		this.agentRuntime.updateIdleIdeasConfig(IdleIdeasLoader.load());
-		this.bridgeServer = new ModBridgeServer(this::highlightManager, this::agentRuntime, this::screenshotService, this::reload);
+		this.bridgeServer = new ModBridgeServer(this::highlightManager, this::agentRuntime, this::screenshotService, this::reload, cameraController);
 	}
 
 	public AiricraftConfig config() {
@@ -81,11 +84,13 @@ public final class ClientRuntimeController {
 	public void onWorldLeave() {
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
 		currentAgentRuntime().onWorldLeave();
+		cameraController.clear();
 		highlightManager.clear();
 	}
 
 	public void onClientTick(MinecraftClient client) {
 		currentAgentRuntime().onClientTick(client);
+		cameraController.tick(client);
 		highlightManager.tick();
 	}
 
@@ -174,6 +179,8 @@ public final class ClientRuntimeController {
 		}
 
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		cameraController.clear();
+		cameraController.updateDefaultLerpTicks(nextConfig.cameraLerpDefaultTicks());
 		EmbodiedAgentRuntime previousRuntime = currentAgentRuntime();
 		EmbodiedAgentRuntime nextRuntime = createRuntime(nextConfig, nextAgentConfig);
 		nextRuntime.updateIdleIdeasConfig(nextIdleIdeasConfig);
@@ -192,6 +199,7 @@ public final class ClientRuntimeController {
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
 		plannerDebugOverlay.setMode(PlannerDebugOverlayMode.OFF);
 		currentAgentRuntime().shutdown();
+		cameraController.clear();
 		highlightManager.clear();
 		bridgeServer.stop();
 	}
@@ -206,13 +214,13 @@ public final class ClientRuntimeController {
 			new BaritoneTaskExecutor(baritoneFacade),
 			new CraftingTaskExecutor(baritoneFacade),
 			new DropItemsTaskExecutor(),
-			new EntityInteractionTaskExecutor(baritoneFacade),
+			new EntityInteractionTaskExecutor(baritoneFacade, cameraController),
 			new SmeltingTaskExecutor(smeltingProcessManager, baritoneFacade),
 			new ReturnToSurfaceTaskExecutor(baritoneFacade),
-			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks()),
+			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks(), cameraController),
 			new BlockBreakTaskExecutor()
 		);
-		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor, smeltingProcessManager);
+		return new EmbodiedAgentRuntime(airicraftConfig, agentConfig, screenshotService, worldTaskExecutor, smeltingProcessManager, cameraController);
 	}
 
 	public record ReloadResult(
@@ -250,6 +258,8 @@ public final class ClientRuntimeController {
 			payload.put("readSystemChatMessages", airicraftConfig.readSystemChatMessages());
 			payload.put("enableProactiveSocialMode", airicraftConfig.enableProactiveSocialMode());
 			payload.put("suppressAutoPauseOnFocusLost", airicraftConfig.suppressAutoPauseOnFocusLost());
+			payload.put("blockInteractionDelayTicks", airicraftConfig.blockInteractionDelayTicks());
+			payload.put("cameraLerpDefaultTicks", airicraftConfig.cameraLerpDefaultTicks());
 			return payload;
 		}
 

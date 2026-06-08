@@ -19,7 +19,8 @@ class AiricraftConfigLoaderTest {
 			"readSystemChatMessages", false,
 			"enableProactiveSocialMode", true,
 			"suppressAutoPauseOnFocusLost", false,
-			"blockInteractionDelayTicks", 4
+			"blockInteractionDelayTicks", 4,
+			"cameraLerpDefaultTicks", 7
 		), defaults);
 
 		assertEquals(96, parsed.socialChatMaxDistanceBlocks());
@@ -27,6 +28,7 @@ class AiricraftConfigLoaderTest {
 		assertTrue(parsed.enableProactiveSocialMode());
 		assertFalse(parsed.suppressAutoPauseOnFocusLost());
 		assertEquals(4, parsed.blockInteractionDelayTicks());
+		assertEquals(7, parsed.cameraLerpDefaultTicks());
 	}
 
 	@Test
@@ -37,15 +39,18 @@ class AiricraftConfigLoaderTest {
 
 		assertEquals(defaults.suppressAutoPauseOnFocusLost(), parsed.suppressAutoPauseOnFocusLost());
 		assertEquals(defaults.blockInteractionDelayTicks(), parsed.blockInteractionDelayTicks());
+		assertEquals(defaults.cameraLerpDefaultTicks(), parsed.cameraLerpDefaultTicks());
 	}
 
 	@Test
-	void fromMapClampsNegativeBlockInteractionDelay() {
+	void fromMapClampsNegativeInteractionDelays() {
 		AiricraftConfig parsed = AiricraftConfigLoader.fromMap(Map.of(
-			"blockInteractionDelayTicks", -5
+			"blockInteractionDelayTicks", -5,
+			"cameraLerpDefaultTicks", -3
 		), AiricraftConfig.defaults());
 
 		assertEquals(0, parsed.blockInteractionDelayTicks());
+		assertEquals(0, parsed.cameraLerpDefaultTicks());
 	}
 
 	@Test

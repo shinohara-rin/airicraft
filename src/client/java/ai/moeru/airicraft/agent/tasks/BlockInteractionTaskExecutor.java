@@ -1,6 +1,6 @@
 package ai.moeru.airicraft.agent.tasks;
 
-import ai.moeru.airicraft.agent.control.LookController;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.block.BlockState;
@@ -46,7 +46,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	);
 
 	private final Supplier<MinecraftClient> clientSupplier;
-	private final LookController lookController;
+	private final CameraController cameraController;
 	private final int targetDelayTicks;
 
 	private WorldTaskRequest appliedTask;
@@ -61,20 +61,24 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 	}
 
 	public BlockInteractionTaskExecutor(int targetDelayTicks) {
-		this(MinecraftClient::getInstance, new LookController(), targetDelayTicks);
+		this(MinecraftClient::getInstance, new CameraController(), targetDelayTicks);
+	}
+
+	public BlockInteractionTaskExecutor(int targetDelayTicks, CameraController cameraController) {
+		this(MinecraftClient::getInstance, cameraController, targetDelayTicks);
 	}
 
 	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier) {
-		this(clientSupplier, new LookController(), 0);
+		this(clientSupplier, new CameraController(), 0);
 	}
 
-	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, LookController lookController) {
-		this(clientSupplier, lookController, 0);
+	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, CameraController cameraController) {
+		this(clientSupplier, cameraController, 0);
 	}
 
-	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, LookController lookController, int targetDelayTicks) {
+	BlockInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, CameraController cameraController, int targetDelayTicks) {
 		this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier");
-		this.lookController = Objects.requireNonNull(lookController, "lookController");
+		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
 		this.targetDelayTicks = Math.max(0, targetDelayTicks);
 	}
 
@@ -189,11 +193,11 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (!withinInteractionRange(player, hitTarget.hitVec())) {
 			return fail(request, targetFailure(target, "target_out_of_range supportPos=" + compactPos(hitTarget.supportPos())));
 		}
-		lookController.lookAt(client, hitTarget.hitVec(), 360.0F, 180.0F);
+		cameraController.lookAtNow(client, hitTarget.hitVec());
 		ActionResult blockResult = client.interactionManager.interactBlock(player, hand, hitTarget.hitResult());
 		ActionResult itemResult = null;
 		if (!blockResult.isAccepted() && request.type() == WorldTaskType.USE_BLOCK && !(blockResult instanceof ActionResult.Fail)) {
-			lookController.lookAt(client, hitTarget.hitVec(), 360.0F, 180.0F);
+			cameraController.lookAtNow(client, hitTarget.hitVec());
 			if (raycastMatchesHitTarget(client, player, hitTarget)) {
 				itemResult = client.interactionManager.interactItem(player, hand);
 			}
@@ -245,7 +249,7 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				+ " horizontalSolidNeighbors=" + horizontalSolidNeighbors
 				+ " beforeBlockId=" + blockId(before)));
 		}
-		lookController.lookAt(client, Vec3d.ofCenter(target), 360.0F, 180.0F);
+		cameraController.lookAtNow(client, Vec3d.ofCenter(target));
 		Optional<String> directPlacement = placeWaterDirectly(client, player, hand, target);
 		if (directPlacement.isPresent()) {
 			BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;

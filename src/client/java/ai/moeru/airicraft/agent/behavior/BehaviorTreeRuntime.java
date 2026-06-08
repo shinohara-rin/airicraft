@@ -1,6 +1,6 @@
 package ai.moeru.airicraft.agent.behavior;
 
-import ai.moeru.airicraft.agent.control.LookController;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.control.MovementController;
 import ai.moeru.airicraft.agent.chat.ChatService;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
@@ -16,6 +16,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class BehaviorTreeRuntime {
@@ -23,10 +24,18 @@ public final class BehaviorTreeRuntime {
 	private static final float LOOK_YAW_STEP = 8.0F;
 	private static final float LOOK_PITCH_STEP = 6.0F;
 
-	private final LookController lookController = new LookController();
+	private final CameraController cameraController;
 	private final MovementController movementController = new MovementController();
 
 	private BehaviorTreeSnapshot snapshot = BehaviorTreeSnapshot.idle();
+
+	public BehaviorTreeRuntime() {
+		this(new CameraController());
+	}
+
+	public BehaviorTreeRuntime(CameraController cameraController) {
+		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
+	}
 
 	public void tick(
 		MinecraftClient client,
@@ -84,7 +93,7 @@ public final class BehaviorTreeRuntime {
 
 		if (activeGoal.get().type() == GoalType.FOLLOW_PLAYER && followState.targetNearby()) {
 			Vec3d targetPos = new Vec3d(followState.targetX(), followState.targetY() + 1.62D, followState.targetZ());
-			lookController.lookAt(client, targetPos, LOOK_YAW_STEP, LOOK_PITCH_STEP);
+			cameraController.lookAtStep(client, targetPos, LOOK_YAW_STEP, LOOK_PITCH_STEP);
 		}
 
 		snapshot = new BehaviorTreeSnapshot(

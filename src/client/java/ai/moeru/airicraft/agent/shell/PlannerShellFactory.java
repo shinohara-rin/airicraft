@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.shell;
 
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.dialogue.DialogueRuntime;
 import ai.moeru.airicraft.agent.integration.map.MapIntegrationBridge;
@@ -52,7 +53,8 @@ public final class PlannerShellFactory {
 			PlannerToolNarrationSink.NO_OP,
 			PlannerToolExecutionObserver.NO_OP,
 			ignored -> {
-			}
+			},
+			new CameraController()
 		);
 	}
 
@@ -75,7 +77,8 @@ public final class PlannerShellFactory {
 			narrationSink,
 			PlannerToolExecutionObserver.NO_OP,
 			ignored -> {
-			}
+			},
+			new CameraController()
 		);
 	}
 
@@ -90,9 +93,36 @@ public final class PlannerShellFactory {
 		PlannerToolExecutionObserver toolExecutionObserver,
 		Consumer<List<BlockPos>> worldReadObserver
 	) {
+		return create(
+			config,
+			screenshotService,
+			observability,
+			clock,
+			debugRecorder,
+			actionToolExecutor,
+			narrationSink,
+			toolExecutionObserver,
+			worldReadObserver,
+			new CameraController()
+		);
+	}
+
+	public static PlannerShellComponents create(
+		AgentConfig config,
+		FirstPersonScreenshotService screenshotService,
+		AgentObservability observability,
+		Clock clock,
+		AgentDebugRecorder debugRecorder,
+		PlannerActionToolExecutor actionToolExecutor,
+		PlannerToolNarrationSink narrationSink,
+		PlannerToolExecutionObserver toolExecutionObserver,
+		Consumer<List<BlockPos>> worldReadObserver,
+		CameraController cameraController
+	) {
 		Objects.requireNonNull(config, "config");
 		Objects.requireNonNull(screenshotService, "screenshotService");
 		Objects.requireNonNull(observability, "observability");
+		CameraController effectiveCameraController = Objects.requireNonNull(cameraController, "cameraController");
 		PlannerActionToolExecutor effectiveActionToolExecutor = Objects.requireNonNull(actionToolExecutor, "actionToolExecutor");
 		PlannerToolNarrationSink effectiveNarrationSink = Objects.requireNonNull(narrationSink, "narrationSink");
 		PlannerToolExecutionObserver effectiveToolExecutionObserver = Objects.requireNonNull(toolExecutionObserver, "toolExecutionObserver");
@@ -103,7 +133,8 @@ public final class PlannerShellFactory {
 			screenshotService,
 			new OpenAiCompatibleVisionBackend(config.llm(), observability),
 			MinecraftClient::getInstance,
-			observability
+			observability,
+			effectiveCameraController
 		);
 		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
 		CurrentWorldQueryService worldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);

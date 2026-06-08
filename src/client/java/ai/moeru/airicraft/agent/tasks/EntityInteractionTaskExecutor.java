@@ -1,6 +1,6 @@
 package ai.moeru.airicraft.agent.tasks;
 
-import ai.moeru.airicraft.agent.control.LookController;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.control.MovementController;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
@@ -33,12 +33,10 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	private static final double CHASE_GOAL_REFRESH_DISTANCE_BLOCKS = 2.0D;
 	private static final double DIRECT_CHASE_DISTANCE_BLOCKS = 10.0D;
 	private static final float ATTACK_READY_THRESHOLD = 0.92F;
-	private static final float LOOK_YAW_STEP = 12.0F;
-	private static final float LOOK_PITCH_STEP = 10.0F;
 
 	private final Supplier<MinecraftClient> clientSupplier;
 	private final BaritoneFacade navigationFacade;
-	private final LookController lookController = new LookController();
+	private final CameraController cameraController;
 	private final MovementController movementController = new MovementController();
 
 	private WorldTaskRequest appliedTask;
@@ -51,20 +49,29 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 
 	public EntityInteractionTaskExecutor() {
-		this(MinecraftClient::getInstance, null);
+		this(MinecraftClient::getInstance, null, new CameraController());
 	}
 
 	public EntityInteractionTaskExecutor(BaritoneFacade navigationFacade) {
-		this(MinecraftClient::getInstance, navigationFacade);
+		this(MinecraftClient::getInstance, navigationFacade, new CameraController());
+	}
+
+	public EntityInteractionTaskExecutor(BaritoneFacade navigationFacade, CameraController cameraController) {
+		this(MinecraftClient::getInstance, navigationFacade, cameraController);
 	}
 
 	EntityInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier) {
-		this(clientSupplier, null);
+		this(clientSupplier, null, new CameraController());
 	}
 
 	EntityInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, BaritoneFacade navigationFacade) {
+		this(clientSupplier, navigationFacade, new CameraController());
+	}
+
+	EntityInteractionTaskExecutor(Supplier<MinecraftClient> clientSupplier, BaritoneFacade navigationFacade, CameraController cameraController) {
 		this.clientSupplier = Objects.requireNonNull(clientSupplier, "clientSupplier");
 		this.navigationFacade = navigationFacade;
+		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
 	}
 
 	@Override
@@ -344,7 +351,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private void lookAtTarget(MinecraftClient client, Entity target) {
-		lookController.lookAt(client, targetAimPoint(target), LOOK_YAW_STEP, LOOK_PITCH_STEP);
+		cameraController.lookAtNow(client, targetAimPoint(target));
 	}
 
 	private static boolean hasBlockLineOfSight(MinecraftClient client, ClientPlayerEntity player, Entity target) {

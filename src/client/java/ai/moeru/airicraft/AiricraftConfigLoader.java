@@ -78,7 +78,8 @@ public final class AiricraftConfigLoader {
 			readBoolean(root, "readSystemChatMessages", defaults.readSystemChatMessages(), strict),
 			readBoolean(root, "enableProactiveSocialMode", defaults.enableProactiveSocialMode(), strict),
 			readBoolean(root, "suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost(), strict),
-			readInt(root, "blockInteractionDelayTicks", defaults.blockInteractionDelayTicks())
+			readInt(root, "blockInteractionDelayTicks", defaults.blockInteractionDelayTicks()),
+			readInt(root, "cameraLerpDefaultTicks", defaults.cameraLerpDefaultTicks())
 		);
 	}
 
@@ -101,6 +102,7 @@ public final class AiricraftConfigLoader {
 				);
 				migratedData.put("suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost());
 				migratedData.put("blockInteractionDelayTicks", defaults.blockInteractionDelayTicks());
+				migratedData.put("cameraLerpDefaultTicks", defaults.cameraLerpDefaultTicks());
 			}
 			Files.writeString(configPath, dumpYaml(migratedData), StandardCharsets.UTF_8);
 			return;
