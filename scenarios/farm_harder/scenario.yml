@@ -1,0 +1,73 @@
+id: farm_harder
+name: Farm harder
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: world.zip
+frozen: true
+prompt: >-
+  Build a 3x3 wheat farm inside the four torches. First inspect the torch-marked
+  area with inspect_world. Use the torches to identify the center ground block,
+  place water in that center block, till the eight surrounding grass or dirt
+  ground blocks with the hoe, then plant wheat seeds above all eight farmland
+  blocks. Keep the four torches in place. Stop only when the center is water and
+  all eight surrounding farm tiles have wheat planted.
+budget:
+  maxPlannerTurns: 30
+  maxElapsedTicks: 9000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: block_state
+    blockId: minecraft:water
+    state:
+      level: "0"
+    x: -15
+    y: 63
+    z: -40
+  - type: block_count
+    blockId: minecraft:farmland
+    count: 8
+    scope: box
+    x1: -16
+    y1: 63
+    z1: -41
+    x2: -14
+    y2: 63
+    z2: -39
+  - type: block_count
+    blockId: minecraft:wheat
+    count: 8
+    scope: box
+    x1: -16
+    y1: 64
+    z1: -41
+    x2: -14
+    y2: 64
+    z2: -39
+  - type: block_state
+    blockId: minecraft:torch
+    x: -17
+    y: 64
+    z: -40
+  - type: block_state
+    blockId: minecraft:torch
+    x: -15
+    y: 64
+    z: -42
+  - type: block_state
+    blockId: minecraft:torch
+    x: -15
+    y: 64
+    z: -38
+  - type: block_state
+    blockId: minecraft:torch
+    x: -13
+    y: 64
+    z: -40
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
