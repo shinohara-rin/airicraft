@@ -35,7 +35,7 @@ interface MinecraftTransport {
 
 	Map<String, Object> joinServer(String serverId);
 
-	Map<String, Object> lookAt(double x, double y, double z);
+	Map<String, Object> lookAt(double x, double y, double z, Integer durationTicks);
 
 	Map<String, Object> attackEntity(String uuid, String name, String entityTypeId, String mode);
 

@@ -434,6 +434,30 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void playerLookAtPassesDurationOverride() {
+		TestTransport transport = new TestTransport();
+		transport.lookAtPayload = linkedMap("available", true, "durationTicks", 12, "scheduled", true);
+
+		CliResult result = execute(
+			transport,
+			"player", "look-at",
+			"--x", "1.5",
+			"--y", "64",
+			"--z", "-2.25",
+			"--duration-ticks", "12"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("command: player look-at\n"));
+		assertEquals(1.5D, transport.lastLookAtX, 0.001D);
+		assertEquals(64.0D, transport.lastLookAtY, 0.001D);
+		assertEquals(-2.25D, transport.lastLookAtZ, 0.001D);
+		assertEquals(12, transport.lastLookAtDurationTicks);
+		assertTrue(result.output().contains("durationTicks: 12\n"));
+		assertTrue(result.output().contains("scheduled: true\n"));
+	}
+
+	@Test
 	void agentEventPolicyClearCallsTransport() {
 		TestTransport transport = new TestTransport();
 		transport.agentEventPolicyPayload = linkedMap(
@@ -1172,6 +1196,10 @@ class AiricraftCliMainTest {
 		private String lastUseEntityName;
 		private String lastUseEntityTypeId;
 		private String lastUseEntityItemId;
+		private double lastLookAtX;
+		private double lastLookAtY;
+		private double lastLookAtZ;
+		private Integer lastLookAtDurationTicks;
 		private boolean playerNearbyEntitiesCalled;
 
 		private RuntimeException worldsJoinFailure;
@@ -1272,7 +1300,11 @@ class AiricraftCliMainTest {
 		}
 
 		@Override
-		public Map<String, Object> lookAt(double x, double y, double z) {
+		public Map<String, Object> lookAt(double x, double y, double z, Integer durationTicks) {
+			lastLookAtX = x;
+			lastLookAtY = y;
+			lastLookAtZ = z;
+			lastLookAtDurationTicks = durationTicks;
 			return lookAtPayload;
 		}
 

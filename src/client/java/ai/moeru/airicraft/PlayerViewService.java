@@ -20,18 +20,27 @@ public final class PlayerViewService {
 	}
 
 	public Map<String, Object> lookAt(double x, double y, double z) {
+		return lookAt(x, y, z, null);
+	}
+
+	public Map<String, Object> lookAt(double x, double y, double z, Integer durationTicks) {
 		MinecraftClient client = requireClient();
 		if (client.world == null || client.player == null) {
 			throw new PlayerViewException("world_not_loaded", "No world is currently loaded");
 		}
 
 		Vec3d target = new Vec3d(x, y, z);
-		CameraController.Rotation rotation = cameraController.lookAtNow(client, target)
+		int effectiveDurationTicks = durationTicks == null
+			? cameraController.defaultLerpTicks()
+			: Math.max(0, durationTicks);
+		CameraController.Rotation rotation = cameraController.startLookAt(client, target, effectiveDurationTicks, "player_look_at")
 			.orElseThrow(() -> new PlayerViewException("invalid_request", "Target must differ from the current camera position"));
 
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
 		payload.put("worldLoaded", true);
+		payload.put("durationTicks", effectiveDurationTicks);
+		payload.put("scheduled", effectiveDurationTicks > 0);
 		payload.put("target", Map.of(
 			"x", x,
 			"y", y,

@@ -760,13 +760,16 @@ public final class AiricraftCliMain {
 		@Option(names = "--z", required = true)
 		private double z;
 
+		@Option(names = "--duration-ticks", description = "Smooth camera movement duration in client ticks. Omit to use airicraft.yml cameraLerpDefaultTicks; use 0 for instant.")
+		private Integer durationTicks;
+
 		private PlayerLookAtCommand(CliContext context) {
 			super(context, "player look-at");
 		}
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().lookAt(x, y, z);
+			return transport().lookAt(x, y, z, durationTicks);
 		}
 	}
 

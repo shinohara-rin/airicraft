@@ -176,12 +176,15 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
-	public Map<String, Object> lookAt(double x, double y, double z) {
-		return send("POST", "/v1/player/look-at", Map.of(
-			"x", x,
-			"y", y,
-			"z", z
-		));
+	public Map<String, Object> lookAt(double x, double y, double z, Integer durationTicks) {
+		LinkedHashMap<String, Object> request = new LinkedHashMap<>();
+		request.put("x", x);
+		request.put("y", y);
+		request.put("z", z);
+		if (durationTicks != null) {
+			request.put("durationTicks", durationTicks);
+		}
+		return send("POST", "/v1/player/look-at", request);
 	}
 
 	@Override

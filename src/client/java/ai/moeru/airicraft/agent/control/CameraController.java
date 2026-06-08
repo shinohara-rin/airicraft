@@ -24,6 +24,10 @@ public final class CameraController {
 		this.defaultLerpTicks = Math.max(0, defaultLerpTicks);
 	}
 
+	public int defaultLerpTicks() {
+		return defaultLerpTicks;
+	}
+
 	public Optional<Rotation> lookAtNow(MinecraftClient client, Vec3d target) {
 		ClientPlayerEntity player = client == null ? null : client.player;
 		if (player == null) {

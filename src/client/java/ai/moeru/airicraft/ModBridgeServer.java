@@ -256,7 +256,7 @@ public final class ModBridgeServer {
 			}
 
 			try {
-				return onClientThread(() -> playerViewService.lookAt(request.x(), request.y(), request.z()));
+				return onClientThread(() -> playerViewService.lookAt(request.x(), request.y(), request.z(), request.durationTicks()));
 			}
 			catch (PlayerViewService.PlayerViewException exception) {
 				throw new BridgeUnavailableException(exception.code(), exception.getMessage());
@@ -1767,7 +1767,7 @@ public final class ModBridgeServer {
 	private record JoinServerRequest(String serverId) {
 	}
 
-	private record LookAtRequest(Double x, Double y, Double z) {
+	private record LookAtRequest(Double x, Double y, Double z, Integer durationTicks) {
 	}
 
 	private record EntityInteractionRequest(String uuid, String name, String entityTypeId, String itemId, String mode) {
