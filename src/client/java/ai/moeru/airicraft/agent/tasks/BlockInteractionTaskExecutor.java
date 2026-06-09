@@ -165,10 +165,14 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (hand == null) {
 			return fail(request, targetFailure(target, "required_item_missing itemId=" + request.blockUse().itemId()));
 		}
-		if (isHeldItem(player, hand, Items.WATER_BUCKET)) {
+		UseBlockInteractionMode mode = useBlockInteractionMode(!before.getFluidState().isEmpty(), before.isAir() || before.isReplaceable());
+		if (mode == UseBlockInteractionMode.FLUID_ITEM_USE) {
+			return useItemOnFluidTarget(tick, client, player, request, hand, target, before);
+		}
+		if (mode == UseBlockInteractionMode.SUPPORT_INTERACTION && isHeldItem(player, hand, Items.WATER_BUCKET)) {
 			return useWaterBucketDirectly(tick, client, player, request, hand, target, before);
 		}
-		Optional<HitTarget> hitTarget = (before.isAir() || before.isReplaceable())
+		Optional<HitTarget> hitTarget = mode == UseBlockInteractionMode.SUPPORT_INTERACTION
 			? resolvePlacementHit(client, player, target, args.facePreference())
 			: Optional.of(hitOnBlock(target, before, facePreference(args.facePreference()).orElse(Direction.UP)));
 		if (hitTarget.isEmpty()) {
@@ -226,6 +230,55 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			+ " beforeBlockId=" + blockId(before)
 			+ " afterBlockId=" + blockId(after);
 		return completeTarget(tick, request, message);
+	}
+
+	private Optional<TaskTerminalEvent> useItemOnFluidTarget(
+		long tick,
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		WorldTaskRequest request,
+		Hand hand,
+		BlockPos target,
+		BlockState before
+	) {
+		if (!withinInteractionRange(player, Vec3d.ofCenter(target))) {
+			return fail(request, targetFailure(target, "target_out_of_range"));
+		}
+		Vec3d hitVec = Vec3d.ofCenter(target);
+		cameraController.lookAtNow(client, hitVec);
+		String beforeItemId = itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack());
+		boolean itemFluidRaycastMatches = raycastMatchesTarget(
+			client,
+			player,
+			target,
+			hitVec,
+			RaycastContext.FluidHandling.ANY
+		);
+		ActionResult itemResult = client.interactionManager.interactItem(player, hand);
+		if (!itemResult.isAccepted()) {
+			return fail(request, targetFailure(target, "fluid_item_interaction_failed"
+				+ " itemInteractionResult=" + itemResult
+				+ " itemFluidRaycastMatches=" + itemFluidRaycastMatches
+				+ " beforeBlockId=" + blockId(before)
+				+ " itemId=" + beforeItemId));
+		}
+		player.swingHand(hand);
+		BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : before;
+		String afterItemId = itemId(hand == Hand.OFF_HAND ? player.getOffHandStack() : player.getMainHandStack());
+		return completeTarget(tick, request, "block_interaction_succeeded"
+			+ " type=" + request.type().name()
+			+ " targetIndex=" + targetIndex
+			+ " targetCount=" + targetCount(request)
+			+ " targetPos=" + compactPos(target)
+			+ " itemId=" + beforeItemId
+			+ " afterItemId=" + afterItemId
+			+ " directFluidItemUse=true"
+			+ " itemFluidRaycastMatches=" + itemFluidRaycastMatches
+			+ " supportPos=direct"
+			+ " face=direct"
+			+ " itemInteractionResult=" + itemResult
+			+ " beforeBlockId=" + blockId(before)
+			+ " afterBlockId=" + blockId(after));
 	}
 
 	private Optional<TaskTerminalEvent> useWaterBucketDirectly(
@@ -303,15 +356,34 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 		if (client == null || client.world == null || player == null || hitTarget == null) {
 			return false;
 		}
+		return raycastMatchesTarget(
+			client,
+			player,
+			hitTarget.supportPos(),
+			hitTarget.hitVec(),
+			RaycastContext.FluidHandling.NONE
+		);
+	}
+
+	private static boolean raycastMatchesTarget(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		BlockPos target,
+		Vec3d hitVec,
+		RaycastContext.FluidHandling fluidHandling
+	) {
+		if (client == null || client.world == null || player == null || target == null || hitVec == null || fluidHandling == null) {
+			return false;
+		}
 		BlockHitResult raycast = client.world.raycast(new RaycastContext(
 			player.getEyePos(),
-			hitTarget.hitVec(),
+			hitVec,
 			RaycastContext.ShapeType.COLLIDER,
-			RaycastContext.FluidHandling.NONE,
+			fluidHandling,
 			player
 		));
 		return raycast.getType() == HitResult.Type.BLOCK
-			&& raycast.getBlockPos().equals(hitTarget.supportPos());
+			&& raycast.getBlockPos().equals(target);
 	}
 
 	private static HitTarget hitOnBlock(BlockPos support, BlockState supportState, Direction face) {
@@ -344,6 +416,15 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 
 	static boolean isSafeDirectWaterTarget(int horizontalSolidNeighbors) {
 		return horizontalSolidNeighbors >= MIN_DIRECT_WATER_HORIZONTAL_SUPPORTS;
+	}
+
+	static UseBlockInteractionMode useBlockInteractionMode(boolean targetHasFluid, boolean targetAirOrReplaceable) {
+		if (targetHasFluid) {
+			return UseBlockInteractionMode.FLUID_ITEM_USE;
+		}
+		return targetAirOrReplaceable
+			? UseBlockInteractionMode.SUPPORT_INTERACTION
+			: UseBlockInteractionMode.BLOCK_INTERACTION;
 	}
 
 	private static Optional<String> placeWaterDirectly(MinecraftClient client, ClientPlayerEntity player, Hand hand, BlockPos target) {
@@ -612,6 +693,12 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 				case AIR_OR_REPLACEABLE -> state.isAir() || state.isReplaceable();
 			};
 		}
+	}
+
+	enum UseBlockInteractionMode {
+		FLUID_ITEM_USE,
+		SUPPORT_INTERACTION,
+		BLOCK_INTERACTION
 	}
 
 	private record HitTarget(

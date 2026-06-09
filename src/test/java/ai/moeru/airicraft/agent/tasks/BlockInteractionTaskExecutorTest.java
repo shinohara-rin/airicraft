@@ -23,6 +23,34 @@ class BlockInteractionTaskExecutorTest {
 	}
 
 	@Test
+	void useBlockInteractionModeChoosesFluidItemUseForFluidTargets() {
+		assertEquals(
+			BlockInteractionTaskExecutor.UseBlockInteractionMode.FLUID_ITEM_USE,
+			BlockInteractionTaskExecutor.useBlockInteractionMode(true, true)
+		);
+		assertEquals(
+			BlockInteractionTaskExecutor.UseBlockInteractionMode.FLUID_ITEM_USE,
+			BlockInteractionTaskExecutor.useBlockInteractionMode(true, false)
+		);
+	}
+
+	@Test
+	void useBlockInteractionModeChoosesSupportForNonFluidAirOrReplaceableTargets() {
+		assertEquals(
+			BlockInteractionTaskExecutor.UseBlockInteractionMode.SUPPORT_INTERACTION,
+			BlockInteractionTaskExecutor.useBlockInteractionMode(false, true)
+		);
+	}
+
+	@Test
+	void useBlockInteractionModeChoosesBlockClickForSolidNonFluidTargets() {
+		assertEquals(
+			BlockInteractionTaskExecutor.UseBlockInteractionMode.BLOCK_INTERACTION,
+			BlockInteractionTaskExecutor.useBlockInteractionMode(false, false)
+		);
+	}
+
+	@Test
 	void batchedRequestPausesWhenSessionGateBlocksActuation() {
 		BlockInteractionTaskExecutor executor = new BlockInteractionTaskExecutor(() -> null);
 
