@@ -130,7 +130,7 @@ public final class PlannerToolCatalog {
 			), List.of("x", "y", "z", "exactY")), PlannerToolCatalog::validateNavigateToArguments),
 		builtInTool(RETURN_TO_SURFACE, false, tool(RETURN_TO_SURFACE, "Return to the remembered surface or last safe ground after mining. Optionally tower upward with filler blocks if trapped in a shaft.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
-				prop("useTowering", bool("Whether the executor may build a pillar underfoot while jumping if path navigation cannot return to the surface.")),
+				prop("useTowering", bool("Whether the executor may build a pillar underfoot while jumping if path navigation cannot return to the surface. Defaults to true when omitted.")),
 				prop("fillerBlockIds", stringArray("Optional namespaced block/item ids to use for towering. Omit to use defaults: " + String.join(", ", ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS) + "."))
 			), List.of()), PlannerToolCatalog::validateReturnToSurfaceArguments),
 		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks by block id. Do not pass item ids from inventory itemCounts.", properties(

@@ -475,7 +475,7 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void returnToSurfaceToolRoutesWorldTaskRequestWithDefaultFiller() {
+	void returnToSurfaceToolRoutesWorldTaskRequestWithDefaultFillerAndTowering() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
@@ -483,9 +483,7 @@ class EmbodiedAgentRuntimeTest {
 		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
 			"call_return",
 			"return_to_surface",
-			JsonParser.parseString("""
-				{"useTowering":true}
-				""").getAsJsonObject(),
+			JsonParser.parseString("{}").getAsJsonObject(),
 			null,
 			null
 		));
@@ -499,6 +497,28 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(request.returnToSurface().useTowering());
 		assertEquals("none", request.returnToSurface().targetKind());
 		assertEquals(ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS, request.returnToSurface().fillerBlockIds());
+	}
+
+	@Test
+	void returnToSurfaceToolHonorsExplicitToweringFalse() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_return",
+			"return_to_surface",
+			JsonParser.parseString("""
+				{"useTowering":false}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+
+		assertTrue(result.contains("TOOL_ERROR"));
+		assertTrue(result.contains("surface_target_unavailable"));
+		assertTrue(executor.lastActiveTask.isEmpty());
 	}
 
 	@Test

@@ -1185,7 +1185,7 @@ public final class EmbodiedAgentRuntime {
 				if (plannerToolWouldPreemptActiveTask(toolCall)) {
 					yield plannerActiveTaskPreemptionError(toolCall);
 				}
-				boolean useTowering = booleanArg(args, "useTowering").orElse(false);
+				boolean useTowering = booleanArg(args, "useTowering").orElse(true);
 				List<String> fillerBlockIds = args != null && args.has("fillerBlockIds")
 					? stringArrayArg(args, "fillerBlockIds")
 					: ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS;
