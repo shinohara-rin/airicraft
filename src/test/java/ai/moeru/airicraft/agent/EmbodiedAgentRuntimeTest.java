@@ -942,7 +942,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
 			"call_use_block",
 			"use_block",
 			JsonParser.parseString("""
@@ -951,14 +951,72 @@ class EmbodiedAgentRuntimeTest {
 			null,
 			null
 		));
+
+		assertFalse(resultFuture.isDone());
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
-		assertTrue(result.contains("accepted"));
 		assertEquals(WorldTaskType.USE_BLOCK, request.type());
 		assertEquals("minecraft:wheat_seeds", request.blockUse().itemId());
 		assertEquals(new GoalPosition(1, 65, 2, true), request.blockUse().targetPosition());
 		assertEquals(List.of("minecraft:farmland"), request.blockUse().expectedSupportBlockIds());
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			null,
+			TaskExecutionState.COMPLETED,
+			"used block",
+			null
+		));
+		runtime.onClientTick(null);
+
+		String result = resultFuture.join();
+		assertTrue(result.contains("completed"));
+		assertTrue(result.contains("state=COMPLETED"));
+		assertFalse(result.contains("accepted queued"));
+	}
+
+	@Test
+	void blockModificationToolFailureWaitsForTerminalFeedback() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
+
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+			"call_use_block",
+			"use_block",
+			JsonParser.parseString("""
+				{"itemId":"minecraft:stone_hoe","x":1,"y":65,"z":2,"expectedSupportBlockIds":["minecraft:dirt"],"expectedTargetMaterial":"air"}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+
+		assertFalse(resultFuture.isDone());
+		runtime.onClientTick(null);
+		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			null,
+			TaskExecutionState.FAILED,
+			"interaction_failed itemRaycastMatches=false",
+			null
+		));
+		runtime.onClientTick(null);
+		String result = resultFuture.join();
+
+		assertTrue(result.contains("failed"));
+		assertTrue(result.contains("state=FAILED"));
+		assertTrue(result.contains("interaction_failed itemRaycastMatches=false"));
+		assertFalse(result.contains("accepted queued"));
+		runtime.onClientTick(null);
+		assertEquals(TaskState.FAILED, runtime.taskSnapshot().state());
+		assertTrue(runtime.dialogueSnapshot().recentTurns().stream().anyMatch(turn ->
+			"system".equals(turn.speaker())
+				&& turn.text().contains("TASK UPDATE: state=FAILED")
+				&& turn.text().contains("activeStepKind=USE_BLOCK")
+				&& turn.text().contains("failure=interaction_failed itemRaycastMatches=false")
+		));
 	}
 
 	@Test
@@ -993,7 +1051,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 		runtime.recordWorldReadForTests(new BlockPos(2, 64, 2));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
 			"call_place",
 			"place_block",
 			JsonParser.parseString("""
@@ -1009,11 +1067,10 @@ class EmbodiedAgentRuntimeTest {
 			null,
 			null
 		));
+		assertFalse(resultFuture.isDone());
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
-		assertTrue(result.contains("accepted"));
-		assertTrue(result.contains("targets=2"));
 		assertEquals(WorldTaskType.PLACE_BLOCK, request.type());
 		assertEquals("minecraft:dirt", request.blockPlacement().itemId());
 		assertEquals(2, request.blockPlacement().targets().size());
@@ -1022,6 +1079,19 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(new GoalPosition(2, 64, 2, true), request.blockPlacement().targets().get(1).targetPosition());
 		assertEquals("north", request.blockPlacement().targets().get(1).facePreference());
 		assertEquals("air", request.blockPlacement().targets().get(1).requiredTargetMaterial());
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			null,
+			TaskExecutionState.COMPLETED,
+			"placed blocks",
+			null
+		));
+		runtime.onClientTick(null);
+
+		String result = resultFuture.join();
+		assertTrue(result.contains("completed"));
+		assertTrue(result.contains("targets=2"));
+		assertFalse(result.contains("accepted queued"));
 	}
 
 	@Test
@@ -1054,7 +1124,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
 			"call_break",
 			"break_blocks",
 			JsonParser.parseString("""
@@ -1063,13 +1133,25 @@ class EmbodiedAgentRuntimeTest {
 			null,
 			null
 		));
+		assertFalse(resultFuture.isDone());
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
-		assertTrue(result.contains("accepted"));
 		assertEquals(WorldTaskType.BREAK_BLOCKS, request.type());
 		assertEquals(new GoalPosition(1, 64, 2, true), request.blockBreak().targets().getFirst().position());
 		assertEquals(List.of("minecraft:grass_block", "minecraft:dirt"), request.blockBreak().targets().getFirst().expectedBlockIds());
+		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
+			request.taskId(),
+			null,
+			TaskExecutionState.COMPLETED,
+			"broke blocks",
+			null
+		));
+		runtime.onClientTick(null);
+
+		String result = resultFuture.join();
+		assertTrue(result.contains("completed"));
+		assertFalse(result.contains("accepted queued"));
 	}
 
 	@Test

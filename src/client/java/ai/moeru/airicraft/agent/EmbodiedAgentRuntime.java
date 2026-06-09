@@ -154,6 +154,7 @@ import java.util.TreeMap;
 public final class EmbodiedAgentRuntime {
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
 	static final int CRAFT_TOOL_RESULT_TIMEOUT_TICKS = 40;
+	static final int BLOCK_MODIFICATION_TOOL_RESULT_TIMEOUT_TICKS = 40;
 	private static final long SMELTING_OUTPUT_READY_POLL_INTERVAL_TICKS = 20L;
 	private static final List<String> KNOWN_NON_BLOCK_MINE_ITEM_IDS = List.of(
 		"minecraft:raw_iron",
@@ -212,6 +213,7 @@ public final class EmbodiedAgentRuntime {
 	private long lastSmeltingOutputReadyPollTick = Long.MIN_VALUE;
 	private final Map<UUID, String> seenPlayerNames = new LinkedHashMap<>();
 	private volatile PendingCraftToolResult pendingCraftToolResult;
+	private volatile PendingBlockModificationToolResult pendingBlockModificationToolResult;
 
 	public EmbodiedAgentRuntime(
 		AiricraftConfig airicraftConfig,
@@ -483,10 +485,13 @@ public final class EmbodiedAgentRuntime {
 			ActiveJobRuntime.TerminalTaskReport report = activeJobRuntime.reportTerminalTaskEvent(event, activeTaskRequest);
 			report.warning().ifPresent(this::handleInternalTaskWarning);
 			report.event().ifPresent(this::completePendingCraftToolResult);
+			report.event().ifPresent(reportedEvent -> completePendingBlockModificationToolResult(reportedEvent, activeTaskRequest));
 			report.event().ifPresent(reportedEvent -> handleTerminalTaskEvent(reportedEvent, semanticTaskContext, activeTaskRequest));
 		});
 		completePendingCraftToolResultFromTaskSnapshot(taskSnapshot);
+		completePendingBlockModificationToolResultFromTaskSnapshot(taskSnapshot);
 		expirePendingCraftToolResultIfTimedOut();
+		expirePendingBlockModificationToolResultIfTimedOut();
 		behaviorTreeRuntime.tick(
 			client,
 			sessionSnapshot,
@@ -1147,12 +1152,21 @@ public final class EmbodiedAgentRuntime {
 			if (toolCall != null && PlannerToolCatalog.CRAFT_RECIPE.equals(PlannerToolCatalog.normalizeName(toolCall.name()))) {
 				return executeCraftRecipePlannerTool(toolCall.arguments());
 			}
+			if (toolCall != null && blockModificationToolWaitsForTerminalResult(PlannerToolCatalog.normalizeName(toolCall.name()))) {
+				return executeBlockModificationPlannerTool(toolCall);
+			}
 			return CompletableFuture.completedFuture(executePlannerToolCallNow(toolCall));
 		}
 		catch (RuntimeException exception) {
 			String name = toolCall == null ? "unknown" : toolCall.name();
 			return CompletableFuture.completedFuture("TOOL_ERROR: " + name + " " + safeToolError(exception));
 		}
+	}
+
+	private static boolean blockModificationToolWaitsForTerminalResult(String normalizedToolName) {
+		return PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
+			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
+			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
 	}
 
 	private String executePlannerToolCallNow(PlannerToolCall toolCall) {
@@ -1547,6 +1561,94 @@ public final class EmbodiedAgentRuntime {
 		pendingCraftToolResult = new PendingCraftToolResult(
 			activeTask.get().taskId(),
 			craftRecipe,
+			tickCount,
+			future
+		);
+		return future;
+	}
+
+	private CompletableFuture<String> executeBlockModificationPlannerTool(PlannerToolCall toolCall) {
+		if (plannerToolWouldPreemptActiveTask(toolCall)) {
+			return CompletableFuture.completedFuture(plannerActiveTaskPreemptionError(toolCall));
+		}
+		String toolName = PlannerToolCatalog.normalizeName(toolCall.name());
+		JsonObject args = toolCall.arguments();
+		ActiveJobProposal proposal;
+		WorldTaskType expectedTaskType;
+		LedgerStepKind expectedStepKind;
+		String details;
+		switch (toolName) {
+			case PlannerToolCatalog.PLACE_BLOCK -> {
+				BlockPlacementStepArgs blockPlacement = parseBlockPlacementArgs(args);
+				for (BlockPlacementStepArgs.Target target : blockPlacement.targets()) {
+					BlockPos targetPos = blockPos(target.targetPosition());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						return CompletableFuture.completedFuture(guardedModificationNeedsInspect(PlannerToolCatalog.PLACE_BLOCK, targetPos));
+					}
+				}
+				proposal = ActiveJobProposal.placeBlock(blockPlacement);
+				expectedTaskType = WorldTaskType.PLACE_BLOCK;
+				expectedStepKind = LedgerStepKind.PLACE_BLOCK;
+				details = "itemId=" + blockPlacement.itemId()
+					+ " targets=" + blockPlacement.targets().size()
+					+ " firstTargetPos=" + compactPos(blockPos(blockPlacement.targets().getFirst().targetPosition()))
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(blockPos(blockPlacement.targets().getFirst().targetPosition()));
+			}
+			case PlannerToolCatalog.USE_BLOCK -> {
+				BlockUseStepArgs blockUse = parseBlockUseArgs(args);
+				for (BlockUseStepArgs.Target target : blockUse.targets()) {
+					BlockPos targetPos = blockPos(target.targetPosition());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						return CompletableFuture.completedFuture(guardedModificationNeedsInspect(PlannerToolCatalog.USE_BLOCK, targetPos));
+					}
+				}
+				proposal = ActiveJobProposal.useBlock(blockUse);
+				expectedTaskType = WorldTaskType.USE_BLOCK;
+				expectedStepKind = LedgerStepKind.USE_BLOCK;
+				details = (blockUse.itemId() == null ? "" : "itemId=" + blockUse.itemId() + " ")
+					+ "targets=" + blockUse.targets().size()
+					+ " firstTargetPos=" + compactPos(blockPos(blockUse.targets().getFirst().targetPosition()))
+					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(blockPos(blockUse.targets().getFirst().targetPosition()));
+			}
+			case PlannerToolCatalog.BREAK_BLOCKS -> {
+				BlockBreakStepArgs blockBreak = parseBlockBreakArgs(args);
+				for (BlockBreakStepArgs.Target target : blockBreak.targets()) {
+					Optional<String> validationError = validateMineBlockIds(target.expectedBlockIds());
+					if (validationError.isPresent()) {
+						return CompletableFuture.completedFuture("TOOL_ERROR: break_blocks " + validationError.get());
+					}
+				}
+				for (BlockBreakStepArgs.Target target : blockBreak.targets()) {
+					BlockPos targetPos = blockPos(target.position());
+					if (!worldReadLedger.isFresh(targetPos)) {
+						return CompletableFuture.completedFuture(guardedModificationNeedsInspect(PlannerToolCatalog.BREAK_BLOCKS, targetPos));
+					}
+				}
+				proposal = ActiveJobProposal.breakBlocks(blockBreak);
+				expectedTaskType = WorldTaskType.BREAK_BLOCKS;
+				expectedStepKind = LedgerStepKind.BREAK_BLOCKS;
+				details = "targets=" + blockBreak.targets().size()
+					+ " firstTargetPos=" + compactPos(blockPos(blockBreak.targets().getFirst().position()));
+			}
+			default -> {
+				return CompletableFuture.completedFuture("TOOL_ERROR: unknown_tool " + toolCall.name());
+			}
+		}
+
+		applyPlannerJobTool(proposal);
+		Optional<WorldTaskRequest> activeTask = activeJobRuntime.activeTaskRequest();
+		if (activeTask.isEmpty() || activeTask.get().type() != expectedTaskType) {
+			return CompletableFuture.completedFuture("TOOL_ERROR: " + toolName + " task_not_started");
+		}
+
+		completePendingBlockModificationToolResult("Tool result for " + toolName + ": cancelled reason=superseded");
+		CompletableFuture<String> future = new CompletableFuture<>();
+		pendingBlockModificationToolResult = new PendingBlockModificationToolResult(
+			activeTask.get().taskId(),
+			toolName,
+			expectedTaskType,
+			expectedStepKind,
+			details,
 			tickCount,
 			future
 		);
@@ -2944,6 +3046,33 @@ public final class EmbodiedAgentRuntime {
 		completePendingCraftToolResult(formatCraftSnapshotToolResult(pending.craftRecipe(), snapshot) + inventorySnapshotForTaskUpdate(WorldTaskType.CRAFT_RECIPE));
 	}
 
+	private void completePendingBlockModificationToolResult(TaskTerminalEvent event, Optional<WorldTaskRequest> activeTaskRequest) {
+		PendingBlockModificationToolResult pending = pendingBlockModificationToolResult;
+		if (pending == null || event == null || !Objects.equals(pending.taskId(), event.taskId())) {
+			return;
+		}
+		completePendingBlockModificationToolResult(
+			formatBlockModificationTerminalToolResult(pending, event)
+				+ inventorySnapshotForTaskUpdate(event, activeTaskRequest)
+		);
+	}
+
+	private void completePendingBlockModificationToolResultFromTaskSnapshot(TaskSnapshot snapshot) {
+		PendingBlockModificationToolResult pending = pendingBlockModificationToolResult;
+		if (
+			pending == null
+				|| snapshot == null
+				|| snapshot.activeStepKind() != pending.stepKind()
+				|| !isTerminalTaskState(snapshot.state())
+		) {
+			return;
+		}
+		completePendingBlockModificationToolResult(
+			formatBlockModificationSnapshotToolResult(pending, snapshot)
+				+ inventorySnapshotForTaskUpdate(pending.taskType())
+		);
+	}
+
 	private String inventorySnapshotForTaskUpdate(LedgerStepKind activeStepKind) {
 		if (!inventoryMutatingStepKind(activeStepKind)) {
 			return "";
@@ -3037,12 +3166,39 @@ public final class EmbodiedAgentRuntime {
 		);
 	}
 
+	private void expirePendingBlockModificationToolResultIfTimedOut() {
+		PendingBlockModificationToolResult pending = pendingBlockModificationToolResult;
+		if (pending == null || pending.future().isDone()) {
+			pendingBlockModificationToolResult = null;
+			return;
+		}
+		long waitedTicks = tickCount - pending.startTick();
+		if (waitedTicks < BLOCK_MODIFICATION_TOOL_RESULT_TIMEOUT_TICKS) {
+			return;
+		}
+		completePendingBlockModificationToolResult(
+			"Tool result for " + pending.toolName() + ": pending_timeout "
+				+ pending.details()
+				+ " waitedTicks=" + waitedTicks
+				+ ". The action is still running; wait for TASK UPDATE before saying the action completed."
+		);
+	}
+
 	private void completePendingCraftToolResult(String result) {
 		PendingCraftToolResult pending = pendingCraftToolResult;
 		if (pending == null) {
 			return;
 		}
 		pendingCraftToolResult = null;
+		pending.future().complete(result);
+	}
+
+	private void completePendingBlockModificationToolResult(String result) {
+		PendingBlockModificationToolResult pending = pendingBlockModificationToolResult;
+		if (pending == null) {
+			return;
+		}
+		pendingBlockModificationToolResult = null;
 		pending.future().complete(result);
 	}
 
@@ -3063,6 +3219,26 @@ public final class EmbodiedAgentRuntime {
 		return "Tool result for craft_recipe: " + status
 			+ " recipeId=" + craftRecipe.recipeId()
 			+ " times=" + craftRecipe.times()
+			+ " state=" + snapshot.state().name()
+			+ failure;
+	}
+
+	private static String formatBlockModificationTerminalToolResult(PendingBlockModificationToolResult pending, TaskTerminalEvent event) {
+		String status = event.terminalState() == TaskExecutionState.FAILED
+			? "failed"
+			: event.terminalState() == TaskExecutionState.CANCELLED ? "cancelled" : "completed";
+		String message = event.message() == null || event.message().isBlank() ? "" : " message=" + event.message();
+		return "Tool result for " + pending.toolName() + ": " + status
+			+ " " + pending.details()
+			+ " state=" + event.terminalState().name()
+			+ message;
+	}
+
+	private static String formatBlockModificationSnapshotToolResult(PendingBlockModificationToolResult pending, TaskSnapshot snapshot) {
+		String status = snapshot.state() == TaskState.FAILED ? "failed" : snapshot.state() == TaskState.CANCELLED ? "cancelled" : "completed";
+		String failure = snapshot.lastFailure() == null || snapshot.lastFailure().isBlank() ? "" : " failure=" + snapshot.lastFailure();
+		return "Tool result for " + pending.toolName() + ": " + status
+			+ " " + pending.details()
 			+ " state=" + snapshot.state().name()
 			+ failure;
 	}
@@ -3303,6 +3479,17 @@ public final class EmbodiedAgentRuntime {
 	private record PendingCraftToolResult(
 		String taskId,
 		CraftRecipeStepArgs craftRecipe,
+		long startTick,
+		CompletableFuture<String> future
+	) {
+	}
+
+	private record PendingBlockModificationToolResult(
+		String taskId,
+		String toolName,
+		WorldTaskType taskType,
+		LedgerStepKind stepKind,
+		String details,
 		long startTick,
 		CompletableFuture<String> future
 	) {
