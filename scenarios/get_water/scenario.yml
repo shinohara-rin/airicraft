@@ -1,0 +1,41 @@
+id: get_water
+name: Get water
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: world.zip
+frozen: true
+prompt: >-
+  You are in a desert next to an empty brick well, with a river nearby. Use the
+  empty bucket in your inventory to obtain water from a nearby river source
+  block, then return to the brick well and pour the water into the empty center
+  of the well. The well's empty center target is at -23, 66, -2. Use
+  inspect_world for exact block coordinates and block states; use take_a_look
+  only for visual orientation if needed. Use use_block with minecraft:bucket on
+  a river source water block to fill the bucket, then use use_block with
+  minecraft:water_bucket on the well center target. Do not use commands,
+  creative-mode shortcuts, or unrelated inventory items. Stop only after
+  inspect_world or a task update confirms the well center contains source water
+  and the bucket is empty again.
+budget:
+  maxPlannerTurns: 24
+  maxElapsedTicks: 12000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: block_state
+    x: -23
+    y: 66
+    z: -2
+    blockId: minecraft:water
+    state:
+      level: "0"
+  - type: inventory_contains
+    itemId: minecraft:bucket
+    count: 1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
