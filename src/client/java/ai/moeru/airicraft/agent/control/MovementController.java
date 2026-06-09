@@ -51,6 +51,10 @@ public final class MovementController {
 	}
 
 	public void swimUp(MinecraftClient client, boolean forward, boolean sprint, long tick) {
+		swimUp(client, forward, sprint, false, false, false, tick);
+	}
+
+	public void swimUp(MinecraftClient client, boolean forward, boolean sprint, boolean left, boolean right, boolean back, long tick) {
 		if (client == null) {
 			return;
 		}
@@ -67,18 +71,20 @@ public final class MovementController {
 			stuck = false;
 		}
 
-		movingForward = forward;
-		sprinting = forward && sprint;
+		boolean effectiveForward = forward && !back;
+		boolean effectiveSprint = effectiveForward && sprint;
+		movingForward = effectiveForward;
+		sprinting = effectiveSprint;
 		jumping = true;
 		enableAutoJump(client);
 
-		client.options.forwardKey.setPressed(forward);
-		client.options.backKey.setPressed(false);
-		client.options.leftKey.setPressed(false);
-		client.options.rightKey.setPressed(false);
-		client.options.sprintKey.setPressed(forward && sprint);
+		client.options.forwardKey.setPressed(effectiveForward);
+		client.options.backKey.setPressed(back);
+		client.options.leftKey.setPressed(left && !right);
+		client.options.rightKey.setPressed(right && !left);
+		client.options.sprintKey.setPressed(effectiveSprint);
 		client.options.jumpKey.setPressed(true);
-		player.setSprinting(forward && sprint);
+		player.setSprinting(effectiveSprint);
 
 		updateStuckState(player, tick);
 	}

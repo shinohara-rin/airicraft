@@ -32,9 +32,9 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private static final int NAVIGATION_RADIUS_BLOCKS = 3;
 	private static final int MAX_TOWER_BLOCKS = 96;
 	private static final int BREATHABLE_STABLE_TICKS = 12;
-	private static final int UNDERWATER_STUCK_FAIL_TICKS = 240;
 	private static final int HEADROOM_BREAK_TIMEOUT_TICKS = 600;
 	private static final int TOWER_SUPPORT_SEARCH_DEPTH = 3;
+	private static final int UNDERWATER_ESCAPE_PHASE_TICKS = 20;
 	private static final double TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED = 4.0D;
 
 	private final Supplier<MinecraftClient> clientSupplier;
@@ -168,33 +168,33 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		breathableTicks = 0;
 		long tick = sessionSnapshot == null ? 0L : sessionSnapshot.tickCount();
 		double horizontalDistanceSquared = horizontalDistanceSquared(player, args.targetPosition());
+		boolean stuck = movementController.snapshot().stuck();
 		RecoveryMovement recoveryMovement = recoveryMovement(
 			true,
 			args.targetPosition() != null,
 			horizontalDistanceSquared,
-			movementController.snapshot().stuck()
+			stuck
 		);
-		boolean moveTowardTarget = recoveryMovement == RecoveryMovement.TOWARD_TARGET;
-		if (moveTowardTarget) {
-			cameraController.lookAtNow(client, targetSwimPoint(args.targetPosition()));
-		}
-		movementController.swimUp(client, moveTowardTarget, moveTowardTarget, tick);
-		recoveryMovement = recoveryMovement(
-			true,
-			args.targetPosition() != null,
-			horizontalDistanceSquared,
-			movementController.snapshot().stuck()
-		);
-		if (recoveryMovement == RecoveryMovement.STUCK) {
+		if (stuck) {
 			underwaterStuckTicks++;
 		}
 		else {
 			underwaterStuckTicks = 0;
 		}
-		String event = recoveryMovementEvent(recoveryMovement);
-		if (underwaterStuckTicks >= UNDERWATER_STUCK_FAIL_TICKS) {
-			return fail(request, "underwater_recovery_stuck");
+		UnderwaterRecoveryKeys keys = underwaterRecoveryKeys(recoveryMovement, underwaterStuckTicks);
+		if (recoveryMovement == RecoveryMovement.TOWARD_TARGET || (recoveryMovement == RecoveryMovement.STUCK && args.targetPosition() != null)) {
+			cameraController.lookAtNow(client, targetSwimPoint(args.targetPosition()));
 		}
+		movementController.swimUp(
+			client,
+			keys.forward(),
+			keys.sprint(),
+			keys.left(),
+			keys.right(),
+			keys.back(),
+			tick
+		);
+		String event = recoveryMovementEvent(recoveryMovement);
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, event);
 		return Optional.empty();
 	}
@@ -385,6 +385,22 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	static boolean shouldClearTowerHeadroom(boolean occupied, boolean replaceable, boolean hasFluid) {
 		return occupied && !replaceable && !hasFluid;
+	}
+
+	static UnderwaterRecoveryKeys underwaterRecoveryKeys(RecoveryMovement recoveryMovement, int stuckTicks) {
+		if (recoveryMovement == RecoveryMovement.TOWARD_TARGET) {
+			return new UnderwaterRecoveryKeys(true, true, false, false, false);
+		}
+		if (recoveryMovement != RecoveryMovement.STUCK) {
+			return new UnderwaterRecoveryKeys(false, false, false, false, false);
+		}
+		int phase = Math.floorDiv(Math.max(0, stuckTicks), UNDERWATER_ESCAPE_PHASE_TICKS) % 4;
+		return switch (phase) {
+			case 0 -> new UnderwaterRecoveryKeys(true, true, true, false, false);
+			case 1 -> new UnderwaterRecoveryKeys(true, true, false, true, false);
+			case 2 -> new UnderwaterRecoveryKeys(false, false, true, false, true);
+			default -> new UnderwaterRecoveryKeys(false, false, false, true, true);
+		};
 	}
 
 	private static double horizontalDistanceSquared(ClientPlayerEntity player, GoalPosition target) {
@@ -624,6 +640,9 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private record HeadroomClearance(String event, boolean failed) {
+	}
+
+	record UnderwaterRecoveryKeys(boolean forward, boolean sprint, boolean left, boolean right, boolean back) {
 	}
 
 	enum SurfaceTargetOutcome {

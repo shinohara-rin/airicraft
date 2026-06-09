@@ -83,6 +83,57 @@ class ReturnToSurfaceTaskExecutorTest {
 	}
 
 	@Test
+	void underwaterStuckRecoveryAlternatesEscapeInputsWithoutFailing() {
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys first = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.STUCK,
+			0
+		);
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys second = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.STUCK,
+			20
+		);
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys third = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.STUCK,
+			40
+		);
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys fourth = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.STUCK,
+			60
+		);
+
+		assertTrue(first.forward());
+		assertTrue(first.left());
+		assertTrue(second.forward());
+		assertTrue(second.right());
+		assertTrue(third.back());
+		assertTrue(third.left());
+		assertTrue(fourth.back());
+		assertTrue(fourth.right());
+	}
+
+	@Test
+	void normalUnderwaterRecoveryKeysStayFocusedOnAscendingOrTarget() {
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys ascending = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.ASCENDING,
+			100
+		);
+		ReturnToSurfaceTaskExecutor.UnderwaterRecoveryKeys towardTarget = ReturnToSurfaceTaskExecutor.underwaterRecoveryKeys(
+			ReturnToSurfaceTaskExecutor.RecoveryMovement.TOWARD_TARGET,
+			100
+		);
+
+		assertFalse(ascending.forward());
+		assertFalse(ascending.left());
+		assertFalse(ascending.right());
+		assertFalse(ascending.back());
+		assertTrue(towardTarget.forward());
+		assertTrue(towardTarget.sprint());
+		assertFalse(towardTarget.left());
+		assertFalse(towardTarget.right());
+		assertFalse(towardTarget.back());
+	}
+
+	@Test
 	void towerHeadroomClearsOnlySolidDryObstructions() {
 		assertTrue(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, false, false));
 		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(false, false, false));
