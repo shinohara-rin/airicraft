@@ -34,6 +34,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private static final int BREATHABLE_STABLE_TICKS = 12;
 	private static final int UNDERWATER_STUCK_FAIL_TICKS = 240;
 	private static final int HEADROOM_BREAK_TIMEOUT_TICKS = 600;
+	private static final int TOWER_SUPPORT_SEARCH_DEPTH = 3;
 	private static final double TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED = 4.0D;
 
 	private final Supplier<MinecraftClient> clientSupplier;
@@ -409,18 +410,33 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private static PlacementAttempt placeUnderFoot(MinecraftClient client, ClientPlayerEntity player, Hand hand) {
-		BlockPos support = player.getBlockPos().down();
-		if (!canPlaceAgainst(client, player, hand, support)) {
+		Optional<BlockPos> support = findTowerSupport(client, player, hand);
+		if (support.isEmpty()) {
 			return new PlacementAttempt(false, "support_unavailable");
 		}
+		BlockPos supportPos = support.get();
 		BlockHitResult hitResult = new BlockHitResult(
-			new Vec3d(support.getX() + 0.5D, support.getY() + 1.0D, support.getZ() + 0.5D),
+			new Vec3d(supportPos.getX() + 0.5D, supportPos.getY() + 1.0D, supportPos.getZ() + 0.5D),
 			Direction.UP,
-			support,
+			supportPos,
 			false
 		);
 		ActionResult result = client.interactionManager.interactBlock(player, hand, hitResult);
 		return new PlacementAttempt(result.isAccepted(), result.isAccepted() ? "placed" : "interact_" + result);
+	}
+
+	private static Optional<BlockPos> findTowerSupport(MinecraftClient client, ClientPlayerEntity player, Hand hand) {
+		if (player == null) {
+			return Optional.empty();
+		}
+		BlockPos feet = player.getBlockPos();
+		for (int offset = 1; offset <= TOWER_SUPPORT_SEARCH_DEPTH; offset++) {
+			BlockPos support = feet.down(offset);
+			if (canPlaceAgainst(client, player, hand, support)) {
+				return Optional.of(support);
+			}
+		}
+		return Optional.empty();
 	}
 
 	private static boolean canPlaceAgainst(MinecraftClient client, ClientPlayerEntity player, Hand hand, BlockPos support) {
