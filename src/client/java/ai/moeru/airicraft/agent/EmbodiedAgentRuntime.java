@@ -1160,19 +1160,16 @@ public final class EmbodiedAgentRuntime {
 			return "TOOL_ERROR: missing_tool_call";
 		}
 		JsonObject args = toolCall.arguments();
+		if (plannerToolWouldPreemptActiveTask(toolCall)) {
+			return plannerActiveTaskPreemptionError(toolCall);
+		}
 		return switch (PlannerToolCatalog.normalizeName(toolCall.name())) {
 			case PlannerToolCatalog.FOLLOW_PLAYER -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				String targetPlayer = stringArg(args, "targetPlayer").orElseThrow(() -> new IllegalArgumentException("targetPlayer is required"));
 				applyPlannerJobTool(ActiveJobProposal.followPlayer(targetPlayer));
 				yield queuedActionToolResult("follow_player", "targetPlayer=" + targetPlayer);
 			}
 			case PlannerToolCatalog.NAVIGATE_TO -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				GoalPosition position = new GoalPosition(
 					intArg(args, "x").orElseThrow(() -> new IllegalArgumentException("x is required")),
 					intArg(args, "y").orElseThrow(() -> new IllegalArgumentException("y is required")),
@@ -1183,9 +1180,6 @@ public final class EmbodiedAgentRuntime {
 				yield queuedActionToolResult("navigate_to", "x=" + position.x() + " y=" + position.y() + " z=" + position.z() + " exactY=" + position.exactY());
 			}
 			case PlannerToolCatalog.RETURN_TO_SURFACE -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				boolean useTowering = booleanArg(args, "useTowering").orElse(true);
 				List<String> fillerBlockIds = args != null && args.has("fillerBlockIds")
 					? stringArrayArg(args, "fillerBlockIds")
@@ -1215,9 +1209,6 @@ public final class EmbodiedAgentRuntime {
 				);
 			}
 			case PlannerToolCatalog.MINE_BLOCKS -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				GoalMineSpec mineSpec = new GoalMineSpec(
 					stringArrayArg(args, "blockIds"),
 					intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required"))
@@ -1230,9 +1221,6 @@ public final class EmbodiedAgentRuntime {
 				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
 			}
 			case PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				GoalMineSpec mineSpec = new GoalMineSpec(
 					stringArrayArg(args, "blockIds"),
 					intArg(args, "quantity").orElseThrow(() -> new IllegalArgumentException("quantity is required"))
@@ -1409,9 +1397,6 @@ public final class EmbodiedAgentRuntime {
 					+ " readFreshnessRemainingToolCalls=" + worldReadLedger.freshnessRemaining(blockPos(blockUse.targets().getFirst().targetPosition())));
 			}
 			case PlannerToolCatalog.BREAK_BLOCKS -> {
-				if (plannerToolWouldPreemptActiveTask(toolCall)) {
-					yield plannerActiveTaskPreemptionError(toolCall);
-				}
 				BlockBreakStepArgs blockBreak = parseBlockBreakArgs(args);
 				for (BlockBreakStepArgs.Target target : blockBreak.targets()) {
 					Optional<String> validationError = validateMineBlockIds(target.expectedBlockIds());
@@ -1457,11 +1442,21 @@ public final class EmbodiedAgentRuntime {
 			return false;
 		}
 		String normalizedToolName = PlannerToolCatalog.normalizeName(toolCall == null ? null : toolCall.name());
+		if (PlannerToolCatalog.COLLECT_SMELTED_ITEMS.equals(normalizedToolName)) {
+			ActiveJob activeJob = activeJobRuntime.current();
+			return activeJob == null || activeJob.type() != ActiveJobType.SMELT_ITEMS;
+		}
 		return PlannerToolCatalog.FOLLOW_PLAYER.equals(normalizedToolName)
 			|| PlannerToolCatalog.NAVIGATE_TO.equals(normalizedToolName)
 			|| PlannerToolCatalog.RETURN_TO_SURFACE.equals(normalizedToolName)
 			|| PlannerToolCatalog.MINE_BLOCKS.equals(normalizedToolName)
 			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName)
+			|| PlannerToolCatalog.COLLECT_RESOURCE.equals(normalizedToolName)
+			|| PlannerToolCatalog.SMELT_ITEMS.equals(normalizedToolName)
+			|| PlannerToolCatalog.DROP_ITEMS.equals(normalizedToolName)
+			|| PlannerToolCatalog.GIVE_PLAYER.equals(normalizedToolName)
+			|| PlannerToolCatalog.ATTACK_ENTITY.equals(normalizedToolName)
+			|| PlannerToolCatalog.USE_ENTITY.equals(normalizedToolName)
 			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
 			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
 			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
@@ -1472,6 +1467,9 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private boolean activeTaskInProgress() {
+		if (isActiveTaskExecutionState(taskExecutionSnapshot == null ? null : taskExecutionSnapshot.state())) {
+			return true;
+		}
 		if (isSemanticTaskSnapshot(taskSnapshot) && isActiveSemanticTaskState(taskSnapshot.state())) {
 			return true;
 		}
@@ -1491,7 +1489,9 @@ public final class EmbodiedAgentRuntime {
 		return "TOOL_ERROR: " + toolName + " denied reason=active_task_in_progress"
 			+ " taskState=" + taskState
 			+ " activeStepKind=" + activeStep
-			+ ". Direct movement, surface-return, or mining tools would preempt the active job. Use cancel_task first only if the user explicitly changed tasks; otherwise wait for TASK UPDATE or ask the user.";
+			+ " taskExecutionState=" + (taskExecutionSnapshot == null || taskExecutionSnapshot.state() == null ? "UNKNOWN" : taskExecutionSnapshot.state().name())
+			+ " taskExecutionProcess=" + (taskExecutionSnapshot == null || taskExecutionSnapshot.processName() == null ? "UNKNOWN" : taskExecutionSnapshot.processName())
+			+ ". Task-changing tools would preempt the active job. Use cancel_task first only if the user explicitly changed tasks; otherwise wait for TASK UPDATE or ask the user.";
 	}
 
 	private static String queuedActionToolResult(String toolName, String details) {
@@ -1523,6 +1523,15 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private CompletableFuture<String> executeCraftRecipePlannerTool(JsonObject args) {
+		if (activeTaskInProgress()) {
+			return CompletableFuture.completedFuture(plannerActiveTaskPreemptionError(new PlannerToolCall(
+				"craft_recipe_guard",
+				PlannerToolCatalog.CRAFT_RECIPE,
+				args,
+				null,
+				null
+			)));
+		}
 		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
 			stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
 			intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
@@ -2841,6 +2850,11 @@ public final class EmbodiedAgentRuntime {
 			|| state == TaskState.RUNNING
 			|| state == TaskState.WAITING_FOR_PICKUP
 			|| state == TaskState.PAUSED_BY_SESSION_GATE;
+	}
+
+	private static boolean isActiveTaskExecutionState(TaskExecutionState state) {
+		return state == TaskExecutionState.RUNNING
+			|| state == TaskExecutionState.PAUSED_BY_SESSION_GATE;
 	}
 
 	private static boolean isTerminalTaskState(TaskState state) {

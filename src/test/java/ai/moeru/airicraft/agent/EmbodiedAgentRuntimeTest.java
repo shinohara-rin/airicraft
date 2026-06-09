@@ -559,6 +559,63 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void plannerToolDoesNotPreemptRunningTaskExecutionWhenSemanticJobIsIdle() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		executor.forcedSnapshot = new TaskExecutionSnapshot(
+			TaskExecutionState.RUNNING,
+			"return-task",
+			null,
+			"ReturnToSurface",
+			"towering:support_unavailable",
+			null,
+			null
+		);
+		runtime.onClientTick(null);
+		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_place",
+			"place_block",
+			JsonParser.parseString("""
+				{"itemId":"minecraft:crafting_table","targets":[{"targetPosition":{"x":1,"y":64,"z":2,"exactY":true},"placementMode":"air_or_replaceable"}]}
+				""").getAsJsonObject(),
+			null,
+			null
+		));
+
+		assertTrue(result.contains("TOOL_ERROR"));
+		assertTrue(result.contains("active_task_in_progress"));
+		assertTrue(result.contains("taskExecutionState=RUNNING"));
+		assertEquals(ActiveJobType.IDLE, runtime.activeJob().type());
+	}
+
+	@Test
+	void craftRecipeToolDoesNotPreemptRunningTaskExecutionWhenSemanticJobIsIdle() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+		executor.forcedSnapshot = new TaskExecutionSnapshot(
+			TaskExecutionState.RUNNING,
+			"return-task",
+			null,
+			"ReturnToSurface",
+			"towering:support_unavailable",
+			null,
+			null
+		);
+		runtime.onClientTick(null);
+
+		String result = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall()).join();
+
+		assertTrue(result.contains("TOOL_ERROR"));
+		assertTrue(result.contains("active_task_in_progress"));
+		assertTrue(result.contains("taskExecutionState=RUNNING"));
+		assertEquals(ActiveJobType.IDLE, runtime.activeJob().type());
+	}
+
+	@Test
 	void ensureBlocksInInventoryPrimitiveCompletionWarnsUntilInventorySatisfied() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
@@ -1884,13 +1941,17 @@ class EmbodiedAgentRuntimeTest {
 
 	private static final class FakeWorldTaskExecutor implements WorldTaskExecutor {
 		private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
+		private TaskExecutionSnapshot forcedSnapshot;
 		private Optional<TaskTerminalEvent> nextTerminalEvent = Optional.empty();
 		private Optional<WorldTaskRequest> lastActiveTask = Optional.empty();
 
 		@Override
 		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 			lastActiveTask = activeTask;
-			if (!sessionSnapshot.companionActuationAllowed()) {
+			if (forcedSnapshot != null) {
+				snapshot = forcedSnapshot;
+			}
+			else if (!sessionSnapshot.companionActuationAllowed()) {
 				snapshot = new TaskExecutionSnapshot(
 					TaskExecutionState.PAUSED_BY_SESSION_GATE,
 					activeTask.map(WorldTaskRequest::taskId).orElse(null),
