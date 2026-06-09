@@ -89,4 +89,12 @@ class ReturnToSurfaceTaskExecutorTest {
 		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, true, false));
 		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, false, true));
 	}
+
+	@Test
+	void headroomToolSelectionMatchesNamespacedToolSuffixes() {
+		assertTrue(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool("minecraft:wooden_pickaxe", "_pickaxe"));
+		assertTrue(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool("minecraft:stone_shovel", "_shovel"));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool("minecraft:cobblestone", "_pickaxe"));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool(null, "_pickaxe"));
+	}
 }
