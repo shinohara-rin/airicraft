@@ -71,11 +71,11 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			return fail(request, "world_unavailable");
 		}
 		ReturnToSurfaceStepArgs args = request.returnToSurface();
-		if (SurfaceMemory.isSkyVisible(client, player.getBlockPos()) && isOnSafeGround(client, player)) {
+		if (isSurfaceReached(client, player)) {
 			return complete(request, "surface_reached");
 		}
 		if (args.targetPosition() != null && reachedTarget(player, args.targetPosition())) {
-			return complete(request, "surface_target_reached");
+			return handleSurfaceTargetReached(request, client, player, args);
 		}
 		if (toweringStarted || shouldTowerFirst(args)) {
 			return tickTowering(request, client, player, args);
@@ -98,7 +98,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		if (pathEvent.isPresent()) {
 			String event = pathEvent.get();
 			if ("AT_GOAL".equalsIgnoreCase(event)) {
-				return complete(request, "surface_target_reached");
+				return handleSurfaceTargetReached(request, client, player, args);
 			}
 			if ("CALC_FAILED".equalsIgnoreCase(event) || "CANCELLED".equalsIgnoreCase(event) || "CANCELED".equalsIgnoreCase(event)) {
 				return args.useTowering()
@@ -108,6 +108,19 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		}
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, "navigating_to_surface");
 		return Optional.empty();
+	}
+
+	private Optional<TaskTerminalEvent> handleSurfaceTargetReached(
+		WorldTaskRequest request,
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		ReturnToSurfaceStepArgs args
+	) {
+		return switch (surfaceTargetOutcome(isSurfaceReached(client, player), args.useTowering())) {
+			case COMPLETE -> complete(request, "surface_target_reached");
+			case TOWER -> tickTowering(request, client, player, args);
+			case FAIL -> fail(request, "surface_target_not_surface");
+		};
 	}
 
 	private Optional<TaskTerminalEvent> tickTowering(
@@ -246,6 +259,12 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			&& Math.abs(playerPos.getY() - position.y()) <= 2;
 	}
 
+	private static boolean isSurfaceReached(MinecraftClient client, ClientPlayerEntity player) {
+		return player != null
+			&& SurfaceMemory.isSkyVisible(client, player.getBlockPos())
+			&& isOnSafeGround(client, player);
+	}
+
 	private static boolean isOnSafeGround(MinecraftClient client, ClientPlayerEntity player) {
 		return player != null
 			&& player.isOnGround()
@@ -253,6 +272,13 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			&& client.world != null
 			&& client.world.isChunkLoaded(player.getBlockPos().down())
 			&& client.world.getBlockState(player.getBlockPos().down()).isSideSolidFullSquare(client.world, player.getBlockPos().down(), Direction.UP);
+	}
+
+	static SurfaceTargetOutcome surfaceTargetOutcome(boolean surfaceReached, boolean useTowering) {
+		if (surfaceReached) {
+			return SurfaceTargetOutcome.COMPLETE;
+		}
+		return useTowering ? SurfaceTargetOutcome.TOWER : SurfaceTargetOutcome.FAIL;
 	}
 
 	private Optional<TaskTerminalEvent> complete(WorldTaskRequest request, String message) {
@@ -332,5 +358,11 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private record PlacementAttempt(boolean accepted, String reason) {
+	}
+
+	enum SurfaceTargetOutcome {
+		COMPLETE,
+		TOWER,
+		FAIL
 	}
 }
