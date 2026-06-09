@@ -81,4 +81,12 @@ class ReturnToSurfaceTaskExecutorTest {
 			ReturnToSurfaceTaskExecutor.recoveryMovement(true, true, 100.0D, true)
 		);
 	}
+
+	@Test
+	void towerHeadroomClearsOnlySolidDryObstructions() {
+		assertTrue(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, false, false));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(false, false, false));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, true, false));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldClearTowerHeadroom(true, false, true));
+	}
 }

@@ -33,6 +33,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private static final int MAX_TOWER_BLOCKS = 96;
 	private static final int BREATHABLE_STABLE_TICKS = 12;
 	private static final int UNDERWATER_STUCK_FAIL_TICKS = 240;
+	private static final int HEADROOM_BREAK_TIMEOUT_TICKS = 160;
 	private static final double TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED = 4.0D;
 
 	private final Supplier<MinecraftClient> clientSupplier;
@@ -45,6 +46,8 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private boolean navigationStarted;
 	private boolean toweringStarted;
 	private int towerStartY;
+	private BlockPos headroomBreakTarget;
+	private long headroomBreakStartTick = -1L;
 	private boolean underwaterRecoveryStarted;
 	private int breathableTicks;
 	private int underwaterStuckTicks;
@@ -226,6 +229,15 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		if (player.getBlockY() - towerStartY > MAX_TOWER_BLOCKS) {
 			return fail(request, "tower_limit_reached");
 		}
+		Optional<HeadroomClearance> headroomClearance = clearTowerHeadroom(client, player);
+		if (headroomClearance.isPresent()) {
+			HeadroomClearance clearance = headroomClearance.get();
+			if (clearance.failed()) {
+				return fail(request, clearance.event());
+			}
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, clearance.event());
+			return Optional.empty();
+		}
 		Hand hand = selectFillerHand(client, player, args.fillerBlockIds());
 		if (hand == null) {
 			return fail(request, "missing_filler_block fillerBlockIds=" + args.fillerBlockIds());
@@ -237,6 +249,74 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		}
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, "towering:" + placement.reason());
 		return Optional.empty();
+	}
+
+	private Optional<HeadroomClearance> clearTowerHeadroom(MinecraftClient client, ClientPlayerEntity player) {
+		if (client == null || client.world == null || client.interactionManager == null || player == null) {
+			return Optional.empty();
+		}
+		BlockPos target = headroomBreakTarget == null ? firstTowerHeadroomObstruction(client, player.getBlockPos()) : headroomBreakTarget;
+		if (target == null) {
+			clearHeadroomBreakState(client);
+			return Optional.empty();
+		}
+		if (!client.world.isChunkLoaded(target)) {
+			clearHeadroomBreakState(client);
+			return Optional.of(new HeadroomClearance("towering:headroom_unloaded", true));
+		}
+		BlockState state = client.world.getBlockState(target);
+		if (!shouldClearTowerHeadroom(!state.isAir(), state.isReplaceable(), !state.getFluidState().isEmpty())) {
+			clearHeadroomBreakState(client);
+			return Optional.of(new HeadroomClearance("towering:headroom_cleared", false));
+		}
+		long tick = client.world.getTime();
+		if (headroomBreakTarget == null || !headroomBreakTarget.equals(target)) {
+			clearHeadroomBreakState(client);
+			boolean accepted = client.interactionManager.attackBlock(target, Direction.DOWN);
+			if (!accepted) {
+				return Optional.of(new HeadroomClearance("towering:headroom_break_start_failed", true));
+			}
+			headroomBreakTarget = target;
+			headroomBreakStartTick = tick;
+		}
+		if (tick - headroomBreakStartTick > HEADROOM_BREAK_TIMEOUT_TICKS) {
+			clearHeadroomBreakState(client);
+			return Optional.of(new HeadroomClearance("towering:headroom_break_timeout", true));
+		}
+		client.options.jumpKey.setPressed(false);
+		client.interactionManager.updateBlockBreakingProgress(target, Direction.DOWN);
+		player.swingHand(Hand.MAIN_HAND);
+		BlockState after = client.world.isChunkLoaded(target) ? client.world.getBlockState(target) : state;
+		if (!shouldClearTowerHeadroom(!after.isAir(), after.isReplaceable(), !after.getFluidState().isEmpty())) {
+			clearHeadroomBreakState(client);
+			return Optional.of(new HeadroomClearance("towering:headroom_cleared", false));
+		}
+		return Optional.of(new HeadroomClearance("towering:clearing_headroom", false));
+	}
+
+	private void clearHeadroomBreakState(MinecraftClient client) {
+		if (headroomBreakTarget != null && client != null && client.interactionManager != null) {
+			client.interactionManager.cancelBlockBreaking();
+		}
+		headroomBreakTarget = null;
+		headroomBreakStartTick = -1L;
+	}
+
+	private static BlockPos firstTowerHeadroomObstruction(MinecraftClient client, BlockPos feetPos) {
+		if (client == null || client.world == null || feetPos == null) {
+			return null;
+		}
+		for (int offset = 1; offset <= 2; offset++) {
+			BlockPos candidate = feetPos.up(offset);
+			if (!client.world.isChunkLoaded(candidate)) {
+				return candidate;
+			}
+			BlockState state = client.world.getBlockState(candidate);
+			if (shouldClearTowerHeadroom(!state.isAir(), state.isReplaceable(), !state.getFluidState().isEmpty())) {
+				return candidate;
+			}
+		}
+		return null;
 	}
 
 	private boolean shouldTowerFirst(ReturnToSurfaceStepArgs args) {
@@ -270,6 +350,10 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	static boolean shouldExitUnderwaterRecovery(boolean breathable, int breathableTicks) {
 		return breathable && breathableTicks >= BREATHABLE_STABLE_TICKS;
+	}
+
+	static boolean shouldClearTowerHeadroom(boolean occupied, boolean replaceable, boolean hasFluid) {
+		return occupied && !replaceable && !hasFluid;
 	}
 
 	private static double horizontalDistanceSquared(ClientPlayerEntity player, GoalPosition target) {
@@ -444,6 +528,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			movementController.stop(client);
 			client.options.jumpKey.setPressed(false);
 		}
+		clearHeadroomBreakState(client);
 	}
 
 	private void reset() {
@@ -490,6 +575,9 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private record PlacementAttempt(boolean accepted, String reason) {
+	}
+
+	private record HeadroomClearance(String event, boolean failed) {
 	}
 
 	enum SurfaceTargetOutcome {
