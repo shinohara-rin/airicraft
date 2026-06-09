@@ -1,0 +1,77 @@
+id: farm_from_scratch
+name: Farm from scratch
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: world.zip
+frozen: true
+prompt: >-
+  Build a 3x3 wheat farm from scratch at the JourneyMap waypoint named "Farm
+  here". Start from the empty inventory in this world; do not use commands,
+  creative-mode shortcuts, or unrelated preexisting items. First inspect the
+  waypoint and nearby terrain. The farm must be centered on the waypoint's
+  ground block: dig that center ground block into a one-block water hole, place
+  source water there, till the eight surrounding grass or dirt ground blocks,
+  and plant wheat seeds above all eight farmland blocks.
+
+  Work the survival chain deliberately. Gather logs, craft planks, sticks, a
+  crafting table, a wooden pickaxe, and a stone pickaxe as needed. Mine stone
+  only until the required stone tools and furnace are available. When you find a
+  cave with iron, do not return to the surface just because you are underground:
+  first use the stone pickaxe to obtain enough raw iron for exactly 3 iron
+  ingots, then craft or use a furnace, smelt the raw iron, and collect smelted
+  output until inspect_inventory shows minecraft:iron_ingot=3. If a first
+  smelt or collect only produces one ingot, inspect_smelting or
+  inspect_inventory and smelt or collect the remaining shortfall instead of
+  leaving the cave.
+
+  After inspect_inventory confirms 3 iron ingots, use check_craftables and copy
+  the exact craft_recipe recipeId for minecraft:bucket; do not use search_recipes
+  recipe ids as craft_recipe inputs. Craft one bucket, fill it with source water
+  using use_block on a water source, then return to the Farm here waypoint area.
+  Craft a hoe before tilling. Collect wheat seeds from grass until you have
+  enough to plant all eight surrounding farm tiles. Stop only after a task
+  update, inspect_inventory, or inspect_world confirms the center is source
+  water and all eight surrounding farm tiles have wheat planted.
+budget:
+  maxPlannerTurns: 80
+  maxElapsedTicks: 120000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: block_state
+    blockId: minecraft:water
+    state:
+      level: "0"
+    x: -31
+    y: 63
+    z: -63
+  - type: block_count
+    blockId: minecraft:farmland
+    count: 8
+    scope: box
+    x1: -32
+    y1: 63
+    z1: -64
+    x2: -30
+    y2: 63
+    z2: -62
+  - type: block_count
+    blockId: minecraft:wheat
+    count: 8
+    scope: box
+    x1: -32
+    y1: 64
+    z1: -64
+    x2: -30
+    y2: 64
+    z2: -62
+  - type: inventory_contains
+    itemId: minecraft:bucket
+    count: 1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
