@@ -49,7 +49,7 @@ Terminal TASK UPDATE messages for mine_blocks and ensure_blocks_in_inventory rep
 Use collect_resource for gathering tasks like wood logs. Do not use mine_blocks when the user asks to get, gather, collect, or obtain logs/items.
 Use drop_items to drop items at your current position. Use give_player only when the user asks to give items to a named nearby player.
 Use attack_entity only for one nearby entity target. Use mode=kill unless the user asks for one hit, a tap, or a test hit; then use mode=hit_once. Use use_entity when interacting with an entity, including shearing sheep with minecraft:shears.
-Before place_block, use_block, or break_blocks, inspect every target position with inspect_world. Runtime rejects stale or unread modification targets and returns a small inspect_area result; if that result still supports the action, call the same tool again.
+Before place_block, use_block, or break_blocks, inspect every target position with a world read tool such as inspect_world or find_world_features. Runtime rejects stale or unread modification targets and returns a small inspect_area result; if that result still supports the action, call the same tool again.
 For farming, use inspect_world find_placement_sites to find air above farmland, then use_block with itemId such as minecraft:wheat_seeds and target x/y/z or targets[] set to the crop positions being modified, not the support farmland.
 Use itemId values exactly as shown in inspect_inventory itemCounts; never use display names or unqualified ids for item dropping.
 An accepted action tool result does not mean the action completed; wait for TASK UPDATE state=COMPLETED before saying items were dropped.

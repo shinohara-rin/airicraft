@@ -23,6 +23,8 @@ import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.llm.PlannerToolExecutionObserver;
 import ai.moeru.airicraft.agent.llm.PlannerToolNarrationSink;
 import ai.moeru.airicraft.agent.llm.PlannerToolRegistry;
+import ai.moeru.airicraft.agent.llm.WorldFeatureSearchService;
+import ai.moeru.airicraft.agent.llm.WorldFeatureSearchToolProvider;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.util.math.BlockPos;
@@ -138,8 +140,10 @@ public final class PlannerShellFactory {
 		);
 		CurrentInventoryService inventoryService = new CurrentInventoryService(MinecraftClient::getInstance);
 		CurrentWorldQueryService worldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
+		WorldFeatureSearchService worldFeatureSearchService = new WorldFeatureSearchService(MinecraftClient::getInstance);
 		PlannerToolRegistry toolRegistry = PlannerToolRegistry.of(
 			new CurrentWorldQueryToolProvider(worldQueryService, result -> effectiveWorldReadObserver.accept(result.observedPositions())),
+			new WorldFeatureSearchToolProvider(worldFeatureSearchService, result -> effectiveWorldReadObserver.accept(result.observedPositions())),
 			new ReiRecipeSearchToolProvider(),
 			new MapPlannerToolProvider(MapIntegrationBridge::registry)
 		);

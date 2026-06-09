@@ -159,6 +159,21 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
+	void systemPromptIncludesWorldFeatureUsageGuide() {
+		String prompt = PlannerPromptPolicy.systemPrompt(
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			PlannerToolRegistry.of(new WorldFeatureSearchToolProvider(WorldFeatureSearchTool.textOnly(ignored -> "unused")))
+		);
+
+		assertTrue(prompt.contains("find_world_features"));
+		assertTrue(prompt.contains("coordinate-grounded exploration targets"));
+		assertTrue(prompt.contains("featureKind=water_body"));
+		assertTrue(prompt.contains("navigate_to standPos"));
+		assertTrue(prompt.contains("use_block with itemId=minecraft:bucket on targetPos"));
+		assertTrue(prompt.contains("world read tool such as inspect_world or find_world_features"));
+	}
+
+	@Test
 	void systemPromptRendersMarkdownTemplatePlaceholders() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.NATIVE_TOOL_IMAGE);
 

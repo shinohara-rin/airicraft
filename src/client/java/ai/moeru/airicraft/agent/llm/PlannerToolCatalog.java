@@ -196,7 +196,7 @@ public final class PlannerToolCatalog {
 				prop("entityTypeId", optionalString("Exact namespaced entity type id, for example minecraft:sheep.")),
 				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:shears."))
 			), List.of("uuid")), PlannerToolCatalog::validateUseEntityArguments),
-		builtInTool(PLACE_BLOCK, false, tool(PLACE_BLOCK, "Place a block item at one or more intended modified target positions. Target positions must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+		builtInTool(PLACE_BLOCK, false, tool(PLACE_BLOCK, "Place a block item at one or more intended modified target positions. Target positions must have been observed by a world read tool such as inspect_world or find_world_features within the last 10 planner tool calls.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("x", integer("Intended modified target block x coordinate.")),
@@ -206,7 +206,7 @@ public final class PlannerToolCatalog {
 				prop("requireCurrentTargetMaterial", enumString("Required current target material before placement. Default air_or_replaceable.", List.of("air", "replaceable", "air_or_replaceable"))),
 				prop("targets", array("Ordered target blocks to place into. Maximum 16. Root facePreference and requireCurrentTargetMaterial apply as defaults.", placeBlockTargetSchema()))
 			), List.of("itemId")), PlannerToolCatalog::validatePlaceBlockArguments),
-		builtInTool(USE_BLOCK, false, tool(USE_BLOCK, "Use current hand or an optional item on one or more intended modified target positions. If target is air/replaceable, runtime clicks adjacent support such as farmland below seeds. Target positions must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+		builtInTool(USE_BLOCK, false, tool(USE_BLOCK, "Use current hand or an optional item on one or more intended modified target positions. If target is air/replaceable, runtime clicks adjacent support such as farmland below seeds. Target positions must have been observed by a world read tool such as inspect_world or find_world_features within the last 10 planner tool calls.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("itemId", optionalString("Optional exact namespaced item id to equip first, for example minecraft:wheat_seeds.")),
 				prop("x", integer("Intended modified target block x coordinate.")),
@@ -217,7 +217,7 @@ public final class PlannerToolCatalog {
 				prop("expectedTargetMaterial", enumString("Optional current target material check before use.", List.of("air", "replaceable", "air_or_replaceable"))),
 				prop("targets", array("Ordered target blocks to use. Maximum 16. Root facePreference, expectedSupportBlockIds, and expectedTargetMaterial apply as defaults.", useBlockTargetSchema()))
 			), List.of()), PlannerToolCatalog::validateUseBlockArguments),
-		builtInTool(BREAK_BLOCKS, false, tool(BREAK_BLOCKS, "Break exact target blocks in order. Use this for precise terrain editing, not resource mining. Every target position must have been observed by inspect_world within the last 10 planner tool calls.", properties(
+		builtInTool(BREAK_BLOCKS, false, tool(BREAK_BLOCKS, "Break exact target blocks in order. Use this for precise terrain editing, not resource mining. Every target position must have been observed by a world read tool such as inspect_world or find_world_features within the last 10 planner tool calls.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("targets", array("Ordered target blocks to break. Maximum 16.", breakBlockTargetSchema()))
 			), List.of("targets")), PlannerToolCatalog::validateBreakBlocksArguments),
