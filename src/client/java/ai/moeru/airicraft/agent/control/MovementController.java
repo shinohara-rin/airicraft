@@ -27,7 +27,7 @@ public final class MovementController {
 			return;
 		}
 
-		if (!movingForward) {
+		if (!movingForward || movingSinceTick < 0L) {
 			movingSinceTick = tick;
 			movementStartPos = new Vec3d(player.getX(), player.getY(), player.getZ());
 			stuck = false;
@@ -46,6 +46,39 @@ public final class MovementController {
 		client.options.sprintKey.setPressed(sprint);
 		client.options.jumpKey.setPressed(effectiveJump);
 		player.setSprinting(sprint);
+
+		updateStuckState(player, tick);
+	}
+
+	public void swimUp(MinecraftClient client, boolean forward, boolean sprint, long tick) {
+		if (client == null) {
+			return;
+		}
+
+		ClientPlayerEntity player = client.player;
+		if (player == null) {
+			stop(client);
+			return;
+		}
+
+		if (movingSinceTick < 0L) {
+			movingSinceTick = tick;
+			movementStartPos = new Vec3d(player.getX(), player.getY(), player.getZ());
+			stuck = false;
+		}
+
+		movingForward = forward;
+		sprinting = forward && sprint;
+		jumping = true;
+		enableAutoJump(client);
+
+		client.options.forwardKey.setPressed(forward);
+		client.options.backKey.setPressed(false);
+		client.options.leftKey.setPressed(false);
+		client.options.rightKey.setPressed(false);
+		client.options.sprintKey.setPressed(forward && sprint);
+		client.options.jumpKey.setPressed(true);
+		player.setSprinting(forward && sprint);
 
 		updateStuckState(player, tick);
 	}

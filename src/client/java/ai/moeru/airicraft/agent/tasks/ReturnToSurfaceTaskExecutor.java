@@ -1,6 +1,8 @@
 package ai.moeru.airicraft.agent.tasks;
 
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
+import ai.moeru.airicraft.agent.control.CameraController;
+import ai.moeru.airicraft.agent.control.MovementController;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import net.minecraft.block.BlockState;
@@ -29,15 +31,23 @@ import java.util.function.Supplier;
 public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private static final int NAVIGATION_RADIUS_BLOCKS = 3;
 	private static final int MAX_TOWER_BLOCKS = 96;
+	private static final int BREATHABLE_STABLE_TICKS = 12;
+	private static final int UNDERWATER_STUCK_FAIL_TICKS = 240;
+	private static final double TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED = 4.0D;
 
 	private final Supplier<MinecraftClient> clientSupplier;
 	private final BaritoneFacade baritoneFacade;
+	private final MovementController movementController = new MovementController();
+	private final CameraController cameraController = new CameraController();
 
 	private WorldTaskRequest appliedTask;
 	private boolean terminalEventEmitted;
 	private boolean navigationStarted;
 	private boolean toweringStarted;
 	private int towerStartY;
+	private boolean underwaterRecoveryStarted;
+	private int breathableTicks;
+	private int underwaterStuckTicks;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 
 	public ReturnToSurfaceTaskExecutor(BaritoneFacade baritoneFacade) {
@@ -73,6 +83,21 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		ReturnToSurfaceStepArgs args = request.returnToSurface();
 		if (isSurfaceReached(client, player)) {
 			return complete(request, "surface_reached");
+		}
+		if (underwaterRecoveryStarted || shouldEnterUnderwaterRecovery(player)) {
+			Optional<TaskTerminalEvent> recoveryEvent = tickUnderwaterRecovery(
+				sessionSnapshot,
+				request,
+				client,
+				player,
+				args
+			);
+			if (recoveryEvent.isPresent()) {
+				return recoveryEvent;
+			}
+			if (underwaterRecoveryStarted) {
+				return Optional.empty();
+			}
 		}
 		if (args.targetPosition() != null && reachedTarget(player, args.targetPosition())) {
 			return handleSurfaceTargetReached(request, client, player, args);
@@ -110,6 +135,66 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		return Optional.empty();
 	}
 
+	private Optional<TaskTerminalEvent> tickUnderwaterRecovery(
+		SessionSnapshot sessionSnapshot,
+		WorldTaskRequest request,
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		ReturnToSurfaceStepArgs args
+	) {
+		if (!underwaterRecoveryStarted) {
+			cancelNavigationIfStarted();
+			toweringStarted = false;
+			underwaterRecoveryStarted = true;
+			breathableTicks = 0;
+			underwaterStuckTicks = 0;
+		}
+		if (isBreathable(player)) {
+			breathableTicks++;
+			movementController.stop(client);
+			snapshot = snapshot(TaskExecutionState.RUNNING, request, "underwater_recovery:breathable");
+			if (shouldExitUnderwaterRecovery(true, breathableTicks)) {
+				underwaterRecoveryStarted = false;
+				breathableTicks = 0;
+				underwaterStuckTicks = 0;
+				return Optional.empty();
+			}
+			return Optional.empty();
+		}
+		breathableTicks = 0;
+		long tick = sessionSnapshot == null ? 0L : sessionSnapshot.tickCount();
+		double horizontalDistanceSquared = horizontalDistanceSquared(player, args.targetPosition());
+		RecoveryMovement recoveryMovement = recoveryMovement(
+			true,
+			args.targetPosition() != null,
+			horizontalDistanceSquared,
+			movementController.snapshot().stuck()
+		);
+		boolean moveTowardTarget = recoveryMovement == RecoveryMovement.TOWARD_TARGET;
+		if (moveTowardTarget) {
+			cameraController.lookAtNow(client, targetSwimPoint(args.targetPosition()));
+		}
+		movementController.swimUp(client, moveTowardTarget, moveTowardTarget, tick);
+		recoveryMovement = recoveryMovement(
+			true,
+			args.targetPosition() != null,
+			horizontalDistanceSquared,
+			movementController.snapshot().stuck()
+		);
+		if (recoveryMovement == RecoveryMovement.STUCK) {
+			underwaterStuckTicks++;
+		}
+		else {
+			underwaterStuckTicks = 0;
+		}
+		String event = recoveryMovementEvent(recoveryMovement);
+		if (underwaterStuckTicks >= UNDERWATER_STUCK_FAIL_TICKS) {
+			return fail(request, "underwater_recovery_stuck");
+		}
+		snapshot = snapshot(TaskExecutionState.RUNNING, request, event);
+		return Optional.empty();
+	}
+
 	private Optional<TaskTerminalEvent> handleSurfaceTargetReached(
 		WorldTaskRequest request,
 		MinecraftClient client,
@@ -130,6 +215,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		ReturnToSurfaceStepArgs args
 	) {
 		if (!toweringStarted) {
+			movementController.stop(client);
 			cancelNavigationIfStarted();
 			toweringStarted = true;
 			towerStartY = player.getBlockY();
@@ -155,6 +241,57 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	private boolean shouldTowerFirst(ReturnToSurfaceStepArgs args) {
 		return args != null && args.useTowering() && args.targetPosition() == null;
+	}
+
+	private static boolean shouldEnterUnderwaterRecovery(ClientPlayerEntity player) {
+		return player != null
+			&& shouldEnterUnderwaterRecovery(player.isTouchingWater(), player.isSubmergedInWater(), isBreathable(player));
+	}
+
+	static boolean shouldEnterUnderwaterRecovery(boolean touchingWater, boolean submergedInWater, boolean breathable) {
+		return !breathable && (touchingWater || submergedInWater);
+	}
+
+	private static boolean isBreathable(ClientPlayerEntity player) {
+		return player != null && !player.isSubmergedInWater() && player.getAir() >= player.getMaxAir();
+	}
+
+	static RecoveryMovement recoveryMovement(boolean underwater, boolean targetAvailable, double horizontalDistanceSquared, boolean stuck) {
+		if (!underwater) {
+			return RecoveryMovement.BREATHABLE;
+		}
+		if (stuck) {
+			return RecoveryMovement.STUCK;
+		}
+		return targetAvailable && horizontalDistanceSquared > TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED
+			? RecoveryMovement.TOWARD_TARGET
+			: RecoveryMovement.ASCENDING;
+	}
+
+	static boolean shouldExitUnderwaterRecovery(boolean breathable, int breathableTicks) {
+		return breathable && breathableTicks >= BREATHABLE_STABLE_TICKS;
+	}
+
+	private static double horizontalDistanceSquared(ClientPlayerEntity player, GoalPosition target) {
+		if (player == null || target == null) {
+			return 0.0D;
+		}
+		double dx = target.x() + 0.5D - player.getX();
+		double dz = target.z() + 0.5D - player.getZ();
+		return dx * dx + dz * dz;
+	}
+
+	private static Vec3d targetSwimPoint(GoalPosition target) {
+		return new Vec3d(target.x() + 0.5D, target.y() + 1.0D, target.z() + 0.5D);
+	}
+
+	private static String recoveryMovementEvent(RecoveryMovement recoveryMovement) {
+		return switch (recoveryMovement) {
+			case ASCENDING -> "underwater_recovery:ascending";
+			case TOWARD_TARGET -> "underwater_recovery:toward_target";
+			case BREATHABLE -> "underwater_recovery:breathable";
+			case STUCK -> "underwater_recovery:stuck";
+		};
 	}
 
 	private static PlacementAttempt placeUnderFoot(MinecraftClient client, ClientPlayerEntity player, Hand hand) {
@@ -274,7 +411,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	private Optional<TaskTerminalEvent> complete(WorldTaskRequest request, String message) {
 		cancelNavigationIfStarted();
-		releaseJumpKey();
+		releaseMovementControls();
 		snapshot = snapshot(TaskExecutionState.COMPLETED, request, message);
 		if (terminalEventEmitted) {
 			return Optional.empty();
@@ -285,7 +422,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	private Optional<TaskTerminalEvent> fail(WorldTaskRequest request, String reason) {
 		cancelNavigationIfStarted();
-		releaseJumpKey();
+		releaseMovementControls();
 		snapshot = snapshot(TaskExecutionState.FAILED, request, reason);
 		if (terminalEventEmitted) {
 			return Optional.empty();
@@ -301,20 +438,24 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		navigationStarted = false;
 	}
 
-	private void releaseJumpKey() {
+	private void releaseMovementControls() {
 		MinecraftClient client = clientSupplier.get();
 		if (client != null) {
+			movementController.stop(client);
 			client.options.jumpKey.setPressed(false);
 		}
 	}
 
 	private void reset() {
 		cancelNavigationIfStarted();
-		releaseJumpKey();
+		releaseMovementControls();
 		appliedTask = null;
 		terminalEventEmitted = false;
 		toweringStarted = false;
 		towerStartY = 0;
+		underwaterRecoveryStarted = false;
+		breathableTicks = 0;
+		underwaterStuckTicks = 0;
 		snapshot = TaskExecutionSnapshot.idle();
 	}
 
@@ -355,5 +496,12 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		COMPLETE,
 		TOWER,
 		FAIL
+	}
+
+	enum RecoveryMovement {
+		ASCENDING,
+		TOWARD_TARGET,
+		BREATHABLE,
+		STUCK
 	}
 }
