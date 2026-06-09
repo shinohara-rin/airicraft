@@ -19,6 +19,7 @@ import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
+import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
@@ -519,6 +520,42 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("TOOL_ERROR"));
 		assertTrue(result.contains("surface_target_unavailable"));
 		assertTrue(executor.lastActiveTask.isEmpty());
+	}
+
+	@Test
+	void directPlannerJobUpdateDoesNotPreemptRunningReturnToSurface() {
+		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
+		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+
+		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+			"call_return",
+			"return_to_surface",
+			JsonParser.parseString("{}").getAsJsonObject(),
+			null,
+			null
+		));
+		runtime.onClientTick(null);
+		assertTrue(result.contains("useTowering=true"));
+		assertEquals(WorldTaskType.RETURN_TO_SURFACE, executor.lastActiveTask.orElseThrow().type());
+
+		runtime.injectDialogueResponseForTests(new DialogueResponse(
+			"",
+			new DialogueIntent(
+				DialogueIntentType.JOB_UPDATE,
+				ActiveJobProposal.placeBlock(new BlockPlacementStepArgs(
+					"minecraft:crafting_table",
+					new GoalPosition(1, 64, 2, true),
+					"auto",
+					"air_or_replaceable"
+				))
+			),
+			1L
+		));
+		runtime.onClientTick(null);
+
+		assertEquals(ActiveJobType.RETURN_TO_SURFACE, runtime.activeJob().type());
+		assertEquals(WorldTaskType.RETURN_TO_SURFACE, executor.lastActiveTask.orElseThrow().type());
 	}
 
 	@Test
@@ -1478,7 +1515,7 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void directGoalSubmissionCancelsActiveTaskFirst() {
+	void directGoalSubmissionDoesNotPreemptActiveTask() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
@@ -1516,12 +1553,12 @@ class EmbodiedAgentRuntimeTest {
 			30L
 		));
 
-		assertEquals(TaskState.CANCELLED, runtime.snapshot().task().state());
-		assertEquals(GoalType.NAVIGATE_TO, runtime.activeGoal().orElseThrow().type());
+		assertEquals(TaskState.QUEUED, runtime.snapshot().task().state());
+		assertTrue(runtime.activeGoal().isEmpty());
 	}
 
 	@Test
-	void directJobUpdateCancelsActiveTaskFirst() {
+	void directJobUpdateDoesNotPreemptActiveTask() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
@@ -1555,8 +1592,8 @@ class EmbodiedAgentRuntimeTest {
 			30L
 		));
 
-		assertEquals(TaskState.CANCELLED, runtime.snapshot().task().state());
-		assertEquals(GoalType.NAVIGATE_TO, runtime.activeGoal().orElseThrow().type());
+		assertEquals(TaskState.QUEUED, runtime.snapshot().task().state());
+		assertTrue(runtime.activeGoal().isEmpty());
 	}
 
 	@Test

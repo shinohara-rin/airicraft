@@ -50,6 +50,7 @@ import ai.moeru.airicraft.agent.idle.IdleIdeaScheduler;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.job.ActiveJob;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
+import ai.moeru.airicraft.agent.job.ActiveJobStatus;
 import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
@@ -1452,7 +1453,7 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private boolean plannerToolWouldPreemptActiveTask(PlannerToolCall toolCall) {
-		if (!isSemanticTaskSnapshot(taskSnapshot) || !isActiveSemanticTaskState(taskSnapshot.state())) {
+		if (!activeTaskInProgress()) {
 			return false;
 		}
 		String normalizedToolName = PlannerToolCatalog.normalizeName(toolCall == null ? null : toolCall.name());
@@ -1464,6 +1465,23 @@ public final class EmbodiedAgentRuntime {
 			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
 			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
 			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
+	}
+
+	private boolean directPlannerIntentWouldPreemptActiveTask(DialogueIntent intent) {
+		return isDirectGoalIntent(intent) && activeTaskInProgress();
+	}
+
+	private boolean activeTaskInProgress() {
+		if (isSemanticTaskSnapshot(taskSnapshot) && isActiveSemanticTaskState(taskSnapshot.state())) {
+			return true;
+		}
+		ActiveJob activeJob = activeJobRuntime.current();
+		if (activeJob == null || activeJob.isIdle() || activeJob.status() == null || activeJob.status().terminal()) {
+			return false;
+		}
+		return activeJob.status() == ActiveJobStatus.QUEUED
+			|| activeJob.status() == ActiveJobStatus.RUNNING
+			|| activeJob.status() == ActiveJobStatus.BLOCKED;
 	}
 
 	private String plannerActiveTaskPreemptionError(PlannerToolCall toolCall) {
@@ -1638,13 +1656,8 @@ public final class EmbodiedAgentRuntime {
 		int currentResourceCount = worldEvidence == null
 			? currentTaskResourceCount(MinecraftClient.getInstance())
 			: worldEvidence.inventoryCounts().getOrDefault(TaskResourceKind.WOOD_LOGS, 0);
-		if (isDirectGoalIntent(response.intent()) && isSemanticTaskSnapshot(taskSnapshot)) {
-			TaskSnapshot previousTaskSnapshot = taskSnapshot;
-			activeJobRuntime.cancel("preempted_by_direct_goal", response.tick());
-			taskSnapshot = activeJobRuntime.taskSnapshot();
-			missionExecutionSnapshot = activeJobRuntime.missionExecutionSnapshot();
-			debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
-			recordSemanticTaskTransition(previousTaskSnapshot, taskSnapshot);
+		if (directPlannerIntentWouldPreemptActiveTask(response.intent())) {
+			return;
 		}
 		activeJobRuntime.applyPlannerResponse(response, currentResourceCount, source == null || source.isBlank() ? "planner_response" : source, response.tick());
 		TaskSnapshot projectedTaskSnapshot = activeJobRuntime.taskSnapshot();
