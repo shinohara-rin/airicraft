@@ -134,7 +134,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			toweringStarted = true;
 			towerStartY = player.getBlockY();
 		}
-		if (SurfaceMemory.isSkyVisible(client, player.getBlockPos()) && isOnSafeGround(client, player)) {
+		if (isSurfaceReached(client, player)) {
 			return complete(request, "surface_reached_by_towering");
 		}
 		if (player.getBlockY() - towerStartY > MAX_TOWER_BLOCKS) {
@@ -261,17 +261,8 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	private static boolean isSurfaceReached(MinecraftClient client, ClientPlayerEntity player) {
 		return player != null
-			&& SurfaceMemory.isSkyVisible(client, player.getBlockPos())
-			&& isOnSafeGround(client, player);
-	}
-
-	private static boolean isOnSafeGround(MinecraftClient client, ClientPlayerEntity player) {
-		return player != null
 			&& player.isOnGround()
-			&& client != null
-			&& client.world != null
-			&& client.world.isChunkLoaded(player.getBlockPos().down())
-			&& client.world.getBlockState(player.getBlockPos().down()).isSideSolidFullSquare(client.world, player.getBlockPos().down(), Direction.UP);
+			&& SurfaceMemory.isSurfaceStandingPosition(client, player.getBlockPos());
 	}
 
 	static SurfaceTargetOutcome surfaceTargetOutcome(boolean surfaceReached, boolean useTowering) {

@@ -50,4 +50,16 @@ class SurfaceMemoryTest {
 			140
 		));
 	}
+
+	@Test
+	void rejectsSkyVisibleShaftsWithTooFewEscapeDirections() {
+		assertFalse(SurfaceMemory.hasEnoughSurfaceEscapeDirections(0));
+		assertFalse(SurfaceMemory.hasEnoughSurfaceEscapeDirections(1));
+	}
+
+	@Test
+	void acceptsOpenSurfaceWithMultipleEscapeDirections() {
+		assertTrue(SurfaceMemory.hasEnoughSurfaceEscapeDirections(2));
+		assertTrue(SurfaceMemory.hasEnoughSurfaceEscapeDirections(4));
+	}
 }

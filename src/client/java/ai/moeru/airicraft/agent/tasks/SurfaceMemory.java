@@ -13,6 +13,7 @@ public final class SurfaceMemory {
 	private static final int NEAREST_SURFACE_RADIUS = 12;
 	private static final int NEAREST_SURFACE_UP = 48;
 	private static final int NEAREST_SURFACE_DOWN = 96;
+	private static final int MIN_SURFACE_ESCAPE_DIRECTIONS = 2;
 	static final long NEAREST_SURFACE_FAST_REFRESH_TICKS = 10L;
 	static final long NEAREST_SURFACE_REFRESH_TICKS = 40L;
 	static final double NEAREST_SURFACE_MOVE_REFRESH_DISTANCE_SQUARED = 16.0;
@@ -40,7 +41,7 @@ public final class SurfaceMemory {
 		BlockPos playerPos = player.getBlockPos();
 		if (player.isOnGround() && isSafeStandingPosition(client, playerPos)) {
 			lastGround = new SurfaceTarget(toGoalPosition(playerPos), "last_ground", tick);
-			if (isSkyVisible(client, playerPos)) {
+			if (isSurfaceStandingPosition(client, playerPos)) {
 				lastSurface = new SurfaceTarget(toGoalPosition(playerPos), "last_surface", tick);
 			}
 		}
@@ -100,7 +101,7 @@ public final class SurfaceMemory {
 				}
 				for (int y = maxY; y >= minY; y--) {
 					BlockPos candidate = new BlockPos(column.getX(), y, column.getZ());
-					if (!isSkyVisible(client, candidate) || !isSafeStandingPosition(client, candidate)) {
+					if (!isSurfaceStandingPosition(client, candidate)) {
 						continue;
 					}
 					double distance = candidate.getSquaredDistance(origin);
@@ -113,6 +114,12 @@ public final class SurfaceMemory {
 			}
 		}
 		return Optional.ofNullable(best);
+	}
+
+	static boolean isSurfaceStandingPosition(MinecraftClient client, BlockPos feetPos) {
+		return isSkyVisible(client, feetPos)
+			&& isSafeStandingPosition(client, feetPos)
+			&& hasEnoughSurfaceEscapeDirections(surfaceEscapeDirections(client, feetPos));
 	}
 
 	static boolean shouldRefreshNearestSurface(
@@ -148,6 +155,21 @@ public final class SurfaceMemory {
 		return (feet.isAir() || feet.isReplaceable())
 			&& (head.isAir() || head.isReplaceable())
 			&& support.isSideSolidFullSquare(client.world, feetPos.down(), Direction.UP);
+	}
+
+	private static int surfaceEscapeDirections(MinecraftClient client, BlockPos feetPos) {
+		int openDirections = 0;
+		for (Direction direction : Direction.Type.HORIZONTAL) {
+			BlockPos adjacent = feetPos.offset(direction);
+			if (isSkyVisible(client, adjacent) && isSafeStandingPosition(client, adjacent)) {
+				openDirections++;
+			}
+		}
+		return openDirections;
+	}
+
+	static boolean hasEnoughSurfaceEscapeDirections(int openDirections) {
+		return openDirections >= MIN_SURFACE_ESCAPE_DIRECTIONS;
 	}
 
 	private static GoalPosition toGoalPosition(BlockPos pos) {
