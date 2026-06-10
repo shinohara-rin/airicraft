@@ -125,7 +125,6 @@ public final class EvaluationAddonRuntime {
 				throw new BridgeUnavailableException("invalid_scenario", "Scenario prompt is empty: " + nextScenario.id());
 			}
 			var restoredWorld = fixtures.restoreScenarioWorld(nextScenario);
-			Map<String, Object> joinPayload = singleplayerWorldService.joinWorldDirectory(restoredWorld.worldName());
 			Path outputDir = outputDir(request.outputDir(), nextScenario);
 			Map<String, Object> payload = context.onClientThread(() -> {
 				EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
@@ -133,16 +132,19 @@ public final class EvaluationAddonRuntime {
 				scenario = nextScenario;
 				runner.start(nextScenario, runtime.tickCount(), System.currentTimeMillis());
 				recorder.start(nextScenario, outputDir, restoredWorld);
-				Map<String, Object> response = new LinkedHashMap<>();
-				response.put("accepted", true);
-				response.put("scenario", nextScenario.id());
-				response.put("worldName", restoredWorld.worldName());
-				response.put("worldPath", restoredWorld.path().toString());
-				response.put("outputDir", outputDir.toString());
-				response.put("join", joinPayload);
-				response.put("report", runner.report(runtime.tickCount()));
-				return response;
+				return acceptedRunPayload(nextScenario, restoredWorld, outputDir, runner.report(runtime.tickCount()));
 			});
+			try {
+				payload.put("join", singleplayerWorldService.joinWorldDirectory(restoredWorld.worldName()));
+			}
+			catch (SingleplayerWorldService.SingleplayerWorldException exception) {
+				try {
+					context.onClientThread(this::rollbackAcceptedRun);
+				}
+				catch (RuntimeException ignored) {
+				}
+				throw exception;
+			}
 			context.writeJson(200, payload);
 		}
 		catch (EvaluationScenarioRepository.EvaluationScenarioRepositoryException exception) {
@@ -154,6 +156,30 @@ public final class EvaluationAddonRuntime {
 		catch (SingleplayerWorldService.SingleplayerWorldException exception) {
 			throw new BridgeUnavailableException(exception.code(), exception.getMessage());
 		}
+	}
+
+	private Map<String, Object> acceptedRunPayload(
+		EvaluationScenario nextScenario,
+		EvaluationWorldFixtureService.RestoredWorld restoredWorld,
+		Path outputDir,
+		Object report
+	) {
+		Map<String, Object> response = new LinkedHashMap<>();
+		response.put("accepted", true);
+		response.put("scenario", nextScenario.id());
+		response.put("worldName", restoredWorld.worldName());
+		response.put("worldPath", restoredWorld.path().toString());
+		response.put("outputDir", outputDir.toString());
+		response.put("report", report);
+		return response;
+	}
+
+	private Void rollbackAcceptedRun() {
+		scenario = null;
+		runner.reset();
+		recorder.reset();
+		AiricraftClient.runtimeController().agentRuntime().finishEvaluation();
+		return null;
 	}
 
 	private Map<String, Object> statusPayload() {

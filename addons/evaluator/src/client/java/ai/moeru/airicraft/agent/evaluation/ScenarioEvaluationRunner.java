@@ -39,6 +39,9 @@ public final class ScenarioEvaluationRunner {
 		if (!context.worldLoaded()) {
 			status = EvaluationStatus.PENDING_WORLD;
 			message = "Waiting for evaluation world";
+			if (worldLoadBudgetExhausted(context)) {
+				finish(EvaluationStatus.FAILED, "Evaluation world did not load before budget was exhausted", true, context.tick());
+			}
 			return;
 		}
 		if (!context.plannerConfigured()) {
@@ -221,6 +224,14 @@ public final class ScenarioEvaluationRunner {
 		if (plannerTurns >= scenario.budget().maxPlannerTurns()) {
 			return true;
 		}
+		if (context.tick() - startTick >= scenario.budget().maxElapsedTicks()) {
+			return true;
+		}
+		return scenario.budget().maxElapsedMillis() > 0L
+			&& context.nowMs() - startMillis >= scenario.budget().maxElapsedMillis();
+	}
+
+	private boolean worldLoadBudgetExhausted(Context context) {
 		if (context.tick() - startTick >= scenario.budget().maxElapsedTicks()) {
 			return true;
 		}

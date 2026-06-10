@@ -114,6 +114,20 @@ public final class EvaluationFlightRecorder {
 		return payload;
 	}
 
+	public void reset() {
+		outputDir = null;
+		scenario = null;
+		startedAt = null;
+		nextStatusSampleTick = 0L;
+		latestEventSeqNo = null;
+		latestTimelineEntryId = null;
+		latestLlmSequenceId = null;
+		eventsTruncated = false;
+		timelineTruncated = false;
+		llmCallsTruncated = false;
+		terminalWritten = false;
+	}
+
 	private void drainEvents(EmbodiedAgentRuntime runtime, String collectedAt) throws IOException {
 		var result = runtime.recentEvents(latestEventSeqNo);
 		latestEventSeqNo = result.latestSeqNo();

@@ -37,6 +37,53 @@ class ScenarioEvaluationRunnerTest {
 	}
 
 	@Test
+	void waitsForWorldBeforeEmittingInitialPrompt() {
+		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
+		FakeContext context = new FakeContext();
+		context.worldLoaded = false;
+		EvaluationScenario scenario = scenario(List.of(new EvaluationCheck("inventory_contains", Map.of(
+			"itemId", "minecraft:iron_ingot",
+			"count", 1
+		))), new EvaluationBudget(4, 200, 0, 5));
+
+		runner.start(scenario, 0, 0);
+		runner.onTick(context);
+
+		EvaluationReport pendingReport = runner.report(context.tick);
+		assertEquals(EvaluationStatus.PENDING_WORLD, pendingReport.status());
+		assertEquals("Waiting for evaluation world", pendingReport.message());
+		assertTrue(context.triggers.isEmpty());
+
+		context.tick = 3;
+		context.worldLoaded = true;
+		runner.onTick(context);
+
+		assertEquals(EvaluationStatus.RUNNING, runner.report(context.tick).status());
+		assertEquals(List.of("initial:@agent smelt iron"), context.triggers);
+	}
+
+	@Test
+	void failsWhenWorldLoadBudgetIsExhaustedBeforePrompt() {
+		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
+		FakeContext context = new FakeContext();
+		context.worldLoaded = false;
+		EvaluationScenario scenario = scenario(List.of(new EvaluationCheck("inventory_contains", Map.of(
+			"itemId", "minecraft:iron_ingot",
+			"count", 1
+		))), new EvaluationBudget(4, 5, 0, 5));
+
+		runner.start(scenario, 0, 0);
+		context.tick = 5;
+		runner.onTick(context);
+
+		EvaluationReport report = runner.report(context.tick);
+		assertEquals(EvaluationStatus.FAILED, report.status());
+		assertEquals("Evaluation world did not load before budget was exhausted", report.message());
+		assertTrue(report.evidenceReviewRequired());
+		assertTrue(context.triggers.isEmpty());
+	}
+
+	@Test
 	void freezesReportAndStopsTriggersAfterTerminalStatus() {
 		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 		FakeContext context = new FakeContext();
@@ -218,6 +265,7 @@ class ScenarioEvaluationRunnerTest {
 		private long tick;
 		private int inventoryCount;
 		private boolean plannerInFlight;
+		private boolean worldLoaded = true;
 		private int playerBlockX;
 		private int playerBlockY;
 		private int playerBlockZ;
@@ -248,7 +296,7 @@ class ScenarioEvaluationRunnerTest {
 
 		@Override
 		public boolean worldLoaded() {
-			return true;
+			return worldLoaded;
 		}
 
 		@Override
