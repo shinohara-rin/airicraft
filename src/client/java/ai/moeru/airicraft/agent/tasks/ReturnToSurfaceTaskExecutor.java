@@ -205,7 +205,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		ClientPlayerEntity player,
 		ReturnToSurfaceStepArgs args
 	) {
-		return switch (surfaceTargetOutcome(isSurfaceReached(client, player), args.useTowering())) {
+		return switch (surfaceTargetOutcome(isSurfaceReached(client, player), args.useTowering(), args.targetKind())) {
 			case COMPLETE -> complete(request, "surface_target_reached");
 			case TOWER -> tickTowering(request, client, player, args);
 			case FAIL -> fail(request, "surface_target_not_surface");
@@ -226,6 +226,9 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		}
 		if (isSurfaceReached(client, player)) {
 			return complete(request, "surface_reached_by_towering");
+		}
+		if (shouldStopToweringAtSurfaceTargetElevation(args, player.getBlockY())) {
+			return fail(request, "surface_target_elevation_reached_not_surface");
 		}
 		if (player.getBlockY() - towerStartY > MAX_TOWER_BLOCKS) {
 			return fail(request, "tower_limit_reached");
@@ -548,11 +551,25 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			&& SurfaceMemory.isSurfaceStandingPosition(client, player.getBlockPos());
 	}
 
-	static SurfaceTargetOutcome surfaceTargetOutcome(boolean surfaceReached, boolean useTowering) {
+	static SurfaceTargetOutcome surfaceTargetOutcome(boolean surfaceReached, boolean useTowering, String targetKind) {
 		if (surfaceReached) {
 			return SurfaceTargetOutcome.COMPLETE;
 		}
+		if (isRememberedSurfaceTarget(targetKind)) {
+			return SurfaceTargetOutcome.FAIL;
+		}
 		return useTowering ? SurfaceTargetOutcome.TOWER : SurfaceTargetOutcome.FAIL;
+	}
+
+	static boolean shouldStopToweringAtSurfaceTargetElevation(ReturnToSurfaceStepArgs args, int playerBlockY) {
+		return args != null
+			&& args.targetPosition() != null
+			&& isRememberedSurfaceTarget(args.targetKind())
+			&& playerBlockY >= args.targetPosition().y();
+	}
+
+	static boolean isRememberedSurfaceTarget(String targetKind) {
+		return "nearest_surface".equals(targetKind) || "last_surface".equals(targetKind);
 	}
 
 	private Optional<TaskTerminalEvent> complete(WorldTaskRequest request, String message) {

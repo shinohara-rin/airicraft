@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.tasks;
 
+import ai.moeru.airicraft.agent.goals.GoalPosition;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,15 +12,27 @@ class ReturnToSurfaceTaskExecutorTest {
 	void targetReachedUndergroundWithoutToweringFailsInsteadOfCompleting() {
 		assertEquals(
 			ReturnToSurfaceTaskExecutor.SurfaceTargetOutcome.FAIL,
-			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, false)
+			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, false, "nearest_surface")
 		);
 	}
 
 	@Test
-	void targetReachedUndergroundWithToweringFallsBackToTowering() {
+	void targetReachedRememberedSurfaceWithToweringFailsInsteadOfTowering() {
+		assertEquals(
+			ReturnToSurfaceTaskExecutor.SurfaceTargetOutcome.FAIL,
+			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, true, "nearest_surface")
+		);
+		assertEquals(
+			ReturnToSurfaceTaskExecutor.SurfaceTargetOutcome.FAIL,
+			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, true, "last_surface")
+		);
+	}
+
+	@Test
+	void targetReachedLastGroundWithToweringFallsBackToTowering() {
 		assertEquals(
 			ReturnToSurfaceTaskExecutor.SurfaceTargetOutcome.TOWER,
-			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, true)
+			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(false, true, "last_ground")
 		);
 	}
 
@@ -27,8 +40,29 @@ class ReturnToSurfaceTaskExecutorTest {
 	void targetReachedOnSafeSurfaceCompletes() {
 		assertEquals(
 			ReturnToSurfaceTaskExecutor.SurfaceTargetOutcome.COMPLETE,
-			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(true, false)
+			ReturnToSurfaceTaskExecutor.surfaceTargetOutcome(true, false, "nearest_surface")
 		);
+	}
+
+	@Test
+	void toweringStopsAtRememberedSurfaceElevation() {
+		ReturnToSurfaceStepArgs nearestSurface = new ReturnToSurfaceStepArgs(
+			new GoalPosition(1, 64, 1, false),
+			"nearest_surface",
+			true,
+			ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS
+		);
+		ReturnToSurfaceStepArgs lastGround = new ReturnToSurfaceStepArgs(
+			new GoalPosition(1, 64, 1, false),
+			"last_ground",
+			true,
+			ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS
+		);
+
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldStopToweringAtSurfaceTargetElevation(nearestSurface, 63));
+		assertTrue(ReturnToSurfaceTaskExecutor.shouldStopToweringAtSurfaceTargetElevation(nearestSurface, 64));
+		assertTrue(ReturnToSurfaceTaskExecutor.shouldStopToweringAtSurfaceTargetElevation(nearestSurface, 90));
+		assertFalse(ReturnToSurfaceTaskExecutor.shouldStopToweringAtSurfaceTargetElevation(lastGround, 90));
 	}
 
 	@Test
