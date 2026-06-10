@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Unpack frozen Airicraft scenario worlds into the dev run directory."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import stat
+import sys
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+
+
+SKIPPED_ARCHIVE_ENTRIES = {"session.lock", ".airicraft-evaluation.json"}
+
+
+@dataclass(frozen=True)
+class Scenario:
+    id: str
+    directory: Path
+    archive: Path
+    frozen: bool
+
+
+def repo_root_from_script() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def scenarios_root_from_script() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def normalize_scenario_id(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = re.sub(r"[^a-z0-9._-]+", "-", normalized)
+    normalized = re.sub(r"(^[-.]+|[-.]+$)", "", normalized)
+    if not normalized:
+        raise ValueError("scenario id is required")
+    return normalized
+
+
+def read_simple_yaml_scalar(path: Path, key: str) -> str | None:
+    prefix = f"{key}:"
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or not stripped.startswith(prefix):
+            continue
+        value = stripped[len(prefix):].strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value
+    return None
+
+
+def read_simple_yaml_bool(path: Path, key: str, default: bool) -> bool:
+    value = read_simple_yaml_scalar(path, key)
+    if value is None:
+        return default
+    return value.lower() in {"true", "yes", "1", "on"}
+
+
+def load_scenario(directory: Path) -> Scenario | None:
+    config = directory / "scenario.yml"
+    if not config.exists():
+        return None
+
+    raw_id = read_simple_yaml_scalar(config, "id") or directory.name
+    scenario_id = normalize_scenario_id(raw_id)
+    archive_name = read_simple_yaml_scalar(config, "worldArchive") or "world.zip"
+    archive = (directory / archive_name).resolve()
+    scenario_dir = directory.resolve()
+    if not archive.is_relative_to(scenario_dir):
+        raise RuntimeError(f"{config}: worldArchive escapes the scenario directory: {archive_name}")
+
+    return Scenario(
+        id=scenario_id,
+        directory=scenario_dir,
+        archive=archive,
+        frozen=read_simple_yaml_bool(config, "frozen", False),
+    )
+
+
+def list_scenarios(root: Path, names: list[str]) -> list[Scenario]:
+    requested = {normalize_scenario_id(name) for name in names}
+    scenarios: list[Scenario] = []
+    for directory in sorted(path for path in root.iterdir() if path.is_dir()):
+        scenario = load_scenario(directory)
+        if scenario is None:
+            continue
+        if requested and scenario.id not in requested and directory.name not in requested:
+            continue
+        scenarios.append(scenario)
+
+    found_ids = {scenario.id for scenario in scenarios} | {scenario.directory.name for scenario in scenarios}
+    missing = sorted(requested - found_ids)
+    if missing:
+        raise RuntimeError("scenario not found: " + ", ".join(missing))
+    return scenarios
+
+
+def make_writable(path: Path) -> None:
+    if not path.exists():
+        return
+    for current in sorted(path.rglob("*"), reverse=True):
+        try:
+            mode = current.stat().st_mode
+            current.chmod(mode | stat.S_IWUSR)
+        except FileNotFoundError:
+            pass
+    try:
+        path.chmod(path.stat().st_mode | stat.S_IWUSR)
+    except FileNotFoundError:
+        pass
+
+
+def make_read_only(path: Path) -> None:
+    for current in path.rglob("*"):
+        mode = current.stat().st_mode
+        if current.is_dir():
+            current.chmod((mode | stat.S_IXUSR) & ~stat.S_IWUSR)
+        else:
+            current.chmod(mode & ~stat.S_IWUSR)
+    path.chmod((path.stat().st_mode | stat.S_IXUSR) & ~stat.S_IWUSR)
+
+
+def unpack_archive(archive: Path, target: Path) -> None:
+    target_parent = target.parent.resolve()
+    target_name = target.name
+    with tempfile.TemporaryDirectory(prefix=f".{target_name}.", dir=target_parent) as temp_name:
+        temp_target = Path(temp_name) / "world"
+        temp_target.mkdir()
+        with zipfile.ZipFile(archive) as zip_file:
+            for info in zip_file.infolist():
+                name = info.filename.replace("\\", "/")
+                if not name or name.endswith("/"):
+                    continue
+                normalized_name = str(Path(name))
+                if normalized_name in SKIPPED_ARCHIVE_ENTRIES:
+                    continue
+                output_path = (temp_target / name).resolve()
+                if not output_path.is_relative_to(temp_target.resolve()):
+                    raise RuntimeError(f"unsafe archive entry in {archive}: {info.filename}")
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with zip_file.open(info) as source, output_path.open("wb") as destination:
+                    shutil.copyfileobj(source, destination)
+
+        if not (temp_target / "level.dat").exists():
+            raise RuntimeError(f"{archive} does not look like a Minecraft world archive: missing level.dat")
+
+        temp_target.replace(target)
+        make_read_only(target)
+
+
+def install_scenario(scenario: Scenario, saves_dir: Path, force: bool, dry_run: bool) -> str:
+    if not scenario.frozen:
+        return f"skip: {scenario.id} is not frozen"
+    if not scenario.archive.exists():
+        raise RuntimeError(f"{scenario.id}: archive not found: {scenario.archive}")
+
+    target = (saves_dir / scenario.id).resolve()
+    saves_root = saves_dir.resolve()
+    if not target.is_relative_to(saves_root):
+        raise RuntimeError(f"{scenario.id}: unsafe target path: {target}")
+
+    if target.exists() and not force:
+        return f"skip: {scenario.id} already exists at {target} (use --force to replace)"
+
+    if dry_run:
+        action = "replace" if target.exists() else "install"
+        return f"dry-run: would {action} {scenario.id} -> {target}"
+
+    saves_dir.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        make_writable(target)
+        shutil.rmtree(target)
+    unpack_archive(scenario.archive, target)
+    return f"installed: {scenario.id} -> {target}"
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    repo_root = repo_root_from_script()
+    parser = argparse.ArgumentParser(
+        description="Unpack frozen scenario world archives into run/saves for evaluator menu entries."
+    )
+    parser.add_argument(
+        "scenario",
+        nargs="*",
+        help="Scenario id or directory name to install. Defaults to all frozen scenarios.",
+    )
+    parser.add_argument(
+        "--run-dir",
+        type=Path,
+        default=repo_root / "run",
+        help="Minecraft run directory. Defaults to <repo>/run.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace an existing save with the same scenario id.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print planned changes without writing files.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    scenarios_root = scenarios_root_from_script()
+    saves_dir = (args.run_dir / "saves").resolve()
+    try:
+        scenarios = list_scenarios(scenarios_root, args.scenario)
+        if not scenarios:
+            print("no scenarios found", file=sys.stderr)
+            return 1
+        for scenario in scenarios:
+            print(install_scenario(scenario, saves_dir, args.force, args.dry_run))
+        return 0
+    except RuntimeError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    except zipfile.BadZipFile as error:
+        print(f"error: invalid zip archive: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

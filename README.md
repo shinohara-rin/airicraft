@@ -153,6 +153,19 @@ Planner-facing block modification is guarded by the world-read ledger. `place_bl
 
 Evaluation scenarios in `scenarios/*/scenario.yml` can use deterministic checks. `inventory_contains` verifies an item count, `block_state` verifies one exact block position, and `block_count` verifies at least `count` matching blocks in either `scope: self` with `horizontalRadius`/`verticalRadius` or `scope: box` with `x1/y1/z1/x2/y2/z2`.
 
+To make frozen scenario worlds visible in the Minecraft singleplayer menu, unpack the archived fixtures into the dev game directory:
+
+```shell
+scenarios/unpack-worlds --dry-run
+scenarios/unpack-worlds
+```
+
+By default this installs every frozen `scenarios/*/world.zip` archive into `run/saves/<scenario-id>` and marks the installed save read-only. The evaluator uses that visible frozen world as a menu entry, then loads a disposable copy for the actual run. To refresh an existing installed fixture, pass `--force`; to install only one scenario, pass its id:
+
+```shell
+scenarios/unpack-worlds farm_easy --force
+```
+
 ### Normal dev client
 
 Use this for Airicraft-only development. It runs the Fabric dev client and opens JDWP on `127.0.0.1:5005`.
