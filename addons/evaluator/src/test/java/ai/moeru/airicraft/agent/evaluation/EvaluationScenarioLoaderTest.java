@@ -34,6 +34,14 @@ class EvaluationScenarioLoaderTest {
 			  - type: inventory_contains
 			    itemId: minecraft:iron_ingot
 			    count: 1
+			waypoints:
+			  - provider: journeymap
+			    id: farm-here
+			    name: Farm here
+			    dimension: minecraft:overworld
+			    x: -31
+			    y: 63
+			    z: -63
 			evidence:
 			  includePlannerJournal: true
 			  includeDebugTimeline: false
@@ -57,6 +65,15 @@ class EvaluationScenarioLoaderTest {
 		assertEquals(1, scenario.checks().size());
 		assertEquals("inventory_contains", scenario.checks().getFirst().type());
 		assertEquals("minecraft:iron_ingot", scenario.checks().getFirst().string("itemId"));
+		assertEquals(1, scenario.waypoints().size());
+		EvaluationWaypoint waypoint = scenario.waypoints().getFirst();
+		assertEquals("journeymap", waypoint.provider());
+		assertEquals("farm-here", waypoint.id());
+		assertEquals("Farm here", waypoint.name());
+		assertEquals("minecraft:overworld", waypoint.dimension());
+		assertEquals(-31, waypoint.x());
+		assertEquals(63, waypoint.y());
+		assertEquals(-63, waypoint.z());
 		assertFalse(scenario.evidence().includeDebugTimeline());
 		assertFalse(scenario.evidence().includeWorldSnapshot());
 	}
@@ -75,6 +92,7 @@ class EvaluationScenarioLoaderTest {
 			"@agent collect wood",
 			new EvaluationBudget(2, 100, 0, 10),
 			java.util.List.of(new EvaluationCheck("event_contains", java.util.Map.of("eventType", "task.completed"))),
+			java.util.List.of(new EvaluationWaypoint("journeymap", "farm-here", "Farm here", "minecraft:overworld", -31, 63, -63)),
 			EvaluationEvidenceSettings.defaults()
 		);
 
@@ -85,5 +103,7 @@ class EvaluationScenarioLoaderTest {
 		assertTrue(loaded.frozen());
 		assertEquals("event_contains", loaded.checks().getFirst().type());
 		assertEquals("task.completed", loaded.checks().getFirst().string("eventType"));
+		assertEquals("Farm here", loaded.waypoints().getFirst().name());
+		assertEquals(-31, loaded.waypoints().getFirst().x());
 	}
 }

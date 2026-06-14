@@ -14,6 +14,7 @@ public record EvaluationScenario(
 	String prompt,
 	EvaluationBudget budget,
 	List<EvaluationCheck> checks,
+	List<EvaluationWaypoint> waypoints,
 	EvaluationEvidenceSettings evidence
 ) {
 	public EvaluationScenario {
@@ -25,6 +26,7 @@ public record EvaluationScenario(
 		prompt = prompt == null ? "" : prompt;
 		budget = budget == null ? EvaluationBudget.defaults() : budget;
 		checks = checks == null ? List.of() : List.copyOf(checks);
+		waypoints = waypoints == null ? List.of() : List.copyOf(waypoints);
 		evidence = evidence == null ? EvaluationEvidenceSettings.defaults() : evidence;
 	}
 

@@ -38,8 +38,10 @@ public final class EvaluationAddonRuntime {
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 	private final EvaluationFlightRecorder recorder = new EvaluationFlightRecorder();
+	private final EvaluationWaypointSeeder waypointSeeder = new EvaluationWaypointSeeder();
 
 	private EvaluationScenario scenario;
+	private boolean waypointsSeeded;
 
 	public EvaluationWorldFixtureService fixtures() {
 		return fixtures;
@@ -51,11 +53,27 @@ public final class EvaluationAddonRuntime {
 			return;
 		}
 		EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
+		if (!waypointsSeeded && runtime.sessionSnapshot().worldLoaded()) {
+			try {
+				waypointSeeder.seed(activeScenario);
+				waypointsSeeded = true;
+			}
+			catch (BridgeUnavailableException exception) {
+				runner.failSetup(exception.getMessage(), runtime.tickCount());
+				var report = runner.report(runtime.tickCount());
+				recorder.recordTick(activeScenario, report, runtime, this::evidencePayload);
+				scenario = null;
+				waypointsSeeded = false;
+				runtime.finishEvaluation();
+				return;
+			}
+		}
 		runner.onTick(new RuntimeEvaluationContext(runtime));
 		var report = runner.report(runtime.tickCount());
 		recorder.recordTick(activeScenario, report, runtime, this::evidencePayload);
 		if (runner.terminal()) {
 			scenario = null;
+			waypointsSeeded = false;
 			runtime.finishEvaluation();
 		}
 	}
@@ -130,6 +148,7 @@ public final class EvaluationAddonRuntime {
 				EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
 				runtime.prepareForEvaluation();
 				scenario = nextScenario;
+				waypointsSeeded = false;
 				runner.start(nextScenario, runtime.tickCount(), System.currentTimeMillis());
 				recorder.start(nextScenario, outputDir, restoredWorld);
 				return acceptedRunPayload(nextScenario, restoredWorld, outputDir, runner.report(runtime.tickCount()));
@@ -176,6 +195,7 @@ public final class EvaluationAddonRuntime {
 
 	private Void rollbackAcceptedRun() {
 		scenario = null;
+		waypointsSeeded = false;
 		runner.reset();
 		recorder.reset();
 		AiricraftClient.runtimeController().agentRuntime().finishEvaluation();

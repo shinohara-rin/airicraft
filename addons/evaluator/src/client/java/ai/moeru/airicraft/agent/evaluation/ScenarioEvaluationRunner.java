@@ -128,6 +128,13 @@ public final class ScenarioEvaluationRunner {
 		return terminal(status);
 	}
 
+	public void failSetup(String failureMessage, long tick) {
+		if (scenario == null || terminal(status)) {
+			return;
+		}
+		finish(EvaluationStatus.FAILED, failureMessage, true, tick);
+	}
+
 	private List<EvaluationCheckResult> evaluateChecks(Context context) {
 		if (scenario.checks().isEmpty()) {
 			return List.of();

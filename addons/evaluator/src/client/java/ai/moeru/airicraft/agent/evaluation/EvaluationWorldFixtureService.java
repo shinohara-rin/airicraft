@@ -93,6 +93,7 @@ public final class EvaluationWorldFixtureService {
 				scenario.prompt(),
 				scenario.budget(),
 				scenario.checks(),
+				scenario.waypoints(),
 				scenario.evidence()
 			);
 			repository.write(frozenScenario);
@@ -119,6 +120,7 @@ public final class EvaluationWorldFixtureService {
 				scenario.prompt(),
 				scenario.budget(),
 				scenario.checks(),
+				scenario.waypoints(),
 				scenario.evidence()
 			);
 			EvaluationScenarioLoader.write(configPath, unfrozen);
@@ -233,6 +235,7 @@ public final class EvaluationWorldFixtureService {
 			false,
 			"",
 			EvaluationBudget.defaults(),
+			java.util.List.of(),
 			java.util.List.of(),
 			EvaluationEvidenceSettings.defaults()
 		);

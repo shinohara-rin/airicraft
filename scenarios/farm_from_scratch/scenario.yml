@@ -69,6 +69,14 @@ checks:
   - type: inventory_contains
     itemId: minecraft:bucket
     count: 1
+waypoints:
+  - provider: journeymap
+    id: farm-here
+    name: Farm here
+    dimension: minecraft:overworld
+    x: -31
+    y: 63
+    z: -63
 evidence:
   includePlannerJournal: true
   includeDebugTimeline: true

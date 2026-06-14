@@ -41,6 +41,7 @@ class EvaluationFlightRecorderTest {
 			"@agent obtain an iron pickaxe",
 			EvaluationBudget.defaults(),
 			List.of(),
+			List.of(),
 			EvaluationEvidenceSettings.defaults()
 		);
 		EvaluationFlightRecorder recorder = new EvaluationFlightRecorder();

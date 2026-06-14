@@ -257,6 +257,7 @@ class ScenarioEvaluationRunnerTest {
 			"@agent smelt iron",
 			budget,
 			checks,
+			List.of(),
 			EvaluationEvidenceSettings.defaults()
 		);
 	}

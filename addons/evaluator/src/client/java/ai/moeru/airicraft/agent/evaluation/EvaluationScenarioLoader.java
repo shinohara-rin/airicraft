@@ -56,6 +56,7 @@ public final class EvaluationScenarioLoader {
 				longValue(budgetRoot, "heartbeatIntervalTicks", EvaluationBudget.defaults().heartbeatIntervalTicks())
 			),
 			checks(root.get("checks")),
+			waypoints(root.get("waypoints")),
 			new EvaluationEvidenceSettings(
 				bool(evidenceRoot, "includePlannerJournal", true),
 				bool(evidenceRoot, "includeDebugTimeline", true),
@@ -91,6 +92,21 @@ public final class EvaluationScenarioLoader {
 			checkMaps.add(checkMap);
 		}
 		root.put("checks", checkMaps);
+		ArrayList<Map<String, Object>> waypointMaps = new ArrayList<>();
+		for (EvaluationWaypoint waypoint : scenario.waypoints()) {
+			LinkedHashMap<String, Object> waypointMap = new LinkedHashMap<>();
+			putIfPresent(waypointMap, "provider", waypoint.provider());
+			putIfPresent(waypointMap, "id", waypoint.id());
+			waypointMap.put("name", waypoint.name());
+			waypointMap.put("dimension", waypoint.dimension());
+			waypointMap.put("x", waypoint.x());
+			waypointMap.put("y", waypoint.y());
+			waypointMap.put("z", waypoint.z());
+			waypointMaps.add(waypointMap);
+		}
+		if (!waypointMaps.isEmpty()) {
+			root.put("waypoints", waypointMaps);
+		}
 		root.put("evidence", orderedMap(
 			"includePlannerJournal", scenario.evidence().includePlannerJournal(),
 			"includeDebugTimeline", scenario.evidence().includeDebugTimeline(),
@@ -137,6 +153,32 @@ public final class EvaluationScenarioLoader {
 			checks.add(new EvaluationCheck(type, fields));
 		}
 		return checks;
+	}
+
+	private static List<EvaluationWaypoint> waypoints(Object value) {
+		if (!(value instanceof List<?> list)) {
+			return List.of();
+		}
+		ArrayList<EvaluationWaypoint> waypoints = new ArrayList<>();
+		for (Object current : list) {
+			if (!(current instanceof Map<?, ?> map)) {
+				continue;
+			}
+			LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+			for (Map.Entry<?, ?> entry : map.entrySet()) {
+				fields.put(String.valueOf(entry.getKey()), entry.getValue());
+			}
+			waypoints.add(new EvaluationWaypoint(
+				string(fields, "provider", null),
+				string(fields, "id", null),
+				string(fields, "name", null),
+				string(fields, "dimension", "minecraft:overworld"),
+				integer(fields, "x", 0),
+				integer(fields, "y", 0),
+				integer(fields, "z", 0)
+			));
+		}
+		return List.copyOf(waypoints);
 	}
 
 	private static Map<String, Object> object(Map<String, Object> root, String key) {
@@ -186,6 +228,12 @@ public final class EvaluationScenarioLoader {
 			map.put(String.valueOf(keysAndValues[i]), keysAndValues[i + 1]);
 		}
 		return map;
+	}
+
+	private static void putIfPresent(Map<String, Object> map, String key, Object value) {
+		if (value != null) {
+			map.put(key, value);
+		}
 	}
 
 	private static Yaml createYaml() {
