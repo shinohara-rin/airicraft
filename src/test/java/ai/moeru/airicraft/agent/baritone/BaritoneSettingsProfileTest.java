@@ -2,7 +2,6 @@ package ai.moeru.airicraft.agent.baritone;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -22,8 +21,6 @@ class BaritoneSettingsProfileTest {
 		assertFalse(target.allowWaterBucketFall);
 		assertTrue(target.allowBreak);
 		assertTrue(target.autoTool);
-		assertTrue(target.mineScanDroppedItems);
-		assertEquals(3000L, target.mineDropLoiterDurationMs);
 	}
 
 	private static final class FakeSettingsTarget implements BaritoneSettingsProfile.SettingsTarget {
@@ -36,8 +33,6 @@ class BaritoneSettingsProfileTest {
 		private boolean allowWaterBucketFall = true;
 		private boolean allowBreak = false;
 		private boolean autoTool = false;
-		private boolean mineScanDroppedItems = false;
-		private long mineDropLoiterDurationMs = 250L;
 
 		@Override
 		public void chatControl(boolean value) {
@@ -82,16 +77,6 @@ class BaritoneSettingsProfileTest {
 		@Override
 		public void autoTool(boolean value) {
 			autoTool = value;
-		}
-
-		@Override
-		public void mineScanDroppedItems(boolean value) {
-			mineScanDroppedItems = value;
-		}
-
-		@Override
-		public void mineDropLoiterDurationMs(long value) {
-			mineDropLoiterDurationMs = value;
 		}
 	}
 }

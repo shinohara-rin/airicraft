@@ -60,16 +60,6 @@ public final class BaritoneSettingsProfile {
 			public void autoTool(boolean value) {
 				settings.autoTool.value = value;
 			}
-
-			@Override
-			public void mineScanDroppedItems(boolean value) {
-				settings.mineScanDroppedItems.value = value;
-			}
-
-			@Override
-			public void mineDropLoiterDurationMs(long value) {
-				settings.mineDropLoiterDurationMSThanksLouca.value = value;
-			}
 		});
 	}
 
@@ -86,8 +76,6 @@ public final class BaritoneSettingsProfile {
 
 		settings.allowBreak(true);
 		settings.autoTool(true);
-		settings.mineScanDroppedItems(true);
-		settings.mineDropLoiterDurationMs(3000L);
 	}
 
 	interface SettingsTarget {
@@ -108,9 +96,5 @@ public final class BaritoneSettingsProfile {
 		void allowBreak(boolean value);
 
 		void autoTool(boolean value);
-
-		void mineScanDroppedItems(boolean value);
-
-		void mineDropLoiterDurationMs(long value);
 	}
 }
