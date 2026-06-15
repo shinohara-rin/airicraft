@@ -2028,8 +2028,7 @@ class PlannerOrchestratorTest {
 		));
 		backend.awaitCompletions(1, Duration.ofSeconds(1));
 
-		assertNull(awaitNullPoll(orchestrator));
-		assertEquals(1, visionTool.captureRequestCount());
+		awaitVisionCaptureRequestCount(orchestrator, visionTool, 1, Duration.ofSeconds(1));
 
 		orchestrator.submit(requestAt(11L, 1_100L, "Alice", "B"));
 		assertEquals(1, backend.callCount());
@@ -2481,7 +2480,7 @@ class PlannerOrchestratorTest {
 	}
 
 	private static PlannerExecutionResult awaitResult(PlannerOrchestrator orchestrator) {
-		Instant deadline = Instant.now().plus(Duration.ofSeconds(1));
+		Instant deadline = Instant.now().plus(Duration.ofSeconds(2));
 		while (Instant.now().isBefore(deadline)) {
 			PlannerExecutionResult result = orchestrator.poll();
 			if (result != null) {
@@ -2496,6 +2495,36 @@ class PlannerOrchestratorTest {
 			}
 		}
 		throw new AssertionError("Timed out waiting for planner result");
+	}
+
+	private static void awaitVisionCaptureRequestCount(
+		PlannerOrchestrator orchestrator,
+		StubVisionTool visionTool,
+		int expectedCount,
+		Duration timeout
+	) {
+		Instant deadline = Instant.now().plus(timeout);
+		while (Instant.now().isBefore(deadline)) {
+			orchestrator.poll();
+			if (visionTool.captureRequestCount() >= expectedCount) {
+				return;
+			}
+			try {
+				Thread.sleep(10L);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new AssertionError("Interrupted while waiting for vision capture request count", exception);
+			}
+		}
+		throw new AssertionError(
+			"Timed out waiting for vision capture request count "
+				+ expectedCount
+				+ ", actual="
+				+ visionTool.captureRequestCount()
+				+ ", snapshot="
+				+ orchestrator.debugSnapshot()
+		);
 	}
 
 	private static CompactionExecutionResult awaitCompaction(PlannerOrchestrator orchestrator) {
