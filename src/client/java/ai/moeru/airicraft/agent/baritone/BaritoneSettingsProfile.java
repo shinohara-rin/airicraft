@@ -87,7 +87,7 @@ public final class BaritoneSettingsProfile {
 		settings.allowBreak(true);
 		settings.autoTool(true);
 		settings.mineScanDroppedItems(true);
-		settings.mineDropLoiterDurationMs(750L);
+		settings.mineDropLoiterDurationMs(3000L);
 	}
 
 	interface SettingsTarget {

@@ -23,7 +23,7 @@ class BaritoneSettingsProfileTest {
 		assertTrue(target.allowBreak);
 		assertTrue(target.autoTool);
 		assertTrue(target.mineScanDroppedItems);
-		assertEquals(750L, target.mineDropLoiterDurationMs);
+		assertEquals(3000L, target.mineDropLoiterDurationMs);
 	}
 
 	private static final class FakeSettingsTarget implements BaritoneSettingsProfile.SettingsTarget {
