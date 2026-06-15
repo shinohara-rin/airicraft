@@ -5,11 +5,13 @@ import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.dialogue.DialogueRuntime;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
+import ai.moeru.airicraft.agent.observability.FlightRecordingObservability;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 class EmbodiedAgentRuntimeObservabilityWiringTest {
@@ -38,9 +40,12 @@ class EmbodiedAgentRuntimeObservabilityWiringTest {
 
 			DialogueRuntime dialogueRuntime = (DialogueRuntime) readField(runtime, "dialogueRuntime");
 			PlannerOrchestrator plannerOrchestrator = (PlannerOrchestrator) readField(dialogueRuntime, "plannerOrchestrator");
+			AgentObservability runtimeObservability = (AgentObservability) readField(runtime, "observability");
 			AgentObservability plannerObservability = (AgentObservability) readField(plannerOrchestrator, "observability");
 
-			assertSame(observability, plannerObservability);
+			FlightRecordingObservability recordingObservability = assertInstanceOf(FlightRecordingObservability.class, runtimeObservability);
+			assertSame(observability, readField(recordingObservability, "delegate"));
+			assertSame(runtimeObservability, plannerObservability);
 		}
 		finally {
 			observability.shutdown();
