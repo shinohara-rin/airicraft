@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${CODEX_SIDECAR_ENV_FILE:-"$ROOT/samples/codex/codex-sidecar.env"}"
+
+if [[ -f "$ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+exec node "$ROOT/tools/codex-openai-sidecar/src/server.mjs" "$@"

@@ -1,0 +1,23 @@
+# Codex config for the Airicraft local sidecar planner runtime.
+# Copy this file to "$CODEX_SIDECAR_CODEX_HOME/config.toml".
+# The HTTP sidecar launches `codex mcp-server`, which reads this materialized
+# CODEX_HOME config. Keep it isolated from your normal Codex home.
+
+model = "gpt-5.5"
+model_provider = "openai"
+
+approval_policy = "never"
+sandbox_mode = "read-only"
+web_search = "disabled"
+allow_login_shell = false
+
+# The Airicraft planner request should be self-contained. Keep project docs out
+# of the sidecar thread unless you intentionally add a different sidecar config.
+project_doc_max_bytes = 0
+project_doc_fallback_filenames = []
+
+[history]
+persistence = "none"
+
+[features]
+shell_tool = false

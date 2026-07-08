@@ -1,0 +1,38 @@
+# Copy to run/config/airicraft/agent.yml for local planner testing.
+# This treats the Codex local sidecar as a normal OpenAI-compatible provider.
+
+providerBaseUrl: "http://127.0.0.1:3217/v1"
+apiKey: "airicraft-local-sidecar-token"
+model: "codex-local-sidecar"
+
+requestTimeoutMillis: 120000
+maxRecentConversationTurns: 8
+plannerCompactionTriggerTokens: 65536
+plannerPendingSemanticEventCap: 128
+plannerSessionMaxConcurrentAttempts: 1
+plannerSessionCoalesceStepMillis: 10
+plannerSessionCoalesceMinMillis: 10
+plannerSessionCoalesceMaxMillis: 100
+
+visionProviderBaseUrl: "https://api.openai.com/v1"
+visionApiKey: ""
+visionModel: ""
+visionRequestTimeoutMillis: 10000
+visionImageDetail: "low"
+plannerNativeVisionEnabled: false
+plannerUseJsonObjectResponseFormat: true
+
+idleInitialDelaySeconds: 0
+idleCooldownSeconds: 0
+
+observability:
+  enabled: false
+  exporter: "otlp_http"
+  otlpEndpoint: ""
+  otlpHeaders: {}
+  resourceAttributes: {}
+  vendorProfile: "generic"
+  debugLogExports: false
+  captureInputs: false
+  captureOutputs: false
+  captureImages: false

@@ -51,6 +51,7 @@ __pycache__/
 .gradle-local/
 
 .airicraft-compat/
+.airicraft-codex-sidecar.env
 legacy_code_for_ref/
 
 logs/

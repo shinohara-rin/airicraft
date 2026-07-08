@@ -129,6 +129,10 @@ source .envrc
 ./gradlew test wrapper:test --rerun-tasks
 ```
 
+### Codex local sidecar samples
+
+For local planner experiments through a Codex sidecar, see [docs/codex-local-sidecar.md](docs/codex-local-sidecar.md). The sample treats the sidecar as a normal OpenAI-compatible planner provider at `http://127.0.0.1:3217/v1`.
+
 ### Planner world inspection contract
 
 The planner has a read-only `inspect_world` tool for exact local block state. It complements vision: use `take_a_look` for visual semantics, and `inspect_world` when the planner needs precise coordinates, block ids, block-state properties, or placement affordances.
