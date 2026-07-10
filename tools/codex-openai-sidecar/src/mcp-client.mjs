@@ -35,6 +35,7 @@ export class CodexMcpRuntime {
     this.child.stdout.on("data", chunk => this.#onStdout(chunk));
     this.child.stderr.on("data", chunk => this.#onStderr(chunk));
     this.child.on("exit", (code, signal) => this.#onExit(code, signal));
+    this.child.on("error", error => this.#onError(error));
 
     await this.request("initialize", {
       protocolVersion: "2024-11-05",
@@ -46,7 +47,8 @@ export class CodexMcpRuntime {
     }, this.startupTimeoutMs);
     this.notify("notifications/initialized", {});
     const tools = await this.request("tools/list", {}, this.startupTimeoutMs);
-    const names = new Set((tools.tools ?? []).map(tool => tool.name));
+    const listedTools = Array.isArray(tools?.tools) ? tools.tools : [];
+    const names = new Set(listedTools.map(tool => tool?.name).filter(Boolean));
     if (!names.has("codex")) {
       throw new Error("Codex MCP server did not expose the codex tool");
     }
@@ -132,7 +134,7 @@ export class CodexMcpRuntime {
       catch {
         continue;
       }
-      if (message.id == null || !this.pending.has(message.id)) {
+      if (!message || typeof message !== "object" || message.id == null || !this.pending.has(message.id)) {
         continue;
       }
       const pending = this.pending.get(message.id);
@@ -156,6 +158,16 @@ export class CodexMcpRuntime {
     const message = this.stderrTail.trim()
       ? `Codex MCP process exited with ${detail}: ${this.stderrTail.trim()}`
       : `Codex MCP process exited with ${detail}`;
+    for (const [id, pending] of this.pending.entries()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(message));
+      this.pending.delete(id);
+    }
+    this.child = null;
+  }
+
+  #onError(error) {
+    const message = `Codex MCP process failed to start or encountered an error: ${error.message}`;
     for (const [id, pending] of this.pending.entries()) {
       clearTimeout(pending.timer);
       pending.reject(new Error(message));

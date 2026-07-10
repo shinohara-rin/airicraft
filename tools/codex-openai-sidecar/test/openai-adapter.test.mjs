@@ -72,6 +72,16 @@ test("rejects unknown tool calls before returning to Airicraft", () => {
   );
 });
 
+test("rejects non-array Codex tool calls with a provider error", () => {
+  assert.throws(
+    () => parseCodexAssistantText("{\"tool_calls\":\"none\"}", requestWithTool),
+    error => error instanceof HttpError
+      && error.status === 502
+      && error.code === "invalid_codex_output"
+      && error.message === "Codex tool_calls must be an array"
+  );
+});
+
 test("maps json_object compaction content to assistant content string", () => {
   const request = {
     model: "codex-local-sidecar",

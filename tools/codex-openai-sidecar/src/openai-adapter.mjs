@@ -120,8 +120,13 @@ export function buildOpenAiChatCompletion(request, assistant, options = {}) {
 }
 
 function validateAssistantForRequest(assistant, request) {
+  const rawToolCalls = assistant.tool_calls ?? [];
+  if (!Array.isArray(rawToolCalls)) {
+    throw new HttpError(502, "invalid_codex_output", "Codex tool_calls must be an array");
+  }
+
   if (request.response_format?.type === "json_object") {
-    if ((assistant.tool_calls ?? []).length > 0) {
+    if (rawToolCalls.length > 0) {
       throw new HttpError(502, "invalid_codex_output", "Codex returned tool_calls for a json_object response");
     }
     return {
@@ -130,7 +135,7 @@ function validateAssistantForRequest(assistant, request) {
     };
   }
 
-  const toolCalls = (assistant.tool_calls ?? []).map((call, index) => normalizeToolCall(call, index, request));
+  const toolCalls = rawToolCalls.map((call, index) => normalizeToolCall(call, index, request));
   if (toolCalls.length > 0) {
     return {
       content: typeof assistant.content === "string" ? assistant.content : "",
