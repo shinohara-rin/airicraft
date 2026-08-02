@@ -145,7 +145,6 @@ public final class ClientTickDebugRuntime {
 				player.getHungerManager().getFoodLevel(),
 				player.getAir()
 			),
-			runtime.snapshot(),
 			planner.activeGeneration(),
 			planner.currentPhase()
 		);

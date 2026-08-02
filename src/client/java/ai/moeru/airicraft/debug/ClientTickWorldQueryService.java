@@ -30,7 +30,6 @@ public final class ClientTickWorldQueryService {
 		response.put("worldTime", snapshot.worldTime());
 		response.put("timeOfDay", snapshot.timeOfDay());
 		response.put("player", snapshot.player());
-		response.put("agent", snapshot.agent());
 		response.put("plannerGeneration", snapshot.plannerGeneration());
 		response.put("plannerPhase", snapshot.plannerPhase());
 		response.put("bottomY", world.getBottomY());

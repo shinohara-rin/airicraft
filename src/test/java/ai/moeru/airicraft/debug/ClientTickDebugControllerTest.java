@@ -127,7 +127,6 @@ class ClientTickDebugControllerTest {
 			200L,
 			300L,
 			new ClientTickDebugController.PlayerSnapshot(1.5D, 64.0D, 2.5D, 1, 64, 2, 10.0F, 20.0F, 20.0F, 20, 300),
-			null,
 			4L,
 			"IDLE"
 		);

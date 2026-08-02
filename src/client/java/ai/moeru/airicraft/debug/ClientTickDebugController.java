@@ -1,7 +1,5 @@
 package ai.moeru.airicraft.debug;
 
-import ai.moeru.airicraft.agent.AgentRuntimeSnapshot;
-
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -226,7 +224,6 @@ public final class ClientTickDebugController {
 		long worldTime,
 		long timeOfDay,
 		PlayerSnapshot player,
-		AgentRuntimeSnapshot agent,
 		long plannerGeneration,
 		String plannerPhase
 	) {
