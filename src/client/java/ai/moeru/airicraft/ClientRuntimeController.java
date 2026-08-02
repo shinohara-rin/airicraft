@@ -112,11 +112,15 @@ public final class ClientRuntimeController {
 		clientTickDebugRuntime.onClientTickCompleted(client, currentAgentRuntime());
 	}
 
-	public void onClientTickStarted(MinecraftClient client) {
+	public boolean startClientTick() {
+		if (!clientTickDebugRuntime.allowVanillaTick(true)) {
+			return false;
+		}
 		clientTickDebugRuntime.onClientTickStarted();
+		return true;
 	}
 
-	public boolean allowClientTick(boolean vanillaAllowsTick) {
+	public boolean allowRenderTickCounter(boolean vanillaAllowsTick) {
 		return clientTickDebugRuntime.allowVanillaTick(vanillaAllowsTick);
 	}
 

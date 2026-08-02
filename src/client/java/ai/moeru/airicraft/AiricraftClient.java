@@ -71,7 +71,6 @@ public class AiricraftClient implements ClientModInitializer {
 				)
 		));
 		ClientLifecycleEvents.CLIENT_STARTED.register(RUNTIME_CONTROLLER::onClientStarted);
-		ClientTickEvents.START_CLIENT_TICK.register(RUNTIME_CONTROLLER::onClientTickStarted);
 		ClientTickEvents.END_CLIENT_TICK.register(RUNTIME_CONTROLLER::onClientTick);
 		WorldRenderEvents.BEFORE_DEBUG_RENDER.register(RUNTIME_CONTROLLER::onWorldRender);
 		HudElementRegistry.attachElementAfter(VanillaHudElements.SUBTITLES, PLANNER_DEBUG_OVERLAY_ID, RUNTIME_CONTROLLER::onHudRender);

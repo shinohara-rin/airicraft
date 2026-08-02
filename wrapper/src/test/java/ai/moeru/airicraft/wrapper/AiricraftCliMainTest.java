@@ -398,6 +398,27 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void clientTickWorldFindBlocksUsesMatchItemLabel() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap(
+			"matches", List.of(linkedMap("id", "minecraft:stone"))
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "find-blocks",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "0", "--min-y", "0", "--min-z", "0",
+			"--max-x", "0", "--max-y", "0", "--max-z", "0",
+			"--block-id", "minecraft:stone"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("[match 1]\n"));
+		assertFalse(result.output().contains("[matche 1]\n"));
+	}
+
+	@Test
 	void agentGoalsShowsActiveDirectJobFailure() {
 		TestTransport transport = new TestTransport();
 		transport.agentGoalsPayload = linkedMap(

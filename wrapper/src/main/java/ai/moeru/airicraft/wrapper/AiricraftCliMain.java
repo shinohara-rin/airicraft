@@ -2600,6 +2600,9 @@ public final class AiricraftCliMain {
 
 	private static String singularize(String value) {
 		String lower = value.toLowerCase(Locale.ROOT);
+		if ("matches".equals(lower)) {
+			return value.substring(0, value.length() - 2);
+		}
 		if (lower.endsWith("ies") && value.length() > 3) {
 			return value.substring(0, value.length() - 3) + "y";
 		}
