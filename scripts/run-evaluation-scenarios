@@ -24,6 +24,7 @@ from typing import Any
 
 
 TERMINAL_STATUSES = {"PASSED", "FAILED", "NEEDS_REVIEW"}
+BRIDGE_STATE_ENVIRONMENT_VARIABLE = "AIRICRAFT_BRIDGE_STATE_FILE"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -82,12 +83,11 @@ def default_client_command(repo_root: Path) -> str:
     return "scripts/eval run"
 
 
-def bridge_state_path() -> Path:
+def default_bridge_state_path() -> Path:
     return Path.home() / ".airicraft" / "bridge-state.json"
 
 
-def read_bridge_state() -> BridgeState | None:
-    path = bridge_state_path()
+def read_bridge_state(path: Path) -> BridgeState | None:
     if not path.exists():
         return None
     try:
@@ -147,10 +147,24 @@ def safe_name(value: str) -> str:
     return safe or "scenario"
 
 
-def start_client(repo_root: Path, command: str, log_path: Path, detach_output: bool = False) -> ClientProcess:
+def client_environment(bridge_state_path: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] = str(bridge_state_path.resolve())
+    return environment
+
+
+def start_client(
+    repo_root: Path,
+    command: str,
+    log_path: Path,
+    bridge_state_path: Path,
+    detach_output: bool = False,
+) -> ClientProcess:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    bridge_state_path.parent.mkdir(parents=True, exist_ok=True)
     line_queue: "queue.Queue[str]" = queue.Queue()
     log_handle = None
+    environment = client_environment(bridge_state_path)
     if detach_output:
         log_handle = log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
@@ -161,6 +175,7 @@ def start_client(repo_root: Path, command: str, log_path: Path, detach_output: b
             text=True,
             bufsize=1,
             start_new_session=True,
+            env=environment,
         )
         return ClientProcess(
             process=process,
@@ -179,6 +194,7 @@ def start_client(repo_root: Path, command: str, log_path: Path, detach_output: b
         text=True,
         bufsize=1,
         start_new_session=True,
+        env=environment,
     )
 
     def pump() -> None:
@@ -311,6 +327,7 @@ def endpoint_error(error: BaseException) -> dict[str, Any]:
 
 def wait_for_title_bridge(
     client: ClientProcess,
+    bridge_state_path: Path,
     launch_started_ms: int,
     timeout_seconds: float,
 ) -> tuple[BridgeState, dict[str, Any]]:
@@ -319,7 +336,7 @@ def wait_for_title_bridge(
     while time.monotonic() < deadline:
         if client.process.poll() is not None:
             raise RunnerError(f"client exited while waiting for bridge, code={client.process.poll()}")
-        bridge = read_bridge_state()
+        bridge = read_bridge_state(bridge_state_path)
         if bridge is not None and bridge.started_at_epoch_millis >= launch_started_ms - 5000:
             try:
                 status = bridge_json(bridge, "GET", "/v1/status", timeout_seconds=2)
@@ -386,13 +403,15 @@ def keep_client_for_scenario(args: argparse.Namespace, index: int, total: int) -
 
 def discover_scenarios(repo_root: Path, run_dir: Path, client_command: str, args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     launch_started_ms = int(time.time() * 1000)
-    client = start_client(repo_root, client_command, run_dir / "discovery-client.log")
+    bridge_state_path = run_dir / "discovery-bridge-state.json"
+    client = start_client(repo_root, client_command, run_dir / "discovery-client.log", bridge_state_path)
     discovery: dict[str, Any] = {
         "startedAt": utc_now_iso(),
         "clientCommand": client_command,
+        "bridgeStatePath": str(bridge_state_path),
     }
     try:
-        bridge, status = wait_for_title_bridge(client, launch_started_ms, args.bridge_timeout_seconds)
+        bridge, status = wait_for_title_bridge(client, bridge_state_path, launch_started_ms, args.bridge_timeout_seconds)
         discovery["initialStatus"] = status
         scenarios_payload = bridge_json(bridge, "GET", "/v1/evaluation/scenarios", timeout_seconds=10)
         discovery["scenariosPayload"] = scenarios_payload
@@ -403,16 +422,27 @@ def discover_scenarios(repo_root: Path, run_dir: Path, client_command: str, args
         write_json(run_dir / "discovery.json", discovery)
 
 
-def assert_no_active_bridge() -> None:
-    bridge = read_bridge_state()
-    if bridge is None:
-        return
-    try:
-        status = bridge_json(bridge, "GET", "/v1/status", timeout_seconds=2)
-    except Exception:
-        return
-    if status.get("bridgeAvailable"):
-        raise RunnerError("Airicraft bridge is already active; stop Minecraft before running the batch evaluator")
+def known_bridge_state_paths(output_root: Path) -> list[Path]:
+    paths = [default_bridge_state_path()]
+    if output_root.exists():
+        paths.extend(sorted(output_root.glob("*/discovery-bridge-state.json")))
+        paths.extend(sorted(output_root.glob("*/*/bridge-state.json")))
+    return paths
+
+
+def assert_no_active_bridge(bridge_state_paths: list[Path]) -> None:
+    for bridge_state_path in bridge_state_paths:
+        bridge = read_bridge_state(bridge_state_path)
+        if bridge is None:
+            continue
+        try:
+            status = bridge_json(bridge, "GET", "/v1/status", timeout_seconds=2)
+        except Exception:
+            continue
+        if status.get("bridgeAvailable"):
+            raise RunnerError(
+                f"Airicraft bridge is already active at {bridge_state_path}; stop Minecraft before running the batch evaluator"
+            )
 
 
 def run_scenario(
@@ -428,6 +458,7 @@ def run_scenario(
     scenario_id = str(scenario["id"])
     scenario_dir = run_dir / f"{index:02d}-{safe_name(scenario_id)}"
     scenario_dir.mkdir(parents=True, exist_ok=True)
+    bridge_state_path = scenario_dir / "bridge-state.json"
     copy_scenario_config(scenario_root, scenario_id, scenario_dir / "scenario.yml")
 
     summary: dict[str, Any] = {
@@ -438,6 +469,7 @@ def run_scenario(
         "reportStatus": None,
         "message": None,
         "clientCommand": client_command,
+        "bridgeStatePath": str(bridge_state_path),
         "keepClientAfterScenario": keep_client_after_scenario,
         "outputDir": str(scenario_dir),
         "addonSummaryPath": str(scenario_dir / "summary.json"),
@@ -450,13 +482,14 @@ def run_scenario(
         repo_root,
         client_command,
         scenario_dir / "client.log",
+        bridge_state_path,
         detach_output=keep_client_after_scenario,
     )
     bridge: BridgeState | None = None
     bridge_failures = 0
 
     try:
-        bridge, status = wait_for_title_bridge(client, launch_started_ms, args.bridge_timeout_seconds)
+        bridge, status = wait_for_title_bridge(client, bridge_state_path, launch_started_ms, args.bridge_timeout_seconds)
         write_json(scenario_dir / "initial-status.json", status)
         run_request = {"scenario": scenario_id, "outputDir": str(scenario_dir)}
         run_response = bridge_json(
@@ -568,6 +601,7 @@ def write_summary_markdown(run_dir: Path, manifest: dict[str, Any]) -> None:
             f"- PID: `{kept.get('pid', '')}`",
             f"- Log: `{kept.get('logPath', '')}`",
             f"- Bridge state: `{kept.get('bridgeStatePath', '')}`",
+            f"- Wrapper environment: `AIRICRAFT_BRIDGE_STATE_FILE={kept.get('bridgeStatePath', '')}`",
         ])
     (run_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -613,6 +647,8 @@ def run_self_test() -> None:
     assert not keep_client_for_scenario(default_args, 1, 2)
     assert keep_client_for_scenario(default_args, 2, 2)
     assert not keep_client_for_scenario(stopping_args, 1, 1)
+    bridge_path = Path("/tmp/airicraft-evaluator-test/bridge-state.json")
+    assert client_environment(bridge_path)[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
     try:
         selected_scenarios(scenarios, ["missing"])
     except RunnerError:
@@ -674,7 +710,7 @@ def main(argv: list[str]) -> int:
     write_json(run_dir / "manifest.json", manifest)
 
     try:
-        assert_no_active_bridge()
+        assert_no_active_bridge(known_bridge_state_paths(output_root))
         scenarios, discovery = discover_scenarios(repo_root, run_dir, client_command, args)
         manifest["discovery"] = {
             "scenarioCount": len(scenarios),
@@ -707,7 +743,7 @@ def main(argv: list[str]) -> int:
                     "scenario": result.get("id"),
                     "pid": client_exit.get("pid"),
                     "logPath": client_exit.get("logPath"),
-                    "bridgeStatePath": str(bridge_state_path()),
+                    "bridgeStatePath": result.get("bridgeStatePath"),
                 }
             write_json(run_dir / "manifest.json", manifest)
             write_summary_markdown(run_dir, manifest)

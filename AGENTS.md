@@ -48,8 +48,10 @@
 ## Architecture
 - The public control surface is the standalone `wrapper` CLI.
 - The Fabric mod exposes an internal localhost HTTP bridge.
-- Bridge discovery is via `~/.airicraft/bridge-state.json`.
-- The CLI reads the state file, calls the localhost bridge, and deletes stale state if the bridge is unreachable.
+- Bridge discovery defaults to `~/.airicraft/bridge-state.json`.
+- Set `AIRICRAFT_BRIDGE_STATE_FILE` to an absolute path for an isolated client and CLI pair.
+- The `airicraft.bridgeStateFile` Java property overrides the environment variable.
+- The CLI reads the selected state file, calls the localhost bridge, and deletes stale state if the bridge is unreachable.
 
 ## Key Mod-Side Files
 - `src/client/java/ai/moeru/airicraft/ModBridgeServer.java`

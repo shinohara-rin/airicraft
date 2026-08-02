@@ -58,7 +58,8 @@ public final class ClientRuntimeController {
 			this::screenshotService,
 			this::clientTickDebugRuntime,
 			this::reload,
-			cameraController
+			cameraController,
+			BridgeDiscoveryFile.createDefault()
 		);
 	}
 

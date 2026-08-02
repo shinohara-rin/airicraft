@@ -9,7 +9,9 @@ usage() {
 		'The current Codex task drives scenarios through the wrapper CLI.' \
 		'' \
 		'Use a fresh worktree when the run must not inherit an existing' \
-		'provider or observability configuration.'
+		'provider or observability configuration.' \
+		'' \
+		'Set AIRICRAFT_BRIDGE_STATE_FILE to an absolute path to isolate discovery.'
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -37,7 +39,8 @@ fi
 printf '%s\n' \
 	'Launching the Airicraft evaluator in external Codex-driver mode.' \
 	'This script starts Minecraft only; it does not start or fork Codex.' \
-	'Use the wrapper CLI to start a scenario, act, and poll its report.'
+	'Use the wrapper CLI to start a scenario, act, and poll its report.' \
+	"Bridge state: ${AIRICRAFT_BRIDGE_STATE_FILE:-$HOME/.airicraft/bridge-state.json}"
 
 exec ./gradlew \
 	wrapper:installDist \

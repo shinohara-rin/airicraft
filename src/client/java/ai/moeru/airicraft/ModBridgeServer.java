@@ -101,6 +101,7 @@ public final class ModBridgeServer {
 	private final Supplier<FirstPersonScreenshotService> screenshotServiceSupplier;
 	private final Supplier<ClientTickDebugRuntime> clientTickDebugRuntimeSupplier;
 	private final Supplier<ClientRuntimeController.ReloadResult> reloadSupplier;
+	private final BridgeDiscoveryFile bridgeDiscoveryFile;
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
 	private final PlayerViewService playerViewService;
@@ -116,7 +117,8 @@ public final class ModBridgeServer {
 		Supplier<FirstPersonScreenshotService> screenshotServiceSupplier,
 		Supplier<ClientTickDebugRuntime> clientTickDebugRuntimeSupplier,
 		Supplier<ClientRuntimeController.ReloadResult> reloadSupplier,
-		CameraController cameraController
+		CameraController cameraController,
+		BridgeDiscoveryFile bridgeDiscoveryFile
 	) {
 		this.highlightManagerSupplier = Objects.requireNonNull(highlightManagerSupplier, "highlightManagerSupplier");
 		this.agentRuntimeSupplier = Objects.requireNonNull(agentRuntimeSupplier, "agentRuntimeSupplier");
@@ -124,6 +126,7 @@ public final class ModBridgeServer {
 		this.clientTickDebugRuntimeSupplier = Objects.requireNonNull(clientTickDebugRuntimeSupplier, "clientTickDebugRuntimeSupplier");
 		this.reloadSupplier = Objects.requireNonNull(reloadSupplier, "reloadSupplier");
 		this.playerViewService = new PlayerViewService(Objects.requireNonNull(cameraController, "cameraController"));
+		this.bridgeDiscoveryFile = Objects.requireNonNull(bridgeDiscoveryFile, "bridgeDiscoveryFile");
 	}
 
 	public synchronized void start() {
@@ -131,7 +134,7 @@ public final class ModBridgeServer {
 			return;
 		}
 
-		BridgeDiscoveryFile.deleteIfPresent();
+		bridgeDiscoveryFile.deleteIfPresent();
 
 		try {
 			var httpServer = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
@@ -195,7 +198,7 @@ public final class ModBridgeServer {
 			server = httpServer;
 
 			var state = new BridgeSessionState(httpServer.getAddress().getPort(), token, Instant.now().toEpochMilli());
-			BridgeDiscoveryFile.write(state);
+			bridgeDiscoveryFile.write(state);
 			Airicraft.LOGGER.info("Airicraft bridge started on port {}", state.port());
 		}
 		catch (IOException exception) {
@@ -214,7 +217,7 @@ public final class ModBridgeServer {
 			Airicraft.LOGGER.info("Airicraft bridge stopped");
 		}
 
-		BridgeDiscoveryFile.deleteIfPresent();
+		bridgeDiscoveryFile.deleteIfPresent();
 	}
 
 	private void handleWorlds(HttpExchange exchange) throws IOException {

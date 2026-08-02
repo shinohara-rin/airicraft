@@ -24,10 +24,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class HttpBridgeTransportTest {
 	private String originalUserHome = System.getProperty("user.home");
+	private String originalBridgeStateFile = System.getProperty(BridgeStateFile.PATH_PROPERTY);
 
 	@AfterEach
 	void restoreUserHome() {
 		System.setProperty("user.home", originalUserHome);
+		if (originalBridgeStateFile == null) {
+			System.clearProperty(BridgeStateFile.PATH_PROPERTY);
+		}
+		else {
+			System.setProperty(BridgeStateFile.PATH_PROPERTY, originalBridgeStateFile);
+		}
 	}
 
 	@Test
@@ -833,13 +840,15 @@ class HttpBridgeTransportTest {
 	private static void writeBridgeState(Path tempDir, int port) throws Exception {
 		Path bridgeDir = tempDir.resolve(".airicraft");
 		Files.createDirectories(bridgeDir);
-		Files.writeString(bridgeDir.resolve("bridge-state.json"), """
+		Path bridgeStatePath = bridgeDir.resolve("bridge-state.json");
+		Files.writeString(bridgeStatePath, """
 			{
 			  "port": %d,
 			  "token": "test-token",
 			  "startedAtEpochMillis": 1
 			}
 			""".formatted(port));
+		System.setProperty(BridgeStateFile.PATH_PROPERTY, bridgeStatePath.toString());
 	}
 
 	private static final class TestBridgeServer implements AutoCloseable {

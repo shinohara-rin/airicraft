@@ -9,7 +9,7 @@ Drive Airicraft from the Codex task that is already open. Never start, resume, o
 
 ## Launch
 
-1. Work in the checkout whose code must run. Confirm no other Minecraft client owns `~/.airicraft/bridge-state.json`.
+1. Work in the checkout whose code must run. Confirm no other Minecraft client owns the selected bridge-state file.
 2. Start `scripts/codex-driver` in a long-running terminal execution and retain its session ID. The script sources `.envrc`, builds the wrapper distribution, and runs Minecraft with only the embedded planner suppressed.
 3. The launch task seeds `run/options.txt` with `onboardAccessibility:false`, so a brand-new worktree must reach the title screen and bridge without waiting for the narrator/accessibility screen.
 4. Wait for the localhost bridge, then set a task-specific shell variable:
@@ -22,7 +22,16 @@ $AIRICRAFT_DRIVER_CLI agent status --verbose
 
 Shell executions may be independent. Redefine `AIRICRAFT_DRIVER_CLI` in each new shell call or use the wrapper path directly.
 
-Every wrapper command needs localhost network access. When Codex shell execution is sandboxed, authorize the wrapper CLI outside the sandbox before the first bridge call. A sandbox-blocked connection looks stale to the wrapper and removes `~/.airicraft/bridge-state.json`, forcing a client restart.
+Every wrapper command needs localhost network access. When Codex shell execution is sandboxed, authorize the wrapper CLI outside the sandbox before the first bridge call. A sandbox-blocked connection looks stale to the wrapper and removes the selected bridge-state file, forcing a client restart.
+
+Bridge discovery defaults to `~/.airicraft/bridge-state.json`. For an isolated client, export an absolute path before launch:
+
+```bash
+export AIRICRAFT_BRIDGE_STATE_FILE=/tmp/airicraft-driver-bridge.json
+scripts/codex-driver
+```
+
+Use the same exported value for each wrapper command. The evaluator batch script assigns its bridge-state paths automatically.
 
 Require `codexDriverActive: true` before acting. A normally launched client must be restarted through `scripts/codex-driver`; there is no `agent.yml` switch and no live attach.
 

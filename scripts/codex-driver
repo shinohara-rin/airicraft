@@ -9,7 +9,9 @@ usage() {
 		'The current Codex task drives the client through the wrapper CLI.' \
 		'' \
 		'The launch prepares Minecraft options so a new worktree bypasses' \
-		'the narrator/accessibility onboarding screen unattended.'
+		'the narrator/accessibility onboarding screen unattended.' \
+		'' \
+		'Set AIRICRAFT_BRIDGE_STATE_FILE to an absolute path to isolate discovery.'
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -37,6 +39,7 @@ fi
 printf '%s\n' \
 	'Launching Airicraft in external Codex-driver mode.' \
 	'This script starts Minecraft only; it does not start or fork Codex.' \
-	'Keep this process running while the current Codex task uses the wrapper CLI.'
+	'Keep this process running while the current Codex task uses the wrapper CLI.' \
+	"Bridge state: ${AIRICRAFT_BRIDGE_STATE_FILE:-$HOME/.airicraft/bridge-state.json}"
 
 exec ./gradlew wrapper:installDist runClient -Pairicraft.codexDriver=true "$@"
