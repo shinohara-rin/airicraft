@@ -99,6 +99,19 @@ public final class AiricraftCliMain {
 		agentDebug.addSubcommand(new AgentDebugIdleTriggerCommand(context));
 		agentDebug.addSubcommand(new AgentDebugStateCommand(context));
 		agentDebug.addSubcommand(new AgentDebugTimelineCommand(context));
+		agentDebug.addSubcommand("ticks", new UsageCommand(out, "airicraft agent debug ticks", "Client tick debug commands"));
+		CommandLine agentDebugTicks = agentDebug.getSubcommands().get("ticks");
+		agentDebugTicks.addSubcommand(new AgentDebugTicksStateCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksPauseCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksStepCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksContinueCommand(context));
+		agentDebug.addSubcommand("world", new UsageCommand(out, "airicraft agent debug world", "Paused world snapshot queries"));
+		CommandLine agentDebugWorld = agentDebug.getSubcommands().get("world");
+		agentDebugWorld.addSubcommand(new AgentDebugWorldMetadataCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldGetBlockCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldScanBoxCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldFindBlocksCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldRegionStatsCommand(context));
 		agent.addSubcommand(new AgentContextCommand(context));
 		agent.addSubcommand(new AgentCompactCommand(context));
 		agent.addSubcommand(new AgentEventPolicyCommand(context));
@@ -722,6 +735,229 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.agentDebugTimeline(transport().listAgentDebugTimeline(since), verbose());
+		}
+	}
+
+	@Command(name = "state", mixinStandardHelpOptions = true, description = "Inspect the client tick debug state.")
+	private static final class AgentDebugTicksStateCommand extends BaseCommand {
+		private AgentDebugTicksStateCommand(CliContext context) {
+			super(context, "agent debug ticks state");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.clientTickDebugStatus(transport().getClientTickDebugState());
+		}
+	}
+
+	@Command(name = "pause", mixinStandardHelpOptions = true, description = "Pause client ticks and capture the current client frame.")
+	private static final class AgentDebugTicksPauseCommand extends BaseCommand {
+		@Option(names = "--output-image", description = "Write the captured client frame to this path.")
+		private Path outputImage;
+
+		private AgentDebugTicksPauseCommand(CliContext context) {
+			super(context, "agent debug ticks pause");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.clientTickDebugCapture(
+				prepareClientTickCapture(transport().pauseClientTicks(), outputImage, commandPath()),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "step", mixinStandardHelpOptions = true, description = "Run one client tick and capture its first rendered frame.")
+	private static final class AgentDebugTicksStepCommand extends BaseCommand {
+		@Option(names = "--debug-session-id", required = true, description = "Debug session ID from the last pause or step response.")
+		private String debugSessionId;
+
+		@Option(names = "--pause-epoch", required = true, description = "Pause epoch from the last pause or step response.")
+		private long pauseEpoch;
+
+		@Option(names = "--output-image", description = "Write the captured client frame to this path.")
+		private Path outputImage;
+
+		private AgentDebugTicksStepCommand(CliContext context) {
+			super(context, "agent debug ticks step");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requirePositivePauseEpoch(pauseEpoch, commandPath());
+			return PayloadViews.clientTickDebugCapture(
+				prepareClientTickCapture(
+					transport().stepClientTick(debugSessionId, pauseEpoch),
+					outputImage,
+					commandPath()
+				),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "continue", mixinStandardHelpOptions = true, description = "Continue normal client ticks.")
+	private static final class AgentDebugTicksContinueCommand extends BaseCommand {
+		@Option(names = "--debug-session-id", required = true, description = "Debug session ID from the last pause or step response.")
+		private String debugSessionId;
+
+		@Option(names = "--pause-epoch", required = true, description = "Pause epoch from the last pause or step response.")
+		private long pauseEpoch;
+
+		private AgentDebugTicksContinueCommand(CliContext context) {
+			super(context, "agent debug ticks continue");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requirePositivePauseEpoch(pauseEpoch, commandPath());
+			return PayloadViews.clientTickDebugStatus(
+				transport().continueClientTicks(debugSessionId, pauseEpoch)
+			);
+		}
+	}
+
+	private abstract static class AgentDebugWorldSnapshotCommand extends BaseCommand {
+		@Option(names = "--snapshot-id", required = true, description = "World snapshot ID from the last pause or step response.")
+		private String snapshotId;
+
+		private AgentDebugWorldSnapshotCommand(CliContext context, String commandPath) {
+			super(context, commandPath);
+		}
+
+		final Map<String, Object> baseRequest(String operation) {
+			Map<String, Object> request = new LinkedHashMap<>();
+			request.put("snapshotId", snapshotId);
+			request.put("operation", operation);
+			return request;
+		}
+	}
+
+	@Command(name = "metadata", mixinStandardHelpOptions = true, description = "Get metadata for a paused world snapshot.")
+	private static final class AgentDebugWorldMetadataCommand extends AgentDebugWorldSnapshotCommand {
+		private AgentDebugWorldMetadataCommand(CliContext context) {
+			super(context, "agent debug world metadata");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(baseRequest("metadata"));
+		}
+	}
+
+	@Command(name = "get-block", mixinStandardHelpOptions = true, description = "Get one block from a paused world snapshot.")
+	private static final class AgentDebugWorldGetBlockCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--x", required = true)
+		private int x;
+
+		@Option(names = "--y", required = true)
+		private int y;
+
+		@Option(names = "--z", required = true)
+		private int z;
+
+		private AgentDebugWorldGetBlockCommand(CliContext context) {
+			super(context, "agent debug world get-block");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			Map<String, Object> request = baseRequest("get_block");
+			request.put("x", x);
+			request.put("y", y);
+			request.put("z", z);
+			return transport().queryClientTickWorld(request);
+		}
+	}
+
+	private abstract static class AgentDebugWorldRegionCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--min-x", required = true)
+		private int minX;
+
+		@Option(names = "--min-y", required = true)
+		private int minY;
+
+		@Option(names = "--min-z", required = true)
+		private int minZ;
+
+		@Option(names = "--max-x", required = true)
+		private int maxX;
+
+		@Option(names = "--max-y", required = true)
+		private int maxY;
+
+		@Option(names = "--max-z", required = true)
+		private int maxZ;
+
+		@Option(names = "--cursor", defaultValue = "0", description = "Zero-based region cursor.")
+		private long cursor;
+
+		@Option(names = "--limit", defaultValue = "256", description = "Maximum cells to inspect, from 1 to 4096.")
+		private int limit;
+
+		private AgentDebugWorldRegionCommand(CliContext context, String commandPath) {
+			super(context, commandPath);
+		}
+
+		final Map<String, Object> regionRequest(String operation) {
+			if (cursor < 0L) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "cursor must not be negative");
+			}
+			if (limit < 1 || limit > 4_096) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 4096");
+			}
+			Map<String, Object> request = baseRequest(operation);
+			request.put("minX", minX);
+			request.put("minY", minY);
+			request.put("minZ", minZ);
+			request.put("maxX", maxX);
+			request.put("maxY", maxY);
+			request.put("maxZ", maxZ);
+			request.put("cursor", cursor);
+			request.put("limit", limit);
+			return request;
+		}
+	}
+
+	@Command(name = "scan-box", mixinStandardHelpOptions = true, description = "Scan a bounded page from an arbitrary world region.")
+	private static final class AgentDebugWorldScanBoxCommand extends AgentDebugWorldRegionCommand {
+		private AgentDebugWorldScanBoxCommand(CliContext context) {
+			super(context, "agent debug world scan-box");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(regionRequest("scan_box"));
+		}
+	}
+
+	@Command(name = "find-blocks", mixinStandardHelpOptions = true, description = "Find selected block IDs in an arbitrary world region.")
+	private static final class AgentDebugWorldFindBlocksCommand extends AgentDebugWorldRegionCommand {
+		@Option(names = "--block-id", required = true, split = ",", description = "Block ID. Repeat this option or use commas.")
+		private List<String> blockIds;
+
+		private AgentDebugWorldFindBlocksCommand(CliContext context) {
+			super(context, "agent debug world find-blocks");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			Map<String, Object> request = regionRequest("find_blocks");
+			request.put("blockIds", blockIds);
+			return transport().queryClientTickWorld(request);
+		}
+	}
+
+	@Command(name = "region-stats", mixinStandardHelpOptions = true, description = "Count block IDs in a bounded page from an arbitrary world region.")
+	private static final class AgentDebugWorldRegionStatsCommand extends AgentDebugWorldRegionCommand {
+		private AgentDebugWorldRegionStatsCommand(CliContext context) {
+			super(context, "agent debug world region-stats");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(regionRequest("region_stats"));
 		}
 	}
 
@@ -1583,6 +1819,37 @@ public final class AiricraftCliMain {
 		}
 	}
 
+	private static Map<String, Object> prepareClientTickCapture(
+		Map<String, Object> source,
+		Path outputImage,
+		String commandPath
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>(source);
+		Object encodedImage = payload.remove("imageBase64");
+		if (encodedImage instanceof String imageBase64 && !imageBase64.isBlank()) {
+			if (outputImage == null) {
+				payload.put("imageOutputOmitted", true);
+			}
+			else {
+				try {
+					Path outputPath = outputImage.toAbsolutePath().normalize();
+					writeCapture(outputPath, java.util.Base64.getDecoder().decode(imageBase64));
+					payload.put("imageOutputPath", outputPath.toString());
+				}
+				catch (IllegalArgumentException exception) {
+					throw new CliUsageException(commandPath, "bridge_io_error", "Bridge returned invalid image data");
+				}
+			}
+		}
+		return payload;
+	}
+
+	private static void requirePositivePauseEpoch(long pauseEpoch, String commandPath) {
+		if (pauseEpoch < 1L) {
+			throw new CliUsageException(commandPath, "invalid_arguments", "pause-epoch must be positive");
+		}
+	}
+
 	private static Map<String, Object> parseJsonObject(String raw, String commandPath) {
 		try {
 			return OBJECT_MAPPER.readValue(raw == null || raw.isBlank() ? "{}" : raw, MAP_TYPE);
@@ -1945,6 +2212,32 @@ public final class AiricraftCliMain {
 				List.of("entryId", "tick", "timestampMs", "domain", "action", "summary"),
 				List.of("correlation", "payload")
 			));
+			return view;
+		}
+
+		private static Map<String, Object> clientTickDebugStatus(Map<String, Object> payload) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "phase", "paused", "debugSessionId", "pauseEpoch", "clientTickId", "snapshotId", "frameStatus");
+			return view;
+		}
+
+		private static Map<String, Object> clientTickDebugCapture(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "paused", "debugSessionId", "captureId", "snapshotId", "clientTickId", "pauseEpoch", "imageOutputPath", "imageOutputOmitted");
+			Map<String, Object> snapshot = map(payload.get("snapshot"));
+			Map<String, Object> frame = map(payload.get("frame"));
+			if (verbose) {
+				view.put("snapshot", snapshot);
+				view.put("frame", frame);
+			}
+			else {
+				LinkedHashMap<String, Object> snapshotView = new LinkedHashMap<>();
+				copy(snapshotView, snapshot, "capturedAtMs", "dimensionId", "worldTime", "timeOfDay", "player", "plannerGeneration", "plannerPhase");
+				view.put("snapshot", snapshotView);
+				LinkedHashMap<String, Object> frameView = new LinkedHashMap<>();
+				copy(frameView, frame, "status", "format", "width", "height", "capturedAtMs", "errorCode", "message");
+				view.put("frame", frameView);
+			}
 			return view;
 		}
 

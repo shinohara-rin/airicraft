@@ -316,6 +316,88 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void clientTickPauseSavesFrameAndRendersSnapshotIdentity(@TempDir Path tempDir) throws Exception {
+		TestTransport transport = new TestTransport();
+		transport.clientTickDebugPausePayload = linkedMap(
+			"available", true,
+			"debugSessionId", "debug-1",
+			"pauseEpoch", 1L,
+			"captureId", "capture-1",
+			"snapshotId", "snapshot-1",
+			"clientTickId", 44L,
+			"snapshot", linkedMap(
+				"capturedAtMs", 100L,
+				"dimensionId", "minecraft:overworld",
+				"worldTime", 200L,
+				"timeOfDay", 200L,
+				"player", linkedMap("blockX", 1, "blockY", 64, "blockZ", 2),
+				"plannerGeneration", 7L,
+				"plannerPhase", "IDLE"
+			),
+			"frame", linkedMap("status", "CAPTURED", "format", "png", "width", 854, "height", 480),
+			"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3})
+		);
+		Path output = tempDir.resolve("pause.png");
+
+		CliResult result = execute(transport, "agent", "debug", "ticks", "pause", "--output-image", output.toString());
+
+		assertEquals(0, result.exitCode());
+		assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(output));
+		assertTrue(result.output().contains("snapshotId: snapshot-1\n"));
+		assertTrue(result.output().contains("clientTickId: 44\n"));
+		assertTrue(result.output().contains("imageOutputPath: " + output + "\n"));
+	}
+
+	@Test
+	void clientTickStepPassesExactSessionAndPauseEpoch() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickDebugStepPayload = linkedMap(
+			"available", true,
+			"debugSessionId", "debug-1",
+			"pauseEpoch", 3L,
+			"snapshotId", "snapshot-3",
+			"clientTickId", 46L,
+			"snapshot", Map.of(),
+			"frame", linkedMap("status", "CAPTURED")
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "ticks", "step",
+			"--debug-session-id", "debug-1",
+			"--pause-epoch", "2"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("debug-1", transport.lastClientTickDebugSessionId);
+		assertEquals(2L, transport.lastClientTickDebugPauseEpoch);
+		assertFalse(result.output().contains("imageBase64"));
+	}
+
+	@Test
+	void clientTickWorldScanBoxBuildsBoundedRegionRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "blocks", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "scan-box",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "-10", "--min-y", "60", "--min-z", "20",
+			"--max-x", "10", "--max-y", "70", "--max-z", "40",
+			"--cursor", "100", "--limit", "512"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
+		assertEquals("scan_box", transport.lastClientTickWorldQuery.get("operation"));
+		assertEquals(-10, transport.lastClientTickWorldQuery.get("minX"));
+		assertEquals(40, transport.lastClientTickWorldQuery.get("maxZ"));
+		assertEquals(100L, transport.lastClientTickWorldQuery.get("cursor"));
+		assertEquals(512, transport.lastClientTickWorldQuery.get("limit"));
+	}
+
+	@Test
 	void agentGoalsShowsActiveDirectJobFailure() {
 		TestTransport transport = new TestTransport();
 		transport.agentGoalsPayload = linkedMap(
@@ -1463,6 +1545,11 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentDialoguePayload = Map.of();
 		private Map<String, Object> agentDebugStatePayload = Map.of();
 		private Map<String, Object> agentDebugTimelinePayload = Map.of("entries", List.of());
+		private Map<String, Object> clientTickDebugStatePayload = Map.of();
+		private Map<String, Object> clientTickDebugPausePayload = Map.of();
+		private Map<String, Object> clientTickDebugStepPayload = Map.of();
+		private Map<String, Object> clientTickDebugContinuePayload = Map.of();
+		private Map<String, Object> clientTickWorldQueryPayload = Map.of();
 		private Map<String, Object> agentDebugChatPayload = Map.of();
 		private Map<String, Object> agentDebugIdleTriggerPayload = Map.of();
 		private Map<String, Object> agentContextPayload = Map.of();
@@ -1527,6 +1614,9 @@ class AiricraftCliMainTest {
 		private String lastActionFactClearWorldId;
 		private String lastDebugChatMessage;
 		private Long lastDebugTimelineSince;
+		private String lastClientTickDebugSessionId;
+		private Long lastClientTickDebugPauseEpoch;
+		private Map<String, Object> lastClientTickWorldQuery;
 		private String lastAttackEntityUuid;
 		private String lastAttackEntityName;
 		private String lastAttackEntityTypeId;
@@ -1745,6 +1835,36 @@ class AiricraftCliMainTest {
 		public Map<String, Object> listAgentDebugTimeline(Long sinceEntryId) {
 			lastDebugTimelineSince = sinceEntryId;
 			return agentDebugTimelinePayload;
+		}
+
+		@Override
+		public Map<String, Object> getClientTickDebugState() {
+			return clientTickDebugStatePayload;
+		}
+
+		@Override
+		public Map<String, Object> pauseClientTicks() {
+			return clientTickDebugPausePayload;
+		}
+
+		@Override
+		public Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch) {
+			lastClientTickDebugSessionId = debugSessionId;
+			lastClientTickDebugPauseEpoch = pauseEpoch;
+			return clientTickDebugStepPayload;
+		}
+
+		@Override
+		public Map<String, Object> continueClientTicks(String debugSessionId, long pauseEpoch) {
+			lastClientTickDebugSessionId = debugSessionId;
+			lastClientTickDebugPauseEpoch = pauseEpoch;
+			return clientTickDebugContinuePayload;
+		}
+
+		@Override
+		public Map<String, Object> queryClientTickWorld(Map<String, Object> request) {
+			lastClientTickWorldQuery = request;
+			return clientTickWorldQueryPayload;
 		}
 
 		@Override

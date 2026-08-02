@@ -23,6 +23,7 @@ import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.tasks.SmeltingTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.debug.ClientTickDebugRuntime;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
@@ -37,6 +38,7 @@ public final class ClientRuntimeController {
 	private volatile AiricraftConfig config;
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
+	private final ClientTickDebugRuntime clientTickDebugRuntime = new ClientTickDebugRuntime(screenshotService);
 	private final BaritoneFacade baritoneFacade = new LiveBaritoneFacade();
 	private final CameraController cameraController;
 	private volatile EmbodiedAgentRuntime agentRuntime;
@@ -48,7 +50,14 @@ public final class ClientRuntimeController {
 		this.cameraController = new CameraController(config.cameraLerpDefaultTicks());
 		this.agentRuntime = createRuntime(config, AgentConfigLoader.load());
 		this.agentRuntime.updateIdleIdeasConfig(IdleIdeasLoader.load());
-		this.bridgeServer = new ModBridgeServer(this::highlightManager, this::agentRuntime, this::screenshotService, this::reload, cameraController);
+		this.bridgeServer = new ModBridgeServer(
+			this::highlightManager,
+			this::agentRuntime,
+			this::screenshotService,
+			this::clientTickDebugRuntime,
+			this::reload,
+			cameraController
+		);
 	}
 
 	public AiricraftConfig config() {
@@ -79,12 +88,17 @@ public final class ClientRuntimeController {
 		return screenshotService;
 	}
 
+	public ClientTickDebugRuntime clientTickDebugRuntime() {
+		return clientTickDebugRuntime;
+	}
+
 	public void onClientStarted(MinecraftClient client) {
 		currentAgentRuntime().onClientStarted(client);
 		bridgeServer.start();
 	}
 
 	public void onWorldLeave() {
+		clientTickDebugRuntime.reset("world_left", "The world closed during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
 		currentAgentRuntime().onWorldLeave();
 		cameraController.clear();
@@ -95,6 +109,15 @@ public final class ClientRuntimeController {
 		currentAgentRuntime().onClientTick(client);
 		cameraController.tick(client);
 		highlightManager.tick();
+		clientTickDebugRuntime.onClientTickCompleted(client, currentAgentRuntime());
+	}
+
+	public void onClientTickStarted(MinecraftClient client) {
+		clientTickDebugRuntime.onClientTickStarted();
+	}
+
+	public boolean allowClientTick(boolean vanillaAllowsTick) {
+		return clientTickDebugRuntime.allowVanillaTick(vanillaAllowsTick);
 	}
 
 	public void onChatReceived(String senderName, String plainTextMessage) {
@@ -184,6 +207,7 @@ public final class ClientRuntimeController {
 	public void onFirstPersonFrameRendered() {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client != null) {
+			clientTickDebugRuntime.beforeFirstPersonFrame(client, currentAgentRuntime());
 			screenshotService.onWorldRendered(client);
 		}
 	}
@@ -201,6 +225,7 @@ public final class ClientRuntimeController {
 			throw new BridgeUnavailableException("invalid_config", exception.getMessage());
 		}
 
+		clientTickDebugRuntime.reset("runtime_reloaded", "Airicraft reloaded during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
 		cameraController.clear();
 		cameraController.updateDefaultLerpTicks(nextConfig.cameraLerpDefaultTicks());
@@ -219,6 +244,7 @@ public final class ClientRuntimeController {
 	}
 
 	public void shutdown() {
+		clientTickDebugRuntime.reset("client_stopping", "The client stopped during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
 		plannerDebugOverlay.setMode(PlannerDebugOverlayMode.OFF);
 		currentAgentRuntime().shutdown();
