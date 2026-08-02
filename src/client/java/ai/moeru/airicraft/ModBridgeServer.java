@@ -364,6 +364,10 @@ public final class ModBridgeServer {
 		catch (BridgeUnavailableException exception) {
 			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
 		}
+		catch (Exception exception) {
+			Airicraft.LOGGER.warn("Bridge request failed", exception);
+			writeJson(exchange, 500, Map.of("error", "internal_error", "message", String.valueOf(exception.getMessage())));
+		}
 	}
 
 	private void handleClientTickDebugPause(HttpExchange exchange) throws IOException {
