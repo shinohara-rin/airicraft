@@ -31,22 +31,39 @@ public final class ClientTickEntityQueryService {
 		ClientTickDebugController.ClientTickSnapshot snapshot,
 		EntityQuery query
 	) {
+		EntityQueryResult result = capture(client, snapshot, query);
+		Map<String, Object> response = ClientTickWorldQueryService.baseResponse(snapshot);
+		response.put("query", result.query());
+		response.put("loadedEntityCount", result.loadedEntityCount());
+		response.put("totalMatchCount", result.totalMatchCount());
+		response.put("cursor", result.cursor());
+		response.put("resultCount", result.entities().size());
+		response.put("nextCursor", result.nextCursor());
+		response.put("complete", result.complete());
+		response.put("entities", result.entities());
+		return response;
+	}
+
+	EntityQueryResult capture(
+		MinecraftClient client,
+		ClientTickDebugController.ClientTickSnapshot snapshot,
+		EntityQuery query
+	) {
 		ClientWorld world = ClientTickWorldQueryService.requireMatchingWorld(client, snapshot);
 		List<EntityObservation> observations = new ArrayList<>();
 		for (Entity entity : world.getEntities()) {
 			observations.add(observe(entity, client.player));
 		}
 		EntityPage page = select(observations, query, client.player.getId(), snapshot.player().position());
-		Map<String, Object> response = ClientTickWorldQueryService.baseResponse(snapshot);
-		response.put("query", query);
-		response.put("loadedEntityCount", observations.size());
-		response.put("totalMatchCount", page.totalMatchCount());
-		response.put("cursor", page.cursor());
-		response.put("resultCount", page.entities().size());
-		response.put("nextCursor", page.complete() ? null : page.cursor() + page.entities().size());
-		response.put("complete", page.complete());
-		response.put("entities", page.entities().stream().map(EntityObservation::payload).toList());
-		return response;
+		return new EntityQueryResult(
+			query,
+			observations.size(),
+			page.totalMatchCount(),
+			page.cursor(),
+			page.complete() ? null : page.cursor() + page.entities().size(),
+			page.complete(),
+			page.entities().stream().map(EntityObservation::payload).toList()
+		);
 	}
 
 	static EntityPage select(
@@ -279,6 +296,20 @@ public final class ClientTickEntityQueryService {
 			if (!Double.isFinite(radius) || radius < 0.0D || radius > MAX_RADIUS) {
 				throw new BridgeUnavailableException("invalid_request", "radius must be between 0 and " + MAX_RADIUS);
 			}
+		}
+	}
+
+	public record EntityQueryResult(
+		EntityQuery query,
+		int loadedEntityCount,
+		int totalMatchCount,
+		long cursor,
+		Long nextCursor,
+		boolean complete,
+		List<Map<String, Object>> entities
+	) {
+		public EntityQueryResult {
+			entities = List.copyOf(entities);
 		}
 	}
 

@@ -375,6 +375,102 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void clientTickTraceStartBuildsSelectedQueriesAndWindow() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickTraceStartPayload = linkedMap(
+			"active", true,
+			"traceId", "trace-1",
+			"windowTicks", 100
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "metadata,player-state,entities,frame",
+			"--window-ticks", "100",
+			"--entity-query", "{\"radius\":16,\"entityTypeIds\":[\"minecraft:zombie\"],\"limit\":12}"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals(
+			List.of("metadata", "player_state", "entities", "frame"),
+			transport.lastClientTickTraceStartRequest.get("infos")
+		);
+		assertEquals(100, transport.lastClientTickTraceStartRequest.get("windowTicks"));
+		Map<String, Object> entityQuery = castMap(transport.lastClientTickTraceStartRequest.get("entityQuery"));
+		assertEquals(16, entityQuery.get("radius"));
+		assertEquals(List.of("minecraft:zombie"), entityQuery.get("entityTypeIds"));
+		assertEquals(12, entityQuery.get("limit"));
+	}
+
+	@Test
+	void clientTickTraceStartRequiresBlockQueryForBlockRecords() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "blocks",
+			"--window-ticks", "20"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
+		assertTrue(transport.lastClientTickTraceStartRequest == null);
+	}
+
+	@Test
+	void clientTickTraceStartRejectsLargeFrameWindow() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "frame",
+			"--window-ticks", "201"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("window-ticks must not exceed 200 with frame tracing"));
+	}
+
+	@Test
+	void clientTickTraceRecordsWritesRequestedFrames(@TempDir Path tempDir) throws Exception {
+		TestTransport transport = new TestTransport();
+		transport.clientTickTraceRecordsPayload = linkedMap(
+			"traceId", "trace-1",
+			"recordCount", 1,
+			"records", List.of(linkedMap(
+				"clientTickId", 42L,
+				"frame", linkedMap(
+					"status", "CAPTURED",
+					"format", "png",
+					"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[]{7, 8, 9})
+				)
+			))
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "records",
+			"--trace-id", "trace-1",
+			"--since-client-tick-id", "40",
+			"--limit", "8",
+			"--output-image-dir", tempDir.toString()
+		);
+
+		Path image = tempDir.resolve("tick-00000000000000000042.png");
+		assertEquals(0, result.exitCode());
+		assertArrayEquals(new byte[]{7, 8, 9}, Files.readAllBytes(image));
+		assertEquals("trace-1", transport.lastClientTickTraceId);
+		assertEquals(40L, transport.lastClientTickTraceSince);
+		assertEquals(8, transport.lastClientTickTraceLimit);
+		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
+		assertTrue(result.output().contains("imageOutputPath: " + image + "\n"));
+		assertFalse(result.output().contains("imageBase64"));
+	}
+
+	@Test
 	void clientTickWorldScanBoxBuildsBoundedRegionRequest() {
 		TestTransport transport = new TestTransport();
 		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "blocks", List.of());
@@ -1617,6 +1713,11 @@ class AiricraftCliMainTest {
 		return map;
 	}
 
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> castMap(Object value) {
+		return (Map<String, Object>) value;
+	}
+
 	private static Map<String, Object> actionGoalPayload(String executionId, String state) {
 		return linkedMap(
 			"available", true,
@@ -1657,6 +1758,10 @@ class AiricraftCliMainTest {
 		private Map<String, Object> clientTickDebugStepPayload = Map.of();
 		private Map<String, Object> clientTickDebugContinuePayload = Map.of();
 		private Map<String, Object> clientTickWorldQueryPayload = Map.of();
+		private Map<String, Object> clientTickTraceStatusPayload = Map.of();
+		private Map<String, Object> clientTickTraceStartPayload = Map.of();
+		private Map<String, Object> clientTickTraceStopPayload = Map.of();
+		private Map<String, Object> clientTickTraceRecordsPayload = Map.of("records", List.of());
 		private Map<String, Object> agentDebugChatPayload = Map.of();
 		private Map<String, Object> agentDebugIdleTriggerPayload = Map.of();
 		private Map<String, Object> agentContextPayload = Map.of();
@@ -1724,6 +1829,11 @@ class AiricraftCliMainTest {
 		private String lastClientTickDebugSessionId;
 		private Long lastClientTickDebugPauseEpoch;
 		private Map<String, Object> lastClientTickWorldQuery;
+		private Map<String, Object> lastClientTickTraceStartRequest;
+		private String lastClientTickTraceId;
+		private Long lastClientTickTraceSince;
+		private int lastClientTickTraceLimit;
+		private boolean lastClientTickTraceIncludeImageBytes;
 		private String lastAttackEntityUuid;
 		private String lastAttackEntityName;
 		private String lastAttackEntityTypeId;
@@ -1972,6 +2082,37 @@ class AiricraftCliMainTest {
 		public Map<String, Object> queryClientTickWorld(Map<String, Object> request) {
 			lastClientTickWorldQuery = request;
 			return clientTickWorldQueryPayload;
+		}
+
+		@Override
+		public Map<String, Object> getClientTickTraceStatus() {
+			return clientTickTraceStatusPayload;
+		}
+
+		@Override
+		public Map<String, Object> startClientTickTrace(Map<String, Object> request) {
+			lastClientTickTraceStartRequest = request;
+			return clientTickTraceStartPayload;
+		}
+
+		@Override
+		public Map<String, Object> stopClientTickTrace(String traceId) {
+			lastClientTickTraceId = traceId;
+			return clientTickTraceStopPayload;
+		}
+
+		@Override
+		public Map<String, Object> listClientTickTraceRecords(
+			String traceId,
+			Long sinceClientTickId,
+			int limit,
+			boolean includeImageBytes
+		) {
+			lastClientTickTraceId = traceId;
+			lastClientTickTraceSince = sinceClientTickId;
+			lastClientTickTraceLimit = limit;
+			lastClientTickTraceIncludeImageBytes = includeImageBytes;
+			return clientTickTraceRecordsPayload;
 		}
 
 		@Override

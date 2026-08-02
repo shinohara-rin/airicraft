@@ -33,6 +33,7 @@ import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.debug.ClientTickDebugRuntime;
 import ai.moeru.airicraft.debug.ClientTickDebugController;
 import ai.moeru.airicraft.debug.ClientTickEntityQueryService;
+import ai.moeru.airicraft.debug.ClientTickTraceRecorder;
 import ai.moeru.airicraft.debug.ClientTickWorldQueryService;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -183,6 +184,10 @@ public final class ModBridgeServer {
 				httpServer.createContext("/v1/agent/debug/ticks/step", this::handleClientTickDebugStep);
 				httpServer.createContext("/v1/agent/debug/ticks/continue", this::handleClientTickDebugContinue);
 				httpServer.createContext("/v1/agent/debug/world/query", this::handleClientTickWorldQuery);
+				httpServer.createContext("/v1/agent/debug/trace", exchange -> handleJson(exchange, () -> clientTickTraceStatusPayload(clientTickDebugRuntime().traceStatus())));
+				httpServer.createContext("/v1/agent/debug/trace/start", this::handleClientTickTraceStart);
+				httpServer.createContext("/v1/agent/debug/trace/stop", this::handleClientTickTraceStop);
+				httpServer.createContext("/v1/agent/debug/trace/records", this::handleClientTickTraceRecords);
 				httpServer.createContext("/v1/agent/tools", this::handleAgentTools);
 			registerExtensionRoutes(httpServer);
 			httpServer.start();
@@ -459,6 +464,38 @@ public final class ModBridgeServer {
 				default -> throw new BridgeUnavailableException("invalid_request", "Unknown world query operation: " + request.operation());
 			};
 		}));
+	}
+
+	private void handleClientTickTraceStart(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", ClientTickTraceStartRequest.class, request -> onClientThread(() -> {
+			ClientTickTraceRecorder.TraceConfig config = clientTickTraceConfig(request);
+			return clientTickTraceStatusPayload(clientTickDebugRuntime().startTrace(getClient(), config));
+		}));
+	}
+
+	private void handleClientTickTraceStop(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", ClientTickTraceIdentityRequest.class, request -> onClientThread(() -> {
+			String traceId = requiredTraceId(request == null ? null : request.traceId());
+			return clientTickTraceStatusPayload(clientTickDebugRuntime().stopTrace(traceId));
+		}));
+	}
+
+	private void handleClientTickTraceRecords(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", ClientTickTraceRecordsRequest.class, request -> {
+			if (request == null) {
+				throw new BridgeUnavailableException("invalid_request", "Missing trace records request");
+			}
+			String traceId = requiredTraceId(request.traceId());
+			int limit = request.limit() == null
+				? ClientTickTraceRecorder.DEFAULT_RECORD_LIMIT
+				: request.limit();
+			ClientTickTraceRecorder.TraceRecordPage page = clientTickDebugRuntime().traceRecords(
+				traceId,
+				request.sinceClientTickId(),
+				limit
+			);
+			return clientTickTraceRecordsPayload(page, Boolean.TRUE.equals(request.includeImageBytes()));
+		});
 	}
 
 	private void handleVisionDescribe(HttpExchange exchange) throws IOException {
@@ -1367,6 +1404,91 @@ public final class ModBridgeServer {
 		return payload;
 	}
 
+	private static Map<String, Object> clientTickTraceStatusPayload(
+		ClientTickTraceRecorder.TraceStatus status
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("available", true);
+		payload.put("active", status.active());
+		payload.put("traceId", status.traceId());
+		payload.put("infos", status.infos().stream().map(ClientTickTraceRecorder.TraceInfo::wireName).toList());
+		payload.put("windowTicks", status.windowTicks());
+		payload.put("startedClientTickId", status.startedClientTickId());
+		payload.put("oldestClientTickId", status.oldestClientTickId());
+		payload.put("latestClientTickId", status.latestClientTickId());
+		payload.put("recordCount", status.recordCount());
+		return payload;
+	}
+
+	private static Map<String, Object> clientTickTraceRecordsPayload(
+		ClientTickTraceRecorder.TraceRecordPage page,
+		boolean includeImageBytes
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("available", true);
+		payload.put("traceId", page.traceId());
+		payload.put("active", page.active());
+		payload.put("oldestClientTickId", page.oldestClientTickId());
+		payload.put("latestClientTickId", page.latestClientTickId());
+		payload.put("truncated", page.truncated());
+		payload.put("complete", page.complete());
+		payload.put("nextSinceClientTickId", page.nextSinceClientTickId());
+		payload.put("recordCount", page.records().size());
+		payload.put("records", page.records().stream()
+			.map(record -> clientTickTraceRecordPayload(record, includeImageBytes))
+			.toList());
+		return payload;
+	}
+
+	private static Map<String, Object> clientTickTraceRecordPayload(
+		ClientTickTraceRecorder.TraceTickRecord record,
+		boolean includeImageBytes
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("traceId", record.traceId());
+		payload.put("clientTickId", record.clientTickId());
+		payload.put("capturedAtMs", record.capturedAtMs());
+		if (record.metadata() != null) {
+			payload.put("metadata", record.metadata());
+		}
+		if (record.playerState() != null) {
+			payload.put("playerState", record.playerState());
+		}
+		if (record.entities() != null) {
+			payload.put("entities", record.entities());
+		}
+		if (record.blocks() != null) {
+			payload.put("blocks", record.blocks());
+		}
+		if (record.frame() != null) {
+			payload.put("frame", clientTickTraceFramePayload(record.frame(), includeImageBytes));
+		}
+		if (!record.errors().isEmpty()) {
+			payload.put("errors", record.errors());
+		}
+		return payload;
+	}
+
+	private static Map<String, Object> clientTickTraceFramePayload(
+		ClientTickTraceRecorder.TraceFrame frame,
+		boolean includeImageBytes
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("status", frame.status());
+		payload.put("format", frame.format());
+		payload.put("width", frame.width());
+		payload.put("height", frame.height());
+		payload.put("sourceWidth", frame.sourceWidth());
+		payload.put("sourceHeight", frame.sourceHeight());
+		payload.put("capturedAtMs", frame.capturedAtMs());
+		payload.put("errorCode", frame.errorCode());
+		payload.put("message", frame.message());
+		if (includeImageBytes && "CAPTURED".equals(frame.status())) {
+			payload.put("imageBase64", Base64.getEncoder().encodeToString(frame.imageBytes()));
+		}
+		return payload;
+	}
+
 	private static ClientTickDebugEpochRequest requireClientTickDebugEpochRequest(ClientTickDebugEpochRequest request) {
 		if (request == null || request.debugSessionId() == null || request.debugSessionId().isBlank()) {
 			throw new BridgeUnavailableException("invalid_request", "Missing debugSessionId");
@@ -1440,6 +1562,90 @@ public final class ModBridgeServer {
 			clientTickQueryCursor(request.cursor()),
 			request.limit() == null ? ClientTickEntityQueryService.DEFAULT_PAGE_LIMIT : request.limit()
 		);
+	}
+
+	private static ClientTickTraceRecorder.TraceConfig clientTickTraceConfig(
+		ClientTickTraceStartRequest request
+	) {
+		if (request == null || request.infos() == null || request.infos().isEmpty()) {
+			throw new BridgeUnavailableException("invalid_request", "infos must contain at least one trace info name");
+		}
+		if (request.windowTicks() == null) {
+			throw new BridgeUnavailableException("invalid_request", "Missing windowTicks");
+		}
+		Set<ClientTickTraceRecorder.TraceInfo> infos = new java.util.LinkedHashSet<>();
+		for (String info : request.infos()) {
+			infos.add(ClientTickTraceRecorder.TraceInfo.parse(info));
+		}
+		ClientTickTraceRecorder.EntityQuerySpec entityQuery = request.entityQuery() == null
+			? null
+			: clientTickTraceEntityQuery(request.entityQuery());
+		ClientTickWorldQueryService.RegionBounds blockRegion = request.blockQuery() == null
+			? null
+			: clientTickTraceBlockRegion(request.blockQuery());
+		return new ClientTickTraceRecorder.TraceConfig(
+			infos,
+			request.windowTicks(),
+			entityQuery,
+			blockRegion
+		);
+	}
+
+	private static ClientTickTraceRecorder.EntityQuerySpec clientTickTraceEntityQuery(
+		ClientTickTraceEntityQueryRequest request
+	) {
+		boolean hasRegion = request.minX() != null
+			|| request.minY() != null
+			|| request.minZ() != null
+			|| request.maxX() != null
+			|| request.maxY() != null
+			|| request.maxZ() != null;
+		ClientTickWorldQueryService.RegionBounds region = hasRegion
+			? new ClientTickWorldQueryService.RegionBounds(
+				requiredCoordinate(request.minX(), "entityQuery.minX"),
+				requiredCoordinate(request.minY(), "entityQuery.minY"),
+				requiredCoordinate(request.minZ(), "entityQuery.minZ"),
+				requiredCoordinate(request.maxX(), "entityQuery.maxX"),
+				requiredCoordinate(request.maxY(), "entityQuery.maxY"),
+				requiredCoordinate(request.maxZ(), "entityQuery.maxZ")
+			)
+			: null;
+		return new ClientTickTraceRecorder.EntityQuerySpec(
+			region,
+			request.centerX(),
+			request.centerY(),
+			request.centerZ(),
+			request.radius(),
+			request.entityId(),
+			request.uuid(),
+			request.name(),
+			request.entityTypeIds() == null ? Set.of() : new java.util.LinkedHashSet<>(request.entityTypeIds()),
+			request.alive(),
+			Boolean.TRUE.equals(request.livingOnly()),
+			Boolean.TRUE.equals(request.playerOnly()),
+			Boolean.TRUE.equals(request.includeSelf()),
+			request.limit() == null ? ClientTickEntityQueryService.DEFAULT_PAGE_LIMIT : request.limit()
+		);
+	}
+
+	private static ClientTickWorldQueryService.RegionBounds clientTickTraceBlockRegion(
+		ClientTickTraceBlockQueryRequest request
+	) {
+		return new ClientTickWorldQueryService.RegionBounds(
+			requiredCoordinate(request.minX(), "blockQuery.minX"),
+			requiredCoordinate(request.minY(), "blockQuery.minY"),
+			requiredCoordinate(request.minZ(), "blockQuery.minZ"),
+			requiredCoordinate(request.maxX(), "blockQuery.maxX"),
+			requiredCoordinate(request.maxY(), "blockQuery.maxY"),
+			requiredCoordinate(request.maxZ(), "blockQuery.maxZ")
+		);
+	}
+
+	private static String requiredTraceId(String traceId) {
+		if (traceId == null || traceId.isBlank()) {
+			throw new BridgeUnavailableException("invalid_request", "Missing traceId");
+		}
+		return traceId.trim();
 	}
 
 	private static double requiredFiniteCoordinate(Double value, String name) {
@@ -2418,6 +2624,58 @@ public final class ModBridgeServer {
 		Boolean livingOnly,
 		Boolean playerOnly,
 		Boolean includeSelf
+	) {
+	}
+
+	private record ClientTickTraceStartRequest(
+		List<String> infos,
+		Integer windowTicks,
+		ClientTickTraceEntityQueryRequest entityQuery,
+		ClientTickTraceBlockQueryRequest blockQuery
+	) {
+	}
+
+	private record ClientTickTraceEntityQueryRequest(
+		Integer minX,
+		Integer minY,
+		Integer minZ,
+		Integer maxX,
+		Integer maxY,
+		Integer maxZ,
+		Double centerX,
+		Double centerY,
+		Double centerZ,
+		Double radius,
+		Integer entityId,
+		String uuid,
+		String name,
+		List<String> entityTypeIds,
+		Boolean alive,
+		Boolean livingOnly,
+		Boolean playerOnly,
+		Boolean includeSelf,
+		Integer limit
+	) {
+	}
+
+	private record ClientTickTraceBlockQueryRequest(
+		Integer minX,
+		Integer minY,
+		Integer minZ,
+		Integer maxX,
+		Integer maxY,
+		Integer maxZ
+	) {
+	}
+
+	private record ClientTickTraceIdentityRequest(String traceId) {
+	}
+
+	private record ClientTickTraceRecordsRequest(
+		String traceId,
+		Long sinceClientTickId,
+		Integer limit,
+		Boolean includeImageBytes
 	) {
 	}
 

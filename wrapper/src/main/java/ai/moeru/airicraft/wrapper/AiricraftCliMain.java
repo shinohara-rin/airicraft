@@ -105,6 +105,12 @@ public final class AiricraftCliMain {
 		agentDebugTicks.addSubcommand(new AgentDebugTicksPauseCommand(context));
 		agentDebugTicks.addSubcommand(new AgentDebugTicksStepCommand(context));
 		agentDebugTicks.addSubcommand(new AgentDebugTicksContinueCommand(context));
+		agentDebug.addSubcommand("trace", new UsageCommand(out, "airicraft agent debug trace", "Continuous client tick trace commands"));
+		CommandLine agentDebugTrace = agentDebug.getSubcommands().get("trace");
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStatusCommand(context));
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStartCommand(context));
+		agentDebugTrace.addSubcommand(new AgentDebugTraceRecordsCommand(context));
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStopCommand(context));
 		agentDebug.addSubcommand("world", new UsageCommand(out, "airicraft agent debug world", "Paused world snapshot queries"));
 		CommandLine agentDebugWorld = agentDebug.getSubcommands().get("world");
 		agentDebugWorld.addSubcommand(new AgentDebugWorldMetadataCommand(context));
@@ -817,6 +823,142 @@ public final class AiricraftCliMain {
 			return PayloadViews.clientTickDebugStatus(
 				transport().continueClientTicks(debugSessionId, pauseEpoch)
 			);
+		}
+	}
+
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Inspect the continuous client tick trace state.")
+	private static final class AgentDebugTraceStatusCommand extends BaseCommand {
+		private AgentDebugTraceStatusCommand(CliContext context) {
+			super(context, "agent debug trace status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().getClientTickTraceStatus();
+		}
+	}
+
+	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a rolling client tick trace while normal client ticks run.")
+	private static final class AgentDebugTraceStartCommand extends BaseCommand {
+		private static final List<String> SUPPORTED_INFOS = List.of(
+			"metadata", "player_state", "entities", "blocks", "frame"
+		);
+
+		@Option(
+			names = "--info",
+			required = true,
+			split = ",",
+			description = "Trace info names: metadata, player-state, entities, blocks, or frame. Repeat or use commas."
+		)
+		private List<String> infos;
+
+		@Option(names = "--window-ticks", required = true, description = "Rolling window span from 1 to 1200 client ticks. Frame traces allow at most 200 ticks.")
+		private int windowTicks;
+
+		@Option(names = "--entity-query", description = "Entity query JSON. An omitted radius center follows the captured player each tick.")
+		private String entityQueryJson;
+
+		@Option(names = "--block-query", description = "Block region JSON with minX, minY, minZ, maxX, maxY, and maxZ.")
+		private String blockQueryJson;
+
+		private AgentDebugTraceStartCommand(CliContext context) {
+			super(context, "agent debug trace start");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			List<String> normalizedInfos = normalizedInfos();
+			if (windowTicks < 1 || windowTicks > 1_200) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "window-ticks must be between 1 and 1200");
+			}
+			if (normalizedInfos.contains("frame") && windowTicks > 200) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "window-ticks must not exceed 200 with frame tracing");
+			}
+			boolean hasEntityQuery = entityQueryJson != null && !entityQueryJson.isBlank();
+			boolean hasBlockQuery = blockQueryJson != null && !blockQueryJson.isBlank();
+			if (hasEntityQuery && !normalizedInfos.contains("entities")) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "entity-query requires the entities trace info");
+			}
+			if (normalizedInfos.contains("blocks") != hasBlockQuery) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "block-query is required only with the blocks trace info");
+			}
+			Map<String, Object> request = new LinkedHashMap<>();
+			request.put("infos", normalizedInfos);
+			request.put("windowTicks", windowTicks);
+			if (hasEntityQuery) {
+				request.put("entityQuery", parseJsonObject(entityQueryJson, commandPath()));
+			}
+			if (hasBlockQuery) {
+				request.put("blockQuery", parseJsonObject(blockQueryJson, commandPath()));
+			}
+			return transport().startClientTickTrace(request);
+		}
+
+		private List<String> normalizedInfos() {
+			List<String> normalized = new ArrayList<>();
+			for (String info : infos) {
+				String value = info == null
+					? ""
+					: info.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+				if (!SUPPORTED_INFOS.contains(value)) {
+					throw new CliUsageException(commandPath(), "invalid_arguments", "Unsupported trace info: " + info);
+				}
+				if (!normalized.contains(value)) {
+					normalized.add(value);
+				}
+			}
+			return List.copyOf(normalized);
+		}
+	}
+
+	@Command(name = "records", mixinStandardHelpOptions = true, description = "Read retained client tick trace records.")
+	private static final class AgentDebugTraceRecordsCommand extends BaseCommand {
+		@Option(names = "--trace-id", required = true, description = "Trace ID from trace start or status.")
+		private String traceId;
+
+		@Option(names = "--since-client-tick-id", description = "Only return records after this client tick ID.")
+		private Long sinceClientTickId;
+
+		@Option(names = "--limit", defaultValue = "32", description = "Maximum records to return, from 1 to 256.")
+		private int limit;
+
+		@Option(names = "--output-image-dir", description = "Write retained frame images to this directory.")
+		private Path outputImageDir;
+
+		private AgentDebugTraceRecordsCommand(CliContext context) {
+			super(context, "agent debug trace records");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			if (limit < 1 || limit > 256) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 256");
+			}
+			return prepareClientTickTraceRecords(
+				transport().listClientTickTraceRecords(
+					traceId,
+					sinceClientTickId,
+					limit,
+					outputImageDir != null
+				),
+				outputImageDir,
+				commandPath()
+			);
+		}
+	}
+
+	@Command(name = "stop", mixinStandardHelpOptions = true, description = "Stop a client tick trace and keep its retained records.")
+	private static final class AgentDebugTraceStopCommand extends BaseCommand {
+		@Option(names = "--trace-id", required = true, description = "Trace ID from trace start or status.")
+		private String traceId;
+
+		private AgentDebugTraceStopCommand(CliContext context) {
+			super(context, "agent debug trace stop");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().stopClientTickTrace(traceId);
 		}
 	}
 
@@ -1994,6 +2136,61 @@ public final class AiricraftCliMain {
 			}
 		}
 		return payload;
+	}
+
+	private static Map<String, Object> prepareClientTickTraceRecords(
+		Map<String, Object> source,
+		Path outputImageDir,
+		String commandPath
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>(source);
+		if (!(payload.get("records") instanceof List<?> rawRecords)) {
+			return payload;
+		}
+		Path outputDir = outputImageDir == null ? null : outputImageDir.toAbsolutePath().normalize();
+		List<Map<String, Object>> records = new ArrayList<>();
+		for (Object rawRecord : rawRecords) {
+			Map<String, Object> record = mutableStringMap(rawRecord);
+			Map<String, Object> frame = mutableStringMap(record.get("frame"));
+			if (!frame.isEmpty()) {
+				Object encodedImage = frame.remove("imageBase64");
+				if (encodedImage instanceof String imageBase64 && !imageBase64.isBlank() && outputDir != null) {
+					try {
+						Object tickValue = record.get("clientTickId");
+						if (!(tickValue instanceof Number tickNumber)) {
+							throw new IllegalArgumentException("Missing clientTickId");
+						}
+						String fileName = String.format(Locale.ROOT, "tick-%020d.png", tickNumber.longValue());
+						Path outputPath = outputDir.resolve(fileName);
+						writeCapture(outputPath, java.util.Base64.getDecoder().decode(imageBase64));
+						frame.put("imageOutputPath", outputPath.toString());
+					}
+					catch (IllegalArgumentException exception) {
+						throw new CliUsageException(commandPath, "bridge_io_error", "Bridge returned invalid trace image data");
+					}
+				}
+				record.put("frame", frame);
+			}
+			records.add(record);
+		}
+		payload.put("records", records);
+		if (outputDir != null) {
+			payload.put("imageOutputDirectory", outputDir.toString());
+		}
+		return payload;
+	}
+
+	private static Map<String, Object> mutableStringMap(Object value) {
+		Map<String, Object> result = new LinkedHashMap<>();
+		if (!(value instanceof Map<?, ?> raw)) {
+			return result;
+		}
+		for (Map.Entry<?, ?> entry : raw.entrySet()) {
+			if (entry.getKey() instanceof String key) {
+				result.put(key, entry.getValue());
+			}
+		}
+		return result;
 	}
 
 	private static void requirePositivePauseEpoch(long pauseEpoch, String commandPath) {

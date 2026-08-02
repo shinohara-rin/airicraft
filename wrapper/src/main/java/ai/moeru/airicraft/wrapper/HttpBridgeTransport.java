@@ -323,6 +323,38 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
+	public Map<String, Object> getClientTickTraceStatus() {
+		return get("/v1/agent/debug/trace");
+	}
+
+	@Override
+	public Map<String, Object> startClientTickTrace(Map<String, Object> request) {
+		return send("POST", "/v1/agent/debug/trace/start", request);
+	}
+
+	@Override
+	public Map<String, Object> stopClientTickTrace(String traceId) {
+		return send("POST", "/v1/agent/debug/trace/stop", Map.of("traceId", traceId));
+	}
+
+	@Override
+	public Map<String, Object> listClientTickTraceRecords(
+		String traceId,
+		Long sinceClientTickId,
+		int limit,
+		boolean includeImageBytes
+	) {
+		Map<String, Object> request = new LinkedHashMap<>();
+		request.put("traceId", traceId);
+		if (sinceClientTickId != null) {
+			request.put("sinceClientTickId", sinceClientTickId);
+		}
+		request.put("limit", limit);
+		request.put("includeImageBytes", includeImageBytes);
+		return send("POST", "/v1/agent/debug/trace/records", request);
+	}
+
+	@Override
 	public Map<String, Object> openAgentSessionLan() {
 		return send("POST", "/v1/agent/session/open-lan", null);
 	}
@@ -618,7 +650,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 			case "/v1/worlds/join", "/v1/servers/join", "/v1/evaluation/run" -> JOIN_REQUEST_TIMEOUT;
 			case "/v1/agent/debug/compact" -> DEBUG_COMPACTION_REQUEST_TIMEOUT;
 			case "/v1/agent/tools" -> AGENT_TOOL_REQUEST_TIMEOUT;
-			case "/v1/agent/debug/ticks/pause", "/v1/agent/debug/ticks/step" -> CLIENT_TICK_DEBUG_REQUEST_TIMEOUT;
+			case "/v1/agent/debug/ticks/pause", "/v1/agent/debug/ticks/step", "/v1/agent/debug/trace/records" -> CLIENT_TICK_DEBUG_REQUEST_TIMEOUT;
 			default -> DEFAULT_REQUEST_TIMEOUT;
 		};
 	}
