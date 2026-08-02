@@ -32,6 +32,7 @@ import ai.moeru.airicraft.agent.tasks.EntitySelector;
 import ai.moeru.airicraft.agent.tasks.NearbyEntityService;
 import ai.moeru.airicraft.debug.ClientTickDebugRuntime;
 import ai.moeru.airicraft.debug.ClientTickDebugController;
+import ai.moeru.airicraft.debug.ClientTickEntityQueryService;
 import ai.moeru.airicraft.debug.ClientTickWorldQueryService;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -103,6 +104,7 @@ public final class ModBridgeServer {
 	private final SavedServerService savedServerService = new SavedServerService();
 	private final PlayerViewService playerViewService;
 	private final ClientTickWorldQueryService clientTickWorldQueryService = new ClientTickWorldQueryService();
+	private final ClientTickEntityQueryService clientTickEntityQueryService = new ClientTickEntityQueryService();
 
 	private volatile HttpServer server;
 	private volatile String token;
@@ -419,6 +421,12 @@ public final class ModBridgeServer {
 			String operation = request.operation().trim().toLowerCase(Locale.ROOT);
 			return switch (operation) {
 				case "metadata" -> clientTickWorldQueryService.metadata(client, snapshot);
+				case "player_state" -> clientTickWorldQueryService.playerState(client, snapshot);
+				case "entities" -> clientTickEntityQueryService.query(
+					client,
+					snapshot,
+					clientTickEntityQuery(request, snapshot)
+				);
 				case "get_block" -> clientTickWorldQueryService.block(
 					client,
 					snapshot,
@@ -1395,6 +1403,52 @@ public final class ModBridgeServer {
 		return limit == null ? ClientTickWorldQueryService.DEFAULT_PAGE_LIMIT : limit;
 	}
 
+	private static ClientTickEntityQueryService.EntityQuery clientTickEntityQuery(
+		ClientTickWorldQueryRequest request,
+		ClientTickDebugController.ClientTickSnapshot snapshot
+	) {
+		boolean hasRegion = request.minX() != null
+			|| request.minY() != null
+			|| request.minZ() != null
+			|| request.maxX() != null
+			|| request.maxY() != null
+			|| request.maxZ() != null;
+		ClientTickWorldQueryService.RegionBounds region = hasRegion ? clientTickRegionBounds(request) : null;
+		boolean hasRadiusCenter = request.centerX() != null || request.centerY() != null || request.centerZ() != null;
+		ClientTickEntityQueryService.RadiusBounds radius = null;
+		if (request.radius() != null || hasRadiusCenter) {
+			if (request.radius() == null) {
+				throw new BridgeUnavailableException("invalid_request", "Missing radius");
+			}
+			var playerPosition = snapshot.player().position();
+			double centerX = hasRadiusCenter ? requiredFiniteCoordinate(request.centerX(), "centerX") : playerPosition.x();
+			double centerY = hasRadiusCenter ? requiredFiniteCoordinate(request.centerY(), "centerY") : playerPosition.y();
+			double centerZ = hasRadiusCenter ? requiredFiniteCoordinate(request.centerZ(), "centerZ") : playerPosition.z();
+			radius = new ClientTickEntityQueryService.RadiusBounds(centerX, centerY, centerZ, request.radius());
+		}
+		return new ClientTickEntityQueryService.EntityQuery(
+			region,
+			radius,
+			request.entityId(),
+			request.uuid(),
+			request.name(),
+			request.entityTypeIds() == null ? Set.of() : new java.util.LinkedHashSet<>(request.entityTypeIds()),
+			request.alive(),
+			Boolean.TRUE.equals(request.livingOnly()),
+			Boolean.TRUE.equals(request.playerOnly()),
+			Boolean.TRUE.equals(request.includeSelf()),
+			clientTickQueryCursor(request.cursor()),
+			request.limit() == null ? ClientTickEntityQueryService.DEFAULT_PAGE_LIMIT : request.limit()
+		);
+	}
+
+	private static double requiredFiniteCoordinate(Double value, String name) {
+		if (value == null || !Double.isFinite(value)) {
+			throw new BridgeUnavailableException("invalid_request", "Missing or invalid " + name);
+		}
+		return value;
+	}
+
 	private static BridgeUnavailableException clientTickDebugBridgeException(
 		ClientTickDebugController.DebugStateException exception
 	) {
@@ -2351,7 +2405,19 @@ public final class ModBridgeServer {
 		Integer maxZ,
 		Long cursor,
 		Integer limit,
-		List<String> blockIds
+		List<String> blockIds,
+		Double centerX,
+		Double centerY,
+		Double centerZ,
+		Double radius,
+		Integer entityId,
+		String uuid,
+		String name,
+		List<String> entityTypeIds,
+		Boolean alive,
+		Boolean livingOnly,
+		Boolean playerOnly,
+		Boolean includeSelf
 	) {
 	}
 

@@ -223,7 +223,7 @@ public final class ClientTickDebugController {
 		String dimensionId,
 		long worldTime,
 		long timeOfDay,
-		PlayerSnapshot player,
+		ClientTickPlayerSnapshot player,
 		long plannerGeneration,
 		String plannerPhase
 	) {
@@ -232,21 +232,6 @@ public final class ClientTickDebugController {
 				throw new IllegalArgumentException("schemaVersion must be positive");
 			}
 		}
-	}
-
-	public record PlayerSnapshot(
-		double x,
-		double y,
-		double z,
-		int blockX,
-		int blockY,
-		int blockZ,
-		float yaw,
-		float pitch,
-		float health,
-		int food,
-		int air
-	) {
 	}
 
 	public record ClientTickFrame(

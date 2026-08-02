@@ -2,6 +2,9 @@ package ai.moeru.airicraft.debug;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,6 +23,8 @@ class ClientTickDebugControllerTest {
 
 		var capture = future.join();
 		assertEquals(0L, capture.snapshot().clientTickId());
+		assertEquals("00000000-0000-0000-0000-000000000007", capture.snapshot().player().uuid());
+		assertEquals(20, capture.snapshot().player().hunger().food());
 		assertEquals(1L, capture.pauseEpoch());
 		assertEquals("CAPTURED", capture.frame().status());
 		assertTrue(controller.status().paused());
@@ -117,7 +122,7 @@ class ClientTickDebugControllerTest {
 		ClientTickDebugController.CaptureIntent intent
 	) {
 		return new ClientTickDebugController.ClientTickSnapshot(
-			1,
+			2,
 			intent.debugSessionId(),
 			intent.captureId(),
 			intent.snapshotId(),
@@ -126,9 +131,42 @@ class ClientTickDebugControllerTest {
 			"minecraft:overworld",
 			200L,
 			300L,
-			new ClientTickDebugController.PlayerSnapshot(1.5D, 64.0D, 2.5D, 1, 64, 2, 10.0F, 20.0F, 20.0F, 20, 300),
+			playerSnapshot(),
 			4L,
 			"IDLE"
+		);
+	}
+
+	private static ClientTickPlayerSnapshot playerSnapshot() {
+		return new ClientTickPlayerSnapshot(
+			7,
+			"00000000-0000-0000-0000-000000000007",
+			"Player",
+			"minecraft:player",
+			"survival",
+			new ClientTickPlayerSnapshot.PositionSnapshot(1.5D, 64.0D, 2.5D, 1, 64, 2),
+			new ClientTickPlayerSnapshot.RotationSnapshot(10.0F, 20.0F, 10.0F, 10.0F),
+			new ClientTickPlayerSnapshot.VectorSnapshot(0.0D, 0.0D, 0.0D),
+			new ClientTickPlayerSnapshot.BoundsSnapshot(1.2D, 64.0D, 2.2D, 1.8D, 65.8D, 2.8D),
+			new ClientTickPlayerSnapshot.MovementSnapshot(
+				"standing", true, false, false, false, false, false, false, false,
+				false, false, false, false, 0.0F, false, 0, 0
+			),
+			new ClientTickPlayerSnapshot.VitalsSnapshot(
+				true, false, 10.0F, 20.0F, 0.0F, 0, 300, 300, 0, 0, 0, 0
+			),
+			new ClientTickPlayerSnapshot.HungerSnapshot(20, 5.0F),
+			new ClientTickPlayerSnapshot.ExperienceSnapshot(0, 0, 0.0F),
+			new ClientTickPlayerSnapshot.AbilitiesSnapshot(
+				false, false, false, false, true, 0.05F, 0.1F
+			),
+			new ClientTickPlayerSnapshot.InputSnapshot(false, false, false, false, false, false, false),
+			41,
+			0,
+			List.of(),
+			Map.of(),
+			List.of(),
+			List.of()
 		);
 	}
 

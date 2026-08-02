@@ -37,6 +37,16 @@ public final class ClientTickWorldQueryService {
 		return response;
 	}
 
+	public Map<String, Object> playerState(
+		MinecraftClient client,
+		ClientTickDebugController.ClientTickSnapshot snapshot
+	) {
+		requireMatchingWorld(client, snapshot);
+		Map<String, Object> response = baseResponse(snapshot);
+		response.put("player", snapshot.player());
+		return response;
+	}
+
 	public Map<String, Object> block(
 		MinecraftClient client,
 		ClientTickDebugController.ClientTickSnapshot snapshot,
@@ -128,7 +138,7 @@ public final class ClientTickWorldQueryService {
 		return response;
 	}
 
-	private static ClientWorld requireMatchingWorld(
+	static ClientWorld requireMatchingWorld(
 		MinecraftClient client,
 		ClientTickDebugController.ClientTickSnapshot snapshot
 	) {
@@ -142,7 +152,7 @@ public final class ClientTickWorldQueryService {
 		return client.world;
 	}
 
-	private static Map<String, Object> baseResponse(ClientTickDebugController.ClientTickSnapshot snapshot) {
+	static Map<String, Object> baseResponse(ClientTickDebugController.ClientTickSnapshot snapshot) {
 		Map<String, Object> response = new LinkedHashMap<>();
 		response.put("available", true);
 		response.put("debugSessionId", snapshot.debugSessionId());

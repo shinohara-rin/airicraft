@@ -108,6 +108,8 @@ public final class AiricraftCliMain {
 		agentDebug.addSubcommand("world", new UsageCommand(out, "airicraft agent debug world", "Paused world snapshot queries"));
 		CommandLine agentDebugWorld = agentDebug.getSubcommands().get("world");
 		agentDebugWorld.addSubcommand(new AgentDebugWorldMetadataCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldPlayerStateCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldEntitiesCommand(context));
 		agentDebugWorld.addSubcommand(new AgentDebugWorldGetBlockCommand(context));
 		agentDebugWorld.addSubcommand(new AgentDebugWorldScanBoxCommand(context));
 		agentDebugWorld.addSubcommand(new AgentDebugWorldFindBlocksCommand(context));
@@ -843,6 +845,140 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return transport().queryClientTickWorld(baseRequest("metadata"));
+		}
+	}
+
+	@Command(name = "player-state", mixinStandardHelpOptions = true, description = "Get the full player state captured at a paused client tick.")
+	private static final class AgentDebugWorldPlayerStateCommand extends AgentDebugWorldSnapshotCommand {
+		private AgentDebugWorldPlayerStateCommand(CliContext context) {
+			super(context, "agent debug world player-state");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(baseRequest("player_state"));
+		}
+	}
+
+	@Command(name = "entities", mixinStandardHelpOptions = true, description = "Query loaded entities by region, radius, identity, name, type, and state.")
+	private static final class AgentDebugWorldEntitiesCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--min-x", description = "Inclusive minimum block X for a region query.")
+		private Integer minX;
+
+		@Option(names = "--min-y", description = "Inclusive minimum block Y for a region query.")
+		private Integer minY;
+
+		@Option(names = "--min-z", description = "Inclusive minimum block Z for a region query.")
+		private Integer minZ;
+
+		@Option(names = "--max-x", description = "Inclusive maximum block X for a region query.")
+		private Integer maxX;
+
+		@Option(names = "--max-y", description = "Inclusive maximum block Y for a region query.")
+		private Integer maxY;
+
+		@Option(names = "--max-z", description = "Inclusive maximum block Z for a region query.")
+		private Integer maxZ;
+
+		@Option(names = "--center-x", description = "Radius center X. Omit all center coordinates to use the captured player position.")
+		private Double centerX;
+
+		@Option(names = "--center-y", description = "Radius center Y. Omit all center coordinates to use the captured player position.")
+		private Double centerY;
+
+		@Option(names = "--center-z", description = "Radius center Z. Omit all center coordinates to use the captured player position.")
+		private Double centerZ;
+
+		@Option(names = "--radius", description = "Three-dimensional radius from 0 to 4096 blocks.")
+		private Double radius;
+
+		@Option(names = "--entity-id", description = "Exact runtime entity ID.")
+		private Integer entityId;
+
+		@Option(names = "--uuid", description = "Exact entity UUID.")
+		private String uuid;
+
+		@Option(names = "--name", description = "Exact visible entity name. Matching ignores letter case.")
+		private String name;
+
+		@Option(names = {"--entity-type-id", "--type"}, split = ",", description = "Exact namespaced entity type ID. Repeat this option or use commas.")
+		private List<String> entityTypeIds;
+
+		@Option(names = "--alive", arity = "0..1", fallbackValue = "true", description = "Filter by entity alive state. Use --living-only to select living entities.")
+		private Boolean alive;
+
+		@Option(names = "--living-only", description = "Only return living entities.")
+		private boolean livingOnly;
+
+		@Option(names = "--player-only", description = "Only return player entities.")
+		private boolean playerOnly;
+
+		@Option(names = "--include-self", description = "Include the local player in results.")
+		private boolean includeSelf;
+
+		@Option(names = "--cursor", defaultValue = "0", description = "Zero-based cursor in the filtered entity result.")
+		private long cursor;
+
+		@Option(names = "--limit", defaultValue = "32", description = "Maximum entities to return, from 1 to 256.")
+		private int limit;
+
+		private AgentDebugWorldEntitiesCommand(CliContext context) {
+			super(context, "agent debug world entities");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			validateSpatialSelector();
+			if (cursor < 0L) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "cursor must not be negative");
+			}
+			if (limit < 1 || limit > 256) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 256");
+			}
+			if (radius != null && (!Double.isFinite(radius) || radius < 0.0D || radius > 4_096.0D)) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "radius must be between 0 and 4096");
+			}
+			Map<String, Object> request = baseRequest("entities");
+			putIfNonNull(request, "minX", minX);
+			putIfNonNull(request, "minY", minY);
+			putIfNonNull(request, "minZ", minZ);
+			putIfNonNull(request, "maxX", maxX);
+			putIfNonNull(request, "maxY", maxY);
+			putIfNonNull(request, "maxZ", maxZ);
+			putIfNonNull(request, "centerX", centerX);
+			putIfNonNull(request, "centerY", centerY);
+			putIfNonNull(request, "centerZ", centerZ);
+			putIfNonNull(request, "radius", radius);
+			putIfNonNull(request, "entityId", entityId);
+			putIfPresent(request, "uuid", uuid);
+			putIfPresent(request, "name", name);
+			if (entityTypeIds != null && !entityTypeIds.isEmpty()) {
+				request.put("entityTypeIds", entityTypeIds);
+			}
+			putIfNonNull(request, "alive", alive);
+			request.put("livingOnly", livingOnly);
+			request.put("playerOnly", playerOnly);
+			request.put("includeSelf", includeSelf);
+			request.put("cursor", cursor);
+			request.put("limit", limit);
+			return transport().queryClientTickWorld(request);
+		}
+
+		private void validateSpatialSelector() {
+			int regionCount = countNonNull(minX, minY, minZ, maxX, maxY, maxZ);
+			if (regionCount != 0 && regionCount != 6) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide all six region coordinates");
+			}
+			int centerCount = countNonNull(centerX, centerY, centerZ);
+			if (centerCount != 0 && centerCount != 3) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide all three radius center coordinates");
+			}
+			if (centerCount > 0 && radius == null) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide --radius with center coordinates");
+			}
+			if (regionCount > 0 && radius != null) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Use either region or radius, not both");
+			}
 		}
 	}
 
@@ -1785,6 +1921,22 @@ public final class AiricraftCliMain {
 		if (value != null && !value.isBlank()) {
 			map.put(key, value);
 		}
+	}
+
+	private static void putIfNonNull(Map<String, Object> map, String key, Object value) {
+		if (value != null) {
+			map.put(key, value);
+		}
+	}
+
+	private static int countNonNull(Object... values) {
+		int count = 0;
+		for (Object value : values) {
+			if (value != null) {
+				count++;
+			}
+		}
+		return count;
 	}
 
 	private static int parseHexColor(String commandPath, String raw) {

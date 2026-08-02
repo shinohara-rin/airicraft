@@ -398,6 +398,92 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void clientTickWorldPlayerStateBuildsSnapshotRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "player", Map.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "player-state",
+			"--snapshot-id", "snapshot-3"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
+		assertEquals("player_state", transport.lastClientTickWorldQuery.get("operation"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesBuildsRadiusAndFilterRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--radius", "16",
+			"--name", "Sheep",
+			"--entity-type-id", "minecraft:sheep,minecraft:cow",
+			"--alive=false",
+			"--living-only",
+			"--include-self",
+			"--cursor", "4",
+			"--limit", "5"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("entities", transport.lastClientTickWorldQuery.get("operation"));
+		assertEquals(16.0D, transport.lastClientTickWorldQuery.get("radius"));
+		assertFalse(transport.lastClientTickWorldQuery.containsKey("centerX"));
+		assertEquals("Sheep", transport.lastClientTickWorldQuery.get("name"));
+		assertEquals(List.of("minecraft:sheep", "minecraft:cow"), transport.lastClientTickWorldQuery.get("entityTypeIds"));
+		assertEquals(false, transport.lastClientTickWorldQuery.get("alive"));
+		assertEquals(true, transport.lastClientTickWorldQuery.get("livingOnly"));
+		assertEquals(true, transport.lastClientTickWorldQuery.get("includeSelf"));
+		assertEquals(4L, transport.lastClientTickWorldQuery.get("cursor"));
+		assertEquals(5, transport.lastClientTickWorldQuery.get("limit"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesBuildsRegionAndIdentityRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "-2", "--min-y", "60", "--min-z", "-3",
+			"--max-x", "2", "--max-y", "70", "--max-z", "3",
+			"--entity-id", "42",
+			"--uuid", "entity-42"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals(-2, transport.lastClientTickWorldQuery.get("minX"));
+		assertEquals(3, transport.lastClientTickWorldQuery.get("maxZ"));
+		assertEquals(42, transport.lastClientTickWorldQuery.get("entityId"));
+		assertEquals("entity-42", transport.lastClientTickWorldQuery.get("uuid"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesRejectsPartialRegion() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "0"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
+		assertTrue(transport.lastClientTickWorldQuery == null);
+	}
+
+	@Test
 	void clientTickWorldFindBlocksUsesMatchItemLabel() {
 		TestTransport transport = new TestTransport();
 		transport.clientTickWorldQueryPayload = linkedMap(

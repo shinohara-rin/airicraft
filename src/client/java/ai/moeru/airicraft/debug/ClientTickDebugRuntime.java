@@ -12,7 +12,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public final class ClientTickDebugRuntime {
-	private static final int SNAPSHOT_SCHEMA_VERSION = 1;
+	private static final int SNAPSHOT_SCHEMA_VERSION = 2;
 
 	private final ClientTickDebugController controller;
 	private final FirstPersonScreenshotService screenshotService;
@@ -132,19 +132,7 @@ public final class ClientTickDebugRuntime {
 			world.getRegistryKey().getValue().toString(),
 			world.getTime(),
 			world.getTimeOfDay(),
-			new ClientTickDebugController.PlayerSnapshot(
-				player.getX(),
-				player.getY(),
-				player.getZ(),
-				player.getBlockX(),
-				player.getBlockY(),
-				player.getBlockZ(),
-				player.getYaw(),
-				player.getPitch(),
-				player.getHealth(),
-				player.getHungerManager().getFoodLevel(),
-				player.getAir()
-			),
+			ClientTickPlayerSnapshotFactory.capture(client, player),
 			planner.activeGeneration(),
 			planner.currentPhase()
 		);
