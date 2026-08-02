@@ -9,7 +9,6 @@
   - `wrapper/`: standalone Java CLI for agent-driven control
 
 ## Build And Run
-- Before running build or test verification commands, source `.envrc` first if exists: `source .envrc`
 - Full build: `./gradlew build`
 - Run Minecraft client in dev: `./gradlew runClient`
 - `runClient` starts JDWP by default on `127.0.0.1:5005` with `suspend=n`
@@ -28,11 +27,11 @@
   - Verify live: mod list has `airicraft` + `airicraft-journeymap-compat` + `journeymap` + `airicraft-rei-compat` + `roughlyenoughitems`; `airicraft map status` says `available: true`, `preferredProvider: journeymap`; planner still exposes `search_recipes`.
 - Arthas CLI live-debug:
   - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.
-  - Manual start: `source .envrc && ./gradlew runClient`
-  - Attach once: `source .envrc && ./gradlew arthasAttach`
+  - Manual start: `./gradlew runClient`
+  - Attach once: `./gradlew arthasAttach`
   - Default probe interface after attach: `scripts/arthas v`, `scripts/arthas sc 'ai.moeru.airicraft.*'`, `scripts/arthas sm <class> <method>`, `scripts/arthas w <class> <method>`, `scripts/arthas raw 'thread -n 1'`
   - If another JVM owns the default Arthas port, pass the Minecraft port: `scripts/arthas --port 8564 sc ai.moeru.airicraft.ModBridgeServer`
-  - If select fails: `jps -lv`, then `source .envrc && ./gradlew arthasAttach -Pairicraft.arthas.pid=<pid>`
+  - If select fails: `jps -lv`, then `./gradlew arthasAttach -Pairicraft.arthas.pid=<pid>`
   - Useful probes: `sc ai.moeru.airicraft.*`, `sm <class>`, `jad <class>`, `thread -n 5`, `dashboard`
   - Useful live observe: `watch <class> <method> '{params, returnObj, throwExp}' -n 1 -m 1 --timeout 10`
   - Useful path cost: `trace <class> <method> '#cost>10' -n 1 -m 1 --timeout 10`
@@ -142,7 +141,6 @@
 - `airicraft status` is a probe command and still exits `0` when Minecraft is unavailable, reporting `available: false`.
 - World-bound read/action commands still return `world_not_loaded` when no world is active.
 - `airicraft worlds join` and `airicraft servers join` return `already_in_world` if a world is already loaded.
-- `airicraft worlds list` is intended to return `already_in_world` once the client is restarted onto the latest code.
 - `airicraft servers list` can still safely enumerate saved servers while out of world.
 - Highlights support:
   - persistent by default
@@ -150,16 +148,6 @@
   - custom `overlayText`
   - block and region highlights
   - list, clear-one, clear-all
-
-## Verified So Far
-- `./gradlew build` passes.
-- Wrapper bridge initialization and stale discovery cleanup logic work.
-- Bridge stale discovery handling works.
-- Focus, world snapshot, and highlight flows were previously tested end-to-end.
-- Out-of-world world listing and `join_world` were tested against the bridge:
-  - listing saved worlds worked
-  - joining a saved world worked
-  - repeated join while already in world returned `already_in_world`
 
 ## Important Caveat
 - If behavior changes in bridge handlers do not appear in a running dev client, restart `runClient`.
