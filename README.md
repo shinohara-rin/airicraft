@@ -153,6 +153,21 @@ Planner-facing block modification is guarded by the world-read ledger. `place_bl
 
 Evaluation scenarios in `scenarios/*/scenario.yml` can use deterministic checks. `inventory_contains` verifies an item count, `block_state` verifies one exact block position, and `block_count` verifies at least `count` matching blocks in either `scope: self` with `horizontalRadius`/`verticalRadius` or `scope: box` with `x1/y1/z1/x2/y2/z2`.
 
+Run scenarios through the batch harness. Parallel execution is opt-in with `--jobs`; the default remains one client:
+
+```shell
+scripts/run-evaluation-scenarios \
+  --scenario pickup \
+  --scenario underground \
+  --jobs 2
+```
+
+Each scenario gets an isolated bridge file, game directory, process, and artifact directory. Parallel runs stop every client. Serial runs can still leave the final client active unless `--stop-client-after-scenario` is set.
+
+The harness copies the base `run/config`, JourneyMap configuration, and `run/options.txt` into each worker. It does not copy saves, logs, screenshots, or JourneyMap world data. Passed worker directories are deleted. Failed, interrupted, and review worker directories remain under `run/evaluator-workers/<run-id>/`.
+
+The scenario manifest and reports remain under `eval-output/<run-id>/`. Use each result's `workerId`, `clientPid`, `gameDir`, and `bridgeStatePath` to correlate live evidence.
+
 To make frozen scenario worlds visible in the Minecraft singleplayer menu, unpack the archived fixtures into the dev game directory:
 
 ```shell

@@ -33,6 +33,17 @@ scripts/codex-driver
 
 Use the same exported value for each wrapper command. The evaluator batch script assigns its bridge-state paths automatically.
 
+For an embedded-planner batch, use `scripts/run-evaluation-scenarios`. Add `--jobs N` to run isolated scenario clients in parallel:
+
+```bash
+scripts/run-evaluation-scenarios \
+  --scenario pickup \
+  --scenario underground \
+  --jobs 2
+```
+
+The batch script assigns each client a game directory and bridge file. Parallel runs stop all clients. It deletes passed worker directories and retains other worker directories for diagnosis.
+
 Require `codexDriverActive: true` before acting. A normally launched client must be restarted through `scripts/codex-driver`; there is no `agent.yml` switch and no live attach.
 
 For evaluator scenarios, launch `scripts/codex-driver-evaluator` instead. It builds the wrapper, loads the evaluator addon, and propagates external-driver mode to the production-style client. Use a fresh worktree when the run must not inherit an existing provider or observability config. Then start and drive a scenario explicitly:

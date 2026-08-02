@@ -8,7 +8,8 @@ if [[ $# -gt 0 ]]; then
 fi
 
 disable_journeymap_minimap_for_evaluator() {
-	local config_dir="$repo_root/run/journeymap/config/6.0"
+	local game_dir="$1"
+	local config_dir="$game_dir/journeymap/config/6.0"
 	local config_file
 	mkdir -p "$config_dir"
 	for config_file in "$config_dir"/journeymap.minimap.config "$config_dir"/journeymap.minimap2.config; do
@@ -32,8 +33,21 @@ case "$command" in
 			# shellcheck disable=SC1091
 			source .envrc
 		fi
-		disable_journeymap_minimap_for_evaluator
-		exec ./gradlew -Pairicraft.includeEvaluator=true -Pairicraft.includeCompat=true :runClientCompatEvaluator "$@"
+		game_dir="${AIRICRAFT_EVALUATOR_GAME_DIR:-$repo_root/run}"
+		if [[ "$game_dir" != /* ]]; then
+			printf 'AIRICRAFT_EVALUATOR_GAME_DIR must be an absolute path\n' >&2
+			exit 2
+		fi
+		disable_journeymap_minimap_for_evaluator "$game_dir"
+		gradle_args=(
+			"-Pairicraft.evaluator.runDir=$game_dir"
+			"-Pairicraft.evaluator.jdwp.enabled=${AIRICRAFT_EVALUATOR_JDWP_ENABLED:-true}"
+			"-Pairicraft.evaluator.runtimePrepared=${AIRICRAFT_EVALUATOR_RUNTIME_PREPARED:-false}"
+		)
+		if [[ -n "${AIRICRAFT_EVALUATOR_PLAYER_NAME:-}" ]]; then
+			gradle_args+=("-Pairicraft.devPlayerName=$AIRICRAFT_EVALUATOR_PLAYER_NAME")
+		fi
+		exec ./gradlew "${gradle_args[@]}" -Pairicraft.includeEvaluator=true -Pairicraft.includeCompat=true :runClientCompatEvaluator "$@"
 		;;
 	*)
 		printf 'usage: scripts/eval run [gradle args...]\n' >&2

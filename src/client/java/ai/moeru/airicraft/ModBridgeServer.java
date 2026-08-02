@@ -175,7 +175,6 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/step-execution", exchange -> handleJson(exchange, this::createAgentStepExecutionResponse));
 			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, this::createAgentActionGraphInspectResponse));
 			httpServer.createContext("/v1/agent/action-goals", this::handleAgentActionGoals);
-			httpServer.createContext("/v1/agent/action-facts", this::handleAgentActionFacts);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
 			httpServer.createContext("/v1/agent/debug/idle-trigger", this::handleAgentDebugIdleTrigger);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
@@ -197,7 +196,12 @@ public final class ModBridgeServer {
 
 			server = httpServer;
 
-			var state = new BridgeSessionState(httpServer.getAddress().getPort(), token, Instant.now().toEpochMilli());
+			var state = new BridgeSessionState(
+				httpServer.getAddress().getPort(),
+				token,
+				Instant.now().toEpochMilli(),
+				ProcessHandle.current().pid()
+			);
 			bridgeDiscoveryFile.write(state);
 			Airicraft.LOGGER.info("Airicraft bridge started on port {}", state.port());
 		}
@@ -1124,33 +1128,6 @@ public final class ModBridgeServer {
 			return ActionGoal.resourceCollection(resourceKind, quantity);
 		}
 		throw new BridgeUnavailableException("unsupported_action_goal", "Unsupported action goal kind: " + kind);
-	}
-
-	private void handleAgentActionFacts(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		String method = exchange.getRequestMethod();
-		String worldId = getQuery(exchange, "world-id");
-		String type = getQuery(exchange, "type");
-		try {
-			if ("GET".equalsIgnoreCase(method)) {
-				writeJson(exchange, 200, onClientThread(() -> agentRuntime().inspectPersistentActionFacts(worldId, type)));
-				return;
-			}
-			if ("DELETE".equalsIgnoreCase(method)) {
-				writeJson(exchange, 200, onClientThread(() -> agentRuntime().clearPersistentActionFacts(worldId)));
-				return;
-			}
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-		}
-		catch (IllegalArgumentException exception) {
-			writeJson(exchange, 400, Map.of("error", "invalid_request", "message", exception.getMessage()));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
 	}
 
 	private EntityInteractionStepArgs parseEntityInteractionRequest(EntityInteractionRequest request, boolean allowItemId) {

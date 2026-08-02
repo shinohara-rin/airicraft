@@ -56,7 +56,7 @@ class BridgeStateFileTest {
 	void readUsesConfiguredProperty(@TempDir Path tempDir) throws Exception {
 		Path bridgeStatePath = tempDir.resolve("worker-bridge.json");
 		Files.writeString(bridgeStatePath, """
-			{"port":1234,"token":"worker-token","startedAtEpochMillis":5678}
+			{"port":1234,"token":"worker-token","startedAtEpochMillis":5678,"processId":9012}
 			""");
 		System.setProperty(BridgeStateFile.PATH_PROPERTY, bridgeStatePath.toString());
 
@@ -65,5 +65,6 @@ class BridgeStateFileTest {
 		assertEquals(1234, state.port());
 		assertEquals("worker-token", state.token());
 		assertEquals(5678L, state.startedAtEpochMillis());
+		assertEquals(9012L, state.processId());
 	}
 }

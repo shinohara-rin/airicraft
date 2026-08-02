@@ -11,7 +11,8 @@ usage() {
 		'Use a fresh worktree when the run must not inherit an existing' \
 		'provider or observability configuration.' \
 		'' \
-		'Set AIRICRAFT_BRIDGE_STATE_FILE to an absolute path to isolate discovery.'
+		'Set AIRICRAFT_BRIDGE_STATE_FILE to an absolute path to isolate discovery.' \
+		'Set AIRICRAFT_EVALUATOR_GAME_DIR to an absolute path to isolate game data.'
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -42,7 +43,18 @@ printf '%s\n' \
 	'Use the wrapper CLI to start a scenario, act, and poll its report.' \
 	"Bridge state: ${AIRICRAFT_BRIDGE_STATE_FILE:-$HOME/.airicraft/bridge-state.json}"
 
+gradle_args=()
+if [[ -n "${AIRICRAFT_EVALUATOR_GAME_DIR:-}" ]]; then
+	if [[ "$AIRICRAFT_EVALUATOR_GAME_DIR" != /* ]]; then
+		printf 'AIRICRAFT_EVALUATOR_GAME_DIR must be an absolute path\n' >&2
+		exit 2
+	fi
+	gradle_args+=("-Pairicraft.evaluator.runDir=$AIRICRAFT_EVALUATOR_GAME_DIR")
+fi
+gradle_args+=("-Pairicraft.evaluator.jdwp.enabled=${AIRICRAFT_EVALUATOR_JDWP_ENABLED:-true}")
+
 exec ./gradlew \
+	"${gradle_args[@]}" \
 	wrapper:installDist \
 	-Pairicraft.includeEvaluator=true \
 	-Pairicraft.codexDriver=true \

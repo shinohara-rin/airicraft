@@ -16,6 +16,7 @@ final class BridgeStateFile {
 	private static final Pattern PORT_PATTERN = Pattern.compile("\"port\"\\s*:\\s*(\\d+)");
 	private static final Pattern TOKEN_PATTERN = Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"");
 	private static final Pattern STARTED_PATTERN = Pattern.compile("\"startedAtEpochMillis\"\\s*:\\s*(\\d+)");
+	private static final Pattern PROCESS_ID_PATTERN = Pattern.compile("\"processId\"\\s*:\\s*(\\d+)");
 
 	private BridgeStateFile() {
 	}
@@ -31,6 +32,7 @@ final class BridgeStateFile {
 			Matcher portMatcher = PORT_PATTERN.matcher(raw);
 			Matcher tokenMatcher = TOKEN_PATTERN.matcher(raw);
 			Matcher startedMatcher = STARTED_PATTERN.matcher(raw);
+			Matcher processIdMatcher = PROCESS_ID_PATTERN.matcher(raw);
 			if (!portMatcher.find() || !tokenMatcher.find() || !startedMatcher.find()) {
 				return Optional.empty();
 			}
@@ -38,7 +40,8 @@ final class BridgeStateFile {
 			return Optional.of(new BridgeState(
 				Integer.parseInt(portMatcher.group(1)),
 				tokenMatcher.group(1),
-				Long.parseLong(startedMatcher.group(1))
+				Long.parseLong(startedMatcher.group(1)),
+				processIdMatcher.find() ? Long.parseLong(processIdMatcher.group(1)) : -1L
 			));
 		}
 		catch (IOException | RuntimeException exception) {
@@ -79,6 +82,6 @@ final class BridgeStateFile {
 		return second == null || second.isBlank() ? null : second;
 	}
 
-	record BridgeState(int port, String token, long startedAtEpochMillis) {
+	record BridgeState(int port, String token, long startedAtEpochMillis, long processId) {
 	}
 }

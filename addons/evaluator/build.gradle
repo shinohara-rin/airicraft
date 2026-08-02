@@ -82,6 +82,27 @@ tasks.named("test") {
 
 def sharedDevRunDir = rootProject.layout.projectDirectory.dir("run")
 def journeyMapCompatProject = rootProject.findProject(":compat:journeymap")
+def evaluatorRunDir = providers.gradleProperty("airicraft.evaluator.runDir")
+	.orElse(sharedDevRunDir.asFile.absolutePath)
+def evaluatorJdwpEnabled = providers.gradleProperty("airicraft.evaluator.jdwp.enabled")
+	.orElse("true")
+def evaluatorRuntimePrepared = providers.gradleProperty("airicraft.evaluator.runtimePrepared")
+	.orElse("false")
+def evaluatorScenariosDir = rootProject.layout.projectDirectory.dir("scenarios")
+
+if (evaluatorRuntimePrepared.get().toBoolean()) {
+	tasks.named("remapJar") {
+		onlyIf { false }
+	}
+}
+
+def configureEvaluatorProcess = { task ->
+	task.runDir = file(evaluatorRunDir.get())
+	task.jvmArgs.add("-Dairicraft.scenariosDir=${evaluatorScenariosDir.asFile.absolutePath}")
+	if (evaluatorJdwpEnabled.get().toBoolean()) {
+		task.jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
+	}
+}
 
 tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
 	group = "airicraft evaluation"
@@ -99,11 +120,10 @@ tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductio
 		"libs/nether-pathfinder-1.4.1.jar"
 	))
 	classpath.from(configurations.evaluatorRuntimeLibraries)
-	runDir = sharedDevRunDir.asFile
+	configureEvaluatorProcess(delegate)
 	javaLauncher = javaToolchains.launcherFor {
 		languageVersion = JavaLanguageVersion.of(21)
 	}
-	jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
 }
 
 if (journeyMapCompatProject != null) {
@@ -115,22 +135,28 @@ if (journeyMapCompatProject != null) {
 		group = "airicraft evaluation"
 		description = "Runs a production-style Fabric client with Airicraft, the evaluator addon, and evaluator-stable compatibility smoke mods."
 		dependsOn rootProject.tasks.named("prepareMinecraftRunOptions")
-		dependsOn tasks.named("remapJar")
-		dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatMods")
-		dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatLibraries")
+		if (!evaluatorRuntimePrepared.get().toBoolean()) {
+			dependsOn tasks.named("remapJar")
+			dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatMods")
+			dependsOn journeyMapCompatProject.tasks.named("syncJourneyMapCompatLibraries")
+		}
 		outputs.upToDateWhen { false }
 
 		mods.from(rootProject.fileTree(dir: journeyMapCompatModsDir.asFile, exclude: [
 			"airicraft-journeymap-compat-*.jar",
 			"journeymap-*.jar"
 		]))
-		mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
+		if (evaluatorRuntimePrepared.get().toBoolean()) {
+			mods.from(tasks.named("remapJar").get().archiveFile.get().asFile)
+		}
+		else {
+			mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
+		}
 		classpath.from(configurations.evaluatorRuntimeLibraries)
 		classpath.from(journeyMapCompatLibrariesDir)
-		runDir = sharedDevRunDir.asFile
+		configureEvaluatorProcess(delegate)
 		javaLauncher = javaToolchains.launcherFor {
 			languageVersion = JavaLanguageVersion.of(21)
 		}
-		jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
 	}
 }

@@ -58,7 +58,7 @@ class BridgeDiscoveryFileTest {
 	void configuredFileOwnsItsLifecycle(@TempDir Path tempDir) throws Exception {
 		Path path = tempDir.resolve("worker/bridge-state.json");
 		BridgeDiscoveryFile file = new BridgeDiscoveryFile(path);
-		BridgeSessionState state = new BridgeSessionState(1234, "token", 5678L);
+		BridgeSessionState state = new BridgeSessionState(1234, "token", 5678L, 9012L);
 
 		file.write(state);
 

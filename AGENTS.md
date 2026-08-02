@@ -25,6 +25,12 @@
   - Jar cache ignored: `.airicraft-compat/integration/`; never vendor optional-mod jars or copy them into `run/mods`.
   - Setup/list jars: `scripts/compat setup`, `scripts/compat mods`.
   - Verify live: mod list has `airicraft` + `airicraft-journeymap-compat` + `journeymap` + `airicraft-rei-compat` + `roughlyenoughitems`; `airicraft map status` says `available: true`, `preferredProvider: journeymap`; planner still exposes `search_recipes`.
+- Evaluation batches:
+  - Use `scripts/run-evaluation-scenarios --scenario <id>` for a serial run.
+  - Add repeated `--scenario` options and `--jobs <count>` for isolated parallel clients.
+  - Parallel clients use separate game directories and bridge files.
+  - Passed worker directories are deleted. Failed, review, and interrupted directories remain under `run/evaluator-workers/`.
+  - Batch clients disable JDWP. Manual evaluator launches keep JDWP on `127.0.0.1:5008`.
 - Arthas CLI live-debug:
   - Cold-start path: `scripts/arthas kickstart` starts `runClient`, waits for the bridge, joins the first saved world, opens LAN, and attaches Arthas for later probes. It is cold-only and fails fast if a client is already running.
   - Manual start: `./gradlew runClient`
@@ -155,4 +161,5 @@
 - If behavior changes in bridge handlers do not appear in a running dev client, restart `runClient`.
 - A running Minecraft dev process keeps the old classes loaded even if the repo has already been rebuilt.
 - The in-mod verification scenarios are stateful. Running multiple planner/follow scenarios back to back in one client session can produce cross-scenario interference.
+- The batch evaluator avoids this interference because each scenario uses a separate client and game directory.
 - In particular, `llm.degradation_goal_preserved` intentionally drives the runtime into degraded mode before reset, so later planner/follow scenarios should be run individually or after restarting `runClient`.

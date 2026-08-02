@@ -1134,60 +1134,11 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
-	void agentActionsFactsListPassesFiltersAndRendersFacts() {
-		TestTransport transport = new TestTransport();
-		transport.agentActionFactsPayload = linkedMap(
-			"available", true,
-			"worldId", "world-a",
-			"type", "world.crop_group",
-			"factCount", 1,
-			"facts", List.of(linkedMap(
-				"type", "world.crop_group",
-				"keys", linkedMap("siteId", "farm-1", "cropId", "minecraft:wheat"),
-				"provenance", "INFERRED",
-				"observedTick", 100,
-				"staleAfterTick", -1,
-				"payload", linkedMap("matureCount", 3)
-			))
-		);
+	void agentActionsRejectsRemovedFactsCommand() {
+		CliResult result = execute(new TestTransport(), "agent", "actions", "facts", "list");
 
-		CliResult result = execute(
-			transport,
-			"agent", "actions", "facts", "list",
-			"--world-id", "world-a",
-			"--type", "world.crop_group"
-		);
-
-		assertEquals(0, result.exitCode());
-		assertEquals("world-a", transport.lastActionFactWorldId);
-		assertEquals("world.crop_group", transport.lastActionFactType);
-		assertTrue(result.output().contains("command: agent actions facts list\n"));
-		assertTrue(result.output().contains("factCount: 1\n"));
-		assertTrue(result.output().contains("type: world.crop_group\n"));
-		assertTrue(result.output().contains("siteId: farm-1\n"));
-	}
-
-	@Test
-	void agentActionsFactsClearPassesWorldScope() {
-		TestTransport transport = new TestTransport();
-		transport.agentActionFactsClearPayload = linkedMap(
-			"available", true,
-			"worldId", "world-a",
-			"cleared", true,
-			"clearedCount", 2
-		);
-
-		CliResult result = execute(
-			transport,
-			"agent", "actions", "facts", "clear",
-			"--world-id", "world-a"
-		);
-
-		assertEquals(0, result.exitCode());
-		assertEquals("world-a", transport.lastActionFactClearWorldId);
-		assertTrue(result.output().contains("command: agent actions facts clear\n"));
-		assertTrue(result.output().contains("cleared: true\n"));
-		assertTrue(result.output().contains("clearedCount: 2\n"));
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
 	}
 
 	@Test
@@ -1824,8 +1775,6 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentActionGoalCancelPayload = Map.of();
 		private String lastActionGoalInspectExecutionId;
 		private String lastActionGoalCancelExecutionId;
-		private Map<String, Object> agentActionFactsPayload = Map.of("facts", List.of());
-		private Map<String, Object> agentActionFactsClearPayload = Map.of();
 		private Map<String, Object> agentTaskSubmitPayload = Map.of();
 		private Map<String, Object> agentTaskResumePayload = Map.of();
 		private Map<String, Object> agentMissionSubmitPayload = Map.of();
@@ -1869,9 +1818,6 @@ class AiricraftCliMainTest {
 		private String lastResumeHoldId;
 		private Map<String, Object> lastSubmittedMission;
 		private Map<String, Object> lastActionGoalPayload;
-		private String lastActionFactWorldId;
-		private String lastActionFactType;
-		private String lastActionFactClearWorldId;
 		private String lastDebugChatMessage;
 		private Long lastDebugTimelineSince;
 		private String lastClientTickDebugSessionId;
@@ -2249,19 +2195,6 @@ class AiricraftCliMainTest {
 		public Map<String, Object> cancelAgentActionGoal(String executionId) {
 			lastActionGoalCancelExecutionId = executionId;
 			return agentActionGoalCancelPayload;
-		}
-
-		@Override
-		public Map<String, Object> listAgentActionFacts(String worldId, String type) {
-			lastActionFactWorldId = worldId;
-			lastActionFactType = type;
-			return agentActionFactsPayload;
-		}
-
-		@Override
-		public Map<String, Object> clearAgentActionFacts(String worldId) {
-			lastActionFactClearWorldId = worldId;
-			return agentActionFactsClearPayload;
 		}
 
 		@Override

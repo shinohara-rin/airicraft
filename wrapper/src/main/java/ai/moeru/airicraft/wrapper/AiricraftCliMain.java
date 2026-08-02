@@ -77,10 +77,6 @@ public final class AiricraftCliMain {
 		agentActionsGoal.addSubcommand(new AgentActionsGoalInspectCommand(context));
 		agentActionsGoal.addSubcommand(new AgentActionsGoalStartCommand(context));
 		agentActionsGoal.addSubcommand(new AgentActionsGoalCancelCommand(context));
-		agentActions.addSubcommand("facts", new UsageCommand(out, "airicraft agent actions facts", "Persistent action fact commands"));
-		CommandLine agentActionsFacts = agentActions.getSubcommands().get("facts");
-		agentActionsFacts.addSubcommand(new AgentActionsFactsListCommand(context));
-		agentActionsFacts.addSubcommand(new AgentActionsFactsClearCommand(context));
 		agentActions.addSubcommand("watches", new UsageCommand(out, "airicraft agent actions watches", "Action graph watch commands"));
 		CommandLine agentActionsWatches = agentActions.getSubcommands().get("watches");
 		agentActionsWatches.addSubcommand(new AgentActionsWatchesListCommand(context));
@@ -521,39 +517,6 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.agentActionGoal(transport().cancelAgentActionGoal(executionId), verbose());
-		}
-	}
-
-	@Command(name = "list", mixinStandardHelpOptions = true, description = "List persistent action facts.")
-	private static final class AgentActionsFactsListCommand extends BaseCommand {
-		@Option(names = "--world-id", description = "World/server fact scope. Defaults to current session.")
-		private String worldId;
-
-		@Option(names = "--type", description = "Fact type id, for example world.crop_group.")
-		private String type;
-
-		private AgentActionsFactsListCommand(CliContext context) {
-			super(context, "agent actions facts list");
-		}
-
-		@Override
-		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionFacts(transport().listAgentActionFacts(worldId, type), verbose());
-		}
-	}
-
-	@Command(name = "clear", mixinStandardHelpOptions = true, description = "Clear persistent action facts for a world scope.")
-	private static final class AgentActionsFactsClearCommand extends BaseCommand {
-		@Option(names = "--world-id", description = "World/server fact scope. Defaults to current session.")
-		private String worldId;
-
-		private AgentActionsFactsClearCommand(CliContext context) {
-			super(context, "agent actions facts clear");
-		}
-
-		@Override
-		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionFacts(transport().clearAgentActionFacts(worldId), verbose());
 		}
 	}
 
@@ -2418,20 +2381,6 @@ public final class AiricraftCliMain {
 			));
 			if (verbose) {
 				view.put("watches", maps(payload.get("watches")));
-			}
-			return view;
-		}
-
-		private static Map<String, Object> agentActionFacts(Map<String, Object> payload, boolean verbose) {
-			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "worldId", "type", "factCount", "cleared", "clearedCount");
-			if (payload.containsKey("facts")) {
-				view.put("facts", filterItems(
-					maps(payload.get("facts")),
-					verbose,
-					List.of("type", "keys", "provenance", "observedTick", "staleAfterTick"),
-					List.of("payload")
-				));
 			}
 			return view;
 		}

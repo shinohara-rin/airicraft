@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -25,6 +27,10 @@ from typing import Any
 
 TERMINAL_STATUSES = {"PASSED", "FAILED", "NEEDS_REVIEW"}
 BRIDGE_STATE_ENVIRONMENT_VARIABLE = "AIRICRAFT_BRIDGE_STATE_FILE"
+EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_GAME_DIR"
+EVALUATOR_JDWP_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_JDWP_ENABLED"
+EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_RUNTIME_PREPARED"
+EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_PLAYER_NAME"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -51,6 +57,7 @@ class BridgeState:
     port: int
     token: str
     started_at_epoch_millis: int
+    process_id: int
 
     @property
     def base_url(self) -> str:
@@ -67,12 +74,23 @@ class ClientProcess:
     output_detached: bool
 
 
+@dataclass(frozen=True)
+class ScenarioWorker:
+    index: int
+    worker_id: str
+    scenario: dict[str, Any]
+    scenario_dir: Path
+    worker_dir: Path
+    game_dir: Path
+    bridge_state_path: Path
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def local_timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f") + f"-{os.getpid()}"
 
 
 def repo_root_from_script() -> Path:
@@ -80,11 +98,7 @@ def repo_root_from_script() -> Path:
 
 
 def default_client_command(repo_root: Path) -> str:
-    return "scripts/eval run"
-
-
-def default_bridge_state_path() -> Path:
-    return Path.home() / ".airicraft" / "bridge-state.json"
+    return "scripts/eval run --no-daemon"
 
 
 def read_bridge_state(path: Path) -> BridgeState | None:
@@ -96,6 +110,7 @@ def read_bridge_state(path: Path) -> BridgeState | None:
             port=int(raw["port"]),
             token=str(raw["token"]),
             started_at_epoch_millis=int(raw["startedAtEpochMillis"]),
+            process_id=int(raw.get("processId", -1)),
         )
     except Exception:
         return None
@@ -147,9 +162,136 @@ def safe_name(value: str) -> str:
     return safe or "scenario"
 
 
-def client_environment(bridge_state_path: Path) -> dict[str, str]:
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def effective_worker_count(jobs: int, scenario_count: int) -> int:
+    if jobs < 1:
+        raise ValueError("jobs must be at least 1")
+    return min(jobs, scenario_count) if scenario_count > 0 else 0
+
+
+def snapshot_evaluator_game_directory(repo_root: Path, worker_root: Path) -> Path:
+    source_root = repo_root / "run"
+    seed_dir = worker_root / ".seed"
+    seed_dir.mkdir(parents=True, exist_ok=False)
+    for relative in (Path("config"), Path("journeymap/config")):
+        source = source_root / relative
+        if source.is_dir():
+            shutil.copytree(source, seed_dir / relative)
+    options_file = source_root / "options.txt"
+    if options_file.is_file():
+        destination = seed_dir / "options.txt"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(options_file, destination)
+    return seed_dir
+
+
+def prepare_worker_directory(seed_dir: Path, worker_dir: Path) -> Path:
+    game_dir = worker_dir / "game"
+    shutil.copytree(seed_dir, game_dir)
+    return game_dir
+
+
+def worker_plans(
+    run_dir: Path,
+    worker_root: Path,
+    seed_dir: Path,
+    scenarios: list[dict[str, Any]],
+) -> list[ScenarioWorker]:
+    plans: list[ScenarioWorker] = []
+    for index, scenario in enumerate(scenarios, start=1):
+        scenario_id = str(scenario["id"])
+        name = f"{index:02d}-{safe_name(scenario_id)}"
+        worker_dir = worker_root / name
+        game_dir = prepare_worker_directory(seed_dir, worker_dir)
+        scenario_dir = run_dir / name
+        plans.append(ScenarioWorker(
+            index=index,
+            worker_id=f"worker-{index:02d}",
+            scenario=scenario,
+            scenario_dir=scenario_dir,
+            worker_dir=worker_dir,
+            game_dir=game_dir,
+            bridge_state_path=scenario_dir / "bridge-state.json",
+        ))
+    return plans
+
+
+def should_delete_worker(summary: dict[str, Any]) -> bool:
+    return (
+        summary.get("harnessStatus") == "OK"
+        and summary.get("reportStatus") == "PASSED"
+        and not summary.get("clientKeptRunning", False)
+    )
+
+
+def ordered_results(results_by_index: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [results_by_index[index] for index in sorted(results_by_index)]
+
+
+def cancelled_worker_result(worker: ScenarioWorker) -> dict[str, Any]:
+    worker.scenario_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "id": str(worker.scenario["id"]),
+        "name": worker.scenario.get("name"),
+        "index": worker.index,
+        "workerId": worker.worker_id,
+        "startedAt": None,
+        "finishedAt": utc_now_iso(),
+        "harnessStatus": "INTERRUPTED",
+        "reportStatus": None,
+        "message": "Cancelled before client launch",
+        "interrupted": True,
+        "workerDir": str(worker.worker_dir),
+        "gameDir": str(worker.game_dir),
+        "bridgeStatePath": str(worker.bridge_state_path),
+        "clientKeptRunning": False,
+        "workerDirectoryCleanup": "RETAINED",
+    }
+    write_json(worker.scenario_dir / "harness-summary.json", summary)
+    return summary
+
+
+def failed_worker_result(worker: ScenarioWorker, error: BaseException) -> dict[str, Any]:
+    worker.scenario_dir.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "id": str(worker.scenario["id"]),
+        "name": worker.scenario.get("name"),
+        "index": worker.index,
+        "workerId": worker.worker_id,
+        "startedAt": None,
+        "finishedAt": utc_now_iso(),
+        "harnessStatus": "HARNESS_ERROR",
+        "reportStatus": None,
+        "message": f"{type(error).__name__}: {error}",
+        "workerDir": str(worker.worker_dir),
+        "gameDir": str(worker.game_dir),
+        "bridgeStatePath": str(worker.bridge_state_path),
+        "clientKeptRunning": False,
+        "workerDirectoryCleanup": "RETAINED",
+    }
+    write_json(worker.scenario_dir / "harness-summary.json", summary)
+    return summary
+
+
+def client_environment(
+    bridge_state_path: Path,
+    game_dir: Path,
+    worker_id: str,
+    runtime_prepared: bool,
+) -> dict[str, str]:
     environment = os.environ.copy()
     environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] = str(bridge_state_path.resolve())
+    environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] = str(game_dir.resolve())
+    environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] = "false"
+    environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] = str(runtime_prepared).lower()
+    player_suffix = re.sub(r"[^A-Za-z0-9_]", "", worker_id)[-8:]
+    environment[EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE] = "AirEval" + player_suffix
     return environment
 
 
@@ -158,13 +300,16 @@ def start_client(
     command: str,
     log_path: Path,
     bridge_state_path: Path,
+    game_dir: Path,
+    worker_id: str,
+    runtime_prepared: bool,
     detach_output: bool = False,
 ) -> ClientProcess:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     bridge_state_path.parent.mkdir(parents=True, exist_ok=True)
     line_queue: "queue.Queue[str]" = queue.Queue()
     log_handle = None
-    environment = client_environment(bridge_state_path)
+    environment = client_environment(bridge_state_path, game_dir, worker_id, runtime_prepared)
     if detach_output:
         log_handle = log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
@@ -223,37 +368,100 @@ def close_parent_log_handle(client: ClientProcess) -> None:
         client.log_handle.close()
 
 
-def stop_client(client: ClientProcess, timeout_seconds: float) -> dict[str, Any]:
+def process_group_alive(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def wait_for_process_group_exit(process: subprocess.Popen[str], timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        process.poll()
+        if not process_group_alive(process.pid):
+            return True
+        time.sleep(0.1)
+    process.poll()
+    return not process_group_alive(process.pid)
+
+
+def process_alive(process_id: int) -> bool:
+    if process_id < 1:
+        return False
+    try:
+        os.kill(process_id, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def wait_for_process_exit(process_id: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not process_alive(process_id):
+            return True
+        time.sleep(0.1)
+    return not process_alive(process_id)
+
+
+def stop_client(client: ClientProcess, timeout_seconds: float, minecraft_process_id: int = -1) -> dict[str, Any]:
     process = client.process
     result: dict[str, Any] = {
         "requestedAt": utc_now_iso(),
         "pid": process.pid,
+        "minecraftProcessId": minecraft_process_id,
         "initialReturnCode": process.poll(),
         "method": None,
     }
-    if process.poll() is None:
+    if process.poll() is None or process_group_alive(process.pid):
         result["method"] = "SIGINT"
         try:
             os.killpg(process.pid, signal.SIGINT)
         except ProcessLookupError:
             pass
-        try:
-            process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
+        if not wait_for_process_group_exit(process, timeout_seconds):
             result["method"] = "SIGTERM"
             try:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
+            if not wait_for_process_group_exit(process, 10):
                 result["method"] = "SIGKILL"
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                process.wait(timeout=10)
+                wait_for_process_group_exit(process, 10)
+    if process_alive(minecraft_process_id) and not wait_for_process_exit(minecraft_process_id, timeout_seconds):
+        result["minecraftMethod"] = "SIGINT"
+        try:
+            os.kill(minecraft_process_id, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        if not wait_for_process_exit(minecraft_process_id, 10):
+            result["minecraftMethod"] = "SIGTERM"
+            try:
+                os.kill(minecraft_process_id, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            if not wait_for_process_exit(minecraft_process_id, 10):
+                result["minecraftMethod"] = "SIGKILL"
+                try:
+                    os.kill(minecraft_process_id, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                wait_for_process_exit(minecraft_process_id, 10)
+    result["minecraftExited"] = not process_alive(minecraft_process_id)
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        pass
     if client.log_thread is not None:
         client.log_thread.join(timeout=5)
     close_parent_log_handle(client)
@@ -330,10 +538,13 @@ def wait_for_title_bridge(
     bridge_state_path: Path,
     launch_started_ms: int,
     timeout_seconds: float,
+    cancellation: threading.Event | None = None,
 ) -> tuple[BridgeState, dict[str, Any]]:
     deadline = time.monotonic() + timeout_seconds
     last_error: str | None = None
     while time.monotonic() < deadline:
+        if cancellation is not None and cancellation.is_set():
+            raise RunnerError("cancelled while waiting for bridge")
         if client.process.poll() is not None:
             raise RunnerError(f"client exited while waiting for bridge, code={client.process.poll()}")
         bridge = read_bridge_state(bridge_state_path)
@@ -344,7 +555,6 @@ def wait_for_title_bridge(
                     status.get("bridgeAvailable")
                     and not status.get("worldLoaded")
                     and status.get("canJoinWorldOrServer")
-                    and status.get("currentScreen") == "TitleScreen"
                 ):
                     return bridge, status
                 last_error = f"bridge not ready: {status}"
@@ -401,74 +611,82 @@ def keep_client_for_scenario(args: argparse.Namespace, index: int, total: int) -
     return not args.stop_client_after_scenario and index == total
 
 
-def discover_scenarios(repo_root: Path, run_dir: Path, client_command: str, args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def discover_scenarios(
+    repo_root: Path,
+    run_dir: Path,
+    client_command: str,
+    args: argparse.Namespace,
+    worker_dir: Path,
+    game_dir: Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     launch_started_ms = int(time.time() * 1000)
     bridge_state_path = run_dir / "discovery-bridge-state.json"
-    client = start_client(repo_root, client_command, run_dir / "discovery-client.log", bridge_state_path)
+    client = start_client(
+        repo_root,
+        client_command,
+        run_dir / "discovery-client.log",
+        bridge_state_path,
+        game_dir,
+        "discovery",
+        False,
+    )
     discovery: dict[str, Any] = {
         "startedAt": utc_now_iso(),
         "clientCommand": client_command,
         "bridgeStatePath": str(bridge_state_path),
+        "workerDir": str(worker_dir),
+        "gameDir": str(game_dir),
+        "clientPid": client.process.pid,
     }
+    bridge: BridgeState | None = None
     try:
         bridge, status = wait_for_title_bridge(client, bridge_state_path, launch_started_ms, args.bridge_timeout_seconds)
+        discovery["minecraftProcessId"] = bridge.process_id
         discovery["initialStatus"] = status
         scenarios_payload = bridge_json(bridge, "GET", "/v1/evaluation/scenarios", timeout_seconds=10)
         discovery["scenariosPayload"] = scenarios_payload
         return list(scenarios_payload.get("scenarios", [])), discovery
     finally:
-        discovery["clientExit"] = stop_client(client, args.client_stop_timeout_seconds)
+        if bridge is None:
+            bridge = read_bridge_state(bridge_state_path)
+        discovery["clientExit"] = stop_client(
+            client,
+            args.client_stop_timeout_seconds,
+            bridge.process_id if bridge is not None else -1,
+        )
+        bridge_state_path.unlink(missing_ok=True)
         discovery["finishedAt"] = utc_now_iso()
         write_json(run_dir / "discovery.json", discovery)
 
 
-def known_bridge_state_paths(output_root: Path) -> list[Path]:
-    paths = [default_bridge_state_path()]
-    if output_root.exists():
-        paths.extend(sorted(output_root.glob("*/discovery-bridge-state.json")))
-        paths.extend(sorted(output_root.glob("*/*/bridge-state.json")))
-    return paths
-
-
-def assert_no_active_bridge(bridge_state_paths: list[Path]) -> None:
-    for bridge_state_path in bridge_state_paths:
-        bridge = read_bridge_state(bridge_state_path)
-        if bridge is None:
-            continue
-        try:
-            status = bridge_json(bridge, "GET", "/v1/status", timeout_seconds=2)
-        except Exception:
-            continue
-        if status.get("bridgeAvailable"):
-            raise RunnerError(
-                f"Airicraft bridge is already active at {bridge_state_path}; stop Minecraft before running the batch evaluator"
-            )
-
-
 def run_scenario(
     repo_root: Path,
-    run_dir: Path,
     scenario_root: Path,
-    scenario: dict[str, Any],
-    index: int,
+    worker: ScenarioWorker,
     client_command: str,
     args: argparse.Namespace,
     keep_client_after_scenario: bool,
+    cancellation: threading.Event,
 ) -> dict[str, Any]:
+    scenario = worker.scenario
     scenario_id = str(scenario["id"])
-    scenario_dir = run_dir / f"{index:02d}-{safe_name(scenario_id)}"
+    scenario_dir = worker.scenario_dir
     scenario_dir.mkdir(parents=True, exist_ok=True)
-    bridge_state_path = scenario_dir / "bridge-state.json"
+    bridge_state_path = worker.bridge_state_path
     copy_scenario_config(scenario_root, scenario_id, scenario_dir / "scenario.yml")
 
     summary: dict[str, Any] = {
         "id": scenario_id,
         "name": scenario.get("name"),
+        "index": worker.index,
+        "workerId": worker.worker_id,
         "startedAt": utc_now_iso(),
         "harnessStatus": "RUNNING",
         "reportStatus": None,
         "message": None,
         "clientCommand": client_command,
+        "workerDir": str(worker.worker_dir),
+        "gameDir": str(worker.game_dir),
         "bridgeStatePath": str(bridge_state_path),
         "keepClientAfterScenario": keep_client_after_scenario,
         "outputDir": str(scenario_dir),
@@ -478,18 +696,37 @@ def run_scenario(
     write_json(scenario_dir / "harness-summary.json", summary)
 
     launch_started_ms = int(time.time() * 1000)
-    client = start_client(
-        repo_root,
-        client_command,
-        scenario_dir / "client.log",
-        bridge_state_path,
-        detach_output=keep_client_after_scenario,
-    )
+    summary["clientLaunchStartedAtEpochMillis"] = launch_started_ms
+    client: ClientProcess | None = None
     bridge: BridgeState | None = None
     bridge_failures = 0
 
     try:
-        bridge, status = wait_for_title_bridge(client, bridge_state_path, launch_started_ms, args.bridge_timeout_seconds)
+        if cancellation.is_set():
+            summary["harnessStatus"] = "INTERRUPTED"
+            summary["message"] = "Cancelled before client launch"
+            summary["interrupted"] = True
+            return summary
+        client = start_client(
+            repo_root,
+            client_command,
+            scenario_dir / "client.log",
+            bridge_state_path,
+            worker.game_dir,
+            worker.worker_id,
+            True,
+            detach_output=keep_client_after_scenario,
+        )
+        summary["clientPid"] = client.process.pid
+        write_json(scenario_dir / "harness-summary.json", summary)
+        bridge, status = wait_for_title_bridge(
+            client,
+            bridge_state_path,
+            launch_started_ms,
+            args.bridge_timeout_seconds,
+            cancellation,
+        )
+        summary["minecraftProcessId"] = bridge.process_id
         write_json(scenario_dir / "initial-status.json", status)
         run_request = {"scenario": scenario_id, "outputDir": str(scenario_dir)}
         run_response = bridge_json(
@@ -505,6 +742,11 @@ def run_scenario(
         })
 
         while True:
+            if cancellation.is_set():
+                summary["harnessStatus"] = "INTERRUPTED"
+                summary["message"] = "Interrupted by user"
+                summary["interrupted"] = True
+                break
             if client.process.poll() is not None:
                 summary["harnessStatus"] = "CLIENT_EXITED"
                 summary["message"] = f"client exited before terminal report, code={client.process.poll()}"
@@ -541,7 +783,7 @@ def run_scenario(
                     summary["message"] = f"bridge unavailable for {bridge_failures} consecutive polls"
                     break
 
-            time.sleep(args.poll_seconds)
+            cancellation.wait(args.poll_seconds)
     except Exception as error:
         summary["harnessStatus"] = "HARNESS_ERROR"
         summary["message"] = f"{type(error).__name__}: {error}"
@@ -551,12 +793,38 @@ def run_scenario(
         summary["message"] = "Interrupted by user"
         summary["interrupted"] = True
     finally:
-        if keep_client_after_scenario and client.process.poll() is None:
+        if client is None:
+            summary["clientExit"] = {
+                "method": "NOT_STARTED",
+                "finishedAt": utc_now_iso(),
+            }
+            summary["clientKeptRunning"] = False
+        elif keep_client_after_scenario and client.process.poll() is None and not cancellation.is_set():
             summary["clientExit"] = leave_client_running(client)
             summary["clientKeptRunning"] = True
         else:
-            summary["clientExit"] = stop_client(client, args.client_stop_timeout_seconds)
+            if bridge is None:
+                bridge = read_bridge_state(bridge_state_path)
+            summary["clientExit"] = stop_client(
+                client,
+                args.client_stop_timeout_seconds,
+                bridge.process_id if bridge is not None else -1,
+            )
             summary["clientKeptRunning"] = False
+        if not summary["clientKeptRunning"]:
+            bridge_state_path.unlink(missing_ok=True)
+        summary["bridgeStateRemoved"] = not bridge_state_path.exists()
+        if should_delete_worker(summary):
+            try:
+                shutil.rmtree(worker.worker_dir)
+                summary["workerDirectoryCleanup"] = "DELETED"
+            except OSError as error:
+                summary["harnessStatus"] = "CLEANUP_ERROR"
+                summary["message"] = f"Failed to delete worker directory: {error}"
+                summary["workerDirectoryCleanup"] = "RETAINED"
+        else:
+            summary["workerDirectoryCleanup"] = "RETAINED"
+        summary["clientFinishedAtEpochMillis"] = int(time.time() * 1000)
         summary["finishedAt"] = utc_now_iso()
         write_json(scenario_dir / "harness-summary.json", summary)
     return summary
@@ -571,19 +839,23 @@ def write_summary_markdown(run_dir: Path, manifest: dict[str, Any]) -> None:
         f"- Finished: `{manifest.get('finishedAt', '')}`",
         f"- Git commit: `{manifest.get('gitCommit', '')}`",
         f"- Dirty before run: `{manifest.get('gitDirty', '')}`",
+        f"- Requested jobs: `{manifest.get('jobs', '')}`",
+        f"- Effective workers: `{manifest.get('effectiveWorkers', '')}`",
         f"- Stop client after scenario: `{manifest.get('stopClientAfterScenario', '')}`",
         "",
         "## Results",
         "",
-        "| Scenario | Harness | Report | Message |",
-        "| --- | --- | --- | --- |",
+        "| Scenario | Worker | Harness | Report | Worker directory | Message |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for result in manifest.get("results", []):
         lines.append(
-            "| `{id}` | `{harness}` | `{report}` | {message} |".format(
+            "| `{id}` | `{worker}` | `{harness}` | `{report}` | `{cleanup}` | {message} |".format(
                 id=result.get("id", ""),
+                worker=result.get("workerId", ""),
                 harness=result.get("harnessStatus", ""),
                 report=result.get("reportStatus", ""),
+                cleanup=result.get("workerDirectoryCleanup", ""),
                 message=str(result.get("message", "")).replace("|", "\\|"),
             )
         )
@@ -648,7 +920,39 @@ def run_self_test() -> None:
     assert keep_client_for_scenario(default_args, 2, 2)
     assert not keep_client_for_scenario(stopping_args, 1, 1)
     bridge_path = Path("/tmp/airicraft-evaluator-test/bridge-state.json")
-    assert client_environment(bridge_path)[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
+    game_dir = Path("/tmp/airicraft-evaluator-test/game")
+    environment = client_environment(bridge_path, game_dir, "worker-01", True)
+    assert environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
+    assert environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] == str(game_dir.resolve())
+    assert environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] == "false"
+    assert environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] == "true"
+    assert effective_worker_count(4, 2) == 2
+    assert effective_worker_count(1, 0) == 0
+    assert positive_int("2") == 2
+    try:
+        positive_int("0")
+    except argparse.ArgumentTypeError:
+        pass
+    else:
+        raise AssertionError("zero jobs should fail")
+    assert should_delete_worker({"harnessStatus": "OK", "reportStatus": "PASSED", "clientKeptRunning": False})
+    assert not should_delete_worker({"harnessStatus": "OK", "reportStatus": "NEEDS_REVIEW", "clientKeptRunning": False})
+    assert [item["index"] for item in ordered_results({2: {"index": 2}, 1: {"index": 1}})] == [1, 2]
+    with tempfile.TemporaryDirectory(prefix="airicraft-evaluator-self-test-") as temp:
+        temp_root = Path(temp)
+        seed_dir = temp_root / "seed"
+        seed_dir.mkdir()
+        (seed_dir / "options.txt").write_text("onboardAccessibility:false\n", encoding="utf-8")
+        plans = worker_plans(temp_root / "output", temp_root / "workers", seed_dir, [
+            {"id": "a"},
+            {"id": "b"},
+        ])
+        assert plans[0].game_dir != plans[1].game_dir
+        assert plans[0].bridge_state_path != plans[1].bridge_state_path
+        cancellation = threading.Event()
+        assert not cancellation.is_set()
+        cancellation.set()
+        assert cancellation.is_set()
     try:
         selected_scenarios(scenarios, ["missing"])
     except RunnerError:
@@ -659,7 +963,7 @@ def run_self_test() -> None:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Bootstrap Airicraft evaluator scenarios one by one. The evaluator addon owns durable reports.",
+        description="Run Airicraft evaluator scenarios with isolated clients. The evaluator addon owns durable reports.",
     )
     parser.add_argument("--scenario", action="append", dest="scenario_filters", help="Scenario id to run. May be repeated.")
     parser.add_argument("--output-root", default="eval-output", help="Directory for ignored run bundles.")
@@ -670,6 +974,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--poll-seconds", type=float, default=5.0, help="Seconds between evaluation result polls.")
     parser.add_argument("--bridge-timeout-seconds", type=float, default=180.0, help="Seconds to wait for the bridge at startup.")
     parser.add_argument("--client-stop-timeout-seconds", type=float, default=45.0, help="Seconds to wait after SIGINT before SIGTERM.")
+    parser.add_argument("--jobs", type=positive_int, default=1, help="Maximum concurrent scenario clients. Defaults to 1.")
     parser.add_argument(
         "--stop-client-after-scenario",
         action="store_true",
@@ -693,7 +998,9 @@ def main(argv: list[str]) -> int:
         output_root = repo_root / output_root
     run_id = local_timestamp()
     run_dir = output_root / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir.mkdir(parents=True, exist_ok=False)
+    worker_root = repo_root / "run" / "evaluator-workers" / run_id
+    seed_dir = snapshot_evaluator_game_directory(repo_root, worker_root)
 
     manifest: dict[str, Any] = {
         "runId": run_id,
@@ -703,6 +1010,9 @@ def main(argv: list[str]) -> int:
         "gitCommit": git_value(repo_root, ["rev-parse", "HEAD"]),
         "gitDirty": bool(git_value(repo_root, ["status", "--short"])),
         "scenarioFilters": args.scenario_filters or [],
+        "jobs": args.jobs,
+        "effectiveWorkers": 0,
+        "workerRoot": str(worker_root),
         "stopClientAfterScenario": args.stop_client_after_scenario,
         "skipped": [],
         "results": [],
@@ -710,8 +1020,17 @@ def main(argv: list[str]) -> int:
     write_json(run_dir / "manifest.json", manifest)
 
     try:
-        assert_no_active_bridge(known_bridge_state_paths(output_root))
-        scenarios, discovery = discover_scenarios(repo_root, run_dir, client_command, args)
+        discovery_worker_dir = worker_root / "discovery"
+        discovery_game_dir = prepare_worker_directory(seed_dir, discovery_worker_dir)
+        scenarios, discovery = discover_scenarios(
+            repo_root,
+            run_dir,
+            client_command,
+            args,
+            discovery_worker_dir,
+            discovery_game_dir,
+        )
+        shutil.rmtree(discovery_worker_dir, ignore_errors=True)
         manifest["discovery"] = {
             "scenarioCount": len(scenarios),
             "scenarioRoot": discovery.get("scenariosPayload", {}).get("scenarioRoot"),
@@ -720,23 +1039,20 @@ def main(argv: list[str]) -> int:
         write_json(run_dir / "scenario-index.json", scenarios)
         runnable, skipped = selected_scenarios(scenarios, args.scenario_filters)
         manifest["skipped"] = skipped
+        plans = worker_plans(run_dir, worker_root, seed_dir, runnable)
+        shutil.rmtree(seed_dir, ignore_errors=True)
+        manifest["effectiveWorkers"] = effective_worker_count(args.jobs, len(plans))
         write_json(run_dir / "manifest.json", manifest)
 
         interrupted = False
-        for index, scenario in enumerate(runnable, start=1):
-            print(f"[{index}/{len(runnable)}] running {scenario['id']}")
-            keep_client_after_scenario = keep_client_for_scenario(args, index, len(runnable))
-            result = run_scenario(
-                repo_root,
-                run_dir,
-                scenario_root,
-                scenario,
-                index,
-                client_command,
-                args,
-                keep_client_after_scenario,
-            )
-            manifest["results"].append(result)
+        cancellation = threading.Event()
+        results_by_index: dict[int, dict[str, Any]] = {}
+
+        def record_result(result: dict[str, Any]) -> None:
+            nonlocal interrupted
+            index = int(result["index"])
+            results_by_index[index] = result
+            manifest["results"] = ordered_results(results_by_index)
             if result.get("clientKeptRunning"):
                 client_exit = result.get("clientExit", {})
                 manifest["keptClient"] = {
@@ -747,19 +1063,92 @@ def main(argv: list[str]) -> int:
                 }
             write_json(run_dir / "manifest.json", manifest)
             write_summary_markdown(run_dir, manifest)
-            print(f"[{index}/{len(runnable)}] {scenario['id']}: {result.get('harnessStatus')} {result.get('reportStatus')}")
+            print(f"[{index}/{len(plans)}] {result.get('id')}: {result.get('harnessStatus')} {result.get('reportStatus')}")
             if result.get("clientKeptRunning"):
                 kept = result.get("clientExit", {})
-                print(f"[{index}/{len(runnable)}] kept client running pid={kept.get('pid')} log={kept.get('logPath')}")
+                print(f"[{index}/{len(plans)}] kept client running pid={kept.get('pid')} log={kept.get('logPath')}")
             if result.get("interrupted"):
                 interrupted = True
-                break
+
+        if args.jobs == 1:
+            for worker in plans:
+                print(f"[{worker.index}/{len(plans)}] running {worker.scenario['id']}")
+                keep_client_after_scenario = keep_client_for_scenario(args, worker.index, len(plans))
+                result = run_scenario(
+                    repo_root,
+                    scenario_root,
+                    worker,
+                    client_command,
+                    args,
+                    keep_client_after_scenario,
+                    cancellation,
+                )
+                record_result(result)
+                if result.get("interrupted"):
+                    break
+        elif plans:
+            executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=manifest["effectiveWorkers"],
+                thread_name_prefix="airicraft-evaluator",
+            )
+            futures = {
+                executor.submit(
+                    run_scenario,
+                    repo_root,
+                    scenario_root,
+                    worker,
+                    client_command,
+                    args,
+                    False,
+                    cancellation,
+                ): worker
+                for worker in plans
+            }
+            for worker in plans:
+                print(f"[{worker.index}/{len(plans)}] scheduled {worker.scenario['id']}")
+            try:
+                for future in concurrent.futures.as_completed(futures):
+                    worker = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception as error:
+                        result = failed_worker_result(worker, error)
+                    record_result(result)
+            except KeyboardInterrupt:
+                interrupted = True
+                cancellation.set()
+                for future in futures:
+                    future.cancel()
+            finally:
+                executor.shutdown(wait=True, cancel_futures=True)
+            for future, worker in futures.items():
+                if worker.index in results_by_index:
+                    continue
+                if future.cancelled():
+                    record_result(cancelled_worker_result(worker))
+                else:
+                    try:
+                        result = future.result()
+                    except Exception as error:
+                        result = failed_worker_result(worker, error)
+                    record_result(result)
 
         manifest["finishedAt"] = utc_now_iso()
         if interrupted:
             manifest["harnessStatus"] = "INTERRUPTED"
         write_json(run_dir / "manifest.json", manifest)
         write_summary_markdown(run_dir, manifest)
+        try:
+            worker_root.rmdir()
+        except OSError:
+            pass
+    except KeyboardInterrupt:
+        manifest["finishedAt"] = utc_now_iso()
+        manifest["harnessStatus"] = "INTERRUPTED"
+        write_json(run_dir / "manifest.json", manifest)
+        write_summary_markdown(run_dir, manifest)
+        print(f"output: {run_dir}", file=sys.stderr)
+        return 130
     except Exception as error:
         manifest["finishedAt"] = utc_now_iso()
         manifest["harnessError"] = f"{type(error).__name__}: {error}"

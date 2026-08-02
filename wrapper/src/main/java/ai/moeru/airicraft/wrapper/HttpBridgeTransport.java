@@ -426,28 +426,6 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
-	public Map<String, Object> listAgentActionFacts(String worldId, String type) {
-		StringBuilder path = new StringBuilder("/v1/agent/action-facts");
-		String separator = "?";
-		if (worldId != null && !worldId.isBlank()) {
-			path.append(separator).append("world-id=").append(URLEncoder.encode(worldId, java.nio.charset.StandardCharsets.UTF_8));
-			separator = "&";
-		}
-		if (type != null && !type.isBlank()) {
-			path.append(separator).append("type=").append(URLEncoder.encode(type, java.nio.charset.StandardCharsets.UTF_8));
-		}
-		return get(path.toString());
-	}
-
-	@Override
-	public Map<String, Object> clearAgentActionFacts(String worldId) {
-		if (worldId == null || worldId.isBlank()) {
-			return send("DELETE", "/v1/agent/action-facts", null);
-		}
-		return send("DELETE", "/v1/agent/action-facts?world-id=" + URLEncoder.encode(worldId, java.nio.charset.StandardCharsets.UTF_8), null);
-	}
-
-	@Override
 	public Map<String, Object> submitAgentTask(Map<String, Object> taskPayload) {
 		return send("POST", "/v1/agent/tasks", taskPayload);
 	}
