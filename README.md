@@ -175,6 +175,248 @@ source .envrc && ./gradlew runClient
 jdb -attach 127.0.0.1:5005
 ```
 
+### Agent debug CLI
+
+The agent has turns, not ticks. These commands use the client tick as the only debug clock. Minecraft targets 20 client ticks each second.
+
+A frame capture uses the first rendered frame for its client tick. The next client tick waits until that frame capture finishes.
+
+Build the CLI before its first use or after a wrapper change:
+
+```shell
+source .envrc
+./gradlew wrapper:installDist
+AIRICRAFT_CLI=wrapper/build/install/airicraft/bin/airicraft
+"$AIRICRAFT_CLI" agent debug --help
+```
+
+The Minecraft client and bridge must run for all commands. The `ticks`, `world`, and `trace` groups also need a loaded world.
+
+The top-level commands have these uses:
+
+| Command | Use |
+| --- | --- |
+| `chat --message <text>` | Inject one local-controller chat message. |
+| `idle-trigger` | Start one idle-think planner trigger. |
+| `state` | Show correlated planner, dialogue, chat, and task state. |
+| `timeline [--since <entry-id>]` | Show recent debug events after an optional entry ID. |
+| `ticks` | Pause, step, inspect, or continue client ticks. |
+| `world` | Query the world for the current paused snapshot. |
+| `trace` | Record selected debug information on each client tick. |
+
+Add `--verbose` to a command when you need its full structured output. Use `--help` on any command group for its exact options.
+
+#### Agent state and test triggers
+
+Use these commands without pausing client ticks:
+
+```shell
+"$AIRICRAFT_CLI" agent debug chat --message '@agent get me 4 wood logs'
+"$AIRICRAFT_CLI" agent debug idle-trigger
+"$AIRICRAFT_CLI" agent debug state --verbose
+"$AIRICRAFT_CLI" agent debug timeline --since 125 --verbose
+```
+
+The timeline cursor is exclusive. The command returns entries with an `entryId` greater than the `--since` value.
+
+#### Pause and step client ticks
+
+Pause the client and optionally write its captured frame to a PNG file:
+
+```shell
+"$AIRICRAFT_CLI" agent debug ticks pause \
+  --output-image /tmp/airicraft-pause.png
+```
+
+The response includes `debugSessionId`, `pauseEpoch`, `snapshotId`, and `clientTickId`. The `snapshotId` gives read-only access to the paused world.
+
+Use the returned session ID and pause epoch to run exactly one client tick:
+
+```shell
+"$AIRICRAFT_CLI" agent debug ticks step \
+  --debug-session-id <debug-session-id> \
+  --pause-epoch <pause-epoch> \
+  --output-image /tmp/airicraft-step.png
+```
+
+Each step returns a new `pauseEpoch` and `snapshotId`. Use these new values for the next command.
+
+Continue normal client ticks with the latest session ID and pause epoch:
+
+```shell
+"$AIRICRAFT_CLI" agent debug ticks continue \
+  --debug-session-id <debug-session-id> \
+  --pause-epoch <pause-epoch>
+```
+
+Use `ticks state` to inspect the current phase and identifiers:
+
+```shell
+"$AIRICRAFT_CLI" agent debug ticks state --verbose
+```
+
+A snapshot stays valid only while its client tick is paused. A step or continue command makes the old `snapshotId` stale.
+
+#### Query a paused world snapshot
+
+All world queries require the latest `snapshotId` from `ticks pause` or `ticks step`.
+
+Get snapshot metadata or the full captured player state:
+
+```shell
+"$AIRICRAFT_CLI" agent debug world metadata \
+  --snapshot-id <snapshot-id> --verbose
+
+"$AIRICRAFT_CLI" agent debug world player-state \
+  --snapshot-id <snapshot-id> --verbose
+```
+
+The player state includes identity, game mode, position, rotation, velocity, bounds, movement, and vitals. It also includes hunger, experience, abilities, input, inventory, equipment, effects, and attributes.
+
+Query entities in a radius around the captured player:
+
+```shell
+"$AIRICRAFT_CLI" agent debug world entities \
+  --snapshot-id <snapshot-id> \
+  --radius 16 \
+  --type minecraft:zombie,minecraft:skeleton \
+  --alive \
+  --limit 64 \
+  --verbose
+```
+
+Omit the radius center to follow the captured player position. Set all three center coordinates to query around another position.
+
+The radius can be from 0 through 4096 blocks. Use either a region or a radius in one query.
+
+Query an arbitrary inclusive block region:
+
+```shell
+"$AIRICRAFT_CLI" agent debug world entities \
+  --snapshot-id <snapshot-id> \
+  --min-x -32 --min-y 50 --min-z -32 \
+  --max-x 32 --max-y 100 --max-z 32 \
+  --living-only \
+  --limit 64 \
+  --verbose
+```
+
+You can filter entities by `--entity-id`, `--uuid`, `--name`, `--type`, or `--alive`. You can also use `--living-only`, `--player-only`, and `--include-self`.
+
+Name matching is exact and ignores letter case. Type matching uses an exact namespaced entity type ID.
+
+The query excludes the local player unless you use `--include-self`. Results sort by distance and then by runtime entity ID.
+
+Omit both spatial selectors to query all loaded entities. Use `--cursor` and `--limit` to page through the filtered result.
+
+Entity pages contain 32 records by default and allow up to 256. Living entity records include vitals, equipment, effects, and attributes.
+
+Read one block or query any region:
+
+```shell
+"$AIRICRAFT_CLI" agent debug world get-block \
+  --snapshot-id <snapshot-id> --x 10 --y 64 --z -4 --verbose
+
+"$AIRICRAFT_CLI" agent debug world scan-box \
+  --snapshot-id <snapshot-id> \
+  --min-x 0 --min-y 60 --min-z 0 \
+  --max-x 31 --max-y 80 --max-z 31 \
+  --limit 4096 --verbose
+
+"$AIRICRAFT_CLI" agent debug world find-blocks \
+  --snapshot-id <snapshot-id> \
+  --min-x 0 --min-y 60 --min-z 0 \
+  --max-x 31 --max-y 80 --max-z 31 \
+  --block-id minecraft:diamond_ore,minecraft:deepslate_diamond_ore \
+  --limit 4096 --verbose
+
+"$AIRICRAFT_CLI" agent debug world region-stats \
+  --snapshot-id <snapshot-id> \
+  --min-x 0 --min-y 60 --min-z 0 \
+  --max-x 31 --max-y 80 --max-z 31 \
+  --limit 4096 --verbose
+```
+
+Region coordinates are inclusive. Region commands inspect 256 cells by default and allow up to 4096 cells per page.
+
+Use the returned `nextCursor` as `--cursor` to read the next page. Unloaded blocks appear as unloaded records or unloaded counts.
+
+#### Record a rolling client tick trace
+
+A trace records a selected information set automatically while normal client ticks run. The rolling window keeps only the last `--window-ticks` client ticks.
+
+Start a trace for player state, nearby hostile entities, and client frames:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace start \
+  --info metadata,player-state,entities,frame \
+  --window-ticks 100 \
+  --entity-query '{"radius":16,"entityTypeIds":["minecraft:zombie","minecraft:skeleton"],"alive":true,"limit":64}'
+```
+
+The response includes a `traceId`. Use it to read or stop that trace.
+
+Read retained records and write their frame images to a directory:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace status --verbose
+
+"$AIRICRAFT_CLI" agent debug trace records \
+  --trace-id <trace-id> \
+  --limit 100 \
+  --output-image-dir /tmp/airicraft-trace \
+  --verbose
+```
+
+Use `nextSinceClientTickId` to read the next page:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace records \
+  --trace-id <trace-id> \
+  --since-client-tick-id <client-tick-id> \
+  --limit 100 \
+  --verbose
+```
+
+Stop the trace after the required event occurs:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace stop --trace-id <trace-id>
+```
+
+Stopping a trace keeps its retained records. A new trace or a runtime reset removes the old records.
+
+The supported `--info` values are `metadata`, `player-state`, `entities`, `blocks`, and `frame`. Repeat `--info` or use a comma-separated list.
+
+An entity trace accepts an optional JSON query. Its fields match the paused entity query:
+
+- Spatial fields: `minX`, `minY`, `minZ`, `maxX`, `maxY`, and `maxZ`.
+- Radius fields: `centerX`, `centerY`, `centerZ`, and `radius`.
+- Identity fields: `entityId`, `uuid`, `name`, and `entityTypeIds`.
+- State fields: `alive`, `livingOnly`, `playerOnly`, and `includeSelf`.
+- Result field: `limit` from 1 through 256.
+
+Use either a region or a radius. A radius without a center follows the captured player on each client tick.
+
+Without `--entity-query`, an entity trace keeps the nearest 32 loaded entities and excludes the local player.
+
+Add a block region when the trace includes `blocks`:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace start \
+  --info player-state,blocks \
+  --window-ticks 40 \
+  --block-query '{"minX":0,"minY":63,"minZ":0,"maxX":7,"maxY":65,"maxZ":7}'
+```
+
+The general window limit is 1200 client ticks. A trace with frames has a limit of 200 client ticks.
+
+The `records` command returns 32 records by default and allows up to 256 records per page.
+
+A trace block region can contain at most 4096 blocks. The window size multiplied by its block count cannot exceed 250000.
+
+The window size multiplied by the entity limit cannot exceed 100000. A trace cannot start while ticks are paused, and ticks cannot pause during a trace.
+
 ### Compatibility client
 
 Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar plus every supported optional-mod integration, currently JourneyMap and REI, plus Fabric API, Architectury, Cloth Config, and local runtime mods. It is still a debug launch: JDWP listens on `127.0.0.1:5007`.

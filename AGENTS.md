@@ -80,6 +80,25 @@
 - `airicraft servers join --server-id <id>`
 - `airicraft player focus`
 - `airicraft player look-at --x <x> --y <y> --z <z>`
+- `airicraft agent debug chat --message <text>`
+- `airicraft agent debug idle-trigger`
+- `airicraft agent debug state`
+- `airicraft agent debug timeline [--since <entry-id>]`
+- `airicraft agent debug ticks state`
+- `airicraft agent debug ticks pause [--output-image <path>]`
+- `airicraft agent debug ticks step --debug-session-id <id> --pause-epoch <epoch> [--output-image <path>]`
+- `airicraft agent debug ticks continue --debug-session-id <id> --pause-epoch <epoch>`
+- `airicraft agent debug trace status`
+- `airicraft agent debug trace start --info <names> --window-ticks <ticks> [--entity-query <json>] [--block-query <json>]`
+- `airicraft agent debug trace records --trace-id <id> [--since-client-tick-id <tick>] [--limit <count>] [--output-image-dir <path>]`
+- `airicraft agent debug trace stop --trace-id <id>`
+- `airicraft agent debug world metadata --snapshot-id <id>`
+- `airicraft agent debug world player-state --snapshot-id <id>`
+- `airicraft agent debug world entities --snapshot-id <id> [region, radius, identity, name, type, and state filters]`
+- `airicraft agent debug world get-block --snapshot-id <id> --x <x> --y <y> --z <z>`
+- `airicraft agent debug world scan-box --snapshot-id <id> --min-* <n> --max-* <n> [--cursor <n>] [--limit <n>]`
+- `airicraft agent debug world find-blocks --snapshot-id <id> --min-* <n> --max-* <n> --block-id <ids>`
+- `airicraft agent debug world region-stats --snapshot-id <id> --min-* <n> --max-* <n> [--cursor <n>] [--limit <n>]`
 - `airicraft world snapshot [--x <x> --y <y> --z <z>] [--radius <0-4>]`
 - `airicraft highlights block --x <x> --y <y> --z <z> [--color <hex>] [--duration-seconds <1-86400>] [--overlay-text <text>]`
 - `airicraft highlights region --x1 <x> --y1 <y> --z1 <z> --x2 <x> --y2 <y> --z2 <z> [--color <hex>] [--duration-seconds <1-86400>] [--overlay-text <text>]`
