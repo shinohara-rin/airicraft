@@ -57,7 +57,7 @@ final class ClientTickTraceJsonlStreamer {
 			Files.createDirectories(parent);
 		}
 
-		TraceRecordBuffer records = new TraceRecordBuffer(startedClientTickId - 1L);
+		TraceRecordBuffer records = new TraceRecordBuffer(startedClientTickId);
 		boolean completed = false;
 		boolean truncated = false;
 		int recordsSinceFlush = 0;

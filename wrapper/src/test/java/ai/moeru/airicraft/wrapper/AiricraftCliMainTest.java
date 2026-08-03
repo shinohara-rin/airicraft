@@ -486,7 +486,7 @@ class AiricraftCliMainTest {
 		assertTrue(lines.get(1).contains("\"imageBase64\":\"BwgJ\""));
 		assertTrue(lines.getLast().contains("\"event\":\"trace_end\""));
 		assertEquals("trace-1", transport.lastClientTickTraceId);
-		assertEquals(39L, transport.lastClientTickTraceSince);
+		assertEquals(40L, transport.lastClientTickTraceSince);
 		assertEquals(256, transport.lastClientTickTraceLimit);
 		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
 		assertEquals(true, transport.lastClientTickTraceStartRequest.get("once"));
