@@ -20,7 +20,7 @@ gradle_base=(
 
 case "$command" in
   setup | sync)
-    "${gradle_base[@]}" :syncCompatMods :syncCompatLibraries "$@"
+    "${gradle_base[@]}" :prepareHotswapRuntime :syncHotswapMainClasses :syncCompatMods :syncCompatLibraries "$@"
     ;;
   run)
     "${gradle_base[@]}" :runClientCompat "$@"
@@ -42,10 +42,12 @@ case "$command" in
 usage: scripts/compat [setup|sync|run|dry-run|config|mods|list] [gradle args...]
 
 setup   build Airicraft and sync all compatibility smoke mods
-run     launch the debug production-style client with all compatibility mods
+run     launch the HotSwap production-style client with all compatibility mods
 dry-run print the Gradle task graph without launching Minecraft
 config  print the shared Airicraft config directory
 mods    sync and list the jars in .airicraft-compat/integration/{mods,libraries}
+
+After the client starts, run ./gradlew hotswapMain --continuous in a second terminal.
 USAGE
     exit 2
     ;;

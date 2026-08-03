@@ -183,12 +183,64 @@ scenarios/unpack-worlds farm_easy --force
 
 ### Normal dev client
 
-Use this for Airicraft-only development. It runs the Fabric dev client and opens JDWP on `127.0.0.1:5005`.
+Use this for Airicraft-only development. It runs the Fabric dev client with HotSwap and opens JDWP on `127.0.0.1:5005`.
 
 ```shell
 source .envrc && ./gradlew runClient
 jdb -attach 127.0.0.1:5005
 ```
+
+### Main-mod HotSwap
+
+All existing client tasks use HotSwap by default. This includes `runClient`, `scripts/compat run`, and `scripts/eval run`.
+
+The first client start downloads these pinned development tools:
+
+- JetBrains Runtime SDK `21.0.11-b1163.116` for macOS ARM64.
+- HotswapAgent `2.0.3`.
+
+Gradle verifies each download with a pinned SHA-512 value. It stores the files in the Gradle user cache.
+
+Fabric uses its Knot class loader. HotswapAgent cannot watch Knot class roots directly.
+
+The continuous Gradle task watches class output and sends changed classes through JDWP. HotswapAgent handles each class redefinition inside the client.
+
+Use two terminals:
+
+1. Start the required existing client task in the first terminal.
+2. Start the continuous main-mod build in the second terminal:
+
+   ```shell
+   source .envrc && ./gradlew hotswapMain --continuous
+   ```
+
+3. Edit Java code under the main Airicraft mod.
+4. Wait for a `HotSwap reloaded` message in the second terminal.
+
+The client log also prints a `[redefine,class]` message. The first continuous run records the current class baseline.
+
+The task watches named output for the normal client. It watches remapped root-mod output for each production client.
+
+HotSwap has these limits:
+
+- It supports macOS ARM64 only.
+- The first setup needs network access. An offline first setup fails without a partial installation.
+- Only main Airicraft mod classes reload.
+- Evaluator-addon and compatibility-addon changes need a client restart.
+- Mixin changes, resource changes, and Fabric initialization changes need a client restart.
+- New classes, deleted classes, and superclass changes need a client restart.
+- HotSwap does not run constructors or initialization code again for existing objects.
+- A debugger and the Gradle uploader cannot attach to the same JDWP port at the same time.
+- If no client is available, Gradle keeps the changes for the next `hotswapMain` run.
+- A final evaluator proof needs a clean client start.
+- A code change during an evaluator run invalidates that run as final evidence.
+
+Use the official runtime sources when the pinned versions need an update:
+
+- [JetBrains Runtime](https://github.com/JetBrains/JetBrainsRuntime)
+- [JetBrains Runtime 21.0.11-b1163.116](https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-21.0.11b1163.116)
+- [HotswapAgent 2.0.3](https://github.com/HotswapProjects/HotswapAgent/releases/tag/RELEASE-2.0.3)
+- [Fabric HotSwap guide](https://docs.fabricmc.net/develop/getting-started/intellij-idea/launching-the-game)
 
 ### Agent debug CLI
 
@@ -445,7 +497,9 @@ The window size multiplied by the entity limit cannot exceed 100000. A trace can
 
 ### Compatibility client
 
-Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar plus every supported optional-mod integration, currently JourneyMap and REI, plus Fabric API, Architectury, Cloth Config, and local runtime mods. It is still a debug launch: JDWP listens on `127.0.0.1:5007`.
+Use this for optional third-party mod integration testing. It launches a production-style Fabric client with the remapped Airicraft jar.
+
+The client includes JourneyMap, REI, Fabric API, Architectury, Cloth Config, and local runtime mods. HotSwap uses JDWP on `127.0.0.1:5007`.
 
 The helper keeps downloaded/runtime jars out of the repository in ignored `.airicraft-compat/`, and uses the shared dev game directory `run/`. That means normal `runClient` and compatibility runs read the same Airicraft config:
 
