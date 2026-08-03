@@ -74,11 +74,11 @@ class ClientTickTraceRecorderTest {
 		), 10L);
 
 		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
-			status.traceId(), 11L, 1_011L, null, null, null, null,
+			status.traceId(), 11L, 1_011L, null, null, null, null, null,
 			ClientTickTraceRecorder.TraceFrame.pending(1_011L), Map.of()
 		));
 		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
-			status.traceId(), 12L, 1_012L, null, null, null, null,
+			status.traceId(), 12L, 1_012L, null, null, null, null, null,
 			ClientTickTraceRecorder.TraceFrame.pending(1_012L), Map.of()
 		));
 
@@ -129,11 +129,12 @@ class ClientTickTraceRecorderTest {
 			status.traceId(),
 			1L,
 			1_001L,
-			null,
-			null,
-			null,
-			null,
-			ClientTickTraceRecorder.TraceFrame.pending(1_001L),
+				null,
+				null,
+				null,
+				null,
+				null,
+				ClientTickTraceRecorder.TraceFrame.pending(1_001L),
 			Map.of()
 		));
 
@@ -153,7 +154,7 @@ class ClientTickTraceRecorderTest {
 		ClientTickTraceRecorder recorder = new ClientTickTraceRecorder();
 		var status = recorder.start(config(Set.of(ClientTickTraceRecorder.TraceInfo.FRAME), 10), 0L);
 		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
-			status.traceId(), 1L, 1_001L, null, null, null, null,
+			status.traceId(), 1L, 1_001L, null, null, null, null, null,
 			ClientTickTraceRecorder.TraceFrame.pending(1_001L), Map.of()
 		));
 		ClientTickDebugRuntime runtime = new ClientTickDebugRuntime(
@@ -211,6 +212,28 @@ class ClientTickTraceRecorderTest {
 	}
 
 	@Test
+	void recordsRequestedPlayerActionsAndBreakProgress() {
+		ClientTickTraceRecorder recorder = new ClientTickTraceRecorder();
+		var status = recorder.start(config(Set.of(ClientTickTraceRecorder.TraceInfo.PLAYER_ACTIONS), 10), 0L);
+		var actions = new ClientTickPlayerActionsSnapshot(
+			List.of(new ClientTickPlayerActionsSnapshot.ActionState("attack", true, true)),
+			new ClientTickPlayerActionsSnapshot.BreakProgress(
+				new ClientTickPlayerActionsSnapshot.Position(3, 64, -2),
+				0.6F,
+				6,
+				true
+			)
+		);
+		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
+			status.traceId(), 1L, 1_001L, null, null, actions, null, null, null, Map.of()
+		));
+
+		var record = recorder.records(status.traceId(), null, 10).records().getFirst();
+		assertTrue(record.playerActions().actions().getFirst().started());
+		assertEquals(6, record.playerActions().breakProgress().stage());
+	}
+
+	@Test
 	void blocksInfoRequiresABoundedRegion() {
 		assertThrows(
 			BridgeUnavailableException.class,
@@ -251,6 +274,7 @@ class ClientTickTraceRecorderTest {
 			clientTickId,
 			1_000L + clientTickId,
 			new ClientTickTraceRecorder.TraceMetadata(2, "minecraft:overworld", 100L, 100L, 4L, "IDLE"),
+			null,
 			null,
 			null,
 			null,

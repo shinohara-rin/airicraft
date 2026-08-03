@@ -14,13 +14,14 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public final class ClientTickDebugRuntime {
-	private static final int SNAPSHOT_SCHEMA_VERSION = 2;
+	private static final int SNAPSHOT_SCHEMA_VERSION = 3;
 
 	private final ClientTickDebugController controller;
 	private final FirstPersonScreenshotService screenshotService;
 	private final ClientTickTraceRecorder traceRecorder;
 	private final ClientTickWorldQueryService worldQueryService = new ClientTickWorldQueryService();
 	private final ClientTickEntityQueryService entityQueryService = new ClientTickEntityQueryService();
+	private final ClientTickPlayerActionsCapture playerActionsCapture = new ClientTickPlayerActionsCapture();
 
 	public ClientTickDebugRuntime(FirstPersonScreenshotService screenshotService) {
 		this(new ClientTickDebugController(), screenshotService);
@@ -43,12 +44,16 @@ public final class ClientTickDebugRuntime {
 		this.traceRecorder = Objects.requireNonNull(traceRecorder, "traceRecorder");
 	}
 
-	public CompletableFuture<ClientTickDebugController.ClientTickCapture> pause(MinecraftClient client) {
+	public CompletableFuture<ClientTickDebugController.ClientTickCapture> pause(
+		MinecraftClient client,
+		boolean capturePlayerActions
+	) {
 		requireWorld(client);
 		if (traceRecorder.status().active()) {
 			throw new BridgeUnavailableException("trace_active", "Stop the client tick trace before pausing client ticks");
 		}
-		return controller.pause();
+		ClientTickPlayerActionEvents.clear();
+		return controller.pause(capturePlayerActions);
 	}
 
 	public CompletableFuture<ClientTickDebugController.ClientTickCapture> step(
@@ -62,6 +67,7 @@ public final class ClientTickDebugRuntime {
 
 	public void continueRunning(String debugSessionId, long pauseEpoch) {
 		controller.continueRunning(debugSessionId, pauseEpoch);
+		ClientTickPlayerActionEvents.clear();
 	}
 
 	public boolean allowVanillaTick(boolean vanillaAllowsTick) {
@@ -74,9 +80,22 @@ public final class ClientTickDebugRuntime {
 
 	public void onClientTickCompleted(MinecraftClient client, EmbodiedAgentRuntime runtime) {
 		Optional<ClientTickDebugController.CaptureIntent> intent = controller.onClientTickCompleted();
-		intent.ifPresent(value -> beginCapture(client, runtime, value));
-		if (intent.isEmpty()) {
-			traceRecorder.activeTrace().ifPresent(trace -> captureTraceTick(client, runtime, trace));
+		if (intent.isPresent()) {
+			beginCapture(client, runtime, intent.get());
+			if (!controller.capturesPlayerActions()) {
+				ClientTickPlayerActionEvents.clear();
+			}
+			return;
+		}
+		Optional<ClientTickTraceRecorder.ActiveTrace> trace = traceRecorder.activeTrace();
+		if (trace.isPresent()) {
+			captureTraceTick(client, runtime, trace.get());
+			if (!trace.get().config().infos().contains(ClientTickTraceRecorder.TraceInfo.PLAYER_ACTIONS)) {
+				ClientTickPlayerActionEvents.clear();
+			}
+		}
+		else {
+			ClientTickPlayerActionEvents.clear();
 		}
 	}
 
@@ -101,6 +120,7 @@ public final class ClientTickDebugRuntime {
 		if (debugStatus.phase() != ClientTickDebugController.Phase.RUNNING) {
 			throw new BridgeUnavailableException("debug_busy", "Continue normal client ticks before starting a trace");
 		}
+		ClientTickPlayerActionEvents.clear();
 		return traceRecorder.start(config, debugStatus.clientTickId());
 	}
 
@@ -124,6 +144,7 @@ public final class ClientTickDebugRuntime {
 		boolean frameCaptureActive = controller.status().phase() == ClientTickDebugController.Phase.WAITING_FOR_FRAME;
 		controller.reset(code, message);
 		traceRecorder.reset();
+		ClientTickPlayerActionEvents.clear();
 		if (frameCaptureActive) {
 			screenshotService.failActiveCapture(code, message);
 		}
@@ -145,7 +166,8 @@ public final class ClientTickDebugRuntime {
 				trace.traceId(),
 				captureId,
 				snapshotId,
-				clientTickId
+				clientTickId,
+				trace.config().infos().contains(ClientTickTraceRecorder.TraceInfo.PLAYER_ACTIONS)
 			);
 		}
 		catch (RuntimeException exception) {
@@ -153,6 +175,7 @@ public final class ClientTickDebugRuntime {
 				trace.traceId(),
 				clientTickId,
 				System.currentTimeMillis(),
+				null,
 				null,
 				null,
 				null,
@@ -176,6 +199,9 @@ public final class ClientTickDebugRuntime {
 			: null;
 		ClientTickPlayerSnapshot playerState = infos.contains(ClientTickTraceRecorder.TraceInfo.PLAYER_STATE)
 			? snapshot.player()
+			: null;
+		ClientTickPlayerActionsSnapshot playerActions = infos.contains(ClientTickTraceRecorder.TraceInfo.PLAYER_ACTIONS)
+			? snapshot.playerActions()
 			: null;
 		ClientTickEntityQueryService.EntityQueryResult entities = null;
 		Map<String, Object> blocks = null;
@@ -211,6 +237,7 @@ public final class ClientTickDebugRuntime {
 			snapshot.capturedAtMs(),
 			metadata,
 			playerState,
+			playerActions,
 			entities,
 			blocks,
 			frame,
@@ -277,7 +304,12 @@ public final class ClientTickDebugRuntime {
 		EmbodiedAgentRuntime runtime,
 		ClientTickDebugController.CaptureIntent intent
 	) {
-		ClientTickDebugController.ClientTickSnapshot snapshot = captureSnapshot(client, runtime, intent);
+		ClientTickDebugController.ClientTickSnapshot snapshot = captureSnapshot(
+			client,
+			runtime,
+			intent,
+			controller.capturesPlayerActions()
+		);
 		controller.attachSnapshot(intent, snapshot);
 		try {
 			screenshotService.requestCapture(client).whenComplete((screenshot, throwable) -> {
@@ -307,10 +339,11 @@ public final class ClientTickDebugRuntime {
 		}
 	}
 
-	private static ClientTickDebugController.ClientTickSnapshot captureSnapshot(
+	private ClientTickDebugController.ClientTickSnapshot captureSnapshot(
 		MinecraftClient client,
 		EmbodiedAgentRuntime runtime,
-		ClientTickDebugController.CaptureIntent intent
+		ClientTickDebugController.CaptureIntent intent,
+		boolean capturePlayerActions
 	) {
 		return captureSnapshot(
 			client,
@@ -318,17 +351,19 @@ public final class ClientTickDebugRuntime {
 			intent.debugSessionId(),
 			intent.captureId(),
 			intent.snapshotId(),
-			intent.clientTickId()
+			intent.clientTickId(),
+			capturePlayerActions
 		);
 	}
 
-	private static ClientTickDebugController.ClientTickSnapshot captureSnapshot(
+	private ClientTickDebugController.ClientTickSnapshot captureSnapshot(
 		MinecraftClient client,
 		EmbodiedAgentRuntime runtime,
 		String debugSessionId,
 		String captureId,
 		String snapshotId,
-		long clientTickId
+		long clientTickId,
+		boolean capturePlayerActions
 	) {
 		ClientWorld world = Objects.requireNonNull(client.world, "client.world");
 		ClientPlayerEntity player = Objects.requireNonNull(client.player, "client.player");
@@ -344,6 +379,7 @@ public final class ClientTickDebugRuntime {
 			world.getTime(),
 			world.getTimeOfDay(),
 			ClientTickPlayerSnapshotFactory.capture(client, player),
+			capturePlayerActions ? playerActionsCapture.capture(client, debugSessionId) : null,
 			planner.activeGeneration(),
 			planner.currentPhase()
 		);

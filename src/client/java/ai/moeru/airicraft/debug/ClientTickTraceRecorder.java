@@ -182,6 +182,7 @@ public final class ClientTickTraceRecorder {
 	public enum TraceInfo {
 		METADATA("metadata"),
 		PLAYER_STATE("player_state"),
+		PLAYER_ACTIONS("player_actions"),
 		ENTITIES("entities"),
 		BLOCKS("blocks"),
 		FRAME("frame");
@@ -412,6 +413,7 @@ public final class ClientTickTraceRecorder {
 		long capturedAtMs,
 		TraceMetadata metadata,
 		ClientTickPlayerSnapshot playerState,
+		ClientTickPlayerActionsSnapshot playerActions,
 		ClientTickEntityQueryService.EntityQueryResult entities,
 		Map<String, Object> blocks,
 		TraceFrame frame,
@@ -426,7 +428,7 @@ public final class ClientTickTraceRecorder {
 
 		TraceTickRecord withFrame(TraceFrame value) {
 			return new TraceTickRecord(
-				traceId, clientTickId, capturedAtMs, metadata, playerState, entities, blocks, value, errors
+				traceId, clientTickId, capturedAtMs, metadata, playerState, playerActions, entities, blocks, value, errors
 			);
 		}
 	}

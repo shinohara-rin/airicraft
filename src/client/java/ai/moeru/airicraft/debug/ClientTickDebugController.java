@@ -11,15 +11,21 @@ public final class ClientTickDebugController {
 	private long captureSequence;
 	private long pauseEpoch;
 	private String debugSessionId;
+	private boolean capturePlayerActions;
 	private PendingCapture pendingCapture;
 	private ClientTickCapture currentCapture;
 
 	public synchronized CompletableFuture<ClientTickCapture> pause() {
+		return pause(false);
+	}
+
+	public synchronized CompletableFuture<ClientTickCapture> pause(boolean nextCapturePlayerActions) {
 		if (phase == Phase.PAUSED && currentCapture != null) {
 			return CompletableFuture.completedFuture(currentCapture);
 		}
 		requirePhase(Phase.RUNNING, "debug_busy", "The client tick debugger is busy");
 		debugSessionId = UUID.randomUUID().toString();
+		capturePlayerActions = nextCapturePlayerActions;
 		captureSequence = 0L;
 		pauseEpoch = 0L;
 		currentCapture = null;
@@ -27,6 +33,10 @@ public final class ClientTickDebugController {
 		pendingCapture = PendingCapture.command(future);
 		phase = Phase.PAUSE_REQUESTED;
 		return future;
+	}
+
+	public synchronized boolean capturesPlayerActions() {
+		return capturePlayerActions;
 	}
 
 	public synchronized CompletableFuture<ClientTickCapture> step(String requestedSessionId, long requestedPauseEpoch) {
@@ -44,6 +54,7 @@ public final class ClientTickDebugController {
 		debugSessionId = null;
 		pauseEpoch = 0L;
 		captureSequence = 0L;
+		capturePlayerActions = false;
 		currentCapture = null;
 		pendingCapture = null;
 	}
@@ -144,6 +155,7 @@ public final class ClientTickDebugController {
 		debugSessionId = null;
 		pauseEpoch = 0L;
 		captureSequence = 0L;
+		capturePlayerActions = false;
 		pendingCapture = null;
 		currentCapture = null;
 		if (pending != null) {
@@ -224,6 +236,7 @@ public final class ClientTickDebugController {
 		long worldTime,
 		long timeOfDay,
 		ClientTickPlayerSnapshot player,
+		ClientTickPlayerActionsSnapshot playerActions,
 		long plannerGeneration,
 		String plannerPhase
 	) {

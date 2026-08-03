@@ -331,6 +331,10 @@ class AiricraftCliMainTest {
 				"worldTime", 200L,
 				"timeOfDay", 200L,
 				"player", linkedMap("blockX", 1, "blockY", 64, "blockZ", 2),
+				"playerActions", linkedMap(
+					"actions", List.of(linkedMap("action", "attack", "pressed", true, "started", true)),
+					"breakProgress", linkedMap("position", linkedMap("x", 1, "y", 64, "z", 2), "progress", 0.6, "stage", 6, "started", true)
+				),
 				"plannerGeneration", 7L,
 				"plannerPhase", "IDLE"
 			),
@@ -339,13 +343,19 @@ class AiricraftCliMainTest {
 		);
 		Path output = tempDir.resolve("pause.png");
 
-		CliResult result = execute(transport, "agent", "debug", "ticks", "pause", "--output-image", output.toString());
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "ticks", "pause", "--player-actions", "--output-image", output.toString()
+		);
 
 		assertEquals(0, result.exitCode());
 		assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(output));
 		assertTrue(result.output().contains("snapshotId: snapshot-1\n"));
 		assertTrue(result.output().contains("clientTickId: 44\n"));
+		assertTrue(result.output().contains("action: attack\n"));
+		assertTrue(result.output().contains("stage: 6\n"));
 		assertTrue(result.output().contains("imageOutputPath: " + output + "\n"));
+		assertTrue(transport.lastClientTickDebugPlayerActions);
 	}
 
 	@Test
@@ -392,7 +402,7 @@ class AiricraftCliMainTest {
 		CliResult result = execute(
 			transport,
 			"agent", "debug", "trace", "start",
-			"--info", "metadata,player-state,entities,frame",
+			"--info", "metadata,player-state,player-actions,entities,frame",
 			"--window-ticks", "100",
 			"--output", tempDir.resolve("trace.jsonl").toString(),
 			"--entity-query", "{\"radius\":16,\"entityTypeIds\":[\"minecraft:zombie\"],\"limit\":12}"
@@ -400,7 +410,7 @@ class AiricraftCliMainTest {
 
 		assertEquals(0, result.exitCode());
 		assertEquals(
-			List.of("metadata", "player_state", "entities", "frame"),
+			List.of("metadata", "player_state", "player_actions", "entities", "frame"),
 			transport.lastClientTickTraceStartRequest.get("infos")
 		);
 		assertEquals(100, transport.lastClientTickTraceStartRequest.get("windowTicks"));
@@ -1792,6 +1802,7 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentDebugTimelinePayload = Map.of("entries", List.of());
 		private Map<String, Object> clientTickDebugStatePayload = Map.of();
 		private Map<String, Object> clientTickDebugPausePayload = Map.of();
+		private boolean lastClientTickDebugPlayerActions;
 		private Map<String, Object> clientTickDebugStepPayload = Map.of();
 		private Map<String, Object> clientTickDebugContinuePayload = Map.of();
 		private Map<String, Object> clientTickWorldQueryPayload = Map.of();
@@ -2097,7 +2108,8 @@ class AiricraftCliMainTest {
 		}
 
 		@Override
-		public Map<String, Object> pauseClientTicks() {
+		public Map<String, Object> pauseClientTicks(boolean playerActions) {
+			lastClientTickDebugPlayerActions = playerActions;
 			return clientTickDebugPausePayload;
 		}
 

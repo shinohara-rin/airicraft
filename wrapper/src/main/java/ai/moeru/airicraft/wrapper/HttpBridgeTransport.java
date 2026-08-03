@@ -297,8 +297,8 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	}
 
 	@Override
-	public Map<String, Object> pauseClientTicks() {
-		return send("POST", "/v1/agent/debug/ticks/pause", Map.of());
+	public Map<String, Object> pauseClientTicks(boolean playerActions) {
+		return send("POST", "/v1/agent/debug/ticks/pause", Map.of("playerActions", playerActions));
 	}
 
 	@Override

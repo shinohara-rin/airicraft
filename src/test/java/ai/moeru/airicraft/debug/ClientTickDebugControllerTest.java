@@ -65,6 +65,30 @@ class ClientTickDebugControllerTest {
 	}
 
 	@Test
+	void playerActionCaptureStaysEnabledForThePauseSession() {
+		ClientTickDebugController controller = new ClientTickDebugController();
+		var future = controller.pause(true);
+		assertTrue(controller.capturesPlayerActions());
+		var intent = controller.onRenderedFrameBoundary().orElseThrow();
+		controller.attachSnapshot(intent, snapshot(intent));
+		controller.completeFrame(intent, frame());
+		future.join();
+
+		var status = controller.status();
+		var step = controller.step(status.debugSessionId(), status.pauseEpoch());
+		controller.onClientTickStarted();
+		var stepIntent = controller.onClientTickCompleted().orElseThrow();
+		controller.attachSnapshot(stepIntent, snapshot(stepIntent));
+		controller.completeFrame(stepIntent, frame());
+		step.join();
+		assertTrue(controller.capturesPlayerActions());
+
+		var steppedStatus = controller.status();
+		controller.continueRunning(steppedStatus.debugSessionId(), steppedStatus.pauseEpoch());
+		assertFalse(controller.capturesPlayerActions());
+	}
+
+	@Test
 	void staleSessionAndEpochCannotAdvanceTheClient() {
 		ClientTickDebugController controller = pausedController();
 		var status = controller.status();
@@ -132,6 +156,7 @@ class ClientTickDebugControllerTest {
 			200L,
 			300L,
 			playerSnapshot(),
+			null,
 			4L,
 			"IDLE"
 		);

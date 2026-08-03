@@ -5,6 +5,7 @@
 	"client": [
 		"ClientPlayNetworkHandlerMixin",
 		"ClientPlayerInteractionManagerMixin",
+		"ClientPlayerInteractionManagerAccessor",
 		"ClientPlayerEntityAccessor",
 		"CraftingResultSlotMixin",
 		"GameRendererMixin",

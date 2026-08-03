@@ -123,7 +123,7 @@ interface MinecraftTransport {
 
 	Map<String, Object> getClientTickDebugState();
 
-	Map<String, Object> pauseClientTicks();
+	Map<String, Object> pauseClientTicks(boolean playerActions);
 
 	Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch);
 

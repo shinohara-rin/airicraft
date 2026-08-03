@@ -371,10 +371,10 @@ public final class ModBridgeServer {
 	}
 
 	private void handleClientTickDebugPause(HttpExchange exchange) throws IOException {
-		handleJsonBody(exchange, "POST", Object.class, ignored -> {
+		handleJsonBody(exchange, "POST", ClientTickDebugPauseRequest.class, request -> {
 			CompletableFuture<ClientTickDebugController.ClientTickCapture> future = onClientThread(() -> {
 				try {
-					return clientTickDebugRuntime().pause(getClient());
+					return clientTickDebugRuntime().pause(getClient(), request != null && Boolean.TRUE.equals(request.playerActions()));
 				}
 				catch (ClientTickDebugController.DebugStateException exception) {
 					throw clientTickDebugBridgeException(exception);
@@ -1458,6 +1458,9 @@ public final class ModBridgeServer {
 		}
 		if (record.playerState() != null) {
 			payload.put("playerState", record.playerState());
+		}
+		if (record.playerActions() != null) {
+			payload.put("playerActions", record.playerActions());
 		}
 		if (record.entities() != null) {
 			payload.put("entities", record.entities());
@@ -2640,6 +2643,9 @@ public final class ModBridgeServer {
 		ClientTickTraceEntityQueryRequest entityQuery,
 		ClientTickTraceBlockQueryRequest blockQuery
 	) {
+	}
+
+	private record ClientTickDebugPauseRequest(Boolean playerActions) {
 	}
 
 	private record ClientTickTraceEntityQueryRequest(

@@ -762,6 +762,9 @@ public final class AiricraftCliMain {
 		@Option(names = "--output-image", description = "Write the captured client frame to this path.")
 		private Path outputImage;
 
+		@Option(names = "--player-actions", description = "Capture player actions and block break progress in this pause session.")
+		private boolean playerActions;
+
 		private AgentDebugTicksPauseCommand(CliContext context) {
 			super(context, "agent debug ticks pause");
 		}
@@ -769,7 +772,7 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.clientTickDebugCapture(
-				prepareClientTickCapture(transport().pauseClientTicks(), outputImage, commandPath()),
+				prepareClientTickCapture(transport().pauseClientTicks(playerActions), outputImage, commandPath()),
 				verbose()
 			);
 		}
@@ -840,7 +843,7 @@ public final class AiricraftCliMain {
 	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a client tick trace and stream it to a JSON Lines file.")
 	private static final class AgentDebugTraceStartCommand implements Callable<Integer> {
 		private static final List<String> SUPPORTED_INFOS = List.of(
-			"metadata", "player_state", "entities", "blocks", "frame"
+			"metadata", "player_state", "player_actions", "entities", "blocks", "frame"
 		);
 		private static final String COMMAND_PATH = "agent debug trace start";
 
@@ -850,7 +853,7 @@ public final class AiricraftCliMain {
 			names = "--info",
 			required = true,
 			split = ",",
-			description = "Trace info names: metadata, player-state, entities, blocks, or frame. Repeat or use commas."
+			description = "Trace info names: metadata, player-state, player-actions, entities, blocks, or frame. Repeat or use commas."
 		)
 		private List<String> infos;
 
@@ -2522,7 +2525,7 @@ public final class AiricraftCliMain {
 			}
 			else {
 				LinkedHashMap<String, Object> snapshotView = new LinkedHashMap<>();
-				copy(snapshotView, snapshot, "capturedAtMs", "dimensionId", "worldTime", "timeOfDay", "player", "plannerGeneration", "plannerPhase");
+				copy(snapshotView, snapshot, "capturedAtMs", "dimensionId", "worldTime", "timeOfDay", "player", "playerActions", "plannerGeneration", "plannerPhase");
 				view.put("snapshot", snapshotView);
 				LinkedHashMap<String, Object> frameView = new LinkedHashMap<>();
 				copy(frameView, frame, "status", "format", "width", "height", "capturedAtMs", "errorCode", "message");
