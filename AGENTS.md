@@ -85,7 +85,7 @@
 - `airicraft agent debug state`
 - `airicraft agent debug timeline [--since <entry-id>]`
 - `airicraft agent debug ticks state`
-- `airicraft agent debug ticks pause [--output-image <path>]`
+- `airicraft agent debug ticks pause [--player-actions] [--output-image <path>]`
 - `airicraft agent debug ticks step --debug-session-id <id> --pause-epoch <epoch> [--output-image <path>]`
 - `airicraft agent debug ticks continue --debug-session-id <id> --pause-epoch <epoch>`
 - `airicraft agent debug trace status`

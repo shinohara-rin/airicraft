@@ -221,14 +221,22 @@ The timeline cursor is exclusive. The command returns entries with an `entryId` 
 
 #### Pause and step client ticks
 
-Pause the client and optionally write its captured frame to a PNG file:
+Pause the client and optionally write its captured frame to a PNG file. Add
+`--player-actions` to capture actions and block break progress during this
+pause session:
 
 ```shell
 "$AIRICRAFT_CLI" agent debug ticks pause \
+  --player-actions \
   --output-image /tmp/airicraft-pause.png
 ```
 
 The response includes `debugSessionId`, `pauseEpoch`, `snapshotId`, and `clientTickId`. The `snapshotId` gives read-only access to the paused world.
+
+`playerActions` contains action states for attack, use, pick, drop, hand swap,
+and hotbar keys. Its optional `breakProgress` gives the block position, a
+progress value from 0 through 1, a break stage from 0 through 9, and a
+`started` flag. Each later `ticks step` keeps this capture option.
 
 Use the returned session ID and pause epoch to run exactly one client tick:
 
@@ -356,6 +364,16 @@ Start a bounded trace for player state, nearby hostile entities, and client fram
   --entity-query '{"radius":16,"entityTypeIds":["minecraft:zombie","minecraft:skeleton"],"alive":true,"limit":64}'
 ```
 
+Start a no-frame mining trace:
+
+```shell
+"$AIRICRAFT_CLI" agent debug trace start \
+  --info metadata,player-actions \
+  --window-ticks 120 \
+  --once \
+  --output /tmp/airicraft-mining-trace.jsonl
+```
+
 The file starts with a `trace_start` record. Each captured tick writes a `trace_record` record. The file ends with a `trace_end` record.
 
 A frame record keeps `record.frame.imageBase64`. This keeps its screen render in the same output file. The stream holds a pending frame until its capture completes.
@@ -370,7 +388,16 @@ Without `--once`, the command continues to stream. Its initial response gives th
 
 If the client buffer evicts unread ticks, the file writes a `trace_gap` record. This record gives the missing range boundary.
 
-The supported `--info` values are `metadata`, `player-state`, `entities`, `blocks`, and `frame`. Repeat `--info` or use a comma-separated list.
+The supported `--info` values are `metadata`, `player-state`, `entities`,
+`blocks`, `frame`, and `player-actions`. Repeat `--info` or use a
+comma-separated list.
+
+`player-actions` adds `record.playerActions`. It contains action states and
+optional `breakProgress`. A direct attack or use call sets `started: true`. A
+break progress record includes `position`, `progress`, `stage`, and `started`.
+
+The client captures only selected trace information. A trace without `frame`
+does not request a screen render.
 
 An entity trace accepts an optional JSON query. Its fields match the paused entity query:
 
