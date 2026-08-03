@@ -45,6 +45,7 @@ public final class ClientRuntimeController {
 	private final ModBridgeServer bridgeServer;
 	private final PlannerDebugOverlay plannerDebugOverlay = new PlannerDebugOverlay();
 	private final ClientTickPauseIndicator clientTickPauseIndicator = new ClientTickPauseIndicator();
+	private final ClientTickTraceIndicator clientTickTraceIndicator = new ClientTickTraceIndicator();
 
 	public ClientRuntimeController() {
 		this.config = AiricraftConfigLoader.load();
@@ -195,7 +196,7 @@ public final class ClientRuntimeController {
 			return;
 		}
 		plannerDebugOverlay.render(client, drawContext, currentAgentRuntime(), System.currentTimeMillis());
-		renderClientTickPauseIndicator(client, drawContext);
+		renderClientTickIndicators(client, drawContext);
 	}
 
 	public void onScreenRender(DrawContext drawContext) {
@@ -204,11 +205,12 @@ public final class ClientRuntimeController {
 			return;
 		}
 		plannerDebugOverlay.render(client, drawContext, currentAgentRuntime(), System.currentTimeMillis());
-		renderClientTickPauseIndicator(client, drawContext);
+		renderClientTickIndicators(client, drawContext);
 	}
 
-	private void renderClientTickPauseIndicator(MinecraftClient client, DrawContext drawContext) {
+	private void renderClientTickIndicators(MinecraftClient client, DrawContext drawContext) {
 		clientTickPauseIndicator.render(client, drawContext, clientTickDebugRuntime.status());
+		clientTickTraceIndicator.render(client, drawContext, clientTickDebugRuntime.traceStatus());
 	}
 
 	public boolean onScreenMouseScroll(double mouseX, double mouseY, double verticalAmount) {
