@@ -341,50 +341,34 @@ Region coordinates are inclusive. Region commands inspect 256 cells by default a
 
 Use the returned `nextCursor` as `--cursor` to read the next page. Unloaded blocks appear as unloaded records or unloaded counts.
 
-#### Record a rolling client tick trace
+#### Stream a client tick trace
 
-A trace records a selected information set automatically while normal client ticks run. The rolling window keeps only the last `--window-ticks` client ticks.
+A trace writes JSON Lines while normal client ticks run. The client keeps a rolling record buffer. The CLI polls it at 20 Hz and uses a buffered file writer.
 
-Start a trace for player state, nearby hostile entities, and client frames:
+Start a bounded trace for player state, nearby hostile entities, and client frames:
 
 ```shell
 "$AIRICRAFT_CLI" agent debug trace start \
   --info metadata,player-state,entities,frame \
   --window-ticks 100 \
+  --once \
+  --output /tmp/airicraft-trace.jsonl \
   --entity-query '{"radius":16,"entityTypeIds":["minecraft:zombie","minecraft:skeleton"],"alive":true,"limit":64}'
 ```
 
-The response includes a `traceId`. Use it to read or stop that trace.
+The file starts with a `trace_start` record. Each captured tick writes a `trace_record` record. The file ends with a `trace_end` record.
 
-Read retained records and write their frame images to a directory:
+A frame record keeps `record.frame.imageBase64`. This keeps its screen render in the same output file. The stream holds a pending frame until its capture completes.
 
-```shell
-"$AIRICRAFT_CLI" agent debug trace status --verbose
+With `--once`, the client stops the trace after it records `--window-ticks` ticks. The command exits after it writes the final record and `trace_end`.
 
-"$AIRICRAFT_CLI" agent debug trace records \
-  --trace-id <trace-id> \
-  --limit 100 \
-  --output-image-dir /tmp/airicraft-trace \
-  --verbose
-```
-
-Use `nextSinceClientTickId` to read the next page:
-
-```shell
-"$AIRICRAFT_CLI" agent debug trace records \
-  --trace-id <trace-id> \
-  --since-client-tick-id <client-tick-id> \
-  --limit 100 \
-  --verbose
-```
-
-Stop the trace after the required event occurs:
+Without `--once`, the command continues to stream. Its initial response gives the `traceId`. Use another terminal to stop that trace:
 
 ```shell
 "$AIRICRAFT_CLI" agent debug trace stop --trace-id <trace-id>
 ```
 
-Stopping a trace keeps its retained records. A new trace or a runtime reset removes the old records.
+If the client buffer evicts unread ticks, the file writes a `trace_gap` record. This record gives the missing range boundary.
 
 The supported `--info` values are `metadata`, `player-state`, `entities`, `blocks`, and `frame`. Repeat `--info` or use a comma-separated list.
 
@@ -406,12 +390,12 @@ Add a block region when the trace includes `blocks`:
 "$AIRICRAFT_CLI" agent debug trace start \
   --info player-state,blocks \
   --window-ticks 40 \
+  --once \
+  --output /tmp/airicraft-block-trace.jsonl \
   --block-query '{"minX":0,"minY":63,"minZ":0,"maxX":7,"maxY":65,"maxZ":7}'
 ```
 
 The general window limit is 1200 client ticks. A trace with frames has a limit of 200 client ticks.
-
-The `records` command returns 32 records by default and allows up to 256 records per page.
 
 A trace block region can contain at most 4096 blocks. The window size multiplied by its block count cannot exceed 250000.
 

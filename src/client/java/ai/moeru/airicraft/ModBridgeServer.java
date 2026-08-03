@@ -1417,6 +1417,7 @@ public final class ModBridgeServer {
 		payload.put("traceId", status.traceId());
 		payload.put("infos", status.infos().stream().map(ClientTickTraceRecorder.TraceInfo::wireName).toList());
 		payload.put("windowTicks", status.windowTicks());
+		payload.put("once", status.once());
 		payload.put("startedClientTickId", status.startedClientTickId());
 		payload.put("oldestClientTickId", status.oldestClientTickId());
 		payload.put("latestClientTickId", status.latestClientTickId());
@@ -1590,6 +1591,7 @@ public final class ModBridgeServer {
 		return new ClientTickTraceRecorder.TraceConfig(
 			infos,
 			request.windowTicks(),
+			Boolean.TRUE.equals(request.once()),
 			entityQuery,
 			blockRegion
 		);
@@ -2634,6 +2636,7 @@ public final class ModBridgeServer {
 	private record ClientTickTraceStartRequest(
 		List<String> infos,
 		Integer windowTicks,
+		Boolean once,
 		ClientTickTraceEntityQueryRequest entityQuery,
 		ClientTickTraceBlockQueryRequest blockQuery
 	) {

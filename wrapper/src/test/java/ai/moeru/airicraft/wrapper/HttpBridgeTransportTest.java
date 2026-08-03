@@ -377,11 +377,12 @@ class HttpBridgeTransportTest {
 			Map<String, Object> startRequest = new java.util.LinkedHashMap<>();
 			startRequest.put("infos", java.util.List.of("metadata", "player_state"));
 			startRequest.put("windowTicks", 40);
+			startRequest.put("once", true);
 
 			assertEquals(false, transport.getClientTickTraceStatus().get("active"));
 			assertEquals("trace-1", transport.startClientTickTrace(startRequest).get("traceId"));
 			assertEquals(
-				"{\"infos\":[\"metadata\",\"player_state\"],\"windowTicks\":40}",
+				"{\"infos\":[\"metadata\",\"player_state\"],\"windowTicks\":40,\"once\":true}",
 				server.lastRequestBody("/v1/agent/debug/trace/start")
 			);
 			transport.listClientTickTraceRecords("trace-1", 20L, 8, true);

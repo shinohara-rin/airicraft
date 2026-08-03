@@ -89,8 +89,7 @@
 - `airicraft agent debug ticks step --debug-session-id <id> --pause-epoch <epoch> [--output-image <path>]`
 - `airicraft agent debug ticks continue --debug-session-id <id> --pause-epoch <epoch>`
 - `airicraft agent debug trace status`
-- `airicraft agent debug trace start --info <names> --window-ticks <ticks> [--entity-query <json>] [--block-query <json>]`
-- `airicraft agent debug trace records --trace-id <id> [--since-client-tick-id <tick>] [--limit <count>] [--output-image-dir <path>]`
+- `airicraft agent debug trace start --info <names> --window-ticks <ticks> --output <path> [--once] [--entity-query <json>] [--block-query <json>]`
 - `airicraft agent debug trace stop --trace-id <id>`
 - `airicraft agent debug world metadata --snapshot-id <id>`
 - `airicraft agent debug world player-state --snapshot-id <id>`

@@ -375,12 +375,18 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
-	void clientTickTraceStartBuildsSelectedQueriesAndWindow() {
+	void clientTickTraceStartBuildsSelectedQueriesAndWindow(@TempDir Path tempDir) {
 		TestTransport transport = new TestTransport();
 		transport.clientTickTraceStartPayload = linkedMap(
 			"active", true,
 			"traceId", "trace-1",
+			"startedClientTickId", 40L,
 			"windowTicks", 100
+		);
+		transport.clientTickTraceRecordsPayload = linkedMap(
+			"active", false,
+			"complete", true,
+			"records", List.of()
 		);
 
 		CliResult result = execute(
@@ -388,6 +394,7 @@ class AiricraftCliMainTest {
 			"agent", "debug", "trace", "start",
 			"--info", "metadata,player-state,entities,frame",
 			"--window-ticks", "100",
+			"--output", tempDir.resolve("trace.jsonl").toString(),
 			"--entity-query", "{\"radius\":16,\"entityTypeIds\":[\"minecraft:zombie\"],\"limit\":12}"
 		);
 
@@ -397,6 +404,7 @@ class AiricraftCliMainTest {
 			transport.lastClientTickTraceStartRequest.get("infos")
 		);
 		assertEquals(100, transport.lastClientTickTraceStartRequest.get("windowTicks"));
+		assertEquals(false, transport.lastClientTickTraceStartRequest.get("once"));
 		Map<String, Object> entityQuery = castMap(transport.lastClientTickTraceStartRequest.get("entityQuery"));
 		assertEquals(16, entityQuery.get("radius"));
 		assertEquals(List.of("minecraft:zombie"), entityQuery.get("entityTypeIds"));
@@ -411,7 +419,8 @@ class AiricraftCliMainTest {
 			transport,
 			"agent", "debug", "trace", "start",
 			"--info", "blocks",
-			"--window-ticks", "20"
+			"--window-ticks", "20",
+			"--output", "trace.jsonl"
 		);
 
 		assertEquals(2, result.exitCode());
@@ -427,7 +436,8 @@ class AiricraftCliMainTest {
 			transport,
 			"agent", "debug", "trace", "start",
 			"--info", "frame",
-			"--window-ticks", "201"
+			"--window-ticks", "201",
+			"--output", "trace.jsonl"
 		);
 
 		assertEquals(2, result.exitCode());
@@ -435,11 +445,19 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
-	void clientTickTraceRecordsWritesRequestedFrames(@TempDir Path tempDir) throws Exception {
+	void clientTickTraceStartStreamsJsonLinesAndFrames(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
+		transport.clientTickTraceStartPayload = linkedMap(
+			"active", true,
+			"traceId", "trace-1",
+			"startedClientTickId", 40L,
+			"windowTicks", 2,
+			"once", true
+		);
 		transport.clientTickTraceRecordsPayload = linkedMap(
 			"traceId", "trace-1",
-			"recordCount", 1,
+			"active", false,
+			"complete", true,
 			"records", List.of(linkedMap(
 				"clientTickId", 42L,
 				"frame", linkedMap(
@@ -449,25 +467,44 @@ class AiricraftCliMainTest {
 				)
 			))
 		);
+		Path output = tempDir.resolve("trace.jsonl");
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "frame",
+			"--window-ticks", "2",
+			"--once",
+			"--output", output.toString()
+		);
+
+		List<String> lines = Files.readAllLines(output, StandardCharsets.UTF_8);
+		assertEquals(0, result.exitCode());
+		assertEquals(3, lines.size());
+		assertTrue(lines.getFirst().contains("\"event\":\"trace_start\""));
+		assertTrue(lines.get(1).contains("\"event\":\"trace_record\""));
+		assertTrue(lines.get(1).contains("\"imageBase64\":\"BwgJ\""));
+		assertTrue(lines.getLast().contains("\"event\":\"trace_end\""));
+		assertEquals("trace-1", transport.lastClientTickTraceId);
+		assertEquals(39L, transport.lastClientTickTraceSince);
+		assertEquals(256, transport.lastClientTickTraceLimit);
+		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
+		assertEquals(true, transport.lastClientTickTraceStartRequest.get("once"));
+		assertFalse(result.output().contains("imageBase64"));
+	}
+
+	@Test
+	void clientTickTraceDoesNotExposeARecordsCommand() {
+		TestTransport transport = new TestTransport();
 
 		CliResult result = execute(
 			transport,
 			"agent", "debug", "trace", "records",
-			"--trace-id", "trace-1",
-			"--since-client-tick-id", "40",
-			"--limit", "8",
-			"--output-image-dir", tempDir.toString()
+			"--trace-id", "trace-1"
 		);
 
-		Path image = tempDir.resolve("tick-00000000000000000042.png");
-		assertEquals(0, result.exitCode());
-		assertArrayEquals(new byte[]{7, 8, 9}, Files.readAllBytes(image));
-		assertEquals("trace-1", transport.lastClientTickTraceId);
-		assertEquals(40L, transport.lastClientTickTraceSince);
-		assertEquals(8, transport.lastClientTickTraceLimit);
-		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
-		assertTrue(result.output().contains("imageOutputPath: " + image + "\n"));
-		assertFalse(result.output().contains("imageBase64"));
+		assertEquals(2, result.exitCode());
+		assertEquals(null, transport.lastClientTickTraceId);
 	}
 
 	@Test

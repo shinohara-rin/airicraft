@@ -63,6 +63,46 @@ class ClientTickTraceRecorderTest {
 	}
 
 	@Test
+	void onceTraceStopsAfterTheRequestedRecordCountAndSettlesTheLastFrame() {
+		ClientTickTraceRecorder recorder = new ClientTickTraceRecorder();
+		var status = recorder.start(new ClientTickTraceRecorder.TraceConfig(
+			Set.of(ClientTickTraceRecorder.TraceInfo.FRAME),
+			2,
+			true,
+			null,
+			null
+		), 10L);
+
+		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
+			status.traceId(), 11L, 1_011L, null, null, null, null,
+			ClientTickTraceRecorder.TraceFrame.pending(1_011L), Map.of()
+		));
+		recorder.record(new ClientTickTraceRecorder.TraceTickRecord(
+			status.traceId(), 12L, 1_012L, null, null, null, null,
+			ClientTickTraceRecorder.TraceFrame.pending(1_012L), Map.of()
+		));
+
+		assertFalse(recorder.status().active());
+		assertTrue(recorder.status().once());
+		assertTrue(recorder.waitingForFrame());
+
+		recorder.completeFrame(
+			status.traceId(),
+			12L,
+			ClientTickTraceRecorder.TraceFrame.captured("png", 1, 1, 1, 1, 1_013L, new byte[]{1})
+		);
+		recorder.record(record(status.traceId(), 13L));
+
+		assertFalse(recorder.waitingForFrame());
+		assertEquals(
+			List.of(11L, 12L),
+			recorder.records(status.traceId(), null, 10).records().stream()
+				.map(ClientTickTraceRecorder.TraceTickRecord::clientTickId)
+				.toList()
+		);
+	}
+
+	@Test
 	void staleFrameCompletionCannotModifyANewTrace() {
 		ClientTickTraceRecorder recorder = new ClientTickTraceRecorder();
 		var first = recorder.start(config(Set.of(ClientTickTraceRecorder.TraceInfo.FRAME), 10), 0L);
@@ -181,6 +221,7 @@ class ClientTickTraceRecorderTest {
 			() -> new ClientTickTraceRecorder.TraceConfig(
 				Set.of(ClientTickTraceRecorder.TraceInfo.BLOCKS),
 				10,
+				false,
 				null,
 				new ClientTickWorldQueryService.RegionBounds(0, 0, 0, 16, 16, 16)
 			)
@@ -190,6 +231,7 @@ class ClientTickTraceRecorderTest {
 			() -> new ClientTickTraceRecorder.TraceConfig(
 				Set.of(ClientTickTraceRecorder.TraceInfo.BLOCKS),
 				100,
+				false,
 				null,
 				new ClientTickWorldQueryService.RegionBounds(0, 0, 0, 15, 15, 15)
 			)
@@ -200,7 +242,7 @@ class ClientTickTraceRecorderTest {
 		Set<ClientTickTraceRecorder.TraceInfo> infos,
 		int windowTicks
 	) {
-		return new ClientTickTraceRecorder.TraceConfig(infos, windowTicks, null, null);
+		return new ClientTickTraceRecorder.TraceConfig(infos, windowTicks, false, null, null);
 	}
 
 	private static ClientTickTraceRecorder.TraceTickRecord record(String traceId, long clientTickId) {

@@ -62,7 +62,7 @@ public final class ClientTickTraceRecorder {
 	}
 
 	public synchronized boolean waitingForFrame() {
-		if (!active || config == null || !config.infos().contains(TraceInfo.FRAME) || records.isEmpty()) {
+		if (config == null || !config.infos().contains(TraceInfo.FRAME) || records.isEmpty()) {
 			return false;
 		}
 		TraceFrame frame = records.get(lastKey()).frame();
@@ -81,6 +81,9 @@ public final class ClientTickTraceRecorder {
 				break;
 			}
 			iterator.remove();
+		}
+		if (config.once() && records.size() >= config.windowTicks()) {
+			active = false;
 		}
 	}
 
@@ -102,6 +105,7 @@ public final class ClientTickTraceRecorder {
 			traceId,
 			config == null ? Set.of() : config.infos(),
 			config == null ? 0 : config.windowTicks(),
+			config != null && config.once(),
 			traceId == null ? null : startedClientTickId,
 			oldestClientTickId,
 			latestClientTickId,
@@ -208,6 +212,7 @@ public final class ClientTickTraceRecorder {
 	public record TraceConfig(
 		Set<TraceInfo> infos,
 		int windowTicks,
+		boolean once,
 		EntityQuerySpec entityQuery,
 		ClientTickWorldQueryService.RegionBounds blockRegion
 	) {
@@ -431,6 +436,7 @@ public final class ClientTickTraceRecorder {
 		String traceId,
 		Set<TraceInfo> infos,
 		int windowTicks,
+		boolean once,
 		Long startedClientTickId,
 		Long oldestClientTickId,
 		Long latestClientTickId,

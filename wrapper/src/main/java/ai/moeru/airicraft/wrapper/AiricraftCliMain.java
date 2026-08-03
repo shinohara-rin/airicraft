@@ -109,7 +109,6 @@ public final class AiricraftCliMain {
 		CommandLine agentDebugTrace = agentDebug.getSubcommands().get("trace");
 		agentDebugTrace.addSubcommand(new AgentDebugTraceStatusCommand(context));
 		agentDebugTrace.addSubcommand(new AgentDebugTraceStartCommand(context));
-		agentDebugTrace.addSubcommand(new AgentDebugTraceRecordsCommand(context));
 		agentDebugTrace.addSubcommand(new AgentDebugTraceStopCommand(context));
 		agentDebug.addSubcommand("world", new UsageCommand(out, "airicraft agent debug world", "Paused world snapshot queries"));
 		CommandLine agentDebugWorld = agentDebug.getSubcommands().get("world");
@@ -838,11 +837,14 @@ public final class AiricraftCliMain {
 		}
 	}
 
-	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a rolling client tick trace while normal client ticks run.")
-	private static final class AgentDebugTraceStartCommand extends BaseCommand {
+	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a client tick trace and stream it to a JSON Lines file.")
+	private static final class AgentDebugTraceStartCommand implements Callable<Integer> {
 		private static final List<String> SUPPORTED_INFOS = List.of(
 			"metadata", "player_state", "entities", "blocks", "frame"
 		);
+		private static final String COMMAND_PATH = "agent debug trace start";
+
+		private final CliContext context;
 
 		@Option(
 			names = "--info",
@@ -852,8 +854,17 @@ public final class AiricraftCliMain {
 		)
 		private List<String> infos;
 
-		@Option(names = "--window-ticks", required = true, description = "Rolling window span from 1 to 1200 client ticks. Frame traces allow at most 200 ticks.")
+		@Option(names = "--window-ticks", required = true, description = "Trace span from 1 to 1200 client ticks. Frame traces allow at most 200 ticks.")
 		private int windowTicks;
+
+		@Option(names = "--once", description = "Stop automatically after window-ticks records.")
+		private boolean once;
+
+		@Option(names = "--output", required = true, description = "Path to write the JSON Lines trace file.")
+		private Path output;
+
+		@Option(names = "--verbose", description = "Include additional detail where supported.")
+		private boolean verbose;
 
 		@Option(names = "--entity-query", description = "Entity query JSON. An omitted radius center follows the captured player each tick.")
 		private String entityQueryJson;
@@ -862,36 +873,57 @@ public final class AiricraftCliMain {
 		private String blockQueryJson;
 
 		private AgentDebugTraceStartCommand(CliContext context) {
-			super(context, "agent debug trace start");
+			this.context = context;
 		}
 
 		@Override
-		Map<String, Object> runCommand() {
+		public Integer call() {
 			List<String> normalizedInfos = normalizedInfos();
 			if (windowTicks < 1 || windowTicks > 1_200) {
-				throw new CliUsageException(commandPath(), "invalid_arguments", "window-ticks must be between 1 and 1200");
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "window-ticks must be between 1 and 1200");
 			}
 			if (normalizedInfos.contains("frame") && windowTicks > 200) {
-				throw new CliUsageException(commandPath(), "invalid_arguments", "window-ticks must not exceed 200 with frame tracing");
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "window-ticks must not exceed 200 with frame tracing");
 			}
 			boolean hasEntityQuery = entityQueryJson != null && !entityQueryJson.isBlank();
 			boolean hasBlockQuery = blockQueryJson != null && !blockQueryJson.isBlank();
 			if (hasEntityQuery && !normalizedInfos.contains("entities")) {
-				throw new CliUsageException(commandPath(), "invalid_arguments", "entity-query requires the entities trace info");
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "entity-query requires the entities trace info");
 			}
 			if (normalizedInfos.contains("blocks") != hasBlockQuery) {
-				throw new CliUsageException(commandPath(), "invalid_arguments", "block-query is required only with the blocks trace info");
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "block-query is required only with the blocks trace info");
 			}
 			Map<String, Object> request = new LinkedHashMap<>();
 			request.put("infos", normalizedInfos);
 			request.put("windowTicks", windowTicks);
+			request.put("once", once);
 			if (hasEntityQuery) {
-				request.put("entityQuery", parseJsonObject(entityQueryJson, commandPath()));
+				request.put("entityQuery", parseJsonObject(entityQueryJson, COMMAND_PATH));
 			}
 			if (hasBlockQuery) {
-				request.put("blockQuery", parseJsonObject(blockQueryJson, commandPath()));
+				request.put("blockQuery", parseJsonObject(blockQueryJson, COMMAND_PATH));
 			}
-			return transport().startClientTickTrace(request);
+			Map<String, Object> startPayload = context.transport.startClientTickTrace(request);
+			Path outputPath = output.toAbsolutePath().normalize();
+			LinkedHashMap<String, Object> response = new LinkedHashMap<>(startPayload);
+			response.put("outputPath", outputPath.toString());
+			response.put("streaming", true);
+			try {
+				new ClientTickTraceJsonlStreamer(context.transport, OBJECT_MAPPER).stream(
+					outputPath,
+					startPayload,
+					once,
+					() -> context.printer.printSuccess(COMMAND_PATH, response)
+				);
+				return 0;
+			}
+			catch (java.io.IOException exception) {
+				throw new UncheckedIOException(exception);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new BridgeUnavailableException("trace_stream_interrupted", "The client tick trace stream was interrupted");
+			}
 		}
 
 		private List<String> normalizedInfos() {
@@ -901,7 +933,7 @@ public final class AiricraftCliMain {
 					? ""
 					: info.trim().toLowerCase(Locale.ROOT).replace('-', '_');
 				if (!SUPPORTED_INFOS.contains(value)) {
-					throw new CliUsageException(commandPath(), "invalid_arguments", "Unsupported trace info: " + info);
+					throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "Unsupported trace info: " + info);
 				}
 				if (!normalized.contains(value)) {
 					normalized.add(value);
@@ -911,43 +943,7 @@ public final class AiricraftCliMain {
 		}
 	}
 
-	@Command(name = "records", mixinStandardHelpOptions = true, description = "Read retained client tick trace records.")
-	private static final class AgentDebugTraceRecordsCommand extends BaseCommand {
-		@Option(names = "--trace-id", required = true, description = "Trace ID from trace start or status.")
-		private String traceId;
-
-		@Option(names = "--since-client-tick-id", description = "Only return records after this client tick ID.")
-		private Long sinceClientTickId;
-
-		@Option(names = "--limit", defaultValue = "32", description = "Maximum records to return, from 1 to 256.")
-		private int limit;
-
-		@Option(names = "--output-image-dir", description = "Write retained frame images to this directory.")
-		private Path outputImageDir;
-
-		private AgentDebugTraceRecordsCommand(CliContext context) {
-			super(context, "agent debug trace records");
-		}
-
-		@Override
-		Map<String, Object> runCommand() {
-			if (limit < 1 || limit > 256) {
-				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 256");
-			}
-			return prepareClientTickTraceRecords(
-				transport().listClientTickTraceRecords(
-					traceId,
-					sinceClientTickId,
-					limit,
-					outputImageDir != null
-				),
-				outputImageDir,
-				commandPath()
-			);
-		}
-	}
-
-	@Command(name = "stop", mixinStandardHelpOptions = true, description = "Stop a client tick trace and keep its retained records.")
+	@Command(name = "stop", mixinStandardHelpOptions = true, description = "Stop a client tick trace. The stream writes its final records before it exits.")
 	private static final class AgentDebugTraceStopCommand extends BaseCommand {
 		@Option(names = "--trace-id", required = true, description = "Trace ID from trace start or status.")
 		private String traceId;
@@ -2136,61 +2132,6 @@ public final class AiricraftCliMain {
 			}
 		}
 		return payload;
-	}
-
-	private static Map<String, Object> prepareClientTickTraceRecords(
-		Map<String, Object> source,
-		Path outputImageDir,
-		String commandPath
-	) {
-		Map<String, Object> payload = new LinkedHashMap<>(source);
-		if (!(payload.get("records") instanceof List<?> rawRecords)) {
-			return payload;
-		}
-		Path outputDir = outputImageDir == null ? null : outputImageDir.toAbsolutePath().normalize();
-		List<Map<String, Object>> records = new ArrayList<>();
-		for (Object rawRecord : rawRecords) {
-			Map<String, Object> record = mutableStringMap(rawRecord);
-			Map<String, Object> frame = mutableStringMap(record.get("frame"));
-			if (!frame.isEmpty()) {
-				Object encodedImage = frame.remove("imageBase64");
-				if (encodedImage instanceof String imageBase64 && !imageBase64.isBlank() && outputDir != null) {
-					try {
-						Object tickValue = record.get("clientTickId");
-						if (!(tickValue instanceof Number tickNumber)) {
-							throw new IllegalArgumentException("Missing clientTickId");
-						}
-						String fileName = String.format(Locale.ROOT, "tick-%020d.png", tickNumber.longValue());
-						Path outputPath = outputDir.resolve(fileName);
-						writeCapture(outputPath, java.util.Base64.getDecoder().decode(imageBase64));
-						frame.put("imageOutputPath", outputPath.toString());
-					}
-					catch (IllegalArgumentException exception) {
-						throw new CliUsageException(commandPath, "bridge_io_error", "Bridge returned invalid trace image data");
-					}
-				}
-				record.put("frame", frame);
-			}
-			records.add(record);
-		}
-		payload.put("records", records);
-		if (outputDir != null) {
-			payload.put("imageOutputDirectory", outputDir.toString());
-		}
-		return payload;
-	}
-
-	private static Map<String, Object> mutableStringMap(Object value) {
-		Map<String, Object> result = new LinkedHashMap<>();
-		if (!(value instanceof Map<?, ?> raw)) {
-			return result;
-		}
-		for (Map.Entry<?, ?> entry : raw.entrySet()) {
-			if (entry.getKey() instanceof String key) {
-				result.put(key, entry.getValue());
-			}
-		}
-		return result;
 	}
 
 	private static void requirePositivePauseEpoch(long pauseEpoch, String commandPath) {
