@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public final class ClientTickEntityQueryService {
 	public static final int DEFAULT_PAGE_LIMIT = 32;
@@ -50,48 +51,65 @@ public final class ClientTickEntityQueryService {
 		EntityQuery query
 	) {
 		ClientWorld world = ClientTickWorldQueryService.requireMatchingWorld(client, snapshot);
-		List<EntityObservation> observations = new ArrayList<>();
+		List<EntityCandidate> candidates = new ArrayList<>();
 		for (Entity entity : world.getEntities()) {
-			observations.add(observe(entity, client.player));
+			candidates.add(EntityCandidate.from(entity, query));
 		}
-		EntityPage page = select(observations, query, client.player.getId(), snapshot.player().position());
+		EntityPage<EntityCandidate> page = selectPage(candidates, query, client.player.getId(), snapshot.player().position());
+		List<EntityObservation> observations = observeSelected(
+			page.entities(),
+			candidate -> observe(candidate.entity(), client.player)
+		);
 		return new EntityQueryResult(
 			query,
-			observations.size(),
+			candidates.size(),
 			page.totalMatchCount(),
 			page.cursor(),
 			page.complete() ? null : page.cursor() + page.entities().size(),
 			page.complete(),
-			page.entities().stream().map(EntityObservation::payload).toList()
+			observations.stream().map(EntityObservation::payload).toList()
 		);
 	}
 
-	static EntityPage select(
+	static EntityPage<EntityObservation> select(
 		List<EntityObservation> observations,
 		EntityQuery query,
 		int selfEntityId,
 		ClientTickPlayerSnapshot.PositionSnapshot playerPosition
 	) {
-		if (observations == null) {
-			observations = List.of();
+		return selectPage(observations, query, selfEntityId, playerPosition);
+	}
+
+	static <S extends EntitySummary, T> List<T> observeSelected(List<S> selected, Function<S, T> observer) {
+		return selected.stream().map(observer).toList();
+	}
+
+	private static <T extends EntitySummary> EntityPage<T> selectPage(
+		List<T> entities,
+		EntityQuery query,
+		int selfEntityId,
+		ClientTickPlayerSnapshot.PositionSnapshot playerPosition
+	) {
+		if (entities == null) {
+			entities = List.of();
 		}
 		EntityQuery validQuery = query == null ? EntityQuery.all() : query;
 		double sortX = validQuery.radius() == null ? playerPosition.x() : validQuery.radius().x();
 		double sortY = validQuery.radius() == null ? playerPosition.y() : validQuery.radius().y();
 		double sortZ = validQuery.radius() == null ? playerPosition.z() : validQuery.radius().z();
-		List<EntityObservation> matches = observations.stream()
+		List<T> matches = entities.stream()
 			.filter(entity -> validQuery.includeSelf() || entity.entityId() != selfEntityId)
 			.filter(validQuery::matches)
 			.sorted(Comparator
-				.comparingDouble((EntityObservation entity) -> entity.squaredDistanceTo(sortX, sortY, sortZ))
-				.thenComparingInt(EntityObservation::entityId))
+				.comparingDouble((T entity) -> entity.squaredDistanceTo(sortX, sortY, sortZ))
+				.thenComparingInt(EntitySummary::entityId))
 			.toList();
 		if (validQuery.cursor() > matches.size()) {
 			throw new BridgeUnavailableException("invalid_request", "cursor is outside the entity result set");
 		}
 		int start = Math.toIntExact(validQuery.cursor());
 		int end = Math.min(matches.size(), start + validQuery.limit());
-		return new EntityPage(validQuery.cursor(), matches.size(), List.copyOf(matches.subList(start, end)));
+		return new EntityPage<>(validQuery.cursor(), matches.size(), List.copyOf(matches.subList(start, end)));
 	}
 
 	private static EntityObservation observe(Entity entity, Entity self) {
@@ -232,7 +250,7 @@ public final class ClientTickEntityQueryService {
 			return new EntityQuery(null, null, null, null, null, Set.of(), null, false, false, false, 0L, DEFAULT_PAGE_LIMIT);
 		}
 
-		boolean matches(EntityObservation entity) {
+		boolean matches(EntitySummary entity) {
 			if (region != null && !insideRegion(entity)) {
 				return false;
 			}
@@ -260,7 +278,7 @@ public final class ClientTickEntityQueryService {
 			return !playerOnly || entity.player();
 		}
 
-		private boolean insideRegion(EntityObservation entity) {
+		private boolean insideRegion(EntitySummary entity) {
 			return entity.x() >= region.minX()
 				&& entity.x() < (double) region.maxX() + 1.0D
 				&& entity.y() >= region.minY()
@@ -313,6 +331,66 @@ public final class ClientTickEntityQueryService {
 		}
 	}
 
+	interface EntitySummary {
+		int entityId();
+
+		String uuid();
+
+		String name();
+
+		String entityTypeId();
+
+		double x();
+
+		double y();
+
+		double z();
+
+		boolean alive();
+
+		boolean living();
+
+		boolean player();
+
+		default double squaredDistanceTo(double targetX, double targetY, double targetZ) {
+			double dx = x() - targetX;
+			double dy = y() - targetY;
+			double dz = z() - targetZ;
+			return dx * dx + dy * dy + dz * dz;
+		}
+	}
+
+	private record EntityCandidate(
+		Entity entity,
+		int entityId,
+		String uuid,
+		String name,
+		String entityTypeId,
+		double x,
+		double y,
+		double z,
+		boolean alive,
+		boolean living,
+		boolean player
+	) implements EntitySummary {
+		private static EntityCandidate from(Entity entity, EntityQuery query) {
+			EntityQuery validQuery = query == null ? EntityQuery.all() : query;
+			return new EntityCandidate(
+				entity,
+				entity.getId(),
+				validQuery.uuid() == null ? null : entity.getUuidAsString(),
+				validQuery.name() == null ? null : entity.getName().getString(),
+				validQuery.entityTypeIds().isEmpty() ? null : Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
+				entity.getX(),
+				entity.getY(),
+				entity.getZ(),
+				validQuery.alive() == null || entity.isAlive(),
+				validQuery.livingOnly() && entity instanceof LivingEntity,
+				validQuery.playerOnly() && entity instanceof PlayerEntity
+			);
+		}
+	}
+
 	record EntityObservation(
 		int entityId,
 		String uuid,
@@ -325,20 +403,13 @@ public final class ClientTickEntityQueryService {
 		boolean living,
 		boolean player,
 		Map<String, Object> payload
-	) {
+	) implements EntitySummary {
 		EntityObservation {
 			payload = Collections.unmodifiableMap(new LinkedHashMap<>(payload));
 		}
-
-		double squaredDistanceTo(double targetX, double targetY, double targetZ) {
-			double dx = x - targetX;
-			double dy = y - targetY;
-			double dz = z - targetZ;
-			return dx * dx + dy * dy + dz * dz;
-		}
 	}
 
-	record EntityPage(long cursor, int totalMatchCount, List<EntityObservation> entities) {
+	record EntityPage<T extends EntitySummary>(long cursor, int totalMatchCount, List<T> entities) {
 		boolean complete() {
 			return cursor + entities.size() >= totalMatchCount;
 		}

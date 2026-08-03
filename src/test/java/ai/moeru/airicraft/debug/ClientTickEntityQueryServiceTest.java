@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -119,6 +120,31 @@ class ClientTickEntityQueryServiceTest {
 
 		assertTrue(excluded.entities().isEmpty());
 		assertEquals(1, included.entities().size());
+	}
+
+	@Test
+	void materializesOnlyTheSelectedPageAfterFiltering() {
+		var observations = List.of(
+			observation(2, "item-2", "Item", "minecraft:item", 1.0D, 64.0D, 0.0D, true, false, false),
+			observation(3, "item-3", "Item", "minecraft:item", 2.0D, 64.0D, 0.0D, true, false, false),
+			observation(4, "sheep-4", "Sheep", "minecraft:sheep", 3.0D, 64.0D, 0.0D, true, true, false)
+		);
+		var query = new ClientTickEntityQueryService.EntityQuery(
+			null, null, null, null, null, Set.of("minecraft:sheep"), null, false, false, false, 0L, 1
+		);
+		var page = ClientTickEntityQueryService.select(observations, query, 1, PLAYER_POSITION);
+		var observationsBuilt = new AtomicInteger();
+
+		List<Integer> entityIds = ClientTickEntityQueryService.observeSelected(
+			page.entities(),
+			entity -> {
+				observationsBuilt.incrementAndGet();
+				return entity.entityId();
+			}
+		);
+
+		assertEquals(1, observationsBuilt.get());
+		assertEquals(List.of(4), entityIds);
 	}
 
 	@Test
