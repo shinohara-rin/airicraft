@@ -5,11 +5,13 @@
 	"client": [
 		"ClientPlayNetworkHandlerMixin",
 		"ClientPlayerInteractionManagerMixin",
+		"ClientPlayerInteractionManagerAccessor",
 		"ClientPlayerEntityAccessor",
 		"CraftingResultSlotMixin",
 		"GameRendererMixin",
 		"GameRendererPauseMixin",
 		"MessageHandlerMixin",
+		"MinecraftClientTickDebugMixin",
 		"SlotMixin"
 	],
 	"injectors": {

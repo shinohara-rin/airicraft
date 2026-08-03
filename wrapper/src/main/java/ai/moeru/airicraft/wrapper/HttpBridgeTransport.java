@@ -23,6 +23,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	private static final Duration VISION_REQUEST_TIMEOUT = Duration.ofSeconds(20);
 	private static final Duration DEBUG_COMPACTION_REQUEST_TIMEOUT = Duration.ofSeconds(45);
 	private static final Duration AGENT_TOOL_REQUEST_TIMEOUT = Duration.ofSeconds(305);
+	private static final Duration CLIENT_TICK_DEBUG_REQUEST_TIMEOUT = Duration.ofSeconds(15);
 	private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 	private static final TypeReference<LinkedHashMap<String, Object>> MAP_TYPE = new TypeReference<>() {
 	};
@@ -288,6 +289,69 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	@Override
 	public Map<String, Object> getAgentSession() {
 		return get("/v1/agent/session");
+	}
+
+	@Override
+	public Map<String, Object> getClientTickDebugState() {
+		return get("/v1/agent/debug/ticks/state");
+	}
+
+	@Override
+	public Map<String, Object> pauseClientTicks(boolean playerActions) {
+		return send("POST", "/v1/agent/debug/ticks/pause", Map.of("playerActions", playerActions));
+	}
+
+	@Override
+	public Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch) {
+		return send("POST", "/v1/agent/debug/ticks/step", Map.of(
+			"debugSessionId", debugSessionId,
+			"pauseEpoch", pauseEpoch
+		));
+	}
+
+	@Override
+	public Map<String, Object> continueClientTicks(String debugSessionId, long pauseEpoch) {
+		return send("POST", "/v1/agent/debug/ticks/continue", Map.of(
+			"debugSessionId", debugSessionId,
+			"pauseEpoch", pauseEpoch
+		));
+	}
+
+	@Override
+	public Map<String, Object> queryClientTickWorld(Map<String, Object> request) {
+		return send("POST", "/v1/agent/debug/world/query", request);
+	}
+
+	@Override
+	public Map<String, Object> getClientTickTraceStatus() {
+		return get("/v1/agent/debug/trace");
+	}
+
+	@Override
+	public Map<String, Object> startClientTickTrace(Map<String, Object> request) {
+		return send("POST", "/v1/agent/debug/trace/start", request);
+	}
+
+	@Override
+	public Map<String, Object> stopClientTickTrace(String traceId) {
+		return send("POST", "/v1/agent/debug/trace/stop", Map.of("traceId", traceId));
+	}
+
+	@Override
+	public Map<String, Object> listClientTickTraceRecords(
+		String traceId,
+		Long sinceClientTickId,
+		int limit,
+		boolean includeImageBytes
+	) {
+		Map<String, Object> request = new LinkedHashMap<>();
+		request.put("traceId", traceId);
+		if (sinceClientTickId != null) {
+			request.put("sinceClientTickId", sinceClientTickId);
+		}
+		request.put("limit", limit);
+		request.put("includeImageBytes", includeImageBytes);
+		return send("POST", "/v1/agent/debug/trace/records", request);
 	}
 
 	@Override
@@ -586,6 +650,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 			case "/v1/worlds/join", "/v1/servers/join", "/v1/evaluation/run" -> JOIN_REQUEST_TIMEOUT;
 			case "/v1/agent/debug/compact" -> DEBUG_COMPACTION_REQUEST_TIMEOUT;
 			case "/v1/agent/tools" -> AGENT_TOOL_REQUEST_TIMEOUT;
+			case "/v1/agent/debug/ticks/pause", "/v1/agent/debug/ticks/step", "/v1/agent/debug/trace/records" -> CLIENT_TICK_DEBUG_REQUEST_TIMEOUT;
 			default -> DEFAULT_REQUEST_TIMEOUT;
 		};
 	}

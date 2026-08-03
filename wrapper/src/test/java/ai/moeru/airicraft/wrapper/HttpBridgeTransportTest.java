@@ -297,6 +297,105 @@ class HttpBridgeTransportTest {
 	}
 
 	@Test
+	void getClientTickDebugStateUsesStateEndpoint(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/debug/ticks/state", 0, 200, """
+				{"available":true,"phase":"PAUSED","pauseEpoch":2,"clientTickId":40}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			Map<String, Object> payload = new HttpBridgeTransport().getClientTickDebugState();
+
+			assertEquals("PAUSED", payload.get("phase"));
+			assertEquals("GET", server.lastMethod("/v1/agent/debug/ticks/state"));
+		}
+	}
+
+	@Test
+	void stepClientTickPostsExactSessionIdentity(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/debug/ticks/step", 0, 200, """
+				{"available":true,"debugSessionId":"debug-1","pauseEpoch":3}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+
+			Map<String, Object> payload = new HttpBridgeTransport().stepClientTick("debug-1", 2L);
+
+			assertEquals(3, payload.get("pauseEpoch"));
+			assertEquals("POST", server.lastMethod("/v1/agent/debug/ticks/step"));
+			String requestBody = server.lastRequestBody("/v1/agent/debug/ticks/step");
+			assertTrue(requestBody.contains("\"debugSessionId\":\"debug-1\""));
+			assertTrue(requestBody.contains("\"pauseEpoch\":2"));
+		}
+	}
+
+	@Test
+	void queryClientTickWorldPostsTypedRegionRequest(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/debug/world/query", 0, 200, """
+				{"available":true,"snapshotId":"snapshot-2","blocks":[]}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+			Map<String, Object> request = new java.util.LinkedHashMap<>();
+			request.put("snapshotId", "snapshot-2");
+			request.put("operation", "scan_box");
+			request.put("minX", -4);
+			request.put("maxX", 8);
+
+			Map<String, Object> payload = new HttpBridgeTransport().queryClientTickWorld(request);
+
+			assertEquals("snapshot-2", payload.get("snapshotId"));
+			assertEquals("POST", server.lastMethod("/v1/agent/debug/world/query"));
+			assertEquals(
+				"{\"snapshotId\":\"snapshot-2\",\"operation\":\"scan_box\",\"minX\":-4,\"maxX\":8}",
+				server.lastRequestBody("/v1/agent/debug/world/query")
+			);
+		}
+	}
+
+	@Test
+	void clientTickTraceMethodsUseTypedBridgeEndpoints(@TempDir Path tempDir) throws Exception {
+		try (TestBridgeServer server = TestBridgeServer.start()) {
+			server.respondJson("/v1/agent/debug/trace", 0, 200, """
+				{"available":true,"active":false}
+				""");
+			server.respondJson("/v1/agent/debug/trace/start", 0, 200, """
+				{"available":true,"active":true,"traceId":"trace-1"}
+				""");
+			server.respondJson("/v1/agent/debug/trace/records", 0, 200, """
+				{"available":true,"traceId":"trace-1","records":[]}
+				""");
+			server.respondJson("/v1/agent/debug/trace/stop", 0, 200, """
+				{"available":true,"active":false,"traceId":"trace-1"}
+				""");
+			writeBridgeState(tempDir, server.port());
+			System.setProperty("user.home", tempDir.toString());
+			HttpBridgeTransport transport = new HttpBridgeTransport();
+			Map<String, Object> startRequest = new java.util.LinkedHashMap<>();
+			startRequest.put("infos", java.util.List.of("metadata", "player_state"));
+			startRequest.put("windowTicks", 40);
+			startRequest.put("once", true);
+
+			assertEquals(false, transport.getClientTickTraceStatus().get("active"));
+			assertEquals("trace-1", transport.startClientTickTrace(startRequest).get("traceId"));
+			assertEquals(
+				"{\"infos\":[\"metadata\",\"player_state\"],\"windowTicks\":40,\"once\":true}",
+				server.lastRequestBody("/v1/agent/debug/trace/start")
+			);
+			transport.listClientTickTraceRecords("trace-1", 20L, 8, true);
+			assertEquals(
+				"{\"traceId\":\"trace-1\",\"sinceClientTickId\":20,\"limit\":8,\"includeImageBytes\":true}",
+				server.lastRequestBody("/v1/agent/debug/trace/records")
+			);
+			assertEquals(false, transport.stopClientTickTrace("trace-1").get("active"));
+			assertEquals("{\"traceId\":\"trace-1\"}", server.lastRequestBody("/v1/agent/debug/trace/stop"));
+		}
+	}
+
+	@Test
 	void openAgentSessionLanPostsPayload(@TempDir Path tempDir) throws Exception {
 		try (TestBridgeServer server = TestBridgeServer.start()) {
 			server.respondJson("/v1/agent/session/open-lan", 0, 200, """

@@ -316,6 +316,338 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void clientTickPauseSavesFrameAndRendersSnapshotIdentity(@TempDir Path tempDir) throws Exception {
+		TestTransport transport = new TestTransport();
+		transport.clientTickDebugPausePayload = linkedMap(
+			"available", true,
+			"debugSessionId", "debug-1",
+			"pauseEpoch", 1L,
+			"captureId", "capture-1",
+			"snapshotId", "snapshot-1",
+			"clientTickId", 44L,
+			"snapshot", linkedMap(
+				"capturedAtMs", 100L,
+				"dimensionId", "minecraft:overworld",
+				"worldTime", 200L,
+				"timeOfDay", 200L,
+				"player", linkedMap("blockX", 1, "blockY", 64, "blockZ", 2),
+				"playerActions", linkedMap(
+					"actions", List.of(linkedMap("action", "attack", "pressed", true, "started", true)),
+					"breakProgress", linkedMap("position", linkedMap("x", 1, "y", 64, "z", 2), "progress", 0.6, "stage", 6, "started", true)
+				),
+				"plannerGeneration", 7L,
+				"plannerPhase", "IDLE"
+			),
+			"frame", linkedMap("status", "CAPTURED", "format", "png", "width", 854, "height", 480),
+			"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3})
+		);
+		Path output = tempDir.resolve("pause.png");
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "ticks", "pause", "--player-actions", "--output-image", output.toString()
+		);
+
+		assertEquals(0, result.exitCode());
+		assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(output));
+		assertTrue(result.output().contains("snapshotId: snapshot-1\n"));
+		assertTrue(result.output().contains("clientTickId: 44\n"));
+		assertTrue(result.output().contains("action: attack\n"));
+		assertTrue(result.output().contains("stage: 6\n"));
+		assertTrue(result.output().contains("imageOutputPath: " + output + "\n"));
+		assertTrue(transport.lastClientTickDebugPlayerActions);
+	}
+
+	@Test
+	void clientTickStepPassesExactSessionAndPauseEpoch() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickDebugStepPayload = linkedMap(
+			"available", true,
+			"debugSessionId", "debug-1",
+			"pauseEpoch", 3L,
+			"snapshotId", "snapshot-3",
+			"clientTickId", 46L,
+			"snapshot", Map.of(),
+			"frame", linkedMap("status", "CAPTURED")
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "ticks", "step",
+			"--debug-session-id", "debug-1",
+			"--pause-epoch", "2"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("debug-1", transport.lastClientTickDebugSessionId);
+		assertEquals(2L, transport.lastClientTickDebugPauseEpoch);
+		assertFalse(result.output().contains("imageBase64"));
+	}
+
+	@Test
+	void clientTickTraceStartBuildsSelectedQueriesAndWindow(@TempDir Path tempDir) {
+		TestTransport transport = new TestTransport();
+		transport.clientTickTraceStartPayload = linkedMap(
+			"active", true,
+			"traceId", "trace-1",
+			"startedClientTickId", 40L,
+			"windowTicks", 100
+		);
+		transport.clientTickTraceRecordsPayload = linkedMap(
+			"active", false,
+			"complete", true,
+			"records", List.of()
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "metadata,player-state,player-actions,entities,frame",
+			"--window-ticks", "100",
+			"--output", tempDir.resolve("trace.jsonl").toString(),
+			"--entity-query", "{\"radius\":16,\"entityTypeIds\":[\"minecraft:zombie\"],\"limit\":12}"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals(
+			List.of("metadata", "player_state", "player_actions", "entities", "frame"),
+			transport.lastClientTickTraceStartRequest.get("infos")
+		);
+		assertEquals(100, transport.lastClientTickTraceStartRequest.get("windowTicks"));
+		assertEquals(false, transport.lastClientTickTraceStartRequest.get("once"));
+		Map<String, Object> entityQuery = castMap(transport.lastClientTickTraceStartRequest.get("entityQuery"));
+		assertEquals(16, entityQuery.get("radius"));
+		assertEquals(List.of("minecraft:zombie"), entityQuery.get("entityTypeIds"));
+		assertEquals(12, entityQuery.get("limit"));
+	}
+
+	@Test
+	void clientTickTraceStartRequiresBlockQueryForBlockRecords() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "blocks",
+			"--window-ticks", "20",
+			"--output", "trace.jsonl"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
+		assertTrue(transport.lastClientTickTraceStartRequest == null);
+	}
+
+	@Test
+	void clientTickTraceStartRejectsLargeFrameWindow() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "frame",
+			"--window-ticks", "201",
+			"--output", "trace.jsonl"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("window-ticks must not exceed 200 with frame tracing"));
+	}
+
+	@Test
+	void clientTickTraceStartStreamsJsonLinesAndFrames(@TempDir Path tempDir) throws Exception {
+		TestTransport transport = new TestTransport();
+		transport.clientTickTraceStartPayload = linkedMap(
+			"active", true,
+			"traceId", "trace-1",
+			"startedClientTickId", 40L,
+			"windowTicks", 2,
+			"once", true
+		);
+		transport.clientTickTraceRecordsPayload = linkedMap(
+			"traceId", "trace-1",
+			"active", false,
+			"complete", true,
+			"records", List.of(linkedMap(
+				"clientTickId", 42L,
+				"frame", linkedMap(
+					"status", "CAPTURED",
+					"format", "png",
+					"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[]{7, 8, 9})
+				)
+			))
+		);
+		Path output = tempDir.resolve("trace.jsonl");
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "start",
+			"--info", "frame",
+			"--window-ticks", "2",
+			"--once",
+			"--output", output.toString()
+		);
+
+		List<String> lines = Files.readAllLines(output, StandardCharsets.UTF_8);
+		assertEquals(0, result.exitCode());
+		assertEquals(3, lines.size());
+		assertTrue(lines.getFirst().contains("\"event\":\"trace_start\""));
+		assertTrue(lines.get(1).contains("\"event\":\"trace_record\""));
+		assertTrue(lines.get(1).contains("\"imageBase64\":\"BwgJ\""));
+		assertTrue(lines.getLast().contains("\"event\":\"trace_end\""));
+		assertEquals("trace-1", transport.lastClientTickTraceId);
+		assertEquals(40L, transport.lastClientTickTraceSince);
+		assertEquals(256, transport.lastClientTickTraceLimit);
+		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
+		assertEquals(true, transport.lastClientTickTraceStartRequest.get("once"));
+		assertFalse(result.output().contains("imageBase64"));
+	}
+
+	@Test
+	void clientTickTraceDoesNotExposeARecordsCommand() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "trace", "records",
+			"--trace-id", "trace-1"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertEquals(null, transport.lastClientTickTraceId);
+	}
+
+	@Test
+	void clientTickWorldScanBoxBuildsBoundedRegionRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "blocks", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "scan-box",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "-10", "--min-y", "60", "--min-z", "20",
+			"--max-x", "10", "--max-y", "70", "--max-z", "40",
+			"--cursor", "100", "--limit", "512"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
+		assertEquals("scan_box", transport.lastClientTickWorldQuery.get("operation"));
+		assertEquals(-10, transport.lastClientTickWorldQuery.get("minX"));
+		assertEquals(40, transport.lastClientTickWorldQuery.get("maxZ"));
+		assertEquals(100L, transport.lastClientTickWorldQuery.get("cursor"));
+		assertEquals(512, transport.lastClientTickWorldQuery.get("limit"));
+	}
+
+	@Test
+	void clientTickWorldPlayerStateBuildsSnapshotRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "player", Map.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "player-state",
+			"--snapshot-id", "snapshot-3"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
+		assertEquals("player_state", transport.lastClientTickWorldQuery.get("operation"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesBuildsRadiusAndFilterRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--radius", "16",
+			"--name", "Sheep",
+			"--entity-type-id", "minecraft:sheep,minecraft:cow",
+			"--alive=false",
+			"--living-only",
+			"--include-self",
+			"--cursor", "4",
+			"--limit", "5"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals("entities", transport.lastClientTickWorldQuery.get("operation"));
+		assertEquals(16.0D, transport.lastClientTickWorldQuery.get("radius"));
+		assertFalse(transport.lastClientTickWorldQuery.containsKey("centerX"));
+		assertEquals("Sheep", transport.lastClientTickWorldQuery.get("name"));
+		assertEquals(List.of("minecraft:sheep", "minecraft:cow"), transport.lastClientTickWorldQuery.get("entityTypeIds"));
+		assertEquals(false, transport.lastClientTickWorldQuery.get("alive"));
+		assertEquals(true, transport.lastClientTickWorldQuery.get("livingOnly"));
+		assertEquals(true, transport.lastClientTickWorldQuery.get("includeSelf"));
+		assertEquals(4L, transport.lastClientTickWorldQuery.get("cursor"));
+		assertEquals(5, transport.lastClientTickWorldQuery.get("limit"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesBuildsRegionAndIdentityRequest() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "-2", "--min-y", "60", "--min-z", "-3",
+			"--max-x", "2", "--max-y", "70", "--max-z", "3",
+			"--entity-id", "42",
+			"--uuid", "entity-42"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertEquals(-2, transport.lastClientTickWorldQuery.get("minX"));
+		assertEquals(3, transport.lastClientTickWorldQuery.get("maxZ"));
+		assertEquals(42, transport.lastClientTickWorldQuery.get("entityId"));
+		assertEquals("entity-42", transport.lastClientTickWorldQuery.get("uuid"));
+	}
+
+	@Test
+	void clientTickWorldEntitiesRejectsPartialRegion() {
+		TestTransport transport = new TestTransport();
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "entities",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "0"
+		);
+
+		assertEquals(2, result.exitCode());
+		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
+		assertTrue(transport.lastClientTickWorldQuery == null);
+	}
+
+	@Test
+	void clientTickWorldFindBlocksUsesMatchItemLabel() {
+		TestTransport transport = new TestTransport();
+		transport.clientTickWorldQueryPayload = linkedMap(
+			"matches", List.of(linkedMap("id", "minecraft:stone"))
+		);
+
+		CliResult result = execute(
+			transport,
+			"agent", "debug", "world", "find-blocks",
+			"--snapshot-id", "snapshot-3",
+			"--min-x", "0", "--min-y", "0", "--min-z", "0",
+			"--max-x", "0", "--max-y", "0", "--max-z", "0",
+			"--block-id", "minecraft:stone"
+		);
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("[match 1]\n"));
+		assertFalse(result.output().contains("[matche 1]\n"));
+	}
+
+	@Test
 	void agentGoalsShowsActiveDirectJobFailure() {
 		TestTransport transport = new TestTransport();
 		transport.agentGoalsPayload = linkedMap(
@@ -1428,6 +1760,11 @@ class AiricraftCliMainTest {
 		return map;
 	}
 
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> castMap(Object value) {
+		return (Map<String, Object>) value;
+	}
+
 	private static Map<String, Object> actionGoalPayload(String executionId, String state) {
 		return linkedMap(
 			"available", true,
@@ -1463,6 +1800,16 @@ class AiricraftCliMainTest {
 		private Map<String, Object> agentDialoguePayload = Map.of();
 		private Map<String, Object> agentDebugStatePayload = Map.of();
 		private Map<String, Object> agentDebugTimelinePayload = Map.of("entries", List.of());
+		private Map<String, Object> clientTickDebugStatePayload = Map.of();
+		private Map<String, Object> clientTickDebugPausePayload = Map.of();
+		private boolean lastClientTickDebugPlayerActions;
+		private Map<String, Object> clientTickDebugStepPayload = Map.of();
+		private Map<String, Object> clientTickDebugContinuePayload = Map.of();
+		private Map<String, Object> clientTickWorldQueryPayload = Map.of();
+		private Map<String, Object> clientTickTraceStatusPayload = Map.of();
+		private Map<String, Object> clientTickTraceStartPayload = Map.of();
+		private Map<String, Object> clientTickTraceStopPayload = Map.of();
+		private Map<String, Object> clientTickTraceRecordsPayload = Map.of("records", List.of());
 		private Map<String, Object> agentDebugChatPayload = Map.of();
 		private Map<String, Object> agentDebugIdleTriggerPayload = Map.of();
 		private Map<String, Object> agentContextPayload = Map.of();
@@ -1527,6 +1874,14 @@ class AiricraftCliMainTest {
 		private String lastActionFactClearWorldId;
 		private String lastDebugChatMessage;
 		private Long lastDebugTimelineSince;
+		private String lastClientTickDebugSessionId;
+		private Long lastClientTickDebugPauseEpoch;
+		private Map<String, Object> lastClientTickWorldQuery;
+		private Map<String, Object> lastClientTickTraceStartRequest;
+		private String lastClientTickTraceId;
+		private Long lastClientTickTraceSince;
+		private int lastClientTickTraceLimit;
+		private boolean lastClientTickTraceIncludeImageBytes;
 		private String lastAttackEntityUuid;
 		private String lastAttackEntityName;
 		private String lastAttackEntityTypeId;
@@ -1745,6 +2100,68 @@ class AiricraftCliMainTest {
 		public Map<String, Object> listAgentDebugTimeline(Long sinceEntryId) {
 			lastDebugTimelineSince = sinceEntryId;
 			return agentDebugTimelinePayload;
+		}
+
+		@Override
+		public Map<String, Object> getClientTickDebugState() {
+			return clientTickDebugStatePayload;
+		}
+
+		@Override
+		public Map<String, Object> pauseClientTicks(boolean playerActions) {
+			lastClientTickDebugPlayerActions = playerActions;
+			return clientTickDebugPausePayload;
+		}
+
+		@Override
+		public Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch) {
+			lastClientTickDebugSessionId = debugSessionId;
+			lastClientTickDebugPauseEpoch = pauseEpoch;
+			return clientTickDebugStepPayload;
+		}
+
+		@Override
+		public Map<String, Object> continueClientTicks(String debugSessionId, long pauseEpoch) {
+			lastClientTickDebugSessionId = debugSessionId;
+			lastClientTickDebugPauseEpoch = pauseEpoch;
+			return clientTickDebugContinuePayload;
+		}
+
+		@Override
+		public Map<String, Object> queryClientTickWorld(Map<String, Object> request) {
+			lastClientTickWorldQuery = request;
+			return clientTickWorldQueryPayload;
+		}
+
+		@Override
+		public Map<String, Object> getClientTickTraceStatus() {
+			return clientTickTraceStatusPayload;
+		}
+
+		@Override
+		public Map<String, Object> startClientTickTrace(Map<String, Object> request) {
+			lastClientTickTraceStartRequest = request;
+			return clientTickTraceStartPayload;
+		}
+
+		@Override
+		public Map<String, Object> stopClientTickTrace(String traceId) {
+			lastClientTickTraceId = traceId;
+			return clientTickTraceStopPayload;
+		}
+
+		@Override
+		public Map<String, Object> listClientTickTraceRecords(
+			String traceId,
+			Long sinceClientTickId,
+			int limit,
+			boolean includeImageBytes
+		) {
+			lastClientTickTraceId = traceId;
+			lastClientTickTraceSince = sinceClientTickId;
+			lastClientTickTraceLimit = limit;
+			lastClientTickTraceIncludeImageBytes = includeImageBytes;
+			return clientTickTraceRecordsPayload;
 		}
 
 		@Override

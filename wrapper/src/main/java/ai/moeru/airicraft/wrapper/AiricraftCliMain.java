@@ -99,6 +99,26 @@ public final class AiricraftCliMain {
 		agentDebug.addSubcommand(new AgentDebugIdleTriggerCommand(context));
 		agentDebug.addSubcommand(new AgentDebugStateCommand(context));
 		agentDebug.addSubcommand(new AgentDebugTimelineCommand(context));
+		agentDebug.addSubcommand("ticks", new UsageCommand(out, "airicraft agent debug ticks", "Client tick debug commands"));
+		CommandLine agentDebugTicks = agentDebug.getSubcommands().get("ticks");
+		agentDebugTicks.addSubcommand(new AgentDebugTicksStateCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksPauseCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksStepCommand(context));
+		agentDebugTicks.addSubcommand(new AgentDebugTicksContinueCommand(context));
+		agentDebug.addSubcommand("trace", new UsageCommand(out, "airicraft agent debug trace", "Continuous client tick trace commands"));
+		CommandLine agentDebugTrace = agentDebug.getSubcommands().get("trace");
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStatusCommand(context));
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStartCommand(context));
+		agentDebugTrace.addSubcommand(new AgentDebugTraceStopCommand(context));
+		agentDebug.addSubcommand("world", new UsageCommand(out, "airicraft agent debug world", "Paused world snapshot queries"));
+		CommandLine agentDebugWorld = agentDebug.getSubcommands().get("world");
+		agentDebugWorld.addSubcommand(new AgentDebugWorldMetadataCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldPlayerStateCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldEntitiesCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldGetBlockCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldScanBoxCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldFindBlocksCommand(context));
+		agentDebugWorld.addSubcommand(new AgentDebugWorldRegionStatsCommand(context));
 		agent.addSubcommand(new AgentContextCommand(context));
 		agent.addSubcommand(new AgentCompactCommand(context));
 		agent.addSubcommand(new AgentEventPolicyCommand(context));
@@ -722,6 +742,499 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.agentDebugTimeline(transport().listAgentDebugTimeline(since), verbose());
+		}
+	}
+
+	@Command(name = "state", mixinStandardHelpOptions = true, description = "Inspect the client tick debug state.")
+	private static final class AgentDebugTicksStateCommand extends BaseCommand {
+		private AgentDebugTicksStateCommand(CliContext context) {
+			super(context, "agent debug ticks state");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.clientTickDebugStatus(transport().getClientTickDebugState());
+		}
+	}
+
+	@Command(name = "pause", mixinStandardHelpOptions = true, description = "Pause client ticks and capture the current client frame.")
+	private static final class AgentDebugTicksPauseCommand extends BaseCommand {
+		@Option(names = "--output-image", description = "Write the captured client frame to this path.")
+		private Path outputImage;
+
+		@Option(names = "--player-actions", description = "Capture player actions and block break progress in this pause session.")
+		private boolean playerActions;
+
+		private AgentDebugTicksPauseCommand(CliContext context) {
+			super(context, "agent debug ticks pause");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return PayloadViews.clientTickDebugCapture(
+				prepareClientTickCapture(transport().pauseClientTicks(playerActions), outputImage, commandPath()),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "step", mixinStandardHelpOptions = true, description = "Run one client tick and capture its first rendered frame.")
+	private static final class AgentDebugTicksStepCommand extends BaseCommand {
+		@Option(names = "--debug-session-id", required = true, description = "Debug session ID from the last pause or step response.")
+		private String debugSessionId;
+
+		@Option(names = "--pause-epoch", required = true, description = "Pause epoch from the last pause or step response.")
+		private long pauseEpoch;
+
+		@Option(names = "--output-image", description = "Write the captured client frame to this path.")
+		private Path outputImage;
+
+		private AgentDebugTicksStepCommand(CliContext context) {
+			super(context, "agent debug ticks step");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requirePositivePauseEpoch(pauseEpoch, commandPath());
+			return PayloadViews.clientTickDebugCapture(
+				prepareClientTickCapture(
+					transport().stepClientTick(debugSessionId, pauseEpoch),
+					outputImage,
+					commandPath()
+				),
+				verbose()
+			);
+		}
+	}
+
+	@Command(name = "continue", mixinStandardHelpOptions = true, description = "Continue normal client ticks.")
+	private static final class AgentDebugTicksContinueCommand extends BaseCommand {
+		@Option(names = "--debug-session-id", required = true, description = "Debug session ID from the last pause or step response.")
+		private String debugSessionId;
+
+		@Option(names = "--pause-epoch", required = true, description = "Pause epoch from the last pause or step response.")
+		private long pauseEpoch;
+
+		private AgentDebugTicksContinueCommand(CliContext context) {
+			super(context, "agent debug ticks continue");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			requirePositivePauseEpoch(pauseEpoch, commandPath());
+			return PayloadViews.clientTickDebugStatus(
+				transport().continueClientTicks(debugSessionId, pauseEpoch)
+			);
+		}
+	}
+
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Inspect the continuous client tick trace state.")
+	private static final class AgentDebugTraceStatusCommand extends BaseCommand {
+		private AgentDebugTraceStatusCommand(CliContext context) {
+			super(context, "agent debug trace status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().getClientTickTraceStatus();
+		}
+	}
+
+	@Command(name = "start", mixinStandardHelpOptions = true, description = "Start a client tick trace and stream it to a JSON Lines file.")
+	private static final class AgentDebugTraceStartCommand implements Callable<Integer> {
+		private static final List<String> SUPPORTED_INFOS = List.of(
+			"metadata", "player_state", "player_actions", "entities", "blocks", "frame"
+		);
+		private static final String COMMAND_PATH = "agent debug trace start";
+
+		private final CliContext context;
+
+		@Option(
+			names = "--info",
+			required = true,
+			split = ",",
+			description = "Trace info names: metadata, player-state, player-actions, entities, blocks, or frame. Repeat or use commas."
+		)
+		private List<String> infos;
+
+		@Option(names = "--window-ticks", required = true, description = "Trace span from 1 to 1200 client ticks. Frame traces allow at most 200 ticks.")
+		private int windowTicks;
+
+		@Option(names = "--once", description = "Stop automatically after window-ticks records.")
+		private boolean once;
+
+		@Option(names = "--output", required = true, description = "Path to write the JSON Lines trace file.")
+		private Path output;
+
+		@Option(names = "--verbose", description = "Include additional detail where supported.")
+		private boolean verbose;
+
+		@Option(names = "--entity-query", description = "Entity query JSON. An omitted radius center follows the captured player each tick.")
+		private String entityQueryJson;
+
+		@Option(names = "--block-query", description = "Block region JSON with minX, minY, minZ, maxX, maxY, and maxZ.")
+		private String blockQueryJson;
+
+		private AgentDebugTraceStartCommand(CliContext context) {
+			this.context = context;
+		}
+
+		@Override
+		public Integer call() {
+			List<String> normalizedInfos = normalizedInfos();
+			if (windowTicks < 1 || windowTicks > 1_200) {
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "window-ticks must be between 1 and 1200");
+			}
+			if (normalizedInfos.contains("frame") && windowTicks > 200) {
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "window-ticks must not exceed 200 with frame tracing");
+			}
+			boolean hasEntityQuery = entityQueryJson != null && !entityQueryJson.isBlank();
+			boolean hasBlockQuery = blockQueryJson != null && !blockQueryJson.isBlank();
+			if (hasEntityQuery && !normalizedInfos.contains("entities")) {
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "entity-query requires the entities trace info");
+			}
+			if (normalizedInfos.contains("blocks") != hasBlockQuery) {
+				throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "block-query is required only with the blocks trace info");
+			}
+			Map<String, Object> request = new LinkedHashMap<>();
+			request.put("infos", normalizedInfos);
+			request.put("windowTicks", windowTicks);
+			request.put("once", once);
+			if (hasEntityQuery) {
+				request.put("entityQuery", parseJsonObject(entityQueryJson, COMMAND_PATH));
+			}
+			if (hasBlockQuery) {
+				request.put("blockQuery", parseJsonObject(blockQueryJson, COMMAND_PATH));
+			}
+			Map<String, Object> startPayload = context.transport.startClientTickTrace(request);
+			Path outputPath = output.toAbsolutePath().normalize();
+			LinkedHashMap<String, Object> response = new LinkedHashMap<>(startPayload);
+			response.put("outputPath", outputPath.toString());
+			response.put("streaming", true);
+			try {
+				new ClientTickTraceJsonlStreamer(context.transport, OBJECT_MAPPER).stream(
+					outputPath,
+					startPayload,
+					once,
+					() -> context.printer.printSuccess(COMMAND_PATH, response)
+				);
+				return 0;
+			}
+			catch (java.io.IOException exception) {
+				throw new UncheckedIOException(exception);
+			}
+			catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				throw new BridgeUnavailableException("trace_stream_interrupted", "The client tick trace stream was interrupted");
+			}
+		}
+
+		private List<String> normalizedInfos() {
+			List<String> normalized = new ArrayList<>();
+			for (String info : infos) {
+				String value = info == null
+					? ""
+					: info.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+				if (!SUPPORTED_INFOS.contains(value)) {
+					throw new CliUsageException(COMMAND_PATH, "invalid_arguments", "Unsupported trace info: " + info);
+				}
+				if (!normalized.contains(value)) {
+					normalized.add(value);
+				}
+			}
+			return List.copyOf(normalized);
+		}
+	}
+
+	@Command(name = "stop", mixinStandardHelpOptions = true, description = "Stop a client tick trace. The stream writes its final records before it exits.")
+	private static final class AgentDebugTraceStopCommand extends BaseCommand {
+		@Option(names = "--trace-id", required = true, description = "Trace ID from trace start or status.")
+		private String traceId;
+
+		private AgentDebugTraceStopCommand(CliContext context) {
+			super(context, "agent debug trace stop");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().stopClientTickTrace(traceId);
+		}
+	}
+
+	private abstract static class AgentDebugWorldSnapshotCommand extends BaseCommand {
+		@Option(names = "--snapshot-id", required = true, description = "World snapshot ID from the last pause or step response.")
+		private String snapshotId;
+
+		private AgentDebugWorldSnapshotCommand(CliContext context, String commandPath) {
+			super(context, commandPath);
+		}
+
+		final Map<String, Object> baseRequest(String operation) {
+			Map<String, Object> request = new LinkedHashMap<>();
+			request.put("snapshotId", snapshotId);
+			request.put("operation", operation);
+			return request;
+		}
+	}
+
+	@Command(name = "metadata", mixinStandardHelpOptions = true, description = "Get metadata for a paused world snapshot.")
+	private static final class AgentDebugWorldMetadataCommand extends AgentDebugWorldSnapshotCommand {
+		private AgentDebugWorldMetadataCommand(CliContext context) {
+			super(context, "agent debug world metadata");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(baseRequest("metadata"));
+		}
+	}
+
+	@Command(name = "player-state", mixinStandardHelpOptions = true, description = "Get the full player state captured at a paused client tick.")
+	private static final class AgentDebugWorldPlayerStateCommand extends AgentDebugWorldSnapshotCommand {
+		private AgentDebugWorldPlayerStateCommand(CliContext context) {
+			super(context, "agent debug world player-state");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(baseRequest("player_state"));
+		}
+	}
+
+	@Command(name = "entities", mixinStandardHelpOptions = true, description = "Query loaded entities by region, radius, identity, name, type, and state.")
+	private static final class AgentDebugWorldEntitiesCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--min-x", description = "Inclusive minimum block X for a region query.")
+		private Integer minX;
+
+		@Option(names = "--min-y", description = "Inclusive minimum block Y for a region query.")
+		private Integer minY;
+
+		@Option(names = "--min-z", description = "Inclusive minimum block Z for a region query.")
+		private Integer minZ;
+
+		@Option(names = "--max-x", description = "Inclusive maximum block X for a region query.")
+		private Integer maxX;
+
+		@Option(names = "--max-y", description = "Inclusive maximum block Y for a region query.")
+		private Integer maxY;
+
+		@Option(names = "--max-z", description = "Inclusive maximum block Z for a region query.")
+		private Integer maxZ;
+
+		@Option(names = "--center-x", description = "Radius center X. Omit all center coordinates to use the captured player position.")
+		private Double centerX;
+
+		@Option(names = "--center-y", description = "Radius center Y. Omit all center coordinates to use the captured player position.")
+		private Double centerY;
+
+		@Option(names = "--center-z", description = "Radius center Z. Omit all center coordinates to use the captured player position.")
+		private Double centerZ;
+
+		@Option(names = "--radius", description = "Three-dimensional radius from 0 to 4096 blocks.")
+		private Double radius;
+
+		@Option(names = "--entity-id", description = "Exact runtime entity ID.")
+		private Integer entityId;
+
+		@Option(names = "--uuid", description = "Exact entity UUID.")
+		private String uuid;
+
+		@Option(names = "--name", description = "Exact visible entity name. Matching ignores letter case.")
+		private String name;
+
+		@Option(names = {"--entity-type-id", "--type"}, split = ",", description = "Exact namespaced entity type ID. Repeat this option or use commas.")
+		private List<String> entityTypeIds;
+
+		@Option(names = "--alive", arity = "0..1", fallbackValue = "true", description = "Filter by entity alive state. Use --living-only to select living entities.")
+		private Boolean alive;
+
+		@Option(names = "--living-only", description = "Only return living entities.")
+		private boolean livingOnly;
+
+		@Option(names = "--player-only", description = "Only return player entities.")
+		private boolean playerOnly;
+
+		@Option(names = "--include-self", description = "Include the local player in results.")
+		private boolean includeSelf;
+
+		@Option(names = "--cursor", defaultValue = "0", description = "Zero-based cursor in the filtered entity result.")
+		private long cursor;
+
+		@Option(names = "--limit", defaultValue = "32", description = "Maximum entities to return, from 1 to 256.")
+		private int limit;
+
+		private AgentDebugWorldEntitiesCommand(CliContext context) {
+			super(context, "agent debug world entities");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			validateSpatialSelector();
+			if (cursor < 0L) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "cursor must not be negative");
+			}
+			if (limit < 1 || limit > 256) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 256");
+			}
+			if (radius != null && (!Double.isFinite(radius) || radius < 0.0D || radius > 4_096.0D)) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "radius must be between 0 and 4096");
+			}
+			Map<String, Object> request = baseRequest("entities");
+			putIfNonNull(request, "minX", minX);
+			putIfNonNull(request, "minY", minY);
+			putIfNonNull(request, "minZ", minZ);
+			putIfNonNull(request, "maxX", maxX);
+			putIfNonNull(request, "maxY", maxY);
+			putIfNonNull(request, "maxZ", maxZ);
+			putIfNonNull(request, "centerX", centerX);
+			putIfNonNull(request, "centerY", centerY);
+			putIfNonNull(request, "centerZ", centerZ);
+			putIfNonNull(request, "radius", radius);
+			putIfNonNull(request, "entityId", entityId);
+			putIfPresent(request, "uuid", uuid);
+			putIfPresent(request, "name", name);
+			if (entityTypeIds != null && !entityTypeIds.isEmpty()) {
+				request.put("entityTypeIds", entityTypeIds);
+			}
+			putIfNonNull(request, "alive", alive);
+			request.put("livingOnly", livingOnly);
+			request.put("playerOnly", playerOnly);
+			request.put("includeSelf", includeSelf);
+			request.put("cursor", cursor);
+			request.put("limit", limit);
+			return transport().queryClientTickWorld(request);
+		}
+
+		private void validateSpatialSelector() {
+			int regionCount = countNonNull(minX, minY, minZ, maxX, maxY, maxZ);
+			if (regionCount != 0 && regionCount != 6) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide all six region coordinates");
+			}
+			int centerCount = countNonNull(centerX, centerY, centerZ);
+			if (centerCount != 0 && centerCount != 3) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide all three radius center coordinates");
+			}
+			if (centerCount > 0 && radius == null) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Provide --radius with center coordinates");
+			}
+			if (regionCount > 0 && radius != null) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "Use either region or radius, not both");
+			}
+		}
+	}
+
+	@Command(name = "get-block", mixinStandardHelpOptions = true, description = "Get one block from a paused world snapshot.")
+	private static final class AgentDebugWorldGetBlockCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--x", required = true)
+		private int x;
+
+		@Option(names = "--y", required = true)
+		private int y;
+
+		@Option(names = "--z", required = true)
+		private int z;
+
+		private AgentDebugWorldGetBlockCommand(CliContext context) {
+			super(context, "agent debug world get-block");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			Map<String, Object> request = baseRequest("get_block");
+			request.put("x", x);
+			request.put("y", y);
+			request.put("z", z);
+			return transport().queryClientTickWorld(request);
+		}
+	}
+
+	private abstract static class AgentDebugWorldRegionCommand extends AgentDebugWorldSnapshotCommand {
+		@Option(names = "--min-x", required = true)
+		private int minX;
+
+		@Option(names = "--min-y", required = true)
+		private int minY;
+
+		@Option(names = "--min-z", required = true)
+		private int minZ;
+
+		@Option(names = "--max-x", required = true)
+		private int maxX;
+
+		@Option(names = "--max-y", required = true)
+		private int maxY;
+
+		@Option(names = "--max-z", required = true)
+		private int maxZ;
+
+		@Option(names = "--cursor", defaultValue = "0", description = "Zero-based region cursor.")
+		private long cursor;
+
+		@Option(names = "--limit", defaultValue = "256", description = "Maximum cells to inspect, from 1 to 4096.")
+		private int limit;
+
+		private AgentDebugWorldRegionCommand(CliContext context, String commandPath) {
+			super(context, commandPath);
+		}
+
+		final Map<String, Object> regionRequest(String operation) {
+			if (cursor < 0L) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "cursor must not be negative");
+			}
+			if (limit < 1 || limit > 4_096) {
+				throw new CliUsageException(commandPath(), "invalid_arguments", "limit must be between 1 and 4096");
+			}
+			Map<String, Object> request = baseRequest(operation);
+			request.put("minX", minX);
+			request.put("minY", minY);
+			request.put("minZ", minZ);
+			request.put("maxX", maxX);
+			request.put("maxY", maxY);
+			request.put("maxZ", maxZ);
+			request.put("cursor", cursor);
+			request.put("limit", limit);
+			return request;
+		}
+	}
+
+	@Command(name = "scan-box", mixinStandardHelpOptions = true, description = "Scan a bounded page from an arbitrary world region.")
+	private static final class AgentDebugWorldScanBoxCommand extends AgentDebugWorldRegionCommand {
+		private AgentDebugWorldScanBoxCommand(CliContext context) {
+			super(context, "agent debug world scan-box");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(regionRequest("scan_box"));
+		}
+	}
+
+	@Command(name = "find-blocks", mixinStandardHelpOptions = true, description = "Find selected block IDs in an arbitrary world region.")
+	private static final class AgentDebugWorldFindBlocksCommand extends AgentDebugWorldRegionCommand {
+		@Option(names = "--block-id", required = true, split = ",", description = "Block ID. Repeat this option or use commas.")
+		private List<String> blockIds;
+
+		private AgentDebugWorldFindBlocksCommand(CliContext context) {
+			super(context, "agent debug world find-blocks");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			Map<String, Object> request = regionRequest("find_blocks");
+			request.put("blockIds", blockIds);
+			return transport().queryClientTickWorld(request);
+		}
+	}
+
+	@Command(name = "region-stats", mixinStandardHelpOptions = true, description = "Count block IDs in a bounded page from an arbitrary world region.")
+	private static final class AgentDebugWorldRegionStatsCommand extends AgentDebugWorldRegionCommand {
+		private AgentDebugWorldRegionStatsCommand(CliContext context) {
+			super(context, "agent debug world region-stats");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().queryClientTickWorld(regionRequest("region_stats"));
 		}
 	}
 
@@ -1551,6 +2064,22 @@ public final class AiricraftCliMain {
 		}
 	}
 
+	private static void putIfNonNull(Map<String, Object> map, String key, Object value) {
+		if (value != null) {
+			map.put(key, value);
+		}
+	}
+
+	private static int countNonNull(Object... values) {
+		int count = 0;
+		for (Object value : values) {
+			if (value != null) {
+				count++;
+			}
+		}
+		return count;
+	}
+
 	private static int parseHexColor(String commandPath, String raw) {
 		String value = raw.trim();
 		if (value.startsWith("#")) {
@@ -1580,6 +2109,37 @@ public final class AiricraftCliMain {
 		}
 		catch (java.io.IOException exception) {
 			throw new UncheckedIOException(exception);
+		}
+	}
+
+	private static Map<String, Object> prepareClientTickCapture(
+		Map<String, Object> source,
+		Path outputImage,
+		String commandPath
+	) {
+		Map<String, Object> payload = new LinkedHashMap<>(source);
+		Object encodedImage = payload.remove("imageBase64");
+		if (encodedImage instanceof String imageBase64 && !imageBase64.isBlank()) {
+			if (outputImage == null) {
+				payload.put("imageOutputOmitted", true);
+			}
+			else {
+				try {
+					Path outputPath = outputImage.toAbsolutePath().normalize();
+					writeCapture(outputPath, java.util.Base64.getDecoder().decode(imageBase64));
+					payload.put("imageOutputPath", outputPath.toString());
+				}
+				catch (IllegalArgumentException exception) {
+					throw new CliUsageException(commandPath, "bridge_io_error", "Bridge returned invalid image data");
+				}
+			}
+		}
+		return payload;
+	}
+
+	private static void requirePositivePauseEpoch(long pauseEpoch, String commandPath) {
+		if (pauseEpoch < 1L) {
+			throw new CliUsageException(commandPath, "invalid_arguments", "pause-epoch must be positive");
 		}
 	}
 
@@ -1948,6 +2508,32 @@ public final class AiricraftCliMain {
 			return view;
 		}
 
+		private static Map<String, Object> clientTickDebugStatus(Map<String, Object> payload) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "phase", "paused", "debugSessionId", "pauseEpoch", "clientTickId", "snapshotId", "frameStatus");
+			return view;
+		}
+
+		private static Map<String, Object> clientTickDebugCapture(Map<String, Object> payload, boolean verbose) {
+			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
+			copy(view, payload, "available", "paused", "debugSessionId", "captureId", "snapshotId", "clientTickId", "pauseEpoch", "imageOutputPath", "imageOutputOmitted");
+			Map<String, Object> snapshot = map(payload.get("snapshot"));
+			Map<String, Object> frame = map(payload.get("frame"));
+			if (verbose) {
+				view.put("snapshot", snapshot);
+				view.put("frame", frame);
+			}
+			else {
+				LinkedHashMap<String, Object> snapshotView = new LinkedHashMap<>();
+				copy(snapshotView, snapshot, "capturedAtMs", "dimensionId", "worldTime", "timeOfDay", "player", "playerActions", "plannerGeneration", "plannerPhase");
+				view.put("snapshot", snapshotView);
+				LinkedHashMap<String, Object> frameView = new LinkedHashMap<>();
+				copy(frameView, frame, "status", "format", "width", "height", "capturedAtMs", "errorCode", "message");
+				view.put("frame", frameView);
+			}
+			return view;
+		}
+
 		private static Map<String, Object> agentDebugIdleTrigger(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
 			copy(view, payload, "available", "accepted", "triggerType", "speaker", "tick", "timestampMs", "sessionMode");
@@ -2307,6 +2893,9 @@ public final class AiricraftCliMain {
 
 	private static String singularize(String value) {
 		String lower = value.toLowerCase(Locale.ROOT);
+		if ("matches".equals(lower)) {
+			return value.substring(0, value.length() - 2);
+		}
 		if (lower.endsWith("ies") && value.length() > 3) {
 			return value.substring(0, value.length() - 3) + "y";
 		}

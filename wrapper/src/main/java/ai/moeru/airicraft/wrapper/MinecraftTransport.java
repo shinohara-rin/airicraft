@@ -121,6 +121,29 @@ interface MinecraftTransport {
 
 	Map<String, Object> listAgentDebugTimeline(Long sinceEntryId);
 
+	Map<String, Object> getClientTickDebugState();
+
+	Map<String, Object> pauseClientTicks(boolean playerActions);
+
+	Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch);
+
+	Map<String, Object> continueClientTicks(String debugSessionId, long pauseEpoch);
+
+	Map<String, Object> queryClientTickWorld(Map<String, Object> request);
+
+	Map<String, Object> getClientTickTraceStatus();
+
+	Map<String, Object> startClientTickTrace(Map<String, Object> request);
+
+	Map<String, Object> stopClientTickTrace(String traceId);
+
+	Map<String, Object> listClientTickTraceRecords(
+		String traceId,
+		Long sinceClientTickId,
+		int limit,
+		boolean includeImageBytes
+	);
+
 	Map<String, Object> sendAgentDebugChat(String message);
 
 	Map<String, Object> fireAgentDebugIdleTrigger();
