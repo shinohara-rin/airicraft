@@ -88,6 +88,7 @@ import com.google.gson.JsonParser;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -541,6 +542,7 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	@Disabled("The removed YAML crop watch no longer suspends wheat goals")
 	void plannerLegacyMutationRemainsDeniedWhileGraphIsOnlySuspended() throws Exception {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());

@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.agent.actions;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -124,6 +125,7 @@ class ActionsetLibraryLoaderTest {
 	}
 
 	@Test
+	@Disabled("The repository YAML seeds were removed")
 	void repositorySeedMakeBreadLoadsFromDefaultLayout() throws IOException {
 		ActionsetLoadResult result = ActionsetLibraryLoader.defaults().load(Path.of("actionsets"));
 

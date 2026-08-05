@@ -1,5 +1,7 @@
 package ai.moeru.airicraft.agent.actions;
 
+import ai.moeru.actionplan.MethodKey;
+
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.SmeltingOption;
 import ai.moeru.airicraft.agent.tasks.SmeltingRecipeKnowledge;
@@ -32,6 +34,7 @@ public final class ActionGraphExecutionRuntime {
 	private final ActionGraphPrimitiveDispatcher primitiveDispatcher;
 	private final boolean preferActionsetRoutes;
 	private final Executor resolutionExecutor;
+	private final AutoCommittingRoutePlanner routePlanner = new AutoCommittingRoutePlanner();
 
 	private ActionGraphExecutionState state = ActionGraphExecutionState.IDLE;
 	private String executionId = "";
@@ -51,7 +54,7 @@ public final class ActionGraphExecutionRuntime {
 	private NearbyBlockAvailability nearbyBlockAvailability = NearbyBlockAvailability.unknown();
 	private final List<ActionTraceEvent> trace = new ArrayList<>();
 	private final List<Map<String, Object>> recoveryHistory = new ArrayList<>();
-	private final Set<String> blockedAlternatives = new LinkedHashSet<>();
+	private final Set<MethodKey> blockedAlternatives = new LinkedHashSet<>();
 	private final Map<String, PendingWatch> watches = new LinkedHashMap<>();
 	private final Map<ActionFactIdentity, FactTraceFingerprint> tracedFactObservations = new LinkedHashMap<>();
 	private final Set<String> observedInventoryItemIds = new LinkedHashSet<>();
@@ -64,6 +67,14 @@ public final class ActionGraphExecutionRuntime {
 	private boolean refreshRouteAfterObservation;
 	private String boundSmeltingProcessId = "";
 	private Future<ActionResolveResult> resolutionTask;
+
+	public ActionGraphExecutionRuntime(ActionGraphPrimitiveDispatcher primitiveDispatcher) {
+		this(() -> new ActionsetLoadResult(ActionsetIndex.empty(), List.of()), primitiveDispatcher, false, Runnable::run);
+	}
+
+	ActionGraphExecutionRuntime(ActionGraphPrimitiveDispatcher primitiveDispatcher, Executor resolutionExecutor) {
+		this(() -> new ActionsetLoadResult(ActionsetIndex.empty(), List.of()), primitiveDispatcher, false, resolutionExecutor);
+	}
 
 	public ActionGraphExecutionRuntime(Path actionsetRoot, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
 		this(actionsetRoot, primitiveDispatcher, Runnable::run);
@@ -360,28 +371,14 @@ public final class ActionGraphExecutionRuntime {
 			List<ActionFact> factSnapshot = facts.queryAll();
 			BlockAcquisitionIndex blockAcquisitionSnapshot = blockAcquisitions;
 			NearbyBlockAvailability nearbyBlockAvailabilitySnapshot = nearbyBlockAvailability;
-			Set<String> blockedSnapshot = Set.copyOf(blockedAlternatives);
+			Set<MethodKey> blockedSnapshot = Set.copyOf(blockedAlternatives);
 			FutureTask<ActionResolveResult> task = new FutureTask<>(() -> {
-				ActionsetLoadResult loadResult = actionsetLoader.get();
-				if (!loadResult.valid()) {
-					return ActionResolveResult.failure(
-						"actionset_validation_failed",
-						"Actionset library validation failed",
-						List.of()
-					);
-				}
-				return ActionResolver.resolve(new ActionResolutionRequest(
-					loadResult.index(),
+				return routePlanner.adviseAndCommit(new AiricraftPlanningSnapshot(
 					factSnapshot,
 					blockAcquisitionSnapshot,
 					nearbyBlockAvailabilitySnapshot,
-					context,
-					resolutionGoal,
-					ActionResolutionRequest.DEFAULT_MAX_DEPTH,
-					ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET,
-					blockedSnapshot,
-					preferActionsetRoutes
-				));
+					context
+				), resolutionGoal, blockedSnapshot);
 			});
 			resolutionTask = task;
 			trace("resolution_scheduled", "", "", "", Map.of(
@@ -893,7 +890,7 @@ public final class ActionGraphExecutionRuntime {
 
 	private void blockCurrentAlternative() {
 		if (currentStep != null && !currentStep.actionId().isBlank() && !currentStep.alternativeId().isBlank()) {
-			blockedAlternatives.add(currentStep.actionId() + ":" + currentStep.alternativeId());
+			blockedAlternatives.add(currentStep.methodKey());
 		}
 	}
 

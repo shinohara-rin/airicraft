@@ -3,6 +3,12 @@ plugins {
 	id 'maven-publish'
 }
 
+repositories {
+	maven {
+		url = uri("vendor/action-plan-advisor/build/repository")
+	}
+}
+
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -563,6 +569,8 @@ dependencies {
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 	modImplementation files("libs/baritone-unoptimized-fabric-1.15.0.jar")
 	modImplementation files("libs/nether-pathfinder-1.4.1.jar")
+	implementation "ai.moeru:action-plan-advisor:0.1.0"
+	include "ai.moeru:action-plan-advisor:0.1.0"
 	implementation "org.yaml:snakeyaml:2.4"
 	implementation "io.opentelemetry:opentelemetry-api:1.60.1"
 	implementation "io.opentelemetry:opentelemetry-sdk:1.60.1"
@@ -571,6 +579,14 @@ dependencies {
 	testImplementation platform("org.junit:junit-bom:5.11.4")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+tasks.named("remapJar") {
+	dependsOn gradle.includedBuild("action-plan-advisor").task(":publishMavenJavaPublicationToBuildRepositoryRepository")
+}
+
+configurations.named("include") {
+	resolutionStrategy.useGlobalDependencySubstitutionRules = false
 }
 
 processResources {

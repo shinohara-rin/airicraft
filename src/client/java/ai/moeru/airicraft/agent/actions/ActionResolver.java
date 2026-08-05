@@ -60,6 +60,40 @@ public final class ActionResolver {
 		).resolve(request.goal());
 	}
 
+	static ActionResolveResult resolveProvider(ActionResolutionRequest request, String providerId) {
+		Objects.requireNonNull(request, "request");
+		ActionResolver resolver = new ActionResolver(
+			request.actionsets(),
+			new ActionFactStore(request.facts()),
+			request.blockAcquisitions(),
+			request.nearbyBlockAvailability(),
+			request.context(),
+			request.maxDepth(),
+			request.blockedAlternativeKeys(),
+			false,
+			request.explorationBudget()
+		);
+		return resolver.resolveWithProvider(request.goal(), providerId);
+	}
+
+	private ActionResolveResult resolveWithProvider(ActionGoal goal, String providerId) {
+		ArrayList<ActionTraceEvent> trace = new ArrayList<>();
+		if (goalSatisfied(goal, trace)) {
+			return ActionResolveResult.success(ActionRoute.empty(), trace);
+		}
+		Optional<ProviderCandidate> candidate = switch (providerId) {
+			case "resource_provider" -> resolveResourceProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
+			case "recipe_provider" -> resolveRecipeProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
+			case "smelting_provider" -> resolveSmeltingProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
+			case "mining_provider" -> resolveMiningProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
+			default -> Optional.empty();
+		};
+		if (candidate.isPresent()) {
+			return ActionResolveResult.success(candidate.get().route(), trace);
+		}
+		return ActionResolveResult.failure("no_route", "provider has no route", trace);
+	}
+
 	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context) {
 		this(index, facts, BlockAcquisitionIndex.empty(), context, ActionResolutionRequest.DEFAULT_MAX_DEPTH);
 	}

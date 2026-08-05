@@ -58,6 +58,14 @@ final class ActionGraphRecipeFixtures {
 
 	private static List<CraftingOpportunity> buildSurvivalCrafts() {
 		ArrayList<CraftingOpportunity> crafts = new ArrayList<>();
+		crafts.add(recipe(
+			"minecraft:bread",
+			1,
+			CraftingGridKind.PLAYER_2X2,
+			"minecraft:wheat",
+			"minecraft:wheat",
+			"minecraft:wheat"
+		));
 		for (int index = 0; index < Math.min(LOG_ITEM_IDS.size(), PLANK_ITEM_IDS.size()); index++) {
 			String log = LOG_ITEM_IDS.get(index);
 			String planks = PLANK_ITEM_IDS.get(index);

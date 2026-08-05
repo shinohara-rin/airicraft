@@ -1,0 +1,3 @@
+[submodule "vendor/action-plan-advisor"]
+	path = vendor/action-plan-advisor
+	url = https://github.com/shinohara-rin/action-plan-advisor.git

@@ -2324,18 +2324,12 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentActionInspect(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "actionsetValid", "actionsetRoot", "worldLoaded", "sessionState", "primitiveCount", "actionsetCount", "domainProviderCount", "diagnosticCount");
+			copy(view, payload, "available", "worldLoaded", "sessionState", "primitiveCount", "domainProviderCount");
 			view.put("primitives", filterItems(
 				maps(payload.get("primitives")),
 				verbose,
 				List.of("id", "version", "summary", "foregroundActuation", "executorBinding"),
 				List.of("cost", "cancellable", "defaultTimeoutTicks", "capabilityTags", "failureCodes", "guardFactTypes", "needFactTypes", "producedFactTypes", "consumedFactTypes", "params")
-			));
-			view.put("actionsets", filterItems(
-				maps(payload.get("actionsets")),
-				verbose,
-				List.of("actionId", "namespace", "sourceName", "summary", "alternativeCount"),
-				List.of("paramCount", "produces", "alternatives")
 			));
 			view.put("domainProviders", filterItems(
 				maps(payload.get("domainProviders")),
@@ -2343,10 +2337,6 @@ public final class AiricraftCliMain {
 				List.of("id", "summary", "producedGoal"),
 				List.of("inputFacts")
 			));
-			List<Map<String, Object>> diagnostics = maps(payload.get("actionsetDiagnostics"));
-			if (verbose || !diagnostics.isEmpty()) {
-				view.put("actionsetDiagnostics", diagnostics);
-			}
 			return view;
 		}
 

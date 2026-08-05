@@ -44,7 +44,6 @@ import ai.moeru.airicraft.agent.actions.ActionFactType;
 import ai.moeru.airicraft.agent.actions.ActionGoal;
 import ai.moeru.airicraft.agent.actions.ActionPlanStep;
 import ai.moeru.airicraft.agent.actions.ActionResolverContext;
-import ai.moeru.airicraft.agent.actions.ActionsetLibraryPaths;
 import ai.moeru.airicraft.agent.actions.FarmBootstrapFactProvider;
 import ai.moeru.airicraft.agent.actions.MinecraftBlockAcquisitionKnowledgeService;
 import ai.moeru.airicraft.agent.actions.NearbyBlockAvailability;
@@ -357,7 +356,7 @@ public final class EmbodiedAgentRuntime {
 		this.worldTaskExecutor = Objects.requireNonNull(worldTaskExecutor, "worldTaskExecutor");
 		this.observability = new FlightRecordingObservability(Objects.requireNonNull(observability, "observability"), llmFlightRecorder);
 		this.smeltingProcessManager = Objects.requireNonNull(smeltingProcessManager, "smeltingProcessManager");
-		this.actionGraphCoordinator = new ActionGraphCoordinator(ActionsetLibraryPaths.defaultRoot(), this::dispatchActionGraphPrimitive);
+		this.actionGraphCoordinator = new ActionGraphCoordinator(this::dispatchActionGraphPrimitive);
 		CameraController effectiveCameraController = Objects.requireNonNull(cameraController, "cameraController");
 		this.behaviorTreeRuntime = new BehaviorTreeRuntime(effectiveCameraController);
 		this.nearbyPlayerTracker = new NearbyPlayerTracker(resolveNearbyPlayerTrackingRadius(airicraftConfig));
@@ -2711,8 +2710,6 @@ public final class EmbodiedAgentRuntime {
 			+ goalKinds
 			+ " primitiveCount="
 			+ graph.get("primitiveCount")
-			+ " actionsetCount="
-			+ graph.get("actionsetCount")
 			+ " domainProviderCount="
 			+ graph.get("domainProviderCount")
 			+ " graph="

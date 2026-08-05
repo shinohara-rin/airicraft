@@ -25,6 +25,18 @@ dependencyResolutionManagement {
 
 include("wrapper")
 
+def actionPlanAdvisorDir = file("vendor/action-plan-advisor")
+if (!new File(actionPlanAdvisorDir, "settings.gradle").isFile()) {
+	throw new GradleException(
+		"The action-plan-advisor submodule is absent. Run: git submodule update --init --recursive"
+	)
+}
+includeBuild(actionPlanAdvisorDir) {
+	dependencySubstitution {
+		substitute module("ai.moeru:action-plan-advisor") using project(":")
+	}
+}
+
 def includeAllCompat = gradle.startParameter.projectProperties.get("airicraft.includeCompat") == "true"
 def includeEvaluator = gradle.startParameter.projectProperties.get("airicraft.includeEvaluator") == "true"
 

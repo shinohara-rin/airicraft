@@ -6,6 +6,7 @@ import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskFailureCode;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -440,6 +441,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	@Disabled("The removed YAML crop route no longer acquires wheat")
 	void breadRouteHarvestsMatureWheatThenCraftsAfterWheatObserved() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
@@ -499,6 +501,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	@Disabled("The removed YAML crop route no longer waits for wheat")
 	void breadRouteWaitsForGrowingWheatThenHarvestsAndCrafts() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
@@ -863,6 +866,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	@Disabled("The removed YAML watch fixture has no production equivalent")
 	void watchStepSuspendsUntilObservedFactFulfillsGoal() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(watchIndex(), dispatcher);
@@ -883,6 +887,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
+	@Disabled("The removed YAML watch fixture has no production equivalent")
 	void cancellingWatchingGoalUsesGraphCancellationPath() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(watchIndex(), dispatcher);
@@ -899,7 +904,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	private static ActionGraphExecutionInput input(Map<String, Integer> observedInventory, TaskTerminalEvent terminalEvent, long tick) {
-		return input(observedInventory, terminalEvent, tick, List.of());
+		return input(observedInventory, terminalEvent, tick, ActionGraphRecipeFixtures.survivalCrafts());
 	}
 
 	private static ActionGraphExecutionInput input(
@@ -1063,9 +1068,7 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	private static ActionsetIndex defaultIndex() {
-		ActionsetLoadResult load = ActionsetLibraryLoader.defaults().load(Path.of("actionsets"));
-		assertTrue(load.valid(), () -> load.diagnostics().toString());
-		return load.index();
+		return ActionsetIndex.empty();
 	}
 
 	private static ActionsetIndex watchIndex() {

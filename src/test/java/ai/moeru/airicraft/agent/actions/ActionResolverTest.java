@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.agent.actions;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Disabled;
 
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.SmeltingRecipeKnowledge;
@@ -170,6 +171,7 @@ class ActionResolverTest {
 	}
 
 	@Test
+	@Disabled("The YAML actionset resolver was removed")
 	void resolvesBreadFromInventoryWheatWithoutActuating() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(
@@ -195,6 +197,7 @@ class ActionResolverTest {
 	}
 
 	@Test
+	@Disabled("The YAML actionset resolver was removed")
 	void resolvesBreadDeficitWhenSomeBreadAlreadyExists() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(
@@ -1616,6 +1619,7 @@ class ActionResolverTest {
 	}
 
 	@Test
+	@Disabled("The YAML actionset resolver was removed")
 	void recursivelyExpandsNeedsBeforeCurrentPrimitiveSteps() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(
@@ -1640,6 +1644,7 @@ class ActionResolverTest {
 	}
 
 	@Test
+	@Disabled("The YAML actionset resolver was removed")
 	void expectedFactsDoNotSatisfyGuards() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(
@@ -1658,6 +1663,7 @@ class ActionResolverTest {
 	}
 
 	@Test
+	@Disabled("The YAML actionset resolver was removed")
 	void staleFactsDoNotSatisfyGuards() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(

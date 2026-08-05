@@ -1001,14 +1001,10 @@ class AiricraftCliMainTest {
 		TestTransport transport = new TestTransport();
 		transport.agentActionGraphInspectPayload = linkedMap(
 			"available", true,
-			"actionsetValid", true,
-			"actionsetRoot", "actionsets",
 			"worldLoaded", false,
 			"sessionState", "title_screen",
 			"primitiveCount", 2,
-			"actionsetCount", 1,
-			"domainProviderCount", 1,
-			"diagnosticCount", 0,
+			"domainProviderCount", 4,
 			"primitives", List.of(linkedMap(
 				"id", "craft_item",
 				"version", 1,
@@ -1016,19 +1012,11 @@ class AiricraftCliMainTest {
 				"foregroundActuation", true,
 				"executorBinding", "WorldTaskRequest.CRAFT_RECIPE"
 			)),
-			"actionsets", List.of(linkedMap(
-				"actionId", "make_bread",
-				"namespace", "BUILTIN",
-				"sourceName", "make_bread.yml",
-				"summary", "Produce bread",
-				"alternativeCount", 3
-			)),
 			"domainProviders", List.of(linkedMap(
 				"id", "recipe_provider",
 				"summary", "Plans craft routes",
 				"producedGoal", "inventory.item"
-			)),
-			"actionsetDiagnostics", List.of()
+			))
 		);
 
 		CliResult result = execute(transport, "agent", "actions", "inspect");
@@ -1036,9 +1024,7 @@ class AiricraftCliMainTest {
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: agent actions inspect\n"));
 		assertTrue(result.output().contains("primitiveCount: 2\n"));
-		assertTrue(result.output().contains("actionsetCount: 1\n"));
 		assertTrue(result.output().contains("id: craft_item\n"));
-		assertTrue(result.output().contains("actionId: make_bread\n"));
 		assertTrue(result.output().contains("id: recipe_provider\n"));
 	}
 

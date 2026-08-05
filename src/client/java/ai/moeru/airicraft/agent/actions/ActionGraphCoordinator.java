@@ -28,6 +28,13 @@ public final class ActionGraphCoordinator {
 	private String foregroundExecutionId = "";
 	private long nextCreationOrder;
 
+	public ActionGraphCoordinator(ActionGraphPrimitiveDispatcher dispatcher) {
+		this.resolutionExecutor = Executors.newSingleThreadExecutor(
+			Thread.ofPlatform().name("airicraft-action-advisor").daemon(true).factory()
+		);
+		this.runtimeFactory = () -> new ActionGraphExecutionRuntime(dispatcher, resolutionExecutor);
+	}
+
 	public ActionGraphCoordinator(Path actionsetRoot, ActionGraphPrimitiveDispatcher dispatcher) {
 		this.resolutionExecutor = Executors.newSingleThreadExecutor(
 			Thread.ofPlatform().name("airicraft-action-resolver").daemon(true).factory()
