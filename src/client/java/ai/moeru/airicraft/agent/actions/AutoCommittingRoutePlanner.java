@@ -1,17 +1,14 @@
 package ai.moeru.airicraft.agent.actions;
 
-import ai.moeru.actionplan.BackwardChainingPlanAdvisor;
 import ai.moeru.actionplan.CandidateRoute;
 import ai.moeru.actionplan.MethodKey;
 import ai.moeru.actionplan.PlanAdvice;
 import ai.moeru.actionplan.PlanCommand;
-import ai.moeru.actionplan.PlanningOptions;
-import ai.moeru.actionplan.PlanningProblem;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public final class AutoCommittingRoutePlanner {
@@ -19,6 +16,16 @@ public final class AutoCommittingRoutePlanner {
 		ActionFactType.INVENTORY_ITEM,
 		ActionFactType.INVENTORY_RESOURCE
 	);
+	private static final PrimitiveActionRegistry PRIMITIVES = PrimitiveActionRegistry.defaults();
+	private final AiricraftPlanAdvisor advisor;
+
+	public AutoCommittingRoutePlanner() {
+		this(new AiricraftPlanAdvisor());
+	}
+
+	AutoCommittingRoutePlanner(AiricraftPlanAdvisor advisor) {
+		this.advisor = Objects.requireNonNull(advisor, "advisor");
+	}
 
 	public ActionResolveResult adviseAndCommit(
 		AiricraftPlanningSnapshot snapshot,
@@ -28,18 +35,7 @@ public final class AutoCommittingRoutePlanner {
 		if (!EXECUTABLE_GOALS.contains(goal.factType())) {
 			return ActionResolveResult.failure("unsupported_goal", "the auto-commit adapter rejects this goal type", List.of());
 		}
-		PlanAdvice advice = new BackwardChainingPlanAdvisor().advise(new PlanningProblem(
-			AiricraftPlanConversions.toState(snapshot.facts()),
-			AiricraftPlanConversions.toGoal(goal),
-			List.of(
-				new AiricraftMethodProvider("resource_provider", 0, snapshot),
-				new AiricraftMethodProvider("recipe_provider", 0, snapshot),
-				new AiricraftMethodProvider("smelting_provider", 1, snapshot),
-				new AiricraftMethodProvider("mining_provider", 2, snapshot)
-			),
-			PlanningOptions.defaults(),
-			blockedMethods
-		));
+		PlanAdvice advice = advisor.advise(snapshot, goal, blockedMethods);
 		if (advice.recommendation().isEmpty()) {
 			return ActionResolveResult.failure(advice.failure().code(), advice.failure().message(), trace(advice));
 		}
@@ -58,12 +54,10 @@ public final class AutoCommittingRoutePlanner {
 			if (kind != ActionStepKind.PRIMITIVE && kind != ActionStepKind.WATCH) {
 				return ActionResolveResult.failure("unknown_command_type", "the advisor returned a non-executable command", trace(advice));
 			}
-			LinkedHashMap<String, Object> args = new LinkedHashMap<>(arguments);
-			String actionId = scalar(args.remove("actionId"));
-			String alternativeId = scalar(args.remove("alternativeId"));
-			args.remove("airicraftKind");
-			ActionWatchSpec watchSpec = kind == ActionStepKind.WATCH ? smeltingWatch(snapshot, args) : null;
-			steps.add(new ActionPlanStep(kind, actionId, alternativeId, command.commandId(), command.commandType(), args, watchSpec, command.methodKey()));
+			if (!executableCommand(kind, command.commandType())) {
+				return ActionResolveResult.failure("unknown_command_type", "the advisor returned an unknown command type", trace(advice));
+			}
+			steps.add(AiricraftPlanConversions.toActionStep(command, snapshot.context()));
 		}
 		return ActionResolveResult.success(new ActionRoute(steps, (int) Math.min(Integer.MAX_VALUE, recommendation.cost())), trace(advice));
 	}
@@ -78,25 +72,12 @@ public final class AutoCommittingRoutePlanner {
 		return value == null ? "" : String.valueOf(value);
 	}
 
-	private static ActionWatchSpec smeltingWatch(AiricraftPlanningSnapshot snapshot, Map<String, Object> args) {
-		String optionId = scalar(args.get("optionId"));
-		String itemId = scalar(args.get("itemId"));
-		long timeoutTicks = args.get("timeoutTicks") instanceof Number number ? number.longValue() : 1_200L;
-		return new ActionWatchSpec(
-			new ActionFactCondition(
-				ActionFactType.SMELTING_PROCESS,
-				Map.of(
-					"worldId", snapshot.context().worldId(),
-					"actorId", snapshot.context().actorId(),
-					"optionId", optionId,
-					"itemId", itemId
-				),
-				Map.of("ready", 1)
-			),
-			null,
-			timeoutTicks,
-			ActionWatchProgressKind.AREA_TICKING,
-			null
-		);
+	private static boolean executableCommand(ActionStepKind kind, String commandType) {
+		if (kind == ActionStepKind.WATCH) {
+			return "watch".equals(commandType);
+		}
+		PrimitiveActionMetadata metadata = PRIMITIVES.find(commandType);
+		return metadata != null && metadata.executable();
 	}
+
 }

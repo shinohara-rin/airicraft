@@ -1,6 +1,5 @@
 package ai.moeru.airicraft.agent.actions;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -33,21 +32,6 @@ public final class ActionGraphCoordinator {
 			Thread.ofPlatform().name("airicraft-action-advisor").daemon(true).factory()
 		);
 		this.runtimeFactory = () -> new ActionGraphExecutionRuntime(dispatcher, resolutionExecutor);
-	}
-
-	public ActionGraphCoordinator(Path actionsetRoot, ActionGraphPrimitiveDispatcher dispatcher) {
-		this.resolutionExecutor = Executors.newSingleThreadExecutor(
-			Thread.ofPlatform().name("airicraft-action-resolver").daemon(true).factory()
-		);
-		this.runtimeFactory = () -> new ActionGraphExecutionRuntime(actionsetRoot, dispatcher, resolutionExecutor);
-	}
-
-	public ActionGraphCoordinator(ActionsetIndex index, ActionGraphPrimitiveDispatcher dispatcher) {
-		this(() -> new ActionGraphExecutionRuntime(index, dispatcher), null);
-	}
-
-	public ActionGraphCoordinator(ActionsetIndex index, ActionGraphPrimitiveDispatcher dispatcher, boolean preferActionsetRoutes) {
-		this(() -> new ActionGraphExecutionRuntime(index, dispatcher, preferActionsetRoutes), null);
 	}
 
 	private ActionGraphCoordinator(Supplier<ActionGraphExecutionRuntime> runtimeFactory, ExecutorService resolutionExecutor) {

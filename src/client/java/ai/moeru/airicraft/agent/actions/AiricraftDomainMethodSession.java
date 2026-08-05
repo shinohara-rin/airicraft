@@ -1,7 +1,6 @@
 package ai.moeru.airicraft.agent.actions;
 
 import ai.moeru.airicraft.agent.tasks.ResourceGatheringCatalog;
-import ai.moeru.actionplan.CandidateRoute;
 import ai.moeru.actionplan.ResolutionContext;
 
 import java.util.ArrayList;
@@ -15,7 +14,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-public final class ActionResolver {
+final class AiricraftDomainMethodSession {
+	static final int DEFAULT_MAX_DEPTH = 8;
+	static final int DEFAULT_EXPLORATION_BUDGET = 20_000;
 	private static final int DEFAULT_SMELT_COOK_TICKS = 200;
 	private static final int FUEL_TICKS_PLANKS = 300;
 	private static final int FUEL_TICKS_LOGS = 300;
@@ -31,14 +32,12 @@ public final class ActionResolver {
 		ActionFactProvenance.INFERRED
 	);
 
-	private final ActionsetIndex index;
 	private final ActionFactStore facts;
 	private final BlockAcquisitionIndex blockAcquisitions;
 	private final NearbyBlockAvailability nearbyBlockAvailability;
 	private final ActionResolverContext context;
 	private final int maxDepth;
 	private final Set<String> blockedAlternativeKeys;
-	private final boolean preferActionsetRoutes;
 	private final int explorationBudget;
 	private final Map<String, List<ActionFact>> craftRecipesByOutput;
 	private final Map<String, List<ActionFact>> smeltRecipesByOutput;
@@ -48,163 +47,115 @@ public final class ActionResolver {
 	private boolean budgetExceeded;
 	private ResolutionContext advisoryContext;
 
-	public static ActionResolveResult resolve(ActionResolutionRequest request) {
-		Objects.requireNonNull(request, "request");
-		return new ActionResolver(
-			request.actionsets(),
-			new ActionFactStore(request.facts()),
-			request.blockAcquisitions(),
-			request.nearbyBlockAvailability(),
-			request.context(),
-			request.maxDepth(),
-			request.blockedAlternativeKeys(),
-			request.preferActionsetRoutes(),
-			request.explorationBudget()
-		).resolve(request.goal());
+	static ActionResolveResult resolve(
+		List<ActionFact> facts,
+		BlockAcquisitionIndex blockAcquisitions,
+		NearbyBlockAvailability nearbyBlockAvailability,
+		ActionResolverContext context,
+		ActionGoal goal,
+		int maxDepth,
+		int explorationBudget
+	) {
+		return new AiricraftDomainMethodSession(
+			new ActionFactStore(facts), blockAcquisitions, nearbyBlockAvailability, context,
+			maxDepth, Set.of(), explorationBudget
+		).resolve(goal);
 	}
 
-	static ActionResolveResult resolveProvider(
-		ActionResolutionRequest request,
-		String providerId,
+	static ActionResolveResult resolveResourceProvider(
+		AiricraftPlanningSnapshot snapshot,
+		ActionGoal goal,
 		ResolutionContext advisoryContext
 	) {
-		Objects.requireNonNull(request, "request");
-		ActionResolver resolver = new ActionResolver(
-			request.actionsets(),
-			new ActionFactStore(request.facts()),
-			request.blockAcquisitions(),
-			request.nearbyBlockAvailability(),
-			request.context(),
-			request.maxDepth(),
-			request.blockedAlternativeKeys(),
-			false,
-			request.explorationBudget()
-		);
-		resolver.advisoryContext = Objects.requireNonNull(advisoryContext, "advisoryContext");
-		return resolver.resolveWithProvider(request.goal(), providerId);
+		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
+		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
+			session.resolveResourceProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
 	}
 
-	private ActionResolveResult resolveWithProvider(ActionGoal goal, String providerId) {
+	static ActionResolveResult resolveRecipeProvider(
+		AiricraftPlanningSnapshot snapshot,
+		ActionGoal goal,
+		ResolutionContext advisoryContext
+	) {
+		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
+		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
+			session.resolveRecipeProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+	}
+
+	static ActionResolveResult resolveSmeltingProvider(
+		AiricraftPlanningSnapshot snapshot,
+		ActionGoal goal,
+		ResolutionContext advisoryContext
+	) {
+		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
+		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
+			session.resolveSmeltingProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+	}
+
+	static ActionResolveResult resolveMiningProvider(
+		AiricraftPlanningSnapshot snapshot,
+		ActionGoal goal,
+		ResolutionContext advisoryContext
+	) {
+		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
+		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
+			session.resolveMiningProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+	}
+
+	private static AiricraftDomainMethodSession providerSession(
+		AiricraftPlanningSnapshot snapshot,
+		ResolutionContext advisoryContext
+	) {
+		AiricraftDomainMethodSession session = new AiricraftDomainMethodSession(
+			new ActionFactStore(snapshot.facts()), snapshot.blockAcquisitions(),
+			snapshot.nearbyBlockAvailability(), snapshot.context(),
+			DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET
+		);
+		session.advisoryContext = Objects.requireNonNull(advisoryContext, "advisoryContext");
+		return session;
+	}
+
+	private ActionResolveResult resolveWithProvider(ActionGoal goal, TopLevelProviderResolver provider) {
 		ArrayList<ActionTraceEvent> trace = new ArrayList<>();
 		if (goalSatisfied(goal, trace)) {
 			return ActionResolveResult.success(ActionRoute.empty(), trace);
 		}
-		Optional<ProviderCandidate> candidate = switch (providerId) {
-			case "resource_provider" -> resolveResourceProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
-			case "recipe_provider" -> resolveRecipeProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
-			case "smelting_provider" -> resolveSmeltingProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
-			case "mining_provider" -> resolveMiningProviderGoal(goal, 0, new LinkedHashSet<>(), trace);
-			default -> Optional.empty();
-		};
+		Optional<ProviderCandidate> candidate = provider.resolve(goal, trace);
 		if (candidate.isPresent()) {
 			return ActionResolveResult.success(candidate.get().route(), trace);
 		}
 		return ActionResolveResult.failure("no_route", "provider has no route", trace);
 	}
 
-	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context) {
-		this(index, facts, BlockAcquisitionIndex.empty(), context, ActionResolutionRequest.DEFAULT_MAX_DEPTH);
+	AiricraftDomainMethodSession(ActionFactStore facts, ActionResolverContext context) {
+		this(facts, BlockAcquisitionIndex.empty(), NearbyBlockAvailability.unknown(), context, DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET);
 	}
 
-	public ActionResolver(
-		ActionsetIndex index,
-		ActionFactStore facts,
-		BlockAcquisitionIndex blockAcquisitions,
-		ActionResolverContext context
-	) {
-		this(index, facts, blockAcquisitions, context, ActionResolutionRequest.DEFAULT_MAX_DEPTH);
+	AiricraftDomainMethodSession(ActionFactStore facts, BlockAcquisitionIndex blockAcquisitions, ActionResolverContext context) {
+		this(facts, blockAcquisitions, NearbyBlockAvailability.unknown(), context, DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET);
 	}
 
-	public ActionResolver(ActionsetIndex index, ActionFactStore facts, ActionResolverContext context, int maxDepth) {
-		this(index, facts, BlockAcquisitionIndex.empty(), context, maxDepth);
-	}
-
-	private ActionResolver(
-		ActionsetIndex index,
-		ActionFactStore facts,
-		BlockAcquisitionIndex blockAcquisitions,
-		ActionResolverContext context,
-		int maxDepth
-	) {
-		this(
-			index,
-			facts,
-			blockAcquisitions,
-			NearbyBlockAvailability.unknown(),
-			context,
-			maxDepth,
-			Set.of(),
-			false,
-			ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET
-		);
-	}
-
-	public ActionResolver(
-		ActionsetIndex index,
-		ActionFactStore facts,
-		ActionResolverContext context,
-		int maxDepth,
-		Set<String> blockedAlternativeKeys
-	) {
-		this(
-			index,
-			facts,
-			BlockAcquisitionIndex.empty(),
-			NearbyBlockAvailability.unknown(),
-			context,
-			maxDepth,
-			blockedAlternativeKeys,
-			false,
-			ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET
-		);
-	}
-
-	public ActionResolver(
-		ActionsetIndex index,
-		ActionFactStore facts,
-		ActionResolverContext context,
-		int maxDepth,
-		Set<String> blockedAlternativeKeys,
-		boolean preferActionsetRoutes
-	) {
-		this(
-			index,
-			facts,
-			BlockAcquisitionIndex.empty(),
-			NearbyBlockAvailability.unknown(),
-			context,
-			maxDepth,
-			blockedAlternativeKeys,
-			preferActionsetRoutes,
-			ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET
-		);
-	}
-
-	private ActionResolver(
-		ActionsetIndex index,
+	private AiricraftDomainMethodSession(
 		ActionFactStore facts,
 		BlockAcquisitionIndex blockAcquisitions,
 		NearbyBlockAvailability nearbyBlockAvailability,
 		ActionResolverContext context,
 		int maxDepth,
 		Set<String> blockedAlternativeKeys,
-		boolean preferActionsetRoutes,
 		int explorationBudget
 	) {
-		this.index = Objects.requireNonNull(index, "index");
 		this.facts = Objects.requireNonNull(facts, "facts");
 		this.blockAcquisitions = blockAcquisitions == null ? BlockAcquisitionIndex.empty() : blockAcquisitions;
 		this.nearbyBlockAvailability = nearbyBlockAvailability == null ? NearbyBlockAvailability.unknown() : nearbyBlockAvailability;
 		this.context = Objects.requireNonNull(context, "context");
 		this.maxDepth = Math.max(1, maxDepth);
 		this.blockedAlternativeKeys = blockedAlternativeKeys == null ? Set.of() : Set.copyOf(blockedAlternativeKeys);
-		this.preferActionsetRoutes = preferActionsetRoutes;
 		this.explorationBudget = Math.max(1, explorationBudget);
 		this.craftRecipesByOutput = providerFactsByOutput(ActionFactType.CRAFT_RECIPE, "outputItemId", "recipeId");
 		this.smeltRecipesByOutput = providerFactsByOutput(ActionFactType.SMELT_RECIPE, "outputItemId", "optionId");
 	}
 
-	public ActionResolveResult resolve(ActionGoal goal) {
+	ActionResolveResult resolve(ActionGoal goal) {
 		ArrayList<ActionTraceEvent> trace = new ArrayList<>();
 		Optional<ActionRoute> route = resolveGoal(goal, 0, new LinkedHashSet<>(), trace);
 		trace.add(event("resolution_stats", "", "", "", Map.of(
@@ -261,8 +212,7 @@ public final class ActionResolver {
 	}
 
 	private boolean hasKnownInventoryAcquisitionMethod(ActionGoal goal, String itemId) {
-		return !matchingActionsets(goal).isEmpty()
-			|| !blockAcquisitions.rulesForOutput(itemId).isEmpty()
+		return !blockAcquisitions.rulesForOutput(itemId).isEmpty()
 			|| craftRecipesByOutput.containsKey(itemId)
 			|| smeltRecipesByOutput.containsKey(itemId);
 	}
@@ -281,7 +231,7 @@ public final class ActionResolver {
 	) {
 		if (advisoryContext != null) {
 			return advisoryContext.resolve(AiricraftPlanConversions.toGoal(goal))
-				.map(AiricraftPlanConversions::toActionRoute);
+				.map(route -> AiricraftPlanConversions.toActionRoute(route, context));
 		}
 		trace.add(event("goal_started", "", "", "", Map.of("goal", goal.normalizedKey(), "depth", depth)));
 		if (++expandedGoals > explorationBudget) {
@@ -311,14 +261,7 @@ public final class ActionResolver {
 				route = Optional.of(ActionRoute.empty());
 			}
 			else {
-				route = preferActionsetRoutes
-					? resolveActionsetGoal(goal, depth, resolving, trace)
-					: resolveDomainProviderGoal(goal, depth, resolving, trace);
-				if (route.isEmpty()) {
-					route = preferActionsetRoutes
-						? resolveDomainProviderGoal(goal, depth, resolving, trace)
-						: resolveActionsetGoal(goal, depth, resolving, trace);
-				}
+				route = resolveDomainProviderGoal(goal, depth, resolving, trace);
 			}
 			route.ifPresent(resolved -> successfulRoutes.put(goalKey, resolved));
 			return route;
@@ -364,49 +307,6 @@ public final class ActionResolver {
 			Map.of("goal", goal.normalizedKey(), "cost", selected.route().cost())
 		));
 		return Optional.of(selected.route());
-	}
-
-	private Optional<ActionRoute> resolveActionsetGoal(
-		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
-		List<ActionTraceEvent> trace
-	) {
-		for (ActionsetEntry entry : matchingActionsets(goal)) {
-			Map<String, Integer> params = bindParams(entry.definition(), goal);
-			for (Map<String, Object> alternative : alternatives(entry)) {
-				String alternativeId = scalar(alternative.get("id"), "<unnamed>");
-				if (blockedAlternativeKeys.contains(entry.actionId() + ":" + alternativeId)) {
-					trace.add(event(
-						"route_candidate_blocked",
-						entry.actionId(),
-						alternativeId,
-						"",
-						Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
-					));
-					continue;
-				}
-				trace.add(event(
-					"route_candidate_built",
-					entry.actionId(),
-					alternativeId,
-					"",
-					Map.of("goal", goal.normalizedKey(), "cost", intrinsicAlternativeCost(alternative))
-				));
-
-				List<ActionFact> matchedGuards = matchedGuards(alternative, params, trace, entry.actionId(), alternativeId);
-				if (matchedGuards == null) {
-					continue;
-				}
-
-				Optional<ActionRoute> expanded = expandAlternative(entry, alternative, params, matchedGuards, depth, resolving, trace);
-				if (expanded.isPresent()) {
-					trace.add(event("route_selected", entry.actionId(), alternativeId, "", Map.of("goal", goal.normalizedKey())));
-					return expanded;
-				}
-			}
-		}
-		return Optional.empty();
 	}
 
 	private Optional<ProviderCandidate> resolveResourceProviderGoal(
@@ -1247,182 +1147,32 @@ public final class ActionResolver {
 		return current;
 	}
 
-	private Optional<ActionRoute> expandAlternative(
-		ActionsetEntry entry,
-		Map<String, Object> alternative,
-		Map<String, Integer> params,
-		List<ActionFact> matchedGuards,
-		int depth,
-		LinkedHashSet<String> resolving,
-		List<ActionTraceEvent> trace
-	) {
-		ArrayList<ActionPlanStep> steps = new ArrayList<>();
-		int routeCost = intrinsicAlternativeCost(alternative);
-		String alternativeId = scalar(alternative.get("id"), "<unnamed>");
-
-		for (Object needObject : objectList(alternative.get("needs"))) {
-			ActionGoal need = goalFromFactSpec(objectMap(needObject), params);
-			Optional<ActionRoute> subRoute = resolveGoal(need, depth + 1, resolving, trace);
-			if (subRoute.isEmpty()) {
-				return Optional.empty();
-			}
-			steps.addAll(subRoute.get().steps());
-			routeCost = saturatingAdd(routeCost, subRoute.get().cost());
-		}
-
-		for (Object stepObject : objectList(alternative.get("steps"))) {
-			Map<String, Object> step = objectMap(stepObject);
-			String stepId = scalar(step.get("id"), "");
-			if (step.containsKey("primitive")) {
-				String primitive = scalar(step.get("primitive"), "");
-				Map<String, Object> args = evaluateArgs(objectMap(step.get("args")), params);
-				steps.add(new ActionPlanStep(ActionStepKind.PRIMITIVE, entry.actionId(), alternativeId, stepId, primitive, args));
-				trace.add(event("primitive_planned", entry.actionId(), alternativeId, stepId, Map.of("primitive", primitive)));
-				continue;
-			}
-			if (step.containsKey("goal")) {
-				ActionGoal stepGoal = goalFromFactSpec(objectMap(step.get("goal")), params);
-				Optional<ActionRoute> subRoute = resolveGoal(stepGoal, depth + 1, resolving, trace);
-				if (subRoute.isEmpty()) {
-					return Optional.empty();
-				}
-				steps.addAll(subRoute.get().steps());
-				routeCost = saturatingAdd(routeCost, subRoute.get().cost());
-				continue;
-			}
-			if (step.containsKey("actionset")) {
-				String actionset = scalar(step.get("actionset"), "");
-				Map<String, Object> args = evaluateArgs(objectMap(step.get("args")), params);
-				steps.add(new ActionPlanStep(ActionStepKind.ACTIONSET, entry.actionId(), alternativeId, stepId, actionset, args));
-				trace.add(event("step_planned", entry.actionId(), alternativeId, stepId, Map.of("actionset", actionset)));
-				continue;
-			}
-			if (step.containsKey("watch")) {
-				Map<String, Object> watch = evaluateArgs(objectMap(step.get("watch")), params);
-				ActionWatchSpec watchSpec = watchSpec(watch, matchedGuards);
-				steps.add(new ActionPlanStep(ActionStepKind.WATCH, entry.actionId(), alternativeId, stepId, "watch", watch, watchSpec));
-				trace.add(event("watch_registered", entry.actionId(), alternativeId, stepId, watch));
-			}
-		}
-
-		return Optional.of(new ActionRoute(steps, routeCost));
-	}
-
-	private List<ActionFact> matchedGuards(
-		Map<String, Object> alternative,
-		Map<String, Integer> params,
-		List<ActionTraceEvent> trace,
-		String actionId,
-		String alternativeId
-	) {
-		ArrayList<ActionFact> matched = new ArrayList<>();
-		for (Object guardObject : objectList(alternative.get("guards"))) {
-			Optional<ActionFact> fact = matchingFact(objectMap(guardObject), params, trace, actionId, alternativeId);
-			if (fact.isEmpty()) {
-				return null;
-			}
-			matched.add(fact.get());
-		}
-		return List.copyOf(matched);
-	}
-
 	private boolean goalSatisfied(ActionGoal goal, List<ActionTraceEvent> trace) {
-		LinkedHashMap<String, Object> factSpec = new LinkedHashMap<>();
-		factSpec.put("fact", goal.factType().id());
-		factSpec.putAll(goal.keys());
-		goal.minimums().forEach((key, value) -> factSpec.put(key, value));
-		return matchingFact(factSpec, Map.of(), trace, "", "").isPresent();
-	}
-
-	private boolean factSatisfied(
-		Map<String, Object> factSpec,
-		Map<String, Integer> params,
-		List<ActionTraceEvent> trace,
-		String actionId,
-		String alternativeId
-	) {
-		return matchingFact(factSpec, params, trace, actionId, alternativeId).isPresent();
-	}
-
-	private Optional<ActionFact> matchingFact(
-		Map<String, Object> factSpec,
-		Map<String, Integer> params,
-		List<ActionTraceEvent> trace,
-		String actionId,
-		String alternativeId
-	) {
-		ActionFactCondition requirement = requirementFromSpec(factSpec, params);
-		List<ActionFact> matches = facts.query(requirement.factType(), requirement.queryKeys());
-		Optional<ActionFact> matched = matches.stream()
+		LinkedHashMap<String, String> keys = new LinkedHashMap<>(goal.keys());
+		if (goal.factType() == ActionFactType.INVENTORY_ITEM
+			|| goal.factType() == ActionFactType.INVENTORY_RESOURCE
+			|| goal.factType() == ActionFactType.INVENTORY_TOOL) {
+			keys.put("worldId", context.worldId());
+			keys.put("actorId", context.actorId());
+		}
+		LinkedHashMap<String, Integer> minimums = new LinkedHashMap<>();
+		goal.minimums().forEach((key, value) -> minimums.put(switch (key) {
+			case "countAtLeast" -> "count";
+			case "matureCountAtLeast" -> "matureCount";
+			case "readyAtLeast" -> "ready";
+			default -> key;
+		}, value));
+		ActionFactCondition condition = new ActionFactCondition(goal.factType(), keys, minimums);
+		Optional<ActionFact> matched = facts.query(condition.factType(), condition.queryKeys()).stream()
 			.filter(this::usableFact)
-			.filter(requirement::satisfiedBy)
-			.sorted(Comparator
-				.comparingLong(ActionFact::observedTick).reversed()
-				.thenComparing(fact -> fact.identity().keys().toString()))
+			.filter(condition::satisfiedBy)
 			.findFirst();
-		trace.add(event(
-			"fact_query",
-			actionId,
-			alternativeId,
-			"",
-			Map.of(
-				"fact", requirement.factType().id(),
-				"keys", requirement.queryKeys(),
-				"satisfied", matched.isPresent(),
-				"matchedIdentity", matched.map(fact -> fact.identity().keys()).orElse(Map.of())
-			)
-		));
-		return matched;
-	}
-
-	private ActionWatchSpec watchSpec(Map<String, Object> watch, List<ActionFact> matchedGuards) {
-		ActionFactCondition condition = requirementFromSpec(watch, Map.of());
-		ActionFactCondition initialCondition = condition;
-		Map<String, Object> progress = objectMap(watch.get("progress"));
-		ActionWatchProgressKind progressKind = "area_ticking".equals(scalar(progress.get("kind"), ""))
-			? ActionWatchProgressKind.AREA_TICKING
-			: ActionWatchProgressKind.NONE;
-		ActionFact sourceFact = null;
-		if ("matched_fact".equals(scalar(progress.get("anchor"), ""))) {
-			sourceFact = matchedGuards.stream()
-				.filter(fact -> fact.identity().type() == initialCondition.factType())
-				.filter(fact -> initialCondition.queryKeys().entrySet().stream()
-					.allMatch(entry -> entry.getValue().equals(fact.identity().keys().get(entry.getKey()))))
-				.findFirst()
-				.orElse(null);
-		}
-		if (sourceFact != null) {
-			LinkedHashMap<String, String> exactKeys = new LinkedHashMap<>(condition.queryKeys());
-			exactKeys.putAll(sourceFact.identity().keys());
-			condition = new ActionFactCondition(condition.factType(), exactKeys, condition.minimums());
-		}
-		return new ActionWatchSpec(
-			condition,
-			sourceFact == null ? null : sourceFact.identity(),
-			longValue(watch.get("timeoutTicks"), 24000L),
-			progressKind,
-			anchorFromFact(sourceFact)
-		);
-	}
-
-	private static ActionWatchAnchor anchorFromFact(ActionFact fact) {
-		if (fact == null || !(fact.payload().get("origin") instanceof Map<?, ?> origin)) {
-			return null;
-		}
-		Object x = origin.get("x");
-		Object y = origin.get("y");
-		Object z = origin.get("z");
-		if (!(x instanceof Number xNumber) || !(y instanceof Number yNumber) || !(z instanceof Number zNumber)) {
-			return null;
-		}
-		return new ActionWatchAnchor(
-			fact.identity().keys().getOrDefault("worldId", ""),
-			fact.identity().keys().getOrDefault("dimension", ""),
-			xNumber.intValue(),
-			yNumber.intValue(),
-			zNumber.intValue(),
-			false
-		);
+		trace.add(event("fact_query", "", "", "", Map.of(
+			"fact", condition.factType().id(),
+			"keys", condition.queryKeys(),
+			"satisfied", matched.isPresent()
+		)));
+		return matched.isPresent();
 	}
 
 	private boolean usableFact(ActionFact fact) {
@@ -1451,53 +1201,6 @@ public final class ActionResolver {
 		LinkedHashMap<String, List<ActionFact>> immutable = new LinkedHashMap<>();
 		indexed.forEach((itemId, candidates) -> immutable.put(itemId, List.copyOf(candidates)));
 		return Map.copyOf(immutable);
-	}
-
-	private List<ActionsetEntry> matchingActionsets(ActionGoal goal) {
-		return index.all().stream()
-			.filter(entry -> producesGoal(entry.definition(), goal))
-			.toList();
-	}
-
-	private static boolean producesGoal(Map<String, Object> action, ActionGoal goal) {
-		for (Object produceObject : objectList(action.get("produces"))) {
-			Map<String, Object> produced = objectMap(produceObject);
-			if (!goal.factType().id().equals(scalar(produced.get("fact"), ""))) {
-				continue;
-			}
-			boolean keysMatch = true;
-			for (Map.Entry<String, String> key : goal.keys().entrySet()) {
-				String producedValue = scalar(produced.get(key.getKey()), null);
-				if (producedValue != null && !producedValue.equals(key.getValue())) {
-					keysMatch = false;
-					break;
-				}
-			}
-			if (keysMatch) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private Map<String, Integer> bindParams(Map<String, Object> action, ActionGoal goal) {
-		LinkedHashMap<String, Integer> params = new LinkedHashMap<>();
-		for (Map.Entry<String, Object> entry : objectMap(action.get("params")).entrySet()) {
-			Map<String, Object> definition = objectMap(entry.getValue());
-			Object defaultValue = definition.get("default");
-			if (defaultValue instanceof Number number) {
-				params.put(entry.getKey(), number.intValue());
-			}
-		}
-		if (params.containsKey("quantity")) {
-			params.put("quantity", goal.minimum("countAtLeast", goal.minimum("matureCountAtLeast", params.get("quantity"))));
-		}
-		int targetCount = goal.minimum("countAtLeast", goal.minimum("matureCountAtLeast", params.getOrDefault("quantity", 1)));
-		int existingCount = existingGoalCount(goal);
-		params.put("goal.targetCount", targetCount);
-		params.put("goal.existingCount", existingCount);
-		params.put("goal.deficitCount", Math.max(0, targetCount - existingCount));
-		return Map.copyOf(params);
 	}
 
 	private int existingGoalCount(ActionGoal goal) {
@@ -1681,59 +1384,6 @@ public final class ActionResolver {
 		return List.copyOf(candidates);
 	}
 
-	private ActionGoal goalFromFactSpec(Map<String, Object> factSpec, Map<String, Integer> params) {
-		ActionFactType factType = ActionFactType.fromId(scalar(factSpec.get("fact"), ""))
-			.orElseThrow(() -> new IllegalArgumentException("unknown fact type " + factSpec.get("fact")));
-		LinkedHashMap<String, String> keys = new LinkedHashMap<>();
-		for (String key : identityKeyNames()) {
-			String value = scalar(factSpec.get(key), null);
-			if (value != null && !value.isBlank()) {
-				keys.put(key, value);
-			}
-		}
-		LinkedHashMap<String, Integer> minimums = new LinkedHashMap<>();
-		if (factSpec.containsKey("countAtLeast")) {
-			minimums.put("countAtLeast", evaluateInt(factSpec.get("countAtLeast"), params));
-		}
-		if (factSpec.containsKey("matureCountAtLeast")) {
-			minimums.put("matureCountAtLeast", evaluateInt(factSpec.get("matureCountAtLeast"), params));
-		}
-		if (factSpec.containsKey("readyAtLeast")) {
-			minimums.put("readyAtLeast", evaluateInt(factSpec.get("readyAtLeast"), params));
-		}
-		return new ActionGoal(factType, keys, minimums);
-	}
-
-	private ActionFactCondition requirementFromSpec(Map<String, Object> factSpec, Map<String, Integer> params) {
-		ActionFactType factType = ActionFactType.fromId(scalar(factSpec.get("fact"), ""))
-			.orElseThrow(() -> new IllegalArgumentException("unknown fact type " + factSpec.get("fact")));
-		LinkedHashMap<String, String> queryKeys = new LinkedHashMap<>();
-		queryKeys.put("worldId", context.worldId());
-		if (factType == ActionFactType.INVENTORY_ITEM || factType == ActionFactType.INVENTORY_RESOURCE || factType == ActionFactType.INVENTORY_TOOL || factType == ActionFactType.CRAFT_RECIPE || factType == ActionFactType.SMELT_RECIPE || factType == ActionFactType.SMELTING_PROCESS) {
-			queryKeys.put("actorId", context.actorId());
-		}
-		if (worldDimensionScopedFact(factType)) {
-			queryKeys.put("dimension", context.dimension());
-		}
-		for (String key : identityKeyNames()) {
-			String value = scalar(factSpec.get(key), null);
-			if (value != null && !value.isBlank()) {
-				queryKeys.put(key, value);
-			}
-		}
-		LinkedHashMap<String, Integer> minimums = new LinkedHashMap<>();
-		if (factSpec.containsKey("countAtLeast")) {
-			minimums.put("count", evaluateInt(factSpec.get("countAtLeast"), params));
-		}
-		if (factSpec.containsKey("matureCountAtLeast")) {
-			minimums.put("matureCount", evaluateInt(factSpec.get("matureCountAtLeast"), params));
-		}
-		if (factSpec.containsKey("readyAtLeast")) {
-			minimums.put("ready", evaluateInt(factSpec.get("readyAtLeast"), params));
-		}
-		return new ActionFactCondition(factType, queryKeys, minimums);
-	}
-
 	private static long longValue(Object value, long fallback) {
 		return value instanceof Number number ? number.longValue() : fallback;
 	}
@@ -1773,70 +1423,6 @@ public final class ActionResolver {
 		return value instanceof Number number ? number.intValue() : fallback;
 	}
 
-	private static List<Map<String, Object>> alternatives(ActionsetEntry entry) {
-		return objectList(entry.definition().get("alternatives")).stream()
-			.map(ActionResolver::objectMap)
-			.sorted(Comparator.comparingInt(ActionResolver::intrinsicAlternativeCost))
-			.toList();
-	}
-
-	private static int intrinsicAlternativeCost(Map<String, Object> alternative) {
-		boolean containsCraft = false;
-		for (Object stepObject : objectList(alternative.get("steps"))) {
-			Map<String, Object> step = objectMap(stepObject);
-			if (step.containsKey("primitive")) {
-				if (!"craft_item".equals(scalar(step.get("primitive"), ""))) {
-					return cost(alternative);
-				}
-				containsCraft = true;
-			}
-			else if (step.containsKey("watch") || step.containsKey("actionset")) {
-				return cost(alternative);
-			}
-		}
-		return containsCraft ? 0 : cost(alternative);
-	}
-
-	private static int cost(Map<String, Object> alternative) {
-		Object cost = alternative.get("cost");
-		return cost instanceof Number number ? number.intValue() : 10;
-	}
-
-	private static Map<String, Object> evaluateArgs(Map<String, Object> args, Map<String, Integer> params) {
-		LinkedHashMap<String, Object> evaluated = new LinkedHashMap<>();
-		for (Map.Entry<String, Object> entry : args.entrySet()) {
-			evaluated.put(entry.getKey(), evaluateValue(entry.getValue(), params));
-		}
-		return evaluated;
-	}
-
-	private static Object evaluateValue(Object value, Map<String, Integer> params) {
-		if (value instanceof Map<?, ?> map) {
-			Map<String, Object> typed = objectMap(map);
-			if (typed.containsKey("expr")) {
-				return evaluateInt(typed, params);
-			}
-			return evaluateArgs(typed, params);
-		}
-		if (value instanceof List<?> list) {
-			return list.stream()
-				.map(item -> evaluateValue(item, params))
-				.toList();
-		}
-		return value;
-	}
-
-	private static int evaluateInt(Object value, Map<String, Integer> params) {
-		if (value instanceof Number number) {
-			return number.intValue();
-		}
-		if (value instanceof Map<?, ?> map) {
-			String expression = scalar(objectMap(map).get("expr"), "");
-			return new IntegerExpression(expression, params).parse();
-		}
-		return new IntegerExpression(scalar(value, "0"), params).parse();
-	}
-
 	private static ActionTraceEvent event(
 		String eventType,
 		String actionId,
@@ -1865,26 +1451,13 @@ public final class ActionResolver {
 			|| factType == ActionFactType.WORLD_ENTITY;
 	}
 
-	private static Map<String, Object> objectMap(Object value) {
-		if (value instanceof Map<?, ?> map) {
-			LinkedHashMap<String, Object> typed = new LinkedHashMap<>();
-			for (Map.Entry<?, ?> entry : map.entrySet()) {
-				typed.put(String.valueOf(entry.getKey()), entry.getValue());
-			}
-			return typed;
-		}
-		return Map.of();
-	}
-
-	private static List<Object> objectList(Object value) {
-		if (value instanceof List<?> list) {
-			return List.copyOf(list);
-		}
-		return List.of();
-	}
-
 	private static String scalar(Object value, String fallback) {
 		return value == null ? fallback : String.valueOf(value);
+	}
+
+	@FunctionalInterface
+	private interface TopLevelProviderResolver {
+		Optional<ProviderCandidate> resolve(ActionGoal goal, List<ActionTraceEvent> trace);
 	}
 
 	private record FuelCandidate(String itemId, int fuelTicks) {
@@ -1893,127 +1466,4 @@ public final class ActionResolver {
 	private record FuelPlan(String itemId, int quantity, ActionRoute route, int priority) {
 	}
 
-	private static final class IntegerExpression {
-		private final String expression;
-		private final Map<String, Integer> params;
-		private int index;
-
-		IntegerExpression(String expression, Map<String, Integer> params) {
-			this.expression = expression == null ? "" : expression;
-			this.params = params == null ? Map.of() : params;
-		}
-
-		int parse() {
-			int value = parseExpression();
-			skipWhitespace();
-			if (index != expression.length()) {
-				throw new IllegalArgumentException("unexpected token in expression: " + expression);
-			}
-			return value;
-		}
-
-		private int parseExpression() {
-			int value = parseTerm();
-			while (true) {
-				skipWhitespace();
-				if (match('+')) {
-					value += parseTerm();
-				}
-				else if (match('-')) {
-					value -= parseTerm();
-				}
-				else {
-					return value;
-				}
-			}
-		}
-
-		private int parseTerm() {
-			int value = parseFactor();
-			while (true) {
-				skipWhitespace();
-				if (match('*')) {
-					value *= parseFactor();
-				}
-				else if (match('/')) {
-					value /= parseFactor();
-				}
-				else {
-					return value;
-				}
-			}
-		}
-
-		private int parseFactor() {
-			skipWhitespace();
-			if (match('-')) {
-				return -parseFactor();
-			}
-			if (match('(')) {
-				int value = parseExpression();
-				expect(')');
-				return value;
-			}
-			if (peekDigit()) {
-				return parseInteger();
-			}
-			return parseIdentifier();
-		}
-
-		private int parseInteger() {
-			int start = index;
-			while (index < expression.length() && Character.isDigit(expression.charAt(index))) {
-				index++;
-			}
-			return Integer.parseInt(expression.substring(start, index));
-		}
-
-		private int parseIdentifier() {
-			int start = index;
-			while (index < expression.length()) {
-				char value = expression.charAt(index);
-				if (!Character.isLetterOrDigit(value) && value != '_' && value != '.') {
-					break;
-				}
-				index++;
-			}
-			String identifier = expression.substring(start, index);
-			Integer exact = params.get(identifier);
-			if (exact != null) {
-				return exact;
-			}
-			if (identifier.startsWith("params.")) {
-				String param = identifier.substring("params.".length());
-				Integer value = params.get(param);
-				if (value != null) {
-					return value;
-				}
-			}
-			throw new IllegalArgumentException("unknown identifier in expression: " + identifier);
-		}
-
-		private boolean match(char expected) {
-			if (index < expression.length() && expression.charAt(index) == expected) {
-				index++;
-				return true;
-			}
-			return false;
-		}
-
-		private void expect(char expected) {
-			if (!match(expected)) {
-				throw new IllegalArgumentException("expected '" + expected + "' in expression: " + expression);
-			}
-		}
-
-		private boolean peekDigit() {
-			return index < expression.length() && Character.isDigit(expression.charAt(index));
-		}
-
-		private void skipWhitespace() {
-			while (index < expression.length() && Character.isWhitespace(expression.charAt(index))) {
-				index++;
-			}
-		}
-	}
 }

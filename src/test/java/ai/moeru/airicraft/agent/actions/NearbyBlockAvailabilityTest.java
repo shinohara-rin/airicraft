@@ -48,7 +48,7 @@ class NearbyBlockAvailabilityTest {
 	}
 
 	@Test
-	void legacyExecutionAndResolutionInputsDefaultAvailabilityToUnknown() {
+	void executionInputAndPlanningSnapshotDefaultAvailabilityToUnknown() {
 		ActionGraphExecutionInput executionInput = new ActionGraphExecutionInput(
 			CONTEXT,
 			Map.of(),
@@ -56,29 +56,21 @@ class NearbyBlockAvailabilityTest {
 			true,
 			null
 		);
-		ActionResolutionRequest request = ActionResolutionRequest.defaults(
-			ActionsetIndex.empty(),
-			List.of(),
-			CONTEXT,
-			ActionGoal.inventoryItem("minecraft:stick", 1)
+		AiricraftPlanningSnapshot snapshot = new AiricraftPlanningSnapshot(
+			List.of(), BlockAcquisitionIndex.empty(), null, CONTEXT
 		);
 
 		assertFalse(executionInput.nearbyBlockAvailability().observed());
-		assertFalse(request.nearbyBlockAvailability().observed());
+		assertFalse(snapshot.nearbyBlockAvailability().observed());
 	}
 
 	@Test
-	void explicitResolutionRequestRetainsObservedSnapshot() {
+	void planningSnapshotRetainsObservedAvailability() {
 		NearbyBlockAvailability availability = NearbyBlockAvailability.observed(Map.of("minecraft:oak_log", 4));
-		ActionResolutionRequest request = ActionResolutionRequest.defaults(
-			ActionsetIndex.empty(),
-			List.of(),
-			BlockAcquisitionIndex.empty(),
-			availability,
-			CONTEXT,
-			ActionGoal.inventoryItem("minecraft:stick", 1)
+		AiricraftPlanningSnapshot snapshot = new AiricraftPlanningSnapshot(
+			List.of(), BlockAcquisitionIndex.empty(), availability, CONTEXT
 		);
 
-		assertEquals(availability, request.nearbyBlockAvailability());
+		assertEquals(availability, snapshot.nearbyBlockAvailability());
 	}
 }

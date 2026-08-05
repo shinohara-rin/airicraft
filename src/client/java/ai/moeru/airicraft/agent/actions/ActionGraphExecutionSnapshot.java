@@ -162,6 +162,10 @@ public record ActionGraphExecutionSnapshot(
 		payload.put("alternativeId", step.alternativeId());
 		payload.put("stepId", step.stepId());
 		payload.put("targetId", step.targetId());
+		payload.put("methodKey", Map.of(
+			"providerId", step.methodKey().providerId().value(),
+			"methodId", step.methodKey().methodId()
+		));
 		payload.put("args", step.args());
 		return payload;
 	}

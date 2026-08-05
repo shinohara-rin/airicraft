@@ -11,7 +11,7 @@ The action graph needs broad recipe knowledge for route planning, but crafting r
 - Vanilla recipe-book craftability observations.
 - Current executable `availableCrafts`.
 - Optional recipe-viewer providers such as REI, and later JEI.
-- Operator-authored actionset/provider fixtures in tests.
+- Method-provider fixtures in tests.
 
 Executable craft dispatch is narrower. A `craft_item` primitive may dispatch only when the selected recipe is present in current executable craft opportunities, or when the executor is explicitly upgraded to safely execute provider-only recipes.
 

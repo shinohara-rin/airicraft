@@ -4,17 +4,9 @@ import ai.moeru.airicraft.AiricraftConfig;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.actions.ActionGoal;
-import ai.moeru.airicraft.agent.actions.ActionFact;
-import ai.moeru.airicraft.agent.actions.ActionFactIdentity;
-import ai.moeru.airicraft.agent.actions.ActionFactProvenance;
-import ai.moeru.airicraft.agent.actions.ActionGraphAgentPosition;
-import ai.moeru.airicraft.agent.actions.ActionGraphCoordinator;
-import ai.moeru.airicraft.agent.actions.ActionGraphExecutionInput;
 import ai.moeru.airicraft.agent.actions.ActionGraphExecutionSnapshot;
 import ai.moeru.airicraft.agent.actions.BlockAcquisitionTestFixtures;
 import ai.moeru.airicraft.agent.actions.ActionGraphExecutionState;
-import ai.moeru.airicraft.agent.actions.ActionGraphResidency;
-import ai.moeru.airicraft.agent.actions.ActionResolverContext;
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
@@ -88,7 +80,6 @@ import com.google.gson.JsonParser;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -225,12 +216,6 @@ class EmbodiedAgentRuntimeTest {
 		Field field = EmbodiedAgentRuntime.class.getDeclaredField("activeJobRuntime");
 		field.setAccessible(true);
 		return (ActiveJobRuntime) field.get(runtime);
-	}
-
-	private static ActionGraphCoordinator actionGraphCoordinator(EmbodiedAgentRuntime runtime) throws Exception {
-		Field field = EmbodiedAgentRuntime.class.getDeclaredField("actionGraphCoordinator");
-		field.setAccessible(true);
-		return (ActionGraphCoordinator) field.get(runtime);
 	}
 
 	private static void setReflexSnapshot(EmbodiedAgentRuntime runtime, SurvivalReflexSnapshot snapshot) throws Exception {
@@ -539,90 +524,6 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(collectSmelted.contains("TOOL_ERROR: collect_smelted_items denied reason=active_action_graph_in_progress"));
 		assertEquals(started.executionId(), runtime.actionGraphExecutionSnapshot().executionId());
 		assertEquals(ActionGraphExecutionState.RESOLVING, runtime.actionGraphExecutionSnapshot().state());
-	}
-
-	@Test
-	@Disabled("The removed YAML crop watch no longer suspends wheat goals")
-	void plannerLegacyMutationRemainsDeniedWhileGraphIsOnlySuspended() throws Exception {
-		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
-		ActionGraphExecutionSnapshot wheat = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:wheat", 1), "test");
-		ActionGraphCoordinator coordinator = actionGraphCoordinator(runtime);
-		ActionResolverContext context = new ActionResolverContext("world-a", "bot", "minecraft:overworld", 20L);
-		ActionFact growingWheat = new ActionFact(
-			ActionFactIdentity.worldCropGroup("world-a", "minecraft:overworld", "farm-1", "minecraft:wheat"),
-			Map.of("matureCount", 0, "totalCount", 3, "origin", Map.of("x", 0, "y", 64, "z", 0)),
-			ActionFactProvenance.OBSERVED,
-			20L,
-			ActionFact.NEVER_STALE
-		);
-		coordinator.tick(new ActionGraphExecutionInput(
-			context,
-			Map.of(),
-			Map.of(),
-			true,
-			true,
-			null,
-			List.of(),
-			List.of(),
-			List.of(),
-			List.of(),
-			List.of(growingWheat),
-			new ActionGraphAgentPosition("world-a", "minecraft:overworld", 0, 64, 0),
-			Map.of()
-		), true);
-		for (int attempt = 0;
-			attempt < 100 && coordinator.inspect(wheat.executionId()).residency() == ActionGraphResidency.FOREGROUND;
-			attempt++) {
-			Thread.sleep(5L);
-			coordinator.tick(new ActionGraphExecutionInput(
-				new ActionResolverContext("world-a", "bot", "minecraft:overworld", 21L + attempt),
-				Map.of(),
-				Map.of(),
-				true,
-				true,
-				null,
-				List.of(),
-				List.of(),
-				List.of(),
-				List.of(),
-				List.of(growingWheat),
-				new ActionGraphAgentPosition("world-a", "minecraft:overworld", 0, 64, 0),
-				Map.of()
-			), true);
-		}
-
-		String legacy = runtime.executePlannerToolCallForTests(new PlannerToolCall(
-			"call_follow",
-			PlannerToolCatalog.FOLLOW_PLAYER,
-			JsonParser.parseString("""
-				{"targetPlayer":"Alice"}
-				""").getAsJsonObject(),
-			null,
-			null
-		));
-		runtime.injectDialogueResponseForTests(new DialogueResponse(
-			"I'll follow Alice.",
-			new DialogueIntent(DialogueIntentType.JOB_UPDATE, ActiveJobProposal.followPlayer("Alice")),
-			21L
-		));
-		String secondGraph = runtime.executePlannerToolCallForTests(new PlannerToolCall(
-			"call_dirt",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-				{"kind":"resource_collection","resourceKind":"DIRT","quantity":1}
-				""").getAsJsonObject(),
-			null,
-			null
-		));
-
-		assertEquals(ActionGraphResidency.SUSPENDED, coordinator.inspect(wheat.executionId()).residency());
-		assertTrue(legacy.contains("denied reason=active_action_graph_in_progress"));
-		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event ->
-			"player.action_rejected".equals(event.type())
-				&& "active_action_graph_in_progress".equals(event.payload().get("reason"))
-		));
-		assertTrue(secondGraph.contains("admission=started"));
 	}
 
 	@Test

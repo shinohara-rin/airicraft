@@ -174,7 +174,7 @@ feedback, observation, instrumentation, or optional extension.
 
 | Component | Role | Owned by / depends on | Primary entrypoints |
 | --- | --- | --- | --- |
-| Action graph | Resolves high-level action goals through actionsets, tracks execution/recovery state, and dispatches primitive steps. | Owned and ticked by the embodied runtime; loads actionsets and delegates primitives. | `ActionGraphExecutionRuntime`, `ActionResolver`, `ActionsetLibraryLoader` |
+| Action graph | Gets route advice for high-level action goals, tracks execution and recovery state, and dispatches primitive steps. | Owned and ticked by the embodied runtime; uses Airicraft method providers and delegates primitives. | `ActionGraphExecutionRuntime`, `AiricraftPlanAdvisor`, `AutoCommittingRoutePlanner` |
 | World tasks | Owns tick-driven task lifecycles for navigation, crafting, smelting, block/entity interaction, and related actions. | Constructed by the runtime controller; invoked by direct planner tools and graph primitives. | `WorldTaskExecutor`, `DispatchingWorldTaskExecutor` |
 | Minecraft adapters and control | Applies low-level movement, camera, Baritone, interaction, and mixin-backed game operations. | Used by world-task executors and perception services; acts on Minecraft client state. | `LiveBaritoneFacade`, `MovementController`, `CameraController`, client mixins |
 
@@ -193,7 +193,6 @@ feedback, observation, instrumentation, or optional extension.
 | Evaluator addon | Registers evaluation bridge routes, restores scenario worlds, drives scenarios on client ticks, checks results, and records durable evidence. | Separate Fabric addon; accesses the live runtime through `AiricraftClient.runtimeController()`. | `AiricraftEvaluatorClient`, `EvaluationAddonRuntime`, `ScenarioEvaluationRunner` |
 | JourneyMap compatibility | Adapts JourneyMap waypoints and map images into the core map integration registry. | Optional addon loaded by JourneyMap; registers a `MapIntegrationProvider`. | `AiricraftJourneyMapPlugin`, `JourneyMapIntegrationProvider` |
 | REI compatibility | Adapts REI's runtime recipe registry into the planner's recipe-search bridge. | Optional REI client plugin; installs and clears the search backend on reload stages. | `AiricraftReiPlugin`, `ReiRuntimeRecipeSearchBackend` |
-| Actionsets | YAML-authored action routes used by the action resolver and graph runtime. | Loaded by `ActionsetLibraryLoader` from built-in/operator/enabled libraries. | `actionsets/`, `ActionsetDocument` |
 | Evaluation scenarios | YAML scenario definitions and frozen-world fixtures consumed by the evaluator. | Loaded by the evaluator repository and scenario loader. | `scenarios/`, `EvaluationScenarioLoader` |
 
 ## Runtime and Thread Boundaries
@@ -231,8 +230,8 @@ targets are the corresponding entries in this exact list:
 ../../src/client/java/ai/moeru/airicraft/agent/semantic/SemanticContextProjector.java
 ../../src/client/java/ai/moeru/airicraft/agent/llm/PlannerAmbientContext.java
 ../../src/client/java/ai/moeru/airicraft/agent/actions/ActionGraphExecutionRuntime.java
-../../src/client/java/ai/moeru/airicraft/agent/actions/ActionResolver.java
-../../src/client/java/ai/moeru/airicraft/agent/actions/ActionsetLibraryLoader.java
+../../src/client/java/ai/moeru/airicraft/agent/actions/AiricraftPlanAdvisor.java
+../../src/client/java/ai/moeru/airicraft/agent/actions/AutoCommittingRoutePlanner.java
 ../../src/client/java/ai/moeru/airicraft/agent/tasks/WorldTaskExecutor.java
 ../../src/client/java/ai/moeru/airicraft/agent/tasks/DispatchingWorldTaskExecutor.java
 ../../src/client/java/ai/moeru/airicraft/agent/baritone/LiveBaritoneFacade.java
@@ -256,8 +255,6 @@ targets are the corresponding entries in this exact list:
 ../../compat/journeymap/src/client/java/ai/moeru/airicraft/compat/journeymap/JourneyMapIntegrationProvider.java
 ../../compat/rei/src/client/java/ai/moeru/airicraft/compat/rei/AiricraftReiPlugin.java
 ../../compat/rei/src/client/java/ai/moeru/airicraft/compat/rei/ReiRuntimeRecipeSearchBackend.java
-../../actionsets/
-../../src/client/java/ai/moeru/airicraft/agent/actions/ActionsetDocument.java
 ../../scenarios/
 ../../addons/evaluator/src/client/java/ai/moeru/airicraft/agent/evaluation/EvaluationScenarioLoader.java
 ```
@@ -401,7 +398,6 @@ digraph Airicraft {
     color="#fde047";
     fillcolor="#fefce8";
     style="rounded,filled";
-    actionsets [component=true, shape=folder, label=<<B>Actionsets</B><BR/><FONT POINT-SIZE="9">YAML action routes</FONT>>];
     evaluation_scenarios [component=true, shape=folder, label=<<B>Evaluation Scenarios</B><BR/><FONT POINT-SIZE="9">YAML configs and fixtures</FONT>>];
   }
 
@@ -429,7 +425,6 @@ digraph Airicraft {
   evaluator -> http_bridge [label="extension routes", style=dashed];
   evaluator -> agent_runtime [label="drives + inspects"];
   evaluation_scenarios -> evaluator [label="scenario + fixture data"];
-  actionsets -> action_graph [label="resolvable routes"];
   journeymap_compat -> perception_integrations [label="map provider", style=dashed];
   rei_compat -> perception_integrations [label="recipe backend", style=dashed];
 
@@ -532,7 +527,7 @@ Run:
 ```bash
 for term in \
   evaluator journeymap_compat rei_compat action_graph planner_llm \
-  world_tasks observability evaluation_scenarios actionsets; do
+  world_tasks observability evaluation_scenarios; do
   rg -q "$term" docs/architecture/airicraft-component-map.dot || exit 1
 done
 ```

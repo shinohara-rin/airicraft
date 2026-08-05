@@ -41,13 +41,8 @@ wait until actuation is allowed.
 
 ## Progress Eligibility
 
-Actionsets may declare world-progress requirements:
-
-```yaml
-progress:
-  kind: area_ticking
-  anchor: matched_fact
-```
+Method providers can set world-progress requirements in `ActionWatchSpec`.
+The `AREA_TICKING` kind can use the matched fact as its anchor.
 
 `matched_fact` pins the watch to the exact guard fact identity, including a
 crop group's `siteId`. A crop-group fact should expose `origin: {x, y, z}`; an

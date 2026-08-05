@@ -10,12 +10,9 @@ import ai.moeru.actionplan.ResolutionContext;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
-final class AiricraftMethodProvider implements MethodProvider {
+abstract class AiricraftMethodProvider implements MethodProvider {
 	private final ProviderId id;
 	private final int rank;
 	private final AiricraftPlanningSnapshot snapshot;
@@ -37,20 +34,9 @@ final class AiricraftMethodProvider implements MethodProvider {
 	}
 
 	@Override
-	public Optional<MethodRoute> resolve(Goal goal, ResolutionContext context) {
+	public final Optional<MethodRoute> resolve(Goal goal, ResolutionContext context) {
 		ActionGoal actionGoal = AiricraftPlanConversions.toActionGoal(goal);
-		ActionResolveResult result = ActionResolver.resolveProvider(new ActionResolutionRequest(
-			ActionsetIndex.empty(),
-			snapshot.facts(),
-			snapshot.blockAcquisitions(),
-			snapshot.nearbyBlockAvailability(),
-			snapshot.context(),
-			actionGoal,
-			ActionResolutionRequest.DEFAULT_MAX_DEPTH,
-			ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET,
-			Set.of(),
-			false
-		), id.value(), context);
+		ActionResolveResult result = resolveDomainRoute(actionGoal, context);
 		result.trace().forEach(event -> context.trace(
 			event.eventType(),
 			new MethodKey(new ProviderId(nonEmpty(event.actionId(), id.value())), nonEmpty(event.alternativeId(), "unknown")),
@@ -70,10 +56,16 @@ final class AiricraftMethodProvider implements MethodProvider {
 			arguments.put("airicraftKind", step.kind().name());
 			arguments.put("actionId", step.actionId());
 			arguments.put("alternativeId", step.alternativeId());
-			commands.add(new PlanCommand(step.stepId(), step.targetId(), arguments, methodKey));
+			commands.add(new PlanCommand(step.stepId(), step.targetId(), arguments, step.methodKey()));
 		}
 		return Optional.of(new MethodRoute(methodKey, commands, result.route().cost()));
 	}
+
+	protected final AiricraftPlanningSnapshot snapshot() {
+		return snapshot;
+	}
+
+	protected abstract ActionResolveResult resolveDomainRoute(ActionGoal goal, ResolutionContext context);
 
 	private static String nonEmpty(String value, String fallback) {
 		return value == null || value.isBlank() ? fallback : value;

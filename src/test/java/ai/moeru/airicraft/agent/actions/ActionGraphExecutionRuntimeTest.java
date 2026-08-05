@@ -6,9 +6,7 @@ import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskFailureCode;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -50,12 +48,7 @@ class ActionGraphExecutionRuntimeTest {
 			assertTrue(workerOccupied.await(1, TimeUnit.SECONDS));
 
 			RecordingDispatcher dispatcher = new RecordingDispatcher();
-			ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(
-				defaultIndex(),
-				dispatcher,
-				false,
-				executor
-			);
+			ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher, executor);
 			runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 			ActionGraphExecutionSnapshot resolving = assertTimeoutPreemptively(
@@ -128,7 +121,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void resourceGoalDispatchesProviderAndCompletesAfterObservedResourceFact() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.resourceCollection("WOOD_LOGS", 3), Map.of(), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(inputWithResources(Map.of("WOOD_LOGS", 1), null, 101));
@@ -154,7 +147,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void dispatchesFirstPrimitiveAndCompletesAfterObservedGoalFact() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -181,7 +174,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void reflexPausePreservesActionGraphIdentityAndResumesSamePrimitive() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		ActionGraphExecutionSnapshot started = runtime.submit(
 			ActionGoal.inventoryItem("minecraft:bread", 1),
 			Map.of("minecraft:wheat", 3),
@@ -222,7 +215,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void zeroStepRouteSucceedsOnlyAfterGoalFactIsObserved() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of(), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot noRoute = runtime.tick(input(Map.of(), null, 101));
@@ -241,7 +234,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void availableCraftFactsEnableGenericRecipeRoute() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(
@@ -268,7 +261,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void knownCraftFactsEnablePlanningBeforeRecipeIsExecutable() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:stick", 4), Map.of("minecraft:oak_planks", 2), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(inputWithKnownCrafts(
@@ -296,7 +289,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void broadIronPickaxeGoalStartsThroughInferredSurvivalKnowledge() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1), Map.of("minecraft:birch_planks", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(inputWithKnownCraftsAndSmelts(
@@ -329,7 +322,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void genericKnownSmeltRecipeEnablesNonIronRoute() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(
 			ActionGoal.inventoryItem("minecraft:glass", 1),
 			Map.of("minecraft:sand", 1, "minecraft:furnace", 1, "minecraft:coal", 1),
@@ -370,7 +363,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void smeltStartSuspendsUntilExactProcessIsReadyThenCollectsIt() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(
 			ActionGoal.inventoryItem("minecraft:iron_ingot", 3),
 			Map.of("minecraft:raw_iron", 3, "minecraft:furnace", 1, "minecraft:coal", 1, "minecraft:stone_pickaxe", 1),
@@ -441,136 +434,9 @@ class ActionGraphExecutionRuntimeTest {
 	}
 
 	@Test
-	@Disabled("The removed YAML crop route no longer acquires wheat")
-	void breadRouteHarvestsMatureWheatThenCraftsAfterWheatObserved() {
-		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
-		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of(), CONTEXT, 100);
-
-		ActionGraphExecutionSnapshot harvestDispatched = runtime.tick(input(
-			Map.of(),
-			null,
-			101,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 101))
-		));
-
-		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, harvestDispatched.state());
-		assertEquals(1, dispatcher.dispatchedSteps.size());
-		ActionPlanStep harvest = dispatcher.dispatchedSteps.getFirst();
-		assertEquals("obtain_wheat", harvest.actionId());
-		assertEquals("harvest_loaded_mature_wheat", harvest.alternativeId());
-		assertEquals("mine_block", harvest.targetId());
-
-		ActionGraphExecutionSnapshot observing = runtime.tick(input(
-			Map.of("minecraft:wheat", 3),
-			new TaskTerminalEvent("task-1", null, TaskExecutionState.COMPLETED, "harvested", null),
-			102,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 102))
-		));
-
-		assertEquals(ActionGraphExecutionState.OBSERVING, observing.state());
-		assertEquals(1, dispatcher.dispatchedSteps.size());
-
-		ActionGraphExecutionSnapshot craftDispatched = runtime.tick(input(
-			Map.of("minecraft:wheat", 3),
-			null,
-			122,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 122))
-		));
-
-		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, craftDispatched.state());
-		assertEquals(2, dispatcher.dispatchedSteps.size());
-		ActionPlanStep craft = dispatcher.dispatchedSteps.get(1);
-		assertEquals("make_bread", craft.actionId());
-		assertEquals("craft_bread", craft.stepId());
-		assertEquals("craft_item", craft.targetId());
-
-		ActionGraphExecutionSnapshot completed = runtime.tick(input(
-			Map.of("minecraft:wheat", 3, "minecraft:bread", 1),
-			new TaskTerminalEvent("task-2", null, TaskExecutionState.COMPLETED, "crafted", null),
-			123,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 123))
-		));
-
-		assertEquals(ActionGraphExecutionState.SUCCEEDED, completed.state());
-		assertTrace(completed.trace(), "execution_succeeded");
-	}
-
-	@Test
-	@Disabled("The removed YAML crop route no longer waits for wheat")
-	void breadRouteWaitsForGrowingWheatThenHarvestsAndCrafts() {
-		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
-		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of(), CONTEXT, 100);
-
-		ActionGraphExecutionSnapshot watching = runtime.tick(input(
-			Map.of(),
-			null,
-			101,
-			List.of(),
-			List.of(wheatCropGroup(0, 3, 101))
-		));
-
-		assertEquals(ActionGraphExecutionState.WATCHING, watching.state());
-		assertTrue(watching.pendingWatch().contains("wait_for_wheat_maturity"));
-		assertTrue(dispatcher.dispatchedSteps.isEmpty());
-
-		ActionGraphExecutionSnapshot harvestDispatched = runtime.tick(input(
-			Map.of(),
-			null,
-			102,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 102))
-		));
-
-		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, harvestDispatched.state());
-		assertEquals(1, dispatcher.dispatchedSteps.size());
-		assertEquals("harvest_wheat", dispatcher.dispatchedSteps.getFirst().stepId());
-		assertTrace(harvestDispatched.trace(), "watch_fulfilled");
-
-		ActionGraphExecutionSnapshot observing = runtime.tick(input(
-			Map.of("minecraft:wheat", 3),
-			new TaskTerminalEvent("task-1", null, TaskExecutionState.COMPLETED, "harvested", null),
-			103,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 103))
-		));
-
-		assertEquals(ActionGraphExecutionState.OBSERVING, observing.state());
-		assertEquals(1, dispatcher.dispatchedSteps.size());
-
-		ActionGraphExecutionSnapshot craftDispatched = runtime.tick(input(
-			Map.of("minecraft:wheat", 3),
-			null,
-			123,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 123))
-		));
-
-		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, craftDispatched.state());
-		assertEquals(2, dispatcher.dispatchedSteps.size());
-		assertEquals("craft_bread", dispatcher.dispatchedSteps.get(1).stepId());
-
-		ActionGraphExecutionSnapshot completed = runtime.tick(input(
-			Map.of("minecraft:wheat", 3, "minecraft:bread", 1),
-			new TaskTerminalEvent("task-2", null, TaskExecutionState.COMPLETED, "crafted", null),
-			124,
-			List.of(),
-			List.of(wheatCropGroup(3, 3, 124))
-		));
-
-		assertEquals(ActionGraphExecutionState.SUCCEEDED, completed.state());
-		assertTrace(completed.trace(), "execution_succeeded");
-	}
-
-	@Test
 	void nestedCraftingRouteDispatchesIngredientCraftFirst() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:stick", 4), Map.of("minecraft:oak_log", 1), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(
@@ -604,7 +470,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void genericWoodCollectionReplansToObservedLogVariantRecipe() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		List<CraftingOpportunity> survivalCrafts = ActionGraphRecipeFixtures.survivalCrafts();
 		runtime.submit(ActionGoal.inventoryItem("minecraft:crafting_table", 1), Map.of(), CONTEXT, 100);
 
@@ -636,7 +502,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void repeatedObservedFactsDoNotSpamTrace() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:stick", 4), Map.of("minecraft:oak_log", 1), CONTEXT, 100);
 		List<CraftingOpportunity> crafts = List.of(
 			new CraftingOpportunity(
@@ -665,7 +531,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void transientPrimitiveFailureRetriesThenReplansWithoutDispatchChurn() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -687,7 +553,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void unknownFailureDetailDoesNotTriggerTextBasedRecovery() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -707,7 +573,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void typedFailureCodeControlsRecoveryWhenDetailContainsPolicyWords() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -731,7 +597,7 @@ class ActionGraphExecutionRuntimeTest {
 			"path target detail",
 			Map.of()
 		);
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot recovered = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -744,7 +610,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void missingCraftRecipeFailureReplansWithoutBlockingRecipeAlternative() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 		List<CraftingOpportunity> crafts = List.of(new CraftingOpportunity(
 			"wheat_x3_to_bread",
@@ -770,7 +636,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void observedInventorySnapshotClearsConsumedItemsBeforeReplan() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(ActionsetIndex.empty(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(
 			ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1),
 			Map.of("minecraft:birch_planks", 7, "minecraft:stick", 2),
@@ -819,7 +685,7 @@ class ActionGraphExecutionRuntimeTest {
 	@Test
 	void repeatedBusyTerminalFailuresExhaustRetryBudget() {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 		ActionGraphExecutionSnapshot snapshot = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
 		long tick = 101;
@@ -847,7 +713,7 @@ class ActionGraphExecutionRuntimeTest {
 
 	private static void assertTerminalFailureWaitsBeforeRetry(String failureMessage) {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(defaultIndex(), dispatcher);
+		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(dispatcher);
 		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of("minecraft:wheat", 3), CONTEXT, 100);
 
 		ActionGraphExecutionSnapshot dispatched = runtime.tick(input(Map.of("minecraft:wheat", 3), null, 101));
@@ -863,44 +729,6 @@ class ActionGraphExecutionRuntimeTest {
 		assertEquals(ActionGraphExecutionState.WAITING_PRIMITIVE, retried.state());
 		assertEquals(2, dispatcher.dispatchedSteps.size());
 		assertTrace(waiting.trace(), "recovery_selected");
-	}
-
-	@Test
-	@Disabled("The removed YAML watch fixture has no production equivalent")
-	void watchStepSuspendsUntilObservedFactFulfillsGoal() {
-		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(watchIndex(), dispatcher);
-		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of(), CONTEXT, 100);
-
-		ActionGraphExecutionSnapshot watching = runtime.tick(input(Map.of(), null, 101));
-
-		assertEquals(ActionGraphExecutionState.WATCHING, watching.state());
-		assertEquals(1, watching.watchCount());
-		assertTrue(watching.pendingWatch().contains("wait_for_bread"));
-		assertTrue(dispatcher.dispatchedSteps.isEmpty());
-
-		ActionGraphExecutionSnapshot fulfilled = runtime.tick(input(Map.of("minecraft:bread", 1), null, 102));
-
-		assertEquals(ActionGraphExecutionState.SUCCEEDED, fulfilled.state());
-		assertEquals(1, fulfilled.cursor());
-		assertTrace(fulfilled.trace(), "watch_fulfilled");
-	}
-
-	@Test
-	@Disabled("The removed YAML watch fixture has no production equivalent")
-	void cancellingWatchingGoalUsesGraphCancellationPath() {
-		RecordingDispatcher dispatcher = new RecordingDispatcher();
-		ActionGraphExecutionRuntime runtime = new ActionGraphExecutionRuntime(watchIndex(), dispatcher);
-		runtime.submit(ActionGoal.inventoryItem("minecraft:bread", 1), Map.of(), CONTEXT, 100);
-		runtime.tick(input(Map.of(), null, 101));
-
-		ActionGraphExecutionSnapshot cancelled = runtime.cancel("user_cancelled", 102);
-
-		assertEquals(ActionGraphExecutionState.CANCELLED, cancelled.state());
-		assertEquals("user_cancelled", cancelled.message());
-		assertEquals("", cancelled.activeTaskId());
-		assertTrace(cancelled.trace(), "execution_cancelled");
-		assertTrue(dispatcher.dispatchedSteps.isEmpty());
 	}
 
 	private static ActionGraphExecutionInput input(Map<String, Integer> observedInventory, TaskTerminalEvent terminalEvent, long tick) {
@@ -1013,16 +841,6 @@ class ActionGraphExecutionRuntimeTest {
 		);
 	}
 
-	private static ActionFact wheatCropGroup(int matureCount, int totalCount, long tick) {
-		return new ActionFact(
-			ActionFactIdentity.worldCropGroup(CONTEXT.worldId(), CONTEXT.dimension(), "farm-1", "minecraft:wheat"),
-			Map.of("matureCount", matureCount, "totalCount", totalCount, "origin", Map.of("x", 0, "y", 64, "z", 0)),
-			ActionFactProvenance.OBSERVED,
-			tick,
-			ActionFact.NEVER_STALE
-		);
-	}
-
 	private static ActionFact ironIngotSmeltRecipe(long tick) {
 		return new ActionFact(
 			ActionFactIdentity.smeltRecipe(CONTEXT.worldId(), CONTEXT.actorId(), "smelt:minecraft_raw_iron_to_minecraft_iron_ingot:test"),
@@ -1065,36 +883,6 @@ class ActionGraphExecutionRuntimeTest {
 
 	private static TaskTerminalEvent failed(String taskId, TaskFailureCode failureCode, String message) {
 		return new TaskTerminalEvent(taskId, null, TaskExecutionState.FAILED, message, null, failureCode);
-	}
-
-	private static ActionsetIndex defaultIndex() {
-		return ActionsetIndex.empty();
-	}
-
-	private static ActionsetIndex watchIndex() {
-		Map<String, Object> action = new LinkedHashMap<>();
-		action.put("produces", List.of(Map.of(
-			"fact", "inventory.item",
-			"itemId", "minecraft:bread",
-			"countAtLeast", 1
-		)));
-		action.put("alternatives", List.of(Map.of(
-			"id", "wait_until_bread_exists",
-			"cost", 1,
-			"steps", List.of(Map.of(
-				"id", "wait_for_bread",
-				"watch", Map.of(
-					"fact", "inventory.item",
-					"itemId", "minecraft:bread",
-					"countAtLeast", 1,
-					"timeoutTicks", 20
-				)
-			))
-		)));
-		return new ActionsetIndex(Map.of(
-			"wait_for_bread_action",
-			new ActionsetEntry("wait_for_bread_action", ActionsetNamespace.BUILTIN, "test.yml", null, action)
-		));
 	}
 
 	private static void assertTrace(List<ActionTraceEvent> trace, String eventType) {

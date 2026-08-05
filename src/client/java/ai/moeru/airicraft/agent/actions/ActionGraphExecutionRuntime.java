@@ -9,7 +9,6 @@ import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskFailureCode;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -23,18 +22,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
-import java.util.function.Supplier;
 
 public final class ActionGraphExecutionRuntime {
 	private static final int MAX_STEP_RETRIES = 2;
 	private static final int MAX_REPLANS = 8;
 	private static final int MAX_TICK_TRANSITIONS = 32;
 
-	private final Supplier<ActionsetLoadResult> actionsetLoader;
 	private final ActionGraphPrimitiveDispatcher primitiveDispatcher;
-	private final boolean preferActionsetRoutes;
 	private final Executor resolutionExecutor;
-	private final AutoCommittingRoutePlanner routePlanner = new AutoCommittingRoutePlanner();
+	private final AutoCommittingRoutePlanner routePlanner;
 
 	private ActionGraphExecutionState state = ActionGraphExecutionState.IDLE;
 	private String executionId = "";
@@ -69,57 +65,21 @@ public final class ActionGraphExecutionRuntime {
 	private Future<ActionResolveResult> resolutionTask;
 
 	public ActionGraphExecutionRuntime(ActionGraphPrimitiveDispatcher primitiveDispatcher) {
-		this(() -> new ActionsetLoadResult(ActionsetIndex.empty(), List.of()), primitiveDispatcher, false, Runnable::run);
+		this(primitiveDispatcher, Runnable::run);
 	}
 
 	ActionGraphExecutionRuntime(ActionGraphPrimitiveDispatcher primitiveDispatcher, Executor resolutionExecutor) {
-		this(() -> new ActionsetLoadResult(ActionsetIndex.empty(), List.of()), primitiveDispatcher, false, resolutionExecutor);
-	}
-
-	public ActionGraphExecutionRuntime(Path actionsetRoot, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
-		this(actionsetRoot, primitiveDispatcher, Runnable::run);
+		this(primitiveDispatcher, resolutionExecutor, new AutoCommittingRoutePlanner());
 	}
 
 	ActionGraphExecutionRuntime(
-		Path actionsetRoot,
 		ActionGraphPrimitiveDispatcher primitiveDispatcher,
-		Executor resolutionExecutor
+		Executor resolutionExecutor,
+		AutoCommittingRoutePlanner routePlanner
 	) {
-		this(
-			() -> ActionsetLibraryLoader.defaults().load(actionsetRoot == null ? ActionsetLibraryPaths.defaultRoot() : actionsetRoot),
-			primitiveDispatcher,
-			false,
-			resolutionExecutor
-		);
-	}
-
-	public ActionGraphExecutionRuntime(ActionsetIndex index, ActionGraphPrimitiveDispatcher primitiveDispatcher) {
-		this(index, primitiveDispatcher, false);
-	}
-
-	public ActionGraphExecutionRuntime(ActionsetIndex index, ActionGraphPrimitiveDispatcher primitiveDispatcher, boolean preferActionsetRoutes) {
-		this(index, primitiveDispatcher, preferActionsetRoutes, Runnable::run);
-	}
-
-	ActionGraphExecutionRuntime(
-		ActionsetIndex index,
-		ActionGraphPrimitiveDispatcher primitiveDispatcher,
-		boolean preferActionsetRoutes,
-		Executor resolutionExecutor
-	) {
-		this(() -> new ActionsetLoadResult(index, List.of()), primitiveDispatcher, preferActionsetRoutes, resolutionExecutor);
-	}
-
-	private ActionGraphExecutionRuntime(
-		Supplier<ActionsetLoadResult> actionsetLoader,
-		ActionGraphPrimitiveDispatcher primitiveDispatcher,
-		boolean preferActionsetRoutes,
-		Executor resolutionExecutor
-	) {
-		this.actionsetLoader = Objects.requireNonNull(actionsetLoader, "actionsetLoader");
 		this.primitiveDispatcher = Objects.requireNonNull(primitiveDispatcher, "primitiveDispatcher");
-		this.preferActionsetRoutes = preferActionsetRoutes;
 		this.resolutionExecutor = Objects.requireNonNull(resolutionExecutor, "resolutionExecutor");
+		this.routePlanner = Objects.requireNonNull(routePlanner, "routePlanner");
 	}
 
 	public synchronized ActionGraphExecutionSnapshot submit(

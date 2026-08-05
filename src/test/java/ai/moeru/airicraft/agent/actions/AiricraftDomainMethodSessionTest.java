@@ -1,7 +1,6 @@
 package ai.moeru.airicraft.agent.actions;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.SmeltingRecipeKnowledge;
@@ -17,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ActionResolverTest {
+class AiricraftDomainMethodSessionTest {
 	private static final BlockAcquisitionIndex TEST_BLOCK_ACQUISITIONS = BlockAcquisitionTestFixtures.survival();
 	private static final ActionResolverContext CONTEXT = new ActionResolverContext(
 		"world-a",
@@ -44,17 +43,12 @@ class ActionResolverTest {
 				ActionFact.NEVER_STALE
 			));
 		}
-		ActionResolutionRequest request = ActionResolutionRequest.defaults(
-			ActionsetIndex.empty(),
-			facts.queryAll(),
-			TEST_BLOCK_ACQUISITIONS,
-			CONTEXT,
-			ActionGoal.inventoryItem("minecraft:diamond", 1)
-		);
-
 		ActionResolveResult result = assertTimeoutPreemptively(
 			Duration.ofSeconds(1),
-			() -> ActionResolver.resolve(request)
+			() -> AiricraftDomainMethodSession.resolve(
+				facts.queryAll(), TEST_BLOCK_ACQUISITIONS, NearbyBlockAvailability.unknown(), CONTEXT,
+				ActionGoal.inventoryItem("minecraft:diamond", 1), 8, 20_000
+			)
 		);
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -72,19 +66,10 @@ class ActionResolverTest {
 
 	@Test
 	void pureResolutionStopsAtDeterministicExplorationBudget() {
-		ActionResolutionRequest request = new ActionResolutionRequest(
-			ActionsetIndex.empty(),
-			List.of(),
-			TEST_BLOCK_ACQUISITIONS,
-			CONTEXT,
-			ActionGoal.inventoryItem("minecraft:diamond", 1),
-			8,
-			1,
-			java.util.Set.of(),
-			false
+		ActionResolveResult result = AiricraftDomainMethodSession.resolve(
+			List.of(), TEST_BLOCK_ACQUISITIONS, NearbyBlockAvailability.unknown(), CONTEXT,
+			ActionGoal.inventoryItem("minecraft:diamond", 1), 8, 1
 		);
-
-		ActionResolveResult result = ActionResolver.resolve(request);
 
 		assertFalse(result.resolved());
 		assertEquals("resolution_budget_exceeded", result.failureCode());
@@ -101,7 +86,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.resourceCollection("WOOD_LOGS", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -118,7 +103,7 @@ class ActionResolverTest {
 		ActionFactStore facts = new ActionFactStore();
 		addSurvivalCraftFacts(facts);
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.resourceCollection("RAW_IRON", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -137,7 +122,7 @@ class ActionResolverTest {
 
 	@Test
 	void rejectsUnsupportedResourceCollectionWithTrace() {
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.resourceCollection("OBSIDIAN", 1));
 
 		assertFalse(result.resolved());
@@ -148,7 +133,7 @@ class ActionResolverTest {
 
 	@Test
 	void knownMiningAcquisitionDoesNotRequireAnObservedTarget() {
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:dirt", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -158,7 +143,7 @@ class ActionResolverTest {
 
 	@Test
 	void resolvesInventoryLogThroughLootTableMiningProvider() {
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:birch_log", 2));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -171,61 +156,7 @@ class ActionResolverTest {
 	}
 
 	@Test
-	@Disabled("The YAML actionset resolver was removed")
-	void resolvesBreadFromInventoryWheatWithoutActuating() {
-		ActionFactStore facts = new ActionFactStore();
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
-			Map.of("count", 3),
-			ActionFactProvenance.OBSERVED,
-			90,
-			ActionFact.NEVER_STALE
-		));
-
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 1));
-
-		assertTrue(result.resolved(), () -> result.trace().toString());
-		assertEquals(0, result.route().cost());
-		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
-		ActionPlanStep craft = result.route().steps().getFirst();
-		assertEquals(ActionStepKind.PRIMITIVE, craft.kind());
-		assertEquals("craft_bread", craft.stepId());
-		assertEquals("minecraft:bread", craft.args().get("itemId"));
-		assertEquals(1, craft.args().get("quantity"));
-		assertTrace(result.trace(), "route_selected", "make_bread", "craft_from_inventory_wheat");
-		assertTrace(result.trace(), "primitive_planned", "make_bread", "craft_from_inventory_wheat");
-	}
-
-	@Test
-	@Disabled("The YAML actionset resolver was removed")
-	void resolvesBreadDeficitWhenSomeBreadAlreadyExists() {
-		ActionFactStore facts = new ActionFactStore();
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:bread"),
-			Map.of("count", 1),
-			ActionFactProvenance.OBSERVED,
-			90,
-			ActionFact.NEVER_STALE
-		));
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
-			Map.of("count", 5),
-			ActionFactProvenance.OBSERVED,
-			90,
-			ActionFact.NEVER_STALE
-		));
-
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 2));
-
-		assertTrue(result.resolved(), () -> result.trace().toString());
-		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
-		ActionPlanStep craft = result.route().steps().getFirst();
-		assertEquals(1, craft.args().get("quantity"));
-		assertTrace(result.trace(), "route_selected", "make_bread", "craft_from_inventory_wheat");
-	}
-
-	@Test
-	void resolvesCraftingFromRecipeFactWithoutItemSpecificActionset() {
+	void resolvesCraftingFromGenericRecipeFact() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(
 			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:bread"),
@@ -253,7 +184,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:bread", 2));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -294,7 +225,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:bread", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -339,7 +270,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:stick", 4));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -679,7 +610,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:crafting_table", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -714,7 +645,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -736,7 +667,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:wooden_hoe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -764,7 +695,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -780,7 +711,7 @@ class ActionResolverTest {
 		ActionFactStore facts = new ActionFactStore();
 		addSurvivalCraftFacts(facts);
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:crafting_table", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -812,7 +743,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -881,7 +812,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:charcoal", 8));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -927,7 +858,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -978,7 +909,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1036,7 +967,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1058,7 +989,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1104,7 +1035,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1134,7 +1065,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1184,7 +1115,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1237,7 +1168,7 @@ class ActionResolverTest {
 			));
 		}
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1278,7 +1209,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:furnace", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1327,7 +1258,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1385,7 +1316,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1430,7 +1361,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1527,7 +1458,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1578,7 +1509,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1607,7 +1538,7 @@ class ActionResolverTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new ActionResolver(ActionsetIndex.empty(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
+		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
 			.resolve(ActionGoal.inventoryItem("minecraft:cobblestone", 8));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
@@ -1616,68 +1547,6 @@ class ActionResolverTest {
 		assertEquals("minecraft:cobblestone", step.args().get("itemId"));
 		assertEquals(1, step.args().get("quantity"));
 		assertEquals(8, step.args().get("targetCount"));
-	}
-
-	@Test
-	@Disabled("The YAML actionset resolver was removed")
-	void recursivelyExpandsNeedsBeforeCurrentPrimitiveSteps() {
-		ActionFactStore facts = new ActionFactStore();
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.worldCropGroup("world-a", "minecraft:overworld", "farm-1", "minecraft:wheat"),
-			Map.of("matureCount", 3, "totalCount", 9, "origin", Map.of("x", 0, "y", 64, "z", 0)),
-			ActionFactProvenance.INFERRED,
-			90,
-			ActionFact.NEVER_STALE
-		));
-
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 1));
-
-		assertTrue(result.resolved(), () -> result.trace().toString());
-		assertEquals(List.of("mine_block", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
-		assertEquals(20, result.route().cost());
-		ActionPlanStep harvest = result.route().steps().getFirst();
-		assertEquals("harvest_wheat", harvest.stepId());
-		assertEquals(List.of("minecraft:wheat"), harvest.args().get("blockIds"));
-		assertEquals(3, harvest.args().get("quantity"));
-		assertTrace(result.trace(), "route_selected", "make_bread", "obtain_wheat_then_craft");
-		assertTrace(result.trace(), "route_selected", "obtain_wheat", "harvest_loaded_mature_wheat");
-	}
-
-	@Test
-	@Disabled("The YAML actionset resolver was removed")
-	void expectedFactsDoNotSatisfyGuards() {
-		ActionFactStore facts = new ActionFactStore();
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
-			Map.of("count", 3),
-			ActionFactProvenance.EXPECTED,
-			90,
-			ActionFact.NEVER_STALE
-		));
-
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 1));
-
-		assertFalse(result.resolved());
-		assertEquals("no_route", result.failureCode());
-		assertTrace(result.trace(), "goal_failed", null, null);
-	}
-
-	@Test
-	@Disabled("The YAML actionset resolver was removed")
-	void staleFactsDoNotSatisfyGuards() {
-		ActionFactStore facts = new ActionFactStore();
-		facts.upsert(new ActionFact(
-			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:wheat"),
-			Map.of("count", 3),
-			ActionFactProvenance.OBSERVED,
-			90,
-			100
-		));
-
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:bread", 1));
-
-		assertFalse(result.resolved());
-		assertEquals("no_route", result.failureCode());
 	}
 
 	@Test
@@ -1714,10 +1583,8 @@ class ActionResolverTest {
 		assertEquals(List.of("minecraft:shears"), step.args().get("requiredToolItemIds"));
 	}
 
-	private static ActionResolver resolver(ActionFactStore facts) {
-		ActionsetLoadResult load = ActionsetLibraryLoader.defaults().load(Path.of("actionsets"));
-		assertTrue(load.valid(), () -> load.diagnostics().toString());
-		return new ActionResolver(load.index(), facts, TEST_BLOCK_ACQUISITIONS, CONTEXT);
+	private static AiricraftDomainMethodSession resolver(ActionFactStore facts) {
+		return new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT);
 	}
 
 	private static ActionResolveResult resolveWithScoring(
@@ -1726,14 +1593,9 @@ class ActionResolverTest {
 		NearbyBlockAvailability availability,
 		ActionGoal goal
 	) {
-		return ActionResolver.resolve(ActionResolutionRequest.defaults(
-			ActionsetIndex.empty(),
-			facts.queryAll(),
-			acquisitions,
-			availability,
-			CONTEXT,
-			goal
-		));
+		return AiricraftDomainMethodSession.resolve(
+			facts.queryAll(), acquisitions, availability, CONTEXT, goal, 8, 20_000
+		);
 	}
 
 	private static ActionFactStore oakStickCraftFacts() {

@@ -10,9 +10,16 @@ public record AiricraftPlanningSnapshot(
 	ActionResolverContext context
 ) {
 	public AiricraftPlanningSnapshot {
-		facts = facts == null ? List.of() : List.copyOf(facts);
+		ActionResolverContext safeContext = Objects.requireNonNull(context, "context");
+		long currentTick = safeContext.currentTick();
+		context = safeContext;
+		facts = facts == null ? List.of() : facts.stream()
+			.filter(fact -> fact.provenance() == ActionFactProvenance.OBSERVED
+				|| fact.provenance() == ActionFactProvenance.EXECUTOR_REPORTED
+				|| fact.provenance() == ActionFactProvenance.INFERRED)
+			.filter(fact -> !fact.isStaleAt(currentTick))
+			.toList();
 		blockAcquisitions = blockAcquisitions == null ? BlockAcquisitionIndex.empty() : blockAcquisitions;
 		nearbyBlockAvailability = nearbyBlockAvailability == null ? NearbyBlockAvailability.unknown() : nearbyBlockAvailability;
-		context = Objects.requireNonNull(context, "context");
 	}
 }

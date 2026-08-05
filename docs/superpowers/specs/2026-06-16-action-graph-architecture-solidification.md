@@ -43,7 +43,7 @@ The graph-first boundary resolves the conflict:
 - The planner starts a typed action goal such as "inventory item
   `minecraft:bread` count at least 1".
 - Providers ingest safe reads and executor feedback into typed facts.
-- The resolver chooses a route through recipe, inventory, world, and actionset
+- The advisor chooses a route through recipe, inventory, world, and provider
   knowledge.
 - The graph runtime dispatches one foreground primitive at a time through the
   existing task executors.
@@ -64,8 +64,6 @@ The planner owns high-level intent:
 - Answer questions using safe reads, graph status, and traces.
 - Review repeated failures, conflicting facts, or high-cost tradeoffs when the
   resolver asks for help.
-- Author or patch actionsets through scoped draft tooling after the graph shell
-  exists.
 
 The planner does not own:
 
@@ -134,7 +132,7 @@ The primary action surface becomes graph-oriented:
 `start_action_goal` accepts typed v1 goal kinds:
 
 - `inventory_item`: satisfy item count in inventory, including crafting,
-  smelting, gathering, harvesting, or other provider/actionset routes.
+  smelting, gathering, harvesting, or other provider routes.
 - `resource_collection`: gather supported resources such as logs while allowing
   graph-owned route choice and progress accounting.
 - `movement`: reach a position, surface target, player, or provider-generated
@@ -256,11 +254,9 @@ a terminal trace event.
    - Route block mutation, navigation, return-to-surface, resource collection,
      drop/give, and entity interaction through graph-owned goals or primitive
      graph steps.
-5. Prompt contraction and actionset authoring.
+5. Prompt contraction.
    - Shrink planner prompt policy from procedural sequencing to goal selection,
      safe reads, graph status, and failure review.
-   - Add scoped actionset draft/list/read/validate/write tooling after the
-     graph goal shell exists.
 6. Persistent facts and watches.
    - Add world-scoped durable facts, watch registration, watch fulfillment,
      suspended goals, and watch-triggered resumption.
@@ -274,8 +270,8 @@ update them to assert the new graph identity and trace path.
 
 User says "make bread." The planner starts one `inventory_item` goal for
 `minecraft:bread`. It should not manually chain `check_craftables` into
-`craft_recipe`. The graph may use crafting provider facts, wheat acquisition
-routes, actionsets, or watches. Terminal success requires observed or
+`craft_recipe`. The graph may use crafting provider facts, acquisition routes,
+or watches. Terminal success requires observed or
 executor-reported bread inventory.
 
 ### Legacy Craft Tool

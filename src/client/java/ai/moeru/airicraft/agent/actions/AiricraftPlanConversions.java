@@ -18,7 +18,7 @@ final class AiricraftPlanConversions {
 
 	static Goal toGoal(ActionGoal goal) {
 		LinkedHashMap<String, Long> minimums = new LinkedHashMap<>();
-		goal.minimums().forEach((key, value) -> minimums.put(key, value.longValue()));
+		goal.minimums().forEach((key, value) -> minimums.put(metricKey(key), value.longValue()));
 		return new Goal(new FactType(goal.factType().id()), goal.keys(), minimums);
 	}
 
@@ -28,7 +28,7 @@ final class AiricraftPlanConversions {
 			.findFirst()
 			.orElseThrow(() -> new IllegalArgumentException("unsupported goal type " + goal.type().id()));
 		LinkedHashMap<String, Integer> minimums = new LinkedHashMap<>();
-		goal.minimums().forEach((key, value) -> minimums.put(key, Math.toIntExact(value)));
+		goal.minimums().forEach((key, value) -> minimums.put(goalMinimumKey(key), Math.toIntExact(value)));
 		return new ActionGoal(type, goal.keys(), minimums);
 	}
 
@@ -36,19 +36,20 @@ final class AiricraftPlanConversions {
 		return new StateSnapshot(facts.stream().map(AiricraftPlanConversions::toFact).toList());
 	}
 
-	static ActionRoute toActionRoute(CandidateRoute route) {
+	static ActionRoute toActionRoute(CandidateRoute route, ActionResolverContext context) {
 		List<ActionPlanStep> steps = route.commands().stream()
-			.map(AiricraftPlanConversions::toActionStep)
+			.map(command -> toActionStep(command, context))
 			.toList();
 		return new ActionRoute(steps, (int) Math.min(Integer.MAX_VALUE, route.cost()));
 	}
 
-	private static ActionPlanStep toActionStep(PlanCommand command) {
+	static ActionPlanStep toActionStep(PlanCommand command, ActionResolverContext context) {
 		LinkedHashMap<String, Object> args = new LinkedHashMap<>(command.arguments());
 		String kindName = String.valueOf(args.remove("airicraftKind"));
 		ActionStepKind kind = ActionStepKind.valueOf(kindName);
 		String actionId = String.valueOf(args.remove("actionId"));
 		String alternativeId = String.valueOf(args.remove("alternativeId"));
+		ActionWatchSpec watchSpec = kind == ActionStepKind.WATCH ? smeltingWatch(context, args) : null;
 		return new ActionPlanStep(
 			kind,
 			actionId,
@@ -56,9 +57,35 @@ final class AiricraftPlanConversions {
 			command.commandId(),
 			command.commandType(),
 			args,
-			null,
+			watchSpec,
 			command.methodKey()
 		);
+	}
+
+	private static ActionWatchSpec smeltingWatch(ActionResolverContext context, Map<String, Object> args) {
+		String optionId = scalar(args.get("optionId"));
+		String itemId = scalar(args.get("itemId"));
+		long timeoutTicks = args.get("timeoutTicks") instanceof Number number ? number.longValue() : 1_200L;
+		return new ActionWatchSpec(
+			new ActionFactCondition(
+				ActionFactType.SMELTING_PROCESS,
+				Map.of(
+					"worldId", context.worldId(),
+					"actorId", context.actorId(),
+					"optionId", optionId,
+					"itemId", itemId
+				),
+				Map.of("ready", 1)
+			),
+			null,
+			timeoutTicks,
+			ActionWatchProgressKind.AREA_TICKING,
+			null
+		);
+	}
+
+	private static String scalar(Object value) {
+		return value == null ? "" : String.valueOf(value);
 	}
 
 	private static Fact toFact(ActionFact fact) {
@@ -72,5 +99,23 @@ final class AiricraftPlanConversions {
 			new FactIdentity(new FactType(fact.identity().type().id()), fact.identity().keys()),
 			metrics
 		);
+	}
+
+	private static String metricKey(String key) {
+		return switch (key) {
+			case "countAtLeast" -> "count";
+			case "matureCountAtLeast" -> "matureCount";
+			case "readyAtLeast" -> "ready";
+			default -> key;
+		};
+	}
+
+	private static String goalMinimumKey(String key) {
+		return switch (key) {
+			case "count" -> "countAtLeast";
+			case "matureCount" -> "matureCountAtLeast";
+			case "ready" -> "readyAtLeast";
+			default -> key;
+		};
 	}
 }

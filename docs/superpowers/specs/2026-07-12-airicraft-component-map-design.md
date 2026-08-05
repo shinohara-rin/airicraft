@@ -29,7 +29,7 @@ Use one directed Graphviz diagram with clusters for these component families:
    state.
 6. Support: configuration, debugging, flight recording, and OpenTelemetry.
 7. Addons: evaluator, JourneyMap compatibility, and REI compatibility.
-8. Data-driven assets: actionsets and evaluation scenarios.
+8. Data-driven assets: evaluation scenarios.
 
 Keep the diagram near 15 to 20 nodes. Combine packages that participate in one
 coherent responsibility instead of representing every package or class.
