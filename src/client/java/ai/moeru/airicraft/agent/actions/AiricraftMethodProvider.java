@@ -50,7 +50,7 @@ final class AiricraftMethodProvider implements MethodProvider {
 			ActionResolutionRequest.DEFAULT_EXPLORATION_BUDGET,
 			Set.of(),
 			false
-		), id.value());
+		), id.value(), context);
 		result.trace().forEach(event -> context.trace(
 			event.eventType(),
 			new MethodKey(new ProviderId(nonEmpty(event.actionId(), id.value())), nonEmpty(event.alternativeId(), "unknown")),

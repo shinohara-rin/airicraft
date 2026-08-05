@@ -1,6 +1,8 @@
 package ai.moeru.airicraft.agent.actions;
 
 import ai.moeru.airicraft.agent.tasks.ResourceGatheringCatalog;
+import ai.moeru.actionplan.CandidateRoute;
+import ai.moeru.actionplan.ResolutionContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -44,6 +46,7 @@ public final class ActionResolver {
 	private int expandedGoals;
 	private int routeCacheHits;
 	private boolean budgetExceeded;
+	private ResolutionContext advisoryContext;
 
 	public static ActionResolveResult resolve(ActionResolutionRequest request) {
 		Objects.requireNonNull(request, "request");
@@ -60,7 +63,11 @@ public final class ActionResolver {
 		).resolve(request.goal());
 	}
 
-	static ActionResolveResult resolveProvider(ActionResolutionRequest request, String providerId) {
+	static ActionResolveResult resolveProvider(
+		ActionResolutionRequest request,
+		String providerId,
+		ResolutionContext advisoryContext
+	) {
 		Objects.requireNonNull(request, "request");
 		ActionResolver resolver = new ActionResolver(
 			request.actionsets(),
@@ -73,6 +80,7 @@ public final class ActionResolver {
 			false,
 			request.explorationBudget()
 		);
+		resolver.advisoryContext = Objects.requireNonNull(advisoryContext, "advisoryContext");
 		return resolver.resolveWithProvider(request.goal(), providerId);
 	}
 
@@ -271,6 +279,10 @@ public final class ActionResolver {
 		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
+		if (advisoryContext != null) {
+			return advisoryContext.resolve(AiricraftPlanConversions.toGoal(goal))
+				.map(AiricraftPlanConversions::toActionRoute);
+		}
 		trace.add(event("goal_started", "", "", "", Map.of("goal", goal.normalizedKey(), "depth", depth)));
 		if (++expandedGoals > explorationBudget) {
 			budgetExceeded = true;

@@ -4,6 +4,8 @@ import ai.moeru.actionplan.Fact;
 import ai.moeru.actionplan.FactIdentity;
 import ai.moeru.actionplan.FactType;
 import ai.moeru.actionplan.Goal;
+import ai.moeru.actionplan.CandidateRoute;
+import ai.moeru.actionplan.PlanCommand;
 import ai.moeru.actionplan.StateSnapshot;
 
 import java.util.LinkedHashMap;
@@ -32,6 +34,31 @@ final class AiricraftPlanConversions {
 
 	static StateSnapshot toState(List<ActionFact> facts) {
 		return new StateSnapshot(facts.stream().map(AiricraftPlanConversions::toFact).toList());
+	}
+
+	static ActionRoute toActionRoute(CandidateRoute route) {
+		List<ActionPlanStep> steps = route.commands().stream()
+			.map(AiricraftPlanConversions::toActionStep)
+			.toList();
+		return new ActionRoute(steps, (int) Math.min(Integer.MAX_VALUE, route.cost()));
+	}
+
+	private static ActionPlanStep toActionStep(PlanCommand command) {
+		LinkedHashMap<String, Object> args = new LinkedHashMap<>(command.arguments());
+		String kindName = String.valueOf(args.remove("airicraftKind"));
+		ActionStepKind kind = ActionStepKind.valueOf(kindName);
+		String actionId = String.valueOf(args.remove("actionId"));
+		String alternativeId = String.valueOf(args.remove("alternativeId"));
+		return new ActionPlanStep(
+			kind,
+			actionId,
+			alternativeId,
+			command.commandId(),
+			command.commandType(),
+			args,
+			null,
+			command.methodKey()
+		);
 	}
 
 	private static Fact toFact(ActionFact fact) {
