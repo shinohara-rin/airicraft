@@ -14,71 +14,6 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.jar.JarFile
-import org.gradle.api.file.Directory
-import org.gradle.api.file.RegularFile
-import org.gradle.jvm.toolchain.JavaInstallationMetadata
-import org.gradle.jvm.toolchain.JavaLanguageVersion
-import org.gradle.jvm.toolchain.JavaLauncher
-
-final class AiricraftJavaInstallationMetadata implements JavaInstallationMetadata {
-	private final Directory installationPath
-	private final String runtimeVersion
-
-	AiricraftJavaInstallationMetadata(Directory installationPath, String runtimeVersion) {
-		this.installationPath = installationPath
-		this.runtimeVersion = runtimeVersion
-	}
-
-	@Override
-	JavaLanguageVersion getLanguageVersion() {
-		return JavaLanguageVersion.of(21)
-	}
-
-	@Override
-	String getJavaRuntimeVersion() {
-		return runtimeVersion
-	}
-
-	@Override
-	String getJvmVersion() {
-		return runtimeVersion
-	}
-
-	@Override
-	String getVendor() {
-		return "JetBrains s.r.o."
-	}
-
-	@Override
-	Directory getInstallationPath() {
-		return installationPath
-	}
-
-	@Override
-	boolean isCurrentJvm() {
-		return false
-	}
-}
-
-final class AiricraftJavaLauncher implements JavaLauncher {
-	private final JavaInstallationMetadata metadata
-	private final RegularFile executablePath
-
-	AiricraftJavaLauncher(JavaInstallationMetadata metadata, RegularFile executablePath) {
-		this.metadata = metadata
-		this.executablePath = executablePath
-	}
-
-	@Override
-	JavaInstallationMetadata getMetadata() {
-		return metadata
-	}
-
-	@Override
-	RegularFile getExecutablePath() {
-		return executablePath
-	}
-}
 
 version = project.mod_version
 group = project.maven_group
@@ -98,19 +33,12 @@ def arthasDisabledCommands = providers.gradleProperty("airicraft.arthas.disabled
 def arthasExtraArgs = providers.gradleProperty("airicraft.arthas.args").orElse("")
 def arthasBootJar = layout.buildDirectory.file("arthas/arthas-boot-${arthasVersion.get()}.jar")
 def evaluatorRunDir = providers.gradleProperty("airicraft.evaluator.runDir")
-def hotswapJbrVersion = providers.gradleProperty("airicraft.hotswap.jbr.version")
-def hotswapJbrUrl = providers.gradleProperty("airicraft.hotswap.jbr.url")
-def hotswapJbrSha512 = providers.gradleProperty("airicraft.hotswap.jbr.sha512")
 def hotswapAgentVersion = providers.gradleProperty("airicraft.hotswap.agent.version")
 def hotswapAgentUrl = providers.gradleProperty("airicraft.hotswap.agent.url")
 def hotswapAgentSha512 = providers.gradleProperty("airicraft.hotswap.agent.sha512")
 def hotswapCacheDir = new File(gradle.gradleUserHomeDir, "caches/airicraft-hotswap")
 def hotswapDownloadDir = new File(hotswapCacheDir, "downloads")
-def hotswapJbrArchive = new File(hotswapDownloadDir, "jbrsdk-${hotswapJbrVersion.get()}-osx-aarch64.tar.gz")
 def hotswapAgentJar = new File(hotswapDownloadDir, "hotswap-agent-${hotswapAgentVersion.get()}.jar")
-def hotswapJbrInstallDir = new File(hotswapCacheDir, "jdks/jbrsdk-${hotswapJbrVersion.get()}-osx-aarch64")
-def hotswapJbrHomeDir = new File(hotswapJbrInstallDir, "Contents/Home")
-def hotswapJbrMarker = new File(hotswapJbrInstallDir, ".airicraft-sha512")
 def hotswapProductionClassesDir = layout.buildDirectory.dir("hotswap/production/classes")
 def hotswapStateFile = layout.buildDirectory.file("hotswap/reload-state.properties")
 def hotswapToolSourceSet = sourceSets.create("hotswapTool") {
@@ -196,15 +124,6 @@ def downloadVerified = { String url, String expectedSha512, File target ->
 	}
 }
 
-def hotswapJavaLauncher = providers.provider {
-	def home = layout.dir(providers.provider { hotswapJbrHomeDir }).get()
-	def executable = layout.file(providers.provider { new File(hotswapJbrHomeDir, "bin/java") }).get()
-	return new AiricraftJavaLauncher(
-		new AiricraftJavaInstallationMetadata(home, hotswapJbrVersion.get()),
-		executable
-	)
-}
-
 def hotswapJvmArgs = { Provider<RegularFile> propertiesFile ->
 	def agentOptions = [
 		"autoHotswap=false",
@@ -212,6 +131,7 @@ def hotswapJvmArgs = { Provider<RegularFile> propertiesFile ->
 	]
 	agentOptions.addAll(hotswapDisabledPlugins.collect { "disablePlugin=${it}" })
 	return [
+        '-XX:+IgnoreUnrecognizedVMOptions',
 		"-XX:+AllowEnhancedClassRedefinition",
 		"-XX:HotswapAgent=external",
 		"-Xlog:redefine+class*=info",
@@ -273,13 +193,9 @@ def prepareMinecraftRunOptions = tasks.register("prepareMinecraftRunOptions") {
 def prepareHotswapRuntime = tasks.register("prepareHotswapRuntime") {
 	group = "airicraft debug"
 	description = "Downloads and verifies the pinned JetBrains Runtime and HotswapAgent."
-	inputs.property("jbrVersion", hotswapJbrVersion)
-	inputs.property("jbrUrl", hotswapJbrUrl)
-	inputs.property("jbrSha512", hotswapJbrSha512)
 	inputs.property("agentVersion", hotswapAgentVersion)
 	inputs.property("agentUrl", hotswapAgentUrl)
 	inputs.property("agentSha512", hotswapAgentSha512)
-	outputs.file(hotswapJbrMarker)
 	outputs.file(hotswapAgentJar)
 	outputs.upToDateWhen { false }
 
@@ -290,47 +206,7 @@ def prepareHotswapRuntime = tasks.register("prepareHotswapRuntime") {
 			throw new GradleException("Airicraft HotSwap supports macOS ARM64 only. Detected ${osName}/${architecture}.")
 		}
 
-		downloadVerified(hotswapJbrUrl.get(), hotswapJbrSha512.get(), hotswapJbrArchive)
 		downloadVerified(hotswapAgentUrl.get(), hotswapAgentSha512.get(), hotswapAgentJar)
-
-		def javaExecutable = new File(hotswapJbrHomeDir, "bin/java")
-		def installedSha512 = hotswapJbrMarker.isFile() ? hotswapJbrMarker.getText("UTF-8").trim() : ""
-		if (installedSha512 == hotswapJbrSha512.get() && javaExecutable.canExecute()) {
-			logger.lifecycle("Using cached Airicraft HotSwap runtime at ${hotswapJbrInstallDir}")
-			return
-		}
-
-		if (hotswapJbrInstallDir.exists()) {
-			project.delete(hotswapJbrInstallDir)
-		}
-		Files.createDirectories(hotswapJbrInstallDir.parentFile.toPath())
-		def extractionDir = new File(hotswapJbrInstallDir.parentFile, ".${hotswapJbrInstallDir.name}.${UUID.randomUUID()}.tmp")
-		Files.createDirectories(extractionDir.toPath())
-		try {
-			logger.lifecycle("Extracting ${hotswapJbrArchive} to ${hotswapJbrInstallDir}")
-			def process = new ProcessBuilder(
-				"tar", "-xzf", hotswapJbrArchive.absolutePath, "-C", extractionDir.absolutePath
-			).inheritIO().start()
-			def exitCode = process.waitFor()
-			if (exitCode != 0) {
-				throw new GradleException("Failed to extract ${hotswapJbrArchive}: tar exited with ${exitCode}")
-			}
-			def roots = extractionDir.listFiles()?.findAll { it.isDirectory() } ?: []
-			if (roots.size() != 1) {
-				throw new GradleException("Expected one JBR directory in ${hotswapJbrArchive}, found ${roots.size()}")
-			}
-			def extractedJava = new File(roots[0], "Contents/Home/bin/java")
-			if (!extractedJava.canExecute()) {
-				throw new GradleException("The extracted JBR does not contain an executable Contents/Home/bin/java")
-			}
-			atomicMove(roots[0], hotswapJbrInstallDir)
-			hotswapJbrMarker.setText(hotswapJbrSha512.get() + "\n", "UTF-8")
-		}
-		finally {
-			if (extractionDir.exists()) {
-				project.delete(extractionDir)
-			}
-		}
 	}
 }
 
@@ -428,7 +304,6 @@ tasks.register("hotswapMain", JavaExec) {
 	dependsOn tasks.named("classes")
 	dependsOn syncHotswapMainClasses
 	dependsOn tasks.named(hotswapToolSourceSet.classesTaskName)
-	javaLauncher.set(hotswapJavaLauncher)
 	classpath = hotswapToolSourceSet.runtimeClasspath
 	mainClass.set("ai.moeru.airicraft.hotswap.HotswapMainUploader")
 
@@ -456,7 +331,6 @@ tasks.register("hotswapMain", JavaExec) {
 tasks.named("runClient").configure {
 	dependsOn prepareMinecraftRunOptions
 	dependsOn prepareHotswapDevConfig
-	javaLauncher.set(hotswapJavaLauncher)
 	jvmArgs(
 		"-agentlib:jdwp=transport=dt_socket,server=y,suspend=${runClientJdwpSuspend.get()},address=127.0.0.1:${runClientJdwpPort.get()}",
 		*hotswapJvmArgs(hotswapDevConfig)
@@ -469,11 +343,25 @@ allprojects {
 		def taskHotswapConfig = hotswapConfigFile(path)
 		productionHotswapConfigs.add(taskHotswapConfig)
 		dependsOn rootProject.tasks.named("prepareHotswapProductionConfigs")
-		javaLauncher.set(hotswapJavaLauncher)
 		jvmArgs.addAll(hotswapJvmArgs(taskHotswapConfig))
 		jvmArgs.add("-Dairicraft.codexDriver=${codexDriverEnabled.get()}")
 		programArgs.addAll("--username", devPlayerName.get())
 	}
+
+    java {
+        // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+        // if it is present.
+        // If you remove this line, sources will not be generated.
+        withSourcesJar()
+
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+            vendor = JvmVendorSpec.JETBRAINS
+        }
+    }
 }
 
 def arthasJavaExecutable = {
@@ -601,16 +489,6 @@ tasks.withType(JavaCompile).configureEach {
 	it.options.release = 21
 }
 
-java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
-	withSourcesJar()
-
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
-}
-
 jar {
 	inputs.property "archivesName", project.base.archivesName
 
@@ -642,12 +520,6 @@ publishing {
 }
 
 gradle.projectsEvaluated {
-	allprojects.each { configuredProject ->
-		configuredProject.tasks.withType(net.fabricmc.loom.task.prod.ClientProductionRunTask).configureEach {
-			javaLauncher.set(hotswapJavaLauncher)
-		}
-	}
-
 	def evaluatorProject = findProject(":addons:evaluator")
 	if (evaluatorProject != null) {
 		tasks.register("runClientEvaluator") {
