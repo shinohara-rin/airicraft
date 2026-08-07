@@ -29,7 +29,7 @@ A versioned recorder runtime supplied as one self-contained unit for an evaluati
 _Avoid_: Recorder JAR, extra mods directory
 
 **Recorder-enabled run**:
-An evaluation run that requires recorder preflight and one completed Recorder Play for each executed scenario.
+A run that requires one supplied recording profile and one completed Recorder Play for each executed scenario.
 _Avoid_: Optional recording
 
 **Recorder-disabled run**:
