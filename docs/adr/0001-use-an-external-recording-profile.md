@@ -1,0 +1,3 @@
+# Use an external recording profile
+
+Airicraft evaluation accepts one self-contained recording profile from the operator instead of building or fetching recorder components. The scenario runner enables integrated-server capture by default and supports an explicit opt-out. Each scenario writes one completed Recorder Play directly into its result directory. Recorder preflight failure stops the scenario, while later capture failure preserves the scenario outcome and fails the harness outcome. Airicraft records profile provenance but does not generate derived recorder artifacts or add tick-level event correlation.

@@ -24,6 +24,10 @@ _Avoid_: Client-side recording, trajectory recording
 A completed, replayable recorder artifact for one player connection. It is supporting evidence for a scenario outcome.
 _Avoid_: Recorded result, trajectory
 
+**Recording profile**:
+A versioned recorder runtime supplied as one self-contained unit for an evaluation run.
+_Avoid_: Recorder JAR, extra mods directory
+
 **Recorder-enabled run**:
 An evaluation run that requires recorder preflight and one completed Recorder Play for each executed scenario.
 _Avoid_: Optional recording
