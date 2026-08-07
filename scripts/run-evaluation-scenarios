@@ -20,6 +20,7 @@ import time
 import uuid
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -304,11 +305,76 @@ def should_delete_worker(summary: dict[str, Any]) -> bool:
     )
 
 
+def is_finalized_recorder_play(play_dir: Path) -> bool:
+    metadata_path = play_dir / "metadata.json"
+    events_path = play_dir / "capture" / "events.jsonl"
+    replay_path = play_dir / "capture" / "replay.zip"
+    try:
+        if not metadata_path.is_file() or not events_path.is_file() or not replay_path.is_file():
+            return False
+        if events_path.stat().st_size == 0:
+            return False
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(metadata, dict):
+        return False
+    connection = metadata.get("connection", {})
+    capture = metadata.get("capture", {})
+    if not isinstance(connection, dict) or not isinstance(capture, dict):
+        return False
+    if not connection.get("endedAt") or connection.get("endServerTick") is None:
+        return False
+    if (
+        capture.get("events") != "capture/events.jsonl"
+        or capture.get("replay") != "capture/replay.zip"
+        or capture.get("replayFormat") != "flashback"
+    ):
+        return False
+    try:
+        with zipfile.ZipFile(replay_path) as replay:
+            if replay.testzip() is not None:
+                return False
+            return any(name.lower().endswith(".flashback") for name in replay.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def discover_finalized_recorder_play(recorder_root: Path) -> Path | None:
+    if not recorder_root.is_dir():
+        return None
+    plays = [
+        metadata_path.parent
+        for metadata_path in recorder_root.rglob("metadata.json")
+        if is_finalized_recorder_play(metadata_path.parent)
+    ]
+    if len(plays) > 1:
+        raise RunnerError(f"expected one finalized Recorder Play, found {len(plays)}")
+    return plays[0] if plays else None
+
+
+def finalize_recorder_capture(summary: dict[str, Any], scenario_dir: Path, recorder_root: Path) -> None:
+    summary["recorderPlayPath"] = None
+    try:
+        recorder_play = discover_finalized_recorder_play(recorder_root)
+    except RunnerError as error:
+        recorder_play = None
+        if summary.get("harnessStatus") != "INTERRUPTED":
+            summary["message"] = f"Recorder capture failed: {error}"
+    if recorder_play is None:
+        if summary.get("harnessStatus") != "INTERRUPTED":
+            summary["harnessStatus"] = "CAPTURE_ERROR"
+            if summary.get("message") is None:
+                summary["message"] = "Recorder capture failed: no finalized Recorder Play found"
+    else:
+        summary["recorderPlayPath"] = recorder_play.resolve().relative_to(scenario_dir.resolve()).as_posix()
+
+
 def ordered_results(results_by_index: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
     return [results_by_index[index] for index in sorted(results_by_index)]
 
 
-def cancelled_worker_result(worker: ScenarioWorker) -> dict[str, Any]:
+def cancelled_worker_result(worker: ScenarioWorker, recorder_enabled: bool = False) -> dict[str, Any]:
     worker.scenario_dir.mkdir(parents=True, exist_ok=True)
     summary = {
         "id": str(worker.scenario["id"]),
@@ -327,11 +393,17 @@ def cancelled_worker_result(worker: ScenarioWorker) -> dict[str, Any]:
         "clientKeptRunning": False,
         "workerDirectoryCleanup": "RETAINED",
     }
+    if recorder_enabled:
+        summary["recorderPlayPath"] = None
     write_json(worker.scenario_dir / "harness-summary.json", summary)
     return summary
 
 
-def failed_worker_result(worker: ScenarioWorker, error: BaseException) -> dict[str, Any]:
+def failed_worker_result(
+    worker: ScenarioWorker,
+    error: BaseException,
+    recorder_enabled: bool = False,
+) -> dict[str, Any]:
     worker.scenario_dir.mkdir(parents=True, exist_ok=True)
     summary = {
         "id": str(worker.scenario["id"]),
@@ -349,6 +421,8 @@ def failed_worker_result(worker: ScenarioWorker, error: BaseException) -> dict[s
         "clientKeptRunning": False,
         "workerDirectoryCleanup": "RETAINED",
     }
+    if recorder_enabled:
+        summary["recorderPlayPath"] = None
     write_json(worker.scenario_dir / "harness-summary.json", summary)
     return summary
 
@@ -792,6 +866,8 @@ def run_scenario(
         "addonSummaryPath": str(scenario_dir / "summary.json"),
         "archive": scenario_archive_metadata(scenario_root, scenario),
     }
+    if recorder_options.enabled:
+        summary["recorderPlayPath"] = None
     write_json(scenario_dir / "harness-summary.json", summary)
 
     launch_started_ms = int(time.time() * 1000)
@@ -809,7 +885,6 @@ def run_scenario(
         if recorder_options.enabled:
             recorder_root = (scenario_dir / "recorder").resolve()
             prepare_recorder_game_directory(worker.game_dir, recorder_root)
-            summary["recorderArtifactRoot"] = str(recorder_root)
         client = start_client(
             repo_root,
             client_command,
@@ -918,6 +993,9 @@ def run_scenario(
         if not summary["clientKeptRunning"]:
             bridge_state_path.unlink(missing_ok=True)
         summary["bridgeStateRemoved"] = not bridge_state_path.exists()
+        if recorder_options.enabled and client is not None:
+            recorder_root = (scenario_dir / "recorder").resolve()
+            finalize_recorder_capture(summary, scenario_dir, recorder_root)
         if should_delete_worker(summary):
             try:
                 shutil.rmtree(worker.worker_dir)
@@ -1118,6 +1196,93 @@ def run_self_test() -> None:
         assert server_replay_config["max_file_size"] == "0 B"
         assert server_replay_config["restart_after_max_duration"] is False
         assert server_replay_config["restart_after_max_file_size"] is False
+        recorder_root = temp_root / "output" / "a" / "recorder"
+        play = recorder_root / "v1" / "server--instance" / "players" / "player--uuid" / "plays" / "start--connection"
+        (play / "capture").mkdir(parents=True)
+        write_json(play / "metadata.json", {
+            "connection": {
+                "endedAt": "2026-08-08T00:00:00Z",
+                "endServerTick": "20",
+            },
+            "capture": {
+                "events": "capture/events.jsonl",
+                "replay": "capture/replay.zip",
+                "replayFormat": "flashback",
+            },
+        })
+        (play / "capture" / "events.jsonl").write_text("{}\n", encoding="utf-8")
+        with zipfile.ZipFile(play / "capture" / "replay.zip", "w") as replay:
+            replay.writestr("c0.flashback", "flashback")
+        assert discover_finalized_recorder_play(recorder_root) == play
+        assert not (play / "capture" / "replay.zip").is_symlink()
+        assert discover_finalized_recorder_play(temp_root / "missing-recorder") is None
+        incomplete = recorder_root / "v1" / "server--instance" / "players" / "player--uuid" / "plays" / "active--connection"
+        (incomplete / "capture").mkdir(parents=True)
+        write_json(incomplete / "metadata.json", {
+            "connection": {"startedAt": "2026-08-08T00:00:00Z"},
+            "capture": {
+                "events": "capture/events.jsonl",
+                "replay": "capture/replay.zip",
+                "replayFormat": "flashback",
+            },
+        })
+        (incomplete / "capture" / "events.jsonl").write_text("{}\n", encoding="utf-8")
+        with zipfile.ZipFile(incomplete / "capture" / "replay.zip", "w") as replay:
+            replay.writestr("c0.flashback", "flashback")
+        assert discover_finalized_recorder_play(recorder_root) == play
+        duplicate = recorder_root / "v1" / "other-server--instance" / "players" / "player--uuid" / "plays" / "start--other"
+        shutil.copytree(play, duplicate)
+        try:
+            discover_finalized_recorder_play(recorder_root)
+        except RunnerError as error:
+            assert "one finalized Recorder Play" in str(error)
+        else:
+            raise AssertionError("multiple finalized Plays should fail discovery")
+        shutil.rmtree(duplicate)
+        result = {
+            "harnessStatus": "OK",
+            "reportStatus": "PASSED",
+        }
+        finalize_recorder_capture(result, temp_root / "output" / "a", recorder_root)
+        assert result == {
+            "harnessStatus": "OK",
+            "reportStatus": "PASSED",
+            "recorderPlayPath": "recorder/v1/server--instance/players/player--uuid/plays/start--connection",
+        }
+        assert should_delete_worker(result)
+        capture_failure = {
+            "harnessStatus": "OK",
+            "reportStatus": "FAILED",
+            "message": "scenario outcome",
+        }
+        finalize_recorder_capture(
+            capture_failure,
+            temp_root / "output" / "b",
+            temp_root / "output" / "b" / "recorder",
+        )
+        assert capture_failure == {
+            "harnessStatus": "CAPTURE_ERROR",
+            "reportStatus": "FAILED",
+            "message": "scenario outcome",
+            "recorderPlayPath": None,
+        }
+        assert not should_delete_worker(capture_failure)
+        interrupted = {
+            "harnessStatus": "INTERRUPTED",
+            "reportStatus": None,
+            "message": "Interrupted by user",
+        }
+        finalize_recorder_capture(
+            interrupted,
+            temp_root / "output" / "b",
+            temp_root / "output" / "b" / "recorder",
+        )
+        assert interrupted == {
+            "harnessStatus": "INTERRUPTED",
+            "reportStatus": None,
+            "message": "Interrupted by user",
+            "recorderPlayPath": None,
+        }
         cancellation = threading.Event()
         assert not cancellation.is_set()
         cancellation.set()
@@ -1310,7 +1475,7 @@ def main(argv: list[str]) -> int:
                     try:
                         result = future.result()
                     except Exception as error:
-                        result = failed_worker_result(worker, error)
+                        result = failed_worker_result(worker, error, recorder_options.enabled)
                     record_result(result)
             except KeyboardInterrupt:
                 interrupted = True
@@ -1323,12 +1488,12 @@ def main(argv: list[str]) -> int:
                 if worker.index in results_by_index:
                     continue
                 if future.cancelled():
-                    record_result(cancelled_worker_result(worker))
+                    record_result(cancelled_worker_result(worker, recorder_options.enabled))
                 else:
                     try:
                         result = future.result()
                     except Exception as error:
-                        result = failed_worker_result(worker, error)
+                        result = failed_worker_result(worker, error, recorder_options.enabled)
                     record_result(result)
 
         manifest["finishedAt"] = utc_now_iso()
