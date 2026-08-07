@@ -14,7 +14,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -34,6 +33,9 @@ EVALUATOR_JDWP_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_JDWP_ENABLED"
 EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_RUNTIME_PREPARED"
 EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_PLAYER_NAME"
 RECORDER_JAR_ENVIRONMENT_VARIABLE = "AIRICRAFT_RECORDER_JAR"
+RECORDER_EVENTS_RELATIVE_PATH = Path("capture/events.jsonl")
+RECORDER_REPLAY_RELATIVE_PATH = Path("capture/replay.zip")
+RECORDER_REPLAY_FORMAT = "flashback"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -240,7 +242,7 @@ def prepare_recorder_game_directory(game_dir: Path, artifact_root: Path) -> None
         "chunk_recording_path": str(artifact_root / "server-replay" / "chunks"),
         "chunk_recording_strategy": "always",
         "chunks": [],
-        "default_encoding": "flashback",
+        "default_encoding": RECORDER_REPLAY_FORMAT,
         "delete_replays_after_duration": "0s",
         "ignore_action_bar_packets": False,
         "ignore_chat_packets": True,
@@ -307,8 +309,8 @@ def should_delete_worker(summary: dict[str, Any]) -> bool:
 
 def is_finalized_recorder_play(play_dir: Path) -> bool:
     metadata_path = play_dir / "metadata.json"
-    events_path = play_dir / "capture" / "events.jsonl"
-    replay_path = play_dir / "capture" / "replay.zip"
+    events_path = play_dir / RECORDER_EVENTS_RELATIVE_PATH
+    replay_path = play_dir / RECORDER_REPLAY_RELATIVE_PATH
     try:
         if not metadata_path.is_file() or not events_path.is_file() or not replay_path.is_file():
             return False
@@ -326,9 +328,9 @@ def is_finalized_recorder_play(play_dir: Path) -> bool:
     if not connection.get("endedAt") or connection.get("endServerTick") is None:
         return False
     if (
-        capture.get("events") != "capture/events.jsonl"
-        or capture.get("replay") != "capture/replay.zip"
-        or capture.get("replayFormat") != "flashback"
+        capture.get("events") != RECORDER_EVENTS_RELATIVE_PATH.as_posix()
+        or capture.get("replay") != RECORDER_REPLAY_RELATIVE_PATH.as_posix()
+        or capture.get("replayFormat") != RECORDER_REPLAY_FORMAT
     ):
         return False
     try:
@@ -1076,223 +1078,18 @@ def git_value(repo_root: Path, args: list[str]) -> str:
 
 
 def run_self_test() -> None:
-    redacted = redact_json({
-        "token": "abc",
-        "nested": [{"apiKey": "secret"}, {"message": "Authorization: Bearer abc123"}],
-        "safe": "value",
-    })
-    assert redacted["token"] == "[REDACTED]"
-    assert redacted["nested"][0]["apiKey"] == "[REDACTED]"
-    assert "abc123" not in redacted["nested"][1]["message"]
-    assert safe_name("../Iron Pickaxe!!") == "Iron-Pickaxe"
-    scenarios = [
-        {"id": "a", "promptConfigured": True},
-        {"id": "b", "promptConfigured": False},
-    ]
-    runnable, skipped = selected_scenarios(scenarios, None)
-    assert [item["id"] for item in runnable] == ["a"]
-    assert skipped == [{"id": "b", "name": None, "reason": "empty_prompt"}]
-    runnable, skipped = selected_scenarios(scenarios, ["a"])
-    assert [item["id"] for item in runnable] == ["a"]
-    assert skipped == []
-    default_args = argparse.Namespace(stop_client_after_scenario=False)
-    stopping_args = argparse.Namespace(stop_client_after_scenario=True)
-    assert keep_client_for_scenario(default_args, 1, 1)
-    assert not keep_client_for_scenario(default_args, 1, 1, True)
-    assert not keep_client_for_scenario(default_args, 1, 2)
-    assert keep_client_for_scenario(default_args, 2, 2)
-    assert not keep_client_for_scenario(stopping_args, 1, 1)
-    bridge_path = Path("/tmp/airicraft-evaluator-test/bridge-state.json")
-    game_dir = Path("/tmp/airicraft-evaluator-test/game")
-    recorder_options = RecorderOptions(True, "command-profile.jar")
-    environment = client_environment(
-        bridge_path,
-        game_dir,
-        "worker-01",
-        True,
-        recorder_options,
-        {RECORDER_JAR_ENVIRONMENT_VARIABLE: "environment-profile.jar"},
+    test_path = repo_root_from_script() / "scripts" / "tests" / "test_run_evaluation_scenarios.py"
+    completed = subprocess.run(
+        [sys.executable, str(test_path)],
+        cwd=repo_root_from_script(),
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    assert environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
-    assert environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] == str(game_dir.resolve())
-    assert environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] == "false"
-    assert environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] == "true"
-    assert environment[RECORDER_JAR_ENVIRONMENT_VARIABLE] == "command-profile.jar"
-    disabled_environment = client_environment(
-        bridge_path,
-        game_dir,
-        "worker-01",
-        True,
-        RecorderOptions(False, None),
-        {RECORDER_JAR_ENVIRONMENT_VARIABLE: "environment-profile.jar"},
-    )
-    assert RECORDER_JAR_ENVIRONMENT_VARIABLE not in disabled_environment
-    assert effective_worker_count(4, 2) == 2
-    assert effective_worker_count(1, 0) == 0
-    assert positive_int("2") == 2
-    try:
-        positive_int("0")
-    except argparse.ArgumentTypeError:
-        pass
-    else:
-        raise AssertionError("zero jobs should fail")
-    assert should_delete_worker({"harnessStatus": "OK", "reportStatus": "PASSED", "clientKeptRunning": False})
-    assert not should_delete_worker({"harnessStatus": "OK", "reportStatus": "NEEDS_REVIEW", "clientKeptRunning": False})
-    assert [item["index"] for item in ordered_results({2: {"index": 2}, 1: {"index": 1}})] == [1, 2]
-    parsed_defaults = parse_args([])
-    assert not parsed_defaults.no_recorder
-    assert parsed_defaults.recorder_jar is None
-    parsed_disabled = parse_args(["--no-recorder"])
-    assert parsed_disabled.no_recorder
-    environment = {"AIRICRAFT_RECORDER_JAR": "environment-profile.jar"}
-    recorder = resolve_recorder_options(None, False, environment)
-    assert recorder.enabled
-    assert recorder.profile == "environment-profile.jar"
-    recorder = resolve_recorder_options("command-profile.jar", False, environment)
-    assert recorder.enabled
-    assert recorder.profile == "command-profile.jar"
-    recorder = resolve_recorder_options(None, True, environment)
-    assert not recorder.enabled
-    assert recorder.profile is None
-    try:
-        resolve_recorder_options(None, False, {})
-    except RunnerError as error:
-        assert "--recorder-jar" in str(error)
-        assert "AIRICRAFT_RECORDER_JAR" in str(error)
-    else:
-        raise AssertionError("recorder-enabled runs need a recording profile")
-    try:
-        resolve_recorder_options("command-profile.jar", True, environment)
-    except RunnerError as error:
-        assert "--no-recorder" in str(error)
-        assert "--recorder-jar" in str(error)
-    else:
-        raise AssertionError("recorder options should reject conflicting flags")
-    with tempfile.TemporaryDirectory(prefix="airicraft-evaluator-self-test-") as temp:
-        temp_root = Path(temp)
-        seed_dir = temp_root / "seed"
-        seed_dir.mkdir()
-        (seed_dir / "options.txt").write_text("onboardAccessibility:false\n", encoding="utf-8")
-        plans = worker_plans(temp_root / "output", temp_root / "workers", seed_dir, [
-            {"id": "a"},
-            {"id": "b"},
-        ])
-        assert plans[0].game_dir != plans[1].game_dir
-        assert plans[0].bridge_state_path != plans[1].bridge_state_path
-        artifact_root = (temp_root / "output" / "a" / "recorder").resolve()
-        prepare_recorder_game_directory(plans[0].game_dir, artifact_root)
-        recorder_config = json.loads(
-            (plans[0].game_dir / "config" / "recorder-minecraft.json").read_text(encoding="utf-8")
-        )
-        assert recorder_config["artifacts_root"] == str(artifact_root)
-        assert recorder_config["record_all_players"] is True
-        server_replay_config = json.loads(
-            (plans[0].game_dir / "config" / "server-replay" / "config.json").read_text(encoding="utf-8")
-        )
-        assert server_replay_config["automatically_record"] is True
-        assert server_replay_config["default_encoding"] == "flashback"
-        assert server_replay_config["player_predicate"] == {"type": "all"}
-        assert server_replay_config["max_duration"] == "0s"
-        assert server_replay_config["max_file_size"] == "0 B"
-        assert server_replay_config["restart_after_max_duration"] is False
-        assert server_replay_config["restart_after_max_file_size"] is False
-        recorder_root = temp_root / "output" / "a" / "recorder"
-        play = recorder_root / "v1" / "server--instance" / "players" / "player--uuid" / "plays" / "start--connection"
-        (play / "capture").mkdir(parents=True)
-        write_json(play / "metadata.json", {
-            "connection": {
-                "endedAt": "2026-08-08T00:00:00Z",
-                "endServerTick": "20",
-            },
-            "capture": {
-                "events": "capture/events.jsonl",
-                "replay": "capture/replay.zip",
-                "replayFormat": "flashback",
-            },
-        })
-        (play / "capture" / "events.jsonl").write_text("{}\n", encoding="utf-8")
-        with zipfile.ZipFile(play / "capture" / "replay.zip", "w") as replay:
-            replay.writestr("c0.flashback", "flashback")
-        assert discover_finalized_recorder_play(recorder_root) == play
-        assert not (play / "capture" / "replay.zip").is_symlink()
-        assert discover_finalized_recorder_play(temp_root / "missing-recorder") is None
-        incomplete = recorder_root / "v1" / "server--instance" / "players" / "player--uuid" / "plays" / "active--connection"
-        (incomplete / "capture").mkdir(parents=True)
-        write_json(incomplete / "metadata.json", {
-            "connection": {"startedAt": "2026-08-08T00:00:00Z"},
-            "capture": {
-                "events": "capture/events.jsonl",
-                "replay": "capture/replay.zip",
-                "replayFormat": "flashback",
-            },
-        })
-        (incomplete / "capture" / "events.jsonl").write_text("{}\n", encoding="utf-8")
-        with zipfile.ZipFile(incomplete / "capture" / "replay.zip", "w") as replay:
-            replay.writestr("c0.flashback", "flashback")
-        assert discover_finalized_recorder_play(recorder_root) == play
-        duplicate = recorder_root / "v1" / "other-server--instance" / "players" / "player--uuid" / "plays" / "start--other"
-        shutil.copytree(play, duplicate)
-        try:
-            discover_finalized_recorder_play(recorder_root)
-        except RunnerError as error:
-            assert "one finalized Recorder Play" in str(error)
-        else:
-            raise AssertionError("multiple finalized Plays should fail discovery")
-        shutil.rmtree(duplicate)
-        result = {
-            "harnessStatus": "OK",
-            "reportStatus": "PASSED",
-        }
-        finalize_recorder_capture(result, temp_root / "output" / "a", recorder_root)
-        assert result == {
-            "harnessStatus": "OK",
-            "reportStatus": "PASSED",
-            "recorderPlayPath": "recorder/v1/server--instance/players/player--uuid/plays/start--connection",
-        }
-        assert should_delete_worker(result)
-        capture_failure = {
-            "harnessStatus": "OK",
-            "reportStatus": "FAILED",
-            "message": "scenario outcome",
-        }
-        finalize_recorder_capture(
-            capture_failure,
-            temp_root / "output" / "b",
-            temp_root / "output" / "b" / "recorder",
-        )
-        assert capture_failure == {
-            "harnessStatus": "CAPTURE_ERROR",
-            "reportStatus": "FAILED",
-            "message": "scenario outcome",
-            "recorderPlayPath": None,
-        }
-        assert not should_delete_worker(capture_failure)
-        interrupted = {
-            "harnessStatus": "INTERRUPTED",
-            "reportStatus": None,
-            "message": "Interrupted by user",
-        }
-        finalize_recorder_capture(
-            interrupted,
-            temp_root / "output" / "b",
-            temp_root / "output" / "b" / "recorder",
-        )
-        assert interrupted == {
-            "harnessStatus": "INTERRUPTED",
-            "reportStatus": None,
-            "message": "Interrupted by user",
-            "recorderPlayPath": None,
-        }
-        cancellation = threading.Event()
-        assert not cancellation.is_set()
-        cancellation.set()
-        assert cancellation.is_set()
-    try:
-        selected_scenarios(scenarios, ["missing"])
-    except RunnerError:
-        pass
-    else:
-        raise AssertionError("unknown scenario filter should fail")
+    if completed.returncode != 0:
+        sys.stdout.write(completed.stdout)
+        sys.stderr.write(completed.stderr)
+        raise RunnerError(f"self-test failed with exit code {completed.returncode}")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
