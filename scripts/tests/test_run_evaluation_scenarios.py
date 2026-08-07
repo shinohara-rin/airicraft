@@ -13,6 +13,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from types import ModuleType
+from unittest import mock
 
 
 RUNNER_PATH = Path(__file__).resolve().parents[1] / "run-evaluation-scenarios"
@@ -99,6 +100,34 @@ class RunnerPolicyTest(unittest.TestCase):
             [1, 2],
             [item["index"] for item in runner.ordered_results({2: {"index": 2}, 1: {"index": 1}})],
         )
+
+
+class RunnerShutdownTest(unittest.TestCase):
+    def test_uses_graceful_stop_before_signalling_the_process_group(self) -> None:
+        process = mock.Mock()
+        process.pid = 42
+        process.poll.return_value = None
+        client = runner.ClientProcess(
+            process=process,
+            log_path=Path("/tmp/client.log"),
+            log_thread=None,
+            line_queue=runner.queue.Queue(),
+            log_handle=None,
+            output_detached=False,
+        )
+        graceful_stop = mock.Mock()
+
+        with (
+            mock.patch.object(runner, "process_group_alive", return_value=True),
+            mock.patch.object(runner, "wait_for_process_group_exit", return_value=True),
+            mock.patch.object(runner, "process_alive", return_value=False),
+            mock.patch.object(runner.os, "killpg") as killpg,
+        ):
+            result = runner.stop_client(client, 1, graceful_stop=graceful_stop)
+
+        graceful_stop.assert_called_once_with()
+        killpg.assert_not_called()
+        self.assertEqual("BRIDGE", result["method"])
 
 
 class RecorderOptionTest(unittest.TestCase):
