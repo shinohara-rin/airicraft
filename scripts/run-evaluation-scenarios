@@ -22,7 +22,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 TERMINAL_STATUSES = {"PASSED", "FAILED", "NEEDS_REVIEW"}
@@ -31,6 +31,7 @@ EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_GAME_DIR"
 EVALUATOR_JDWP_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_JDWP_ENABLED"
 EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_RUNTIME_PREPARED"
 EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_PLAYER_NAME"
+RECORDER_JAR_ENVIRONMENT_VARIABLE = "AIRICRAFT_RECORDER_JAR"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -50,6 +51,12 @@ class BridgeHttpError(RunnerError):
         self.path = path
         self.status = status
         self.payload = payload
+
+
+@dataclass(frozen=True)
+class RecorderOptions:
+    enabled: bool
+    profile: str | None
 
 
 @dataclass(frozen=True)
@@ -169,6 +176,22 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def resolve_recorder_options(
+    command_profile: str | None,
+    no_recorder: bool,
+    environment: Mapping[str, str],
+) -> RecorderOptions:
+    if no_recorder and command_profile is not None:
+        raise RunnerError("--no-recorder cannot be combined with --recorder-jar")
+    if no_recorder:
+        return RecorderOptions(False, None)
+
+    profile = command_profile if command_profile is not None else environment.get(RECORDER_JAR_ENVIRONMENT_VARIABLE)
+    if profile is None or not profile.strip():
+        raise RunnerError("Recorder-enabled runs need --recorder-jar or AIRICRAFT_RECORDER_JAR")
+    return RecorderOptions(True, profile.strip())
+
+
 def effective_worker_count(jobs: int, scenario_count: int) -> int:
     if jobs < 1:
         raise ValueError("jobs must be at least 1")
@@ -284,14 +307,22 @@ def client_environment(
     game_dir: Path,
     worker_id: str,
     runtime_prepared: bool,
+    recorder_options: RecorderOptions,
+    source_environment: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    environment = os.environ.copy()
+    environment = dict(os.environ if source_environment is None else source_environment)
     environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] = str(bridge_state_path.resolve())
     environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] = str(game_dir.resolve())
     environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] = "false"
     environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] = str(runtime_prepared).lower()
     player_suffix = re.sub(r"[^A-Za-z0-9_]", "", worker_id)[-8:]
     environment[EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE] = "AirEval" + player_suffix
+    if recorder_options.enabled:
+        if recorder_options.profile is None:
+            raise RunnerError("Recorder-enabled runs need a recording profile")
+        environment[RECORDER_JAR_ENVIRONMENT_VARIABLE] = recorder_options.profile
+    else:
+        environment.pop(RECORDER_JAR_ENVIRONMENT_VARIABLE, None)
     return environment
 
 
@@ -303,13 +334,20 @@ def start_client(
     game_dir: Path,
     worker_id: str,
     runtime_prepared: bool,
+    recorder_options: RecorderOptions,
     detach_output: bool = False,
 ) -> ClientProcess:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     bridge_state_path.parent.mkdir(parents=True, exist_ok=True)
     line_queue: "queue.Queue[str]" = queue.Queue()
     log_handle = None
-    environment = client_environment(bridge_state_path, game_dir, worker_id, runtime_prepared)
+    environment = client_environment(
+        bridge_state_path,
+        game_dir,
+        worker_id,
+        runtime_prepared,
+        recorder_options,
+    )
     if detach_output:
         log_handle = log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
@@ -618,6 +656,7 @@ def discover_scenarios(
     args: argparse.Namespace,
     worker_dir: Path,
     game_dir: Path,
+    recorder_options: RecorderOptions,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     launch_started_ms = int(time.time() * 1000)
     bridge_state_path = run_dir / "discovery-bridge-state.json"
@@ -629,6 +668,7 @@ def discover_scenarios(
         game_dir,
         "discovery",
         False,
+        recorder_options,
     )
     discovery: dict[str, Any] = {
         "startedAt": utc_now_iso(),
@@ -667,6 +707,7 @@ def run_scenario(
     args: argparse.Namespace,
     keep_client_after_scenario: bool,
     cancellation: threading.Event,
+    recorder_options: RecorderOptions,
 ) -> dict[str, Any]:
     scenario = worker.scenario
     scenario_id = str(scenario["id"])
@@ -715,6 +756,7 @@ def run_scenario(
             worker.game_dir,
             worker.worker_id,
             True,
+            recorder_options,
             detach_output=keep_client_after_scenario,
         )
         summary["clientPid"] = client.process.pid
@@ -921,11 +963,29 @@ def run_self_test() -> None:
     assert not keep_client_for_scenario(stopping_args, 1, 1)
     bridge_path = Path("/tmp/airicraft-evaluator-test/bridge-state.json")
     game_dir = Path("/tmp/airicraft-evaluator-test/game")
-    environment = client_environment(bridge_path, game_dir, "worker-01", True)
+    recorder_options = RecorderOptions(True, "command-profile.jar")
+    environment = client_environment(
+        bridge_path,
+        game_dir,
+        "worker-01",
+        True,
+        recorder_options,
+        {RECORDER_JAR_ENVIRONMENT_VARIABLE: "environment-profile.jar"},
+    )
     assert environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
     assert environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] == str(game_dir.resolve())
     assert environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] == "false"
     assert environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] == "true"
+    assert environment[RECORDER_JAR_ENVIRONMENT_VARIABLE] == "command-profile.jar"
+    disabled_environment = client_environment(
+        bridge_path,
+        game_dir,
+        "worker-01",
+        True,
+        RecorderOptions(False, None),
+        {RECORDER_JAR_ENVIRONMENT_VARIABLE: "environment-profile.jar"},
+    )
+    assert RECORDER_JAR_ENVIRONMENT_VARIABLE not in disabled_environment
     assert effective_worker_count(4, 2) == 2
     assert effective_worker_count(1, 0) == 0
     assert positive_int("2") == 2
@@ -938,6 +998,35 @@ def run_self_test() -> None:
     assert should_delete_worker({"harnessStatus": "OK", "reportStatus": "PASSED", "clientKeptRunning": False})
     assert not should_delete_worker({"harnessStatus": "OK", "reportStatus": "NEEDS_REVIEW", "clientKeptRunning": False})
     assert [item["index"] for item in ordered_results({2: {"index": 2}, 1: {"index": 1}})] == [1, 2]
+    parsed_defaults = parse_args([])
+    assert not parsed_defaults.no_recorder
+    assert parsed_defaults.recorder_jar is None
+    parsed_disabled = parse_args(["--no-recorder"])
+    assert parsed_disabled.no_recorder
+    environment = {"AIRICRAFT_RECORDER_JAR": "environment-profile.jar"}
+    recorder = resolve_recorder_options(None, False, environment)
+    assert recorder.enabled
+    assert recorder.profile == "environment-profile.jar"
+    recorder = resolve_recorder_options("command-profile.jar", False, environment)
+    assert recorder.enabled
+    assert recorder.profile == "command-profile.jar"
+    recorder = resolve_recorder_options(None, True, environment)
+    assert not recorder.enabled
+    assert recorder.profile is None
+    try:
+        resolve_recorder_options(None, False, {})
+    except RunnerError as error:
+        assert "--recorder-jar" in str(error)
+        assert "AIRICRAFT_RECORDER_JAR" in str(error)
+    else:
+        raise AssertionError("recorder-enabled runs need a recording profile")
+    try:
+        resolve_recorder_options("command-profile.jar", True, environment)
+    except RunnerError as error:
+        assert "--no-recorder" in str(error)
+        assert "--recorder-jar" in str(error)
+    else:
+        raise AssertionError("recorder options should reject conflicting flags")
     with tempfile.TemporaryDirectory(prefix="airicraft-evaluator-self-test-") as temp:
         temp_root = Path(temp)
         seed_dir = temp_root / "seed"
@@ -980,6 +1069,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Stop the scenario Minecraft client after each scenario. By default the final scenario client is left running.",
     )
+    parser.add_argument(
+        "--recorder-jar",
+        help="Recording profile path. Overrides AIRICRAFT_RECORDER_JAR.",
+    )
+    parser.add_argument(
+        "--no-recorder",
+        action="store_true",
+        help="Disable integrated-server capture for this evaluation run.",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run built-in unit checks and exit.")
     return parser.parse_args(argv)
 
@@ -990,6 +1088,16 @@ def main(argv: list[str]) -> int:
         run_self_test()
         print("self-test: ok")
         return 0
+
+    try:
+        recorder_options = resolve_recorder_options(
+            args.recorder_jar,
+            args.no_recorder,
+            os.environ,
+        )
+    except RunnerError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
     repo_root = repo_root_from_script()
     client_command = args.client_command or default_client_command(repo_root)
@@ -1014,6 +1122,8 @@ def main(argv: list[str]) -> int:
         "effectiveWorkers": 0,
         "workerRoot": str(worker_root),
         "stopClientAfterScenario": args.stop_client_after_scenario,
+        "recorderEnabled": recorder_options.enabled,
+        "recordingProfile": recorder_options.profile,
         "skipped": [],
         "results": [],
     }
@@ -1029,6 +1139,7 @@ def main(argv: list[str]) -> int:
             args,
             discovery_worker_dir,
             discovery_game_dir,
+            recorder_options,
         )
         shutil.rmtree(discovery_worker_dir, ignore_errors=True)
         manifest["discovery"] = {
@@ -1082,6 +1193,7 @@ def main(argv: list[str]) -> int:
                     args,
                     keep_client_after_scenario,
                     cancellation,
+                    recorder_options,
                 )
                 record_result(result)
                 if result.get("interrupted"):
@@ -1101,6 +1213,7 @@ def main(argv: list[str]) -> int:
                     args,
                     False,
                     cancellation,
+                    recorder_options,
                 ): worker
                 for worker in plans
             }
