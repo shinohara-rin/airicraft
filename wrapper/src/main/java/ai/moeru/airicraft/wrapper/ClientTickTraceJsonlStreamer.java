@@ -107,7 +107,7 @@ final class ClientTickTraceJsonlStreamer {
 		finally {
 			if (!completed) {
 				try {
-					transport.stopClientTickTrace(traceId);
+					transport.post("/v1/agent/debug/trace/stop", Map.of("traceId", traceId));
 				}
 				catch (RuntimeException ignored) {
 					// The original write or transport failure gives the useful error.
@@ -139,12 +139,12 @@ final class ClientTickTraceJsonlStreamer {
 		boolean truncated = false;
 		Map<String, Object> finalPayload = Map.of();
 		while (true) {
-			Map<String, Object> payload = transport.listClientTickTraceRecords(
-				traceId,
-				pageSinceClientTickId,
-				RECORD_PAGE_LIMIT,
-				true
-			);
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("traceId", traceId);
+			body.put("sinceClientTickId", pageSinceClientTickId);
+			body.put("limit", RECORD_PAGE_LIMIT);
+			body.put("includeImageBytes", true);
+			Map<String, Object> payload = transport.post("/v1/agent/debug/trace/records", body);
 			active = booleanValue(payload, "active");
 			truncated |= booleanValue(payload, "truncated");
 			finalPayload = payload;

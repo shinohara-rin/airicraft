@@ -15,6 +15,7 @@ import picocli.CommandLine.Spec;
 
 import java.io.PrintWriter;
 import java.io.UncheckedIOException;
+import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -269,7 +270,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.status(transport().getStatus(), verbose());
+			return PayloadViews.status(statusPayload(transport()), verbose());
 		}
 	}
 
@@ -281,7 +282,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.reload(transport().reload(), verbose());
+			return PayloadViews.reload(transport().post("/v1/reload", null), verbose());
 		}
 	}
 
@@ -293,7 +294,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentStatus(transport().getAgentStatus(), verbose());
+			return PayloadViews.agentStatus(transport().get("/v1/agent/status"), verbose());
 		}
 	}
 
@@ -305,7 +306,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentTools(transport().listAgentTools(), verbose());
+			return PayloadViews.agentTools(transport().get("/v1/agent/tools"), verbose());
 		}
 	}
 
@@ -333,7 +334,11 @@ public final class AiricraftCliMain {
 				throw new CliUsageException(commandPath(), "invalid_arguments", "timeout-seconds must be between 1 and 300");
 			}
 			Map<String, Object> arguments = parseJsonObject(argumentsJson, commandPath());
-			Map<String, Object> payload = new LinkedHashMap<>(transport().callAgentTool(name, arguments, timeoutSeconds * 1000));
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("name", name);
+			body.put("arguments", arguments);
+			body.put("timeoutMs", timeoutSeconds * 1000);
+			Map<String, Object> payload = new LinkedHashMap<>(transport().post("/v1/agent/tools", body));
 			Object encodedImage = payload.remove("imageBase64");
 			if (encodedImage instanceof String imageBase64 && !imageBase64.isBlank() && outputImage != null) {
 				try {
@@ -357,7 +362,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentSession(transport().getAgentSession(), verbose());
+			return PayloadViews.agentSession(transport().get("/v1/agent/session"), verbose());
 		}
 	}
 
@@ -369,7 +374,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().openAgentSessionLan();
+			return transport().post("/v1/agent/session/open-lan", null);
 		}
 	}
 
@@ -381,7 +386,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentGoals(transport().getAgentGoals(), verbose());
+			return PayloadViews.agentGoals(transport().get("/v1/agent/goals"), verbose());
 		}
 	}
 
@@ -393,7 +398,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentTasks(transport().getAgentTasks(), verbose());
+			return PayloadViews.agentTasks(transport().get("/v1/agent/tasks"), verbose());
 		}
 	}
 
@@ -405,7 +410,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentLedger(transport().getAgentLedger(), verbose());
+			return PayloadViews.agentLedger(transport().get("/v1/agent/ledger"), verbose());
 		}
 	}
 
@@ -417,7 +422,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentEvidence(transport().getAgentEvidence(), verbose());
+			return PayloadViews.agentEvidence(transport().get("/v1/agent/evidence"), verbose());
 		}
 	}
 
@@ -429,7 +434,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentStepExecution(transport().getAgentStepExecution(), verbose());
+			return PayloadViews.agentStepExecution(transport().get("/v1/agent/step-execution"), verbose());
 		}
 	}
 
@@ -441,7 +446,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionInspect(transport().inspectAgentActionGraph(), verbose());
+			return PayloadViews.agentActionInspect(transport().get("/v1/agent/action-graph/inspect"), verbose());
 		}
 	}
 
@@ -456,7 +461,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionGoal(transport().getAgentActionGoal(executionId), verbose());
+			return PayloadViews.agentActionGoal(transport().get(actionGoalPath(executionId, false)), verbose());
 		}
 	}
 
@@ -468,7 +473,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionGoals(transport().listAgentActionGoals(), verbose());
+			return PayloadViews.agentActionGoals(transport().get(actionGoalPath(null, true)), verbose());
 		}
 	}
 
@@ -501,7 +506,7 @@ public final class AiricraftCliMain {
 				payload.put("resourceKind", resourceKind);
 			}
 			payload.put("quantity", quantity);
-			return PayloadViews.agentActionGoal(transport().startAgentActionGoal(payload), verbose());
+			return PayloadViews.agentActionGoal(transport().post("/v1/agent/action-goals", payload), verbose());
 		}
 	}
 
@@ -516,7 +521,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionGoal(transport().cancelAgentActionGoal(executionId), verbose());
+			return PayloadViews.agentActionGoal(transport().delete(actionGoalPath(executionId, false), Map.of()), verbose());
 		}
 	}
 
@@ -528,7 +533,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentActionWatches(transport().listAgentActionGoals(), verbose());
+			return PayloadViews.agentActionWatches(transport().get(actionGoalPath(null, true)), verbose());
 		}
 	}
 
@@ -549,7 +554,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentTasks(transport().submitAgentTask(Map.of(
+			return PayloadViews.agentTasks(transport().post("/v1/agent/tasks", Map.of(
 				"type", PayloadViews.normalizeTaskValue(type),
 				"resourceKind", PayloadViews.normalizeTaskValue(resource),
 				"quantity", quantity
@@ -581,12 +586,12 @@ public final class AiricraftCliMain {
 				if (type != null || resource != null || quantity > 0) {
 					throw new CliUsageException(commandPath(), "invalid_arguments", "--ledger-file cannot be combined with --type/--resource/--quantity");
 				}
-				return PayloadViews.agentTasks(transport().submitAgentMission(readLedgerPayload(ledgerFile)), verbose());
+				return PayloadViews.agentTasks(transport().post("/v1/agent/tasks", readLedgerPayload(ledgerFile)), verbose());
 			}
 			if (type == null || resource == null || quantity <= 0) {
 				throw new CliUsageException(commandPath(), "invalid_arguments", "Either provide --ledger-file or all of --type, --resource, and --quantity");
 			}
-			return PayloadViews.agentTasks(transport().submitAgentMission(Map.of(
+			return PayloadViews.agentTasks(transport().post("/v1/agent/tasks", Map.of(
 				"type", PayloadViews.normalizeTaskValue(type),
 				"resourceKind", PayloadViews.normalizeTaskValue(resource),
 				"quantity", quantity
@@ -611,7 +616,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentTasks(transport().cancelAgentTask(), verbose());
+			return PayloadViews.agentTasks(transport().delete("/v1/agent/tasks", null), verbose());
 		}
 	}
 
@@ -626,7 +631,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentTasks(transport().resumeAgentTask(holdId), verbose());
+			return PayloadViews.agentTasks(transport().post("/v1/agent/tasks/resume", Map.of("holdId", holdId)), verbose());
 		}
 	}
 
@@ -638,7 +643,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().getAgentTree();
+			return transport().get("/v1/agent/tree");
 		}
 	}
 
@@ -650,7 +655,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentDialogue(transport().getAgentDialogue(), verbose());
+			return PayloadViews.agentDialogue(transport().get("/v1/agent/dialogue"), verbose());
 		}
 	}
 
@@ -665,7 +670,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().sendAgentDebugChat(message);
+			return transport().post("/v1/agent/debug/chat", Map.of("message", message));
 		}
 	}
 
@@ -677,7 +682,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentDebugIdleTrigger(transport().fireAgentDebugIdleTrigger(), verbose());
+			return PayloadViews.agentDebugIdleTrigger(transport().post("/v1/agent/debug/idle-trigger", null), verbose());
 		}
 	}
 
@@ -689,7 +694,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentDebugState(transport().getAgentDebugState(), verbose());
+			return PayloadViews.agentDebugState(transport().get("/v1/agent/debug/state"), verbose());
 		}
 	}
 
@@ -704,7 +709,8 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentDebugTimeline(transport().listAgentDebugTimeline(since), verbose());
+			String path = since == null ? "/v1/agent/debug/timeline" : "/v1/agent/debug/timeline?since=" + since;
+			return PayloadViews.agentDebugTimeline(transport().get(path), verbose());
 		}
 	}
 
@@ -716,7 +722,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.clientTickDebugStatus(transport().getClientTickDebugState());
+			return PayloadViews.clientTickDebugStatus(transport().get("/v1/agent/debug/ticks/state"));
 		}
 	}
 
@@ -735,7 +741,7 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return PayloadViews.clientTickDebugCapture(
-				prepareClientTickCapture(transport().pauseClientTicks(playerActions), outputImage, commandPath()),
+				prepareClientTickCapture(transport().post("/v1/agent/debug/ticks/pause", Map.of("playerActions", playerActions)), outputImage, commandPath()),
 				verbose()
 			);
 		}
@@ -761,7 +767,10 @@ public final class AiricraftCliMain {
 			requirePositivePauseEpoch(pauseEpoch, commandPath());
 			return PayloadViews.clientTickDebugCapture(
 				prepareClientTickCapture(
-					transport().stepClientTick(debugSessionId, pauseEpoch),
+					transport().post("/v1/agent/debug/ticks/step", Map.of(
+						"debugSessionId", debugSessionId,
+						"pauseEpoch", pauseEpoch
+					)),
 					outputImage,
 					commandPath()
 				),
@@ -786,7 +795,10 @@ public final class AiricraftCliMain {
 		Map<String, Object> runCommand() {
 			requirePositivePauseEpoch(pauseEpoch, commandPath());
 			return PayloadViews.clientTickDebugStatus(
-				transport().continueClientTicks(debugSessionId, pauseEpoch)
+				transport().post("/v1/agent/debug/ticks/continue", Map.of(
+					"debugSessionId", debugSessionId,
+					"pauseEpoch", pauseEpoch
+				))
 			);
 		}
 	}
@@ -799,7 +811,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().getClientTickTraceStatus();
+			return transport().get("/v1/agent/debug/trace");
 		}
 	}
 
@@ -869,7 +881,7 @@ public final class AiricraftCliMain {
 			if (hasBlockQuery) {
 				request.put("blockQuery", parseJsonObject(blockQueryJson, COMMAND_PATH));
 			}
-			Map<String, Object> startPayload = context.transport.startClientTickTrace(request);
+			Map<String, Object> startPayload = context.transport.post("/v1/agent/debug/trace/start", request);
 			Path outputPath = output.toAbsolutePath().normalize();
 			LinkedHashMap<String, Object> response = new LinkedHashMap<>(startPayload);
 			response.put("outputPath", outputPath.toString());
@@ -920,7 +932,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().stopClientTickTrace(traceId);
+			return transport().post("/v1/agent/debug/trace/stop", Map.of("traceId", traceId));
 		}
 	}
 
@@ -948,7 +960,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().queryClientTickWorld(baseRequest("metadata"));
+			return transport().post("/v1/agent/debug/world/query", baseRequest("metadata"));
 		}
 	}
 
@@ -960,7 +972,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().queryClientTickWorld(baseRequest("player_state"));
+			return transport().post("/v1/agent/debug/world/query", baseRequest("player_state"));
 		}
 	}
 
@@ -1065,7 +1077,7 @@ public final class AiricraftCliMain {
 			request.put("includeSelf", includeSelf);
 			request.put("cursor", cursor);
 			request.put("limit", limit);
-			return transport().queryClientTickWorld(request);
+			return transport().post("/v1/agent/debug/world/query", request);
 		}
 
 		private void validateSpatialSelector() {
@@ -1107,7 +1119,7 @@ public final class AiricraftCliMain {
 			request.put("x", x);
 			request.put("y", y);
 			request.put("z", z);
-			return transport().queryClientTickWorld(request);
+			return transport().post("/v1/agent/debug/world/query", request);
 		}
 	}
 
@@ -1168,7 +1180,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().queryClientTickWorld(regionRequest("scan_box"));
+			return transport().post("/v1/agent/debug/world/query", regionRequest("scan_box"));
 		}
 	}
 
@@ -1185,7 +1197,7 @@ public final class AiricraftCliMain {
 		Map<String, Object> runCommand() {
 			Map<String, Object> request = regionRequest("find_blocks");
 			request.put("blockIds", blockIds);
-			return transport().queryClientTickWorld(request);
+			return transport().post("/v1/agent/debug/world/query", request);
 		}
 	}
 
@@ -1197,7 +1209,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().queryClientTickWorld(regionRequest("region_stats"));
+			return transport().post("/v1/agent/debug/world/query", regionRequest("region_stats"));
 		}
 	}
 
@@ -1209,7 +1221,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentContext(transport().getAgentContext(), verbose());
+			return PayloadViews.agentContext(transport().get("/v1/agent/context"), verbose());
 		}
 	}
 
@@ -1224,7 +1236,8 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentEvents(transport().listRecentAgentEvents(since), verbose());
+			String path = since == null ? "/v1/agent/events/recent" : "/v1/agent/events/recent?since=" + since;
+			return PayloadViews.agentEvents(transport().get(path), verbose());
 		}
 	}
 
@@ -1248,8 +1261,12 @@ public final class AiricraftCliMain {
 			if (timeoutSeconds != null && timeoutSeconds > Integer.MAX_VALUE / 1000) {
 				throw new CliUsageException(commandPath(), "invalid_arguments", "timeout-seconds is too large");
 			}
-			Integer timeoutMs = timeoutSeconds == null ? null : timeoutSeconds * 1000;
-			return PayloadViews.agentCompact(transport().triggerAgentCompaction(!noWait, timeoutMs), verbose());
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("wait", !noWait);
+			if (timeoutSeconds != null) {
+				body.put("timeoutMs", timeoutSeconds * 1000);
+			}
+			return PayloadViews.agentCompact(transport().post("/v1/agent/debug/compact", body), verbose());
 		}
 	}
 
@@ -1261,7 +1278,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentEventPolicy(transport().getAgentEventPolicy(), verbose());
+			return PayloadViews.agentEventPolicy(transport().get("/v1/agent/event-policy"), verbose());
 		}
 	}
 
@@ -1273,7 +1290,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentEventPolicy(transport().getAgentEventPolicy(), verbose());
+			return PayloadViews.agentEventPolicy(transport().get("/v1/agent/event-policy"), verbose());
 		}
 	}
 
@@ -1285,7 +1302,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.agentEventPolicy(transport().clearAgentEventPolicy(), verbose());
+			return PayloadViews.agentEventPolicy(transport().post("/v1/agent/event-policy/clear", null), verbose());
 		}
 	}
 
@@ -1297,7 +1314,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationStatus(transport().getEvaluationStatus(), verbose());
+			return PayloadViews.evaluationStatus(transport().get("/v1/evaluation/status"), verbose());
 		}
 	}
 
@@ -1309,7 +1326,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationScenarios(transport().getEvaluationScenarios(), verbose());
+			return PayloadViews.evaluationScenarios(transport().get("/v1/evaluation/scenarios"), verbose());
 		}
 	}
 
@@ -1321,7 +1338,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationConfig(transport().getEvaluationConfig(), verbose());
+			return PayloadViews.evaluationConfig(transport().get("/v1/evaluation/config"), verbose());
 		}
 	}
 
@@ -1339,7 +1356,10 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationRun(transport().runEvaluationScenario(scenario, outputDir), verbose());
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("scenario", scenario);
+			putIfPresent(body, "outputDir", outputDir);
+			return PayloadViews.evaluationRun(transport().post("/v1/evaluation/run", body), verbose());
 		}
 	}
 
@@ -1351,7 +1371,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationResults(transport().getEvaluationResults(), verbose());
+			return PayloadViews.evaluationResults(transport().get("/v1/evaluation/results"), verbose());
 		}
 	}
 
@@ -1363,7 +1383,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.evaluationEvidence(transport().getEvaluationEvidence(), verbose());
+			return PayloadViews.evaluationEvidence(transport().get("/v1/evaluation/evidence"), verbose());
 		}
 	}
 
@@ -1375,7 +1395,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.worldsList(transport().listWorlds(), verbose());
+			return PayloadViews.worldsList(transport().get("/v1/worlds"), verbose());
 		}
 	}
 
@@ -1390,7 +1410,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().joinWorld(worldId);
+			return transport().post("/v1/worlds/join", Map.of("worldId", worldId));
 		}
 	}
 
@@ -1402,7 +1422,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.serversList(transport().listServers(), verbose());
+			return PayloadViews.serversList(transport().get("/v1/servers"), verbose());
 		}
 	}
 
@@ -1417,7 +1437,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().joinServer(serverId);
+			return transport().post("/v1/servers/join", Map.of("serverId", serverId));
 		}
 	}
 
@@ -1429,7 +1449,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().getFocus();
+			return transport().get("/v1/focus");
 		}
 	}
 
@@ -1441,7 +1461,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().listNearbyEntities();
+			return transport().get("/v1/player/nearby-entities");
 		}
 	}
 
@@ -1465,7 +1485,12 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().lookAt(x, y, z, durationTicks);
+			Map<String, Object> body = new LinkedHashMap<>();
+			body.put("x", x);
+			body.put("y", y);
+			body.put("z", z);
+			putIfNonNull(body, "durationTicks", durationTicks);
+			return transport().post("/v1/player/look-at", body);
 		}
 	}
 
@@ -1516,7 +1541,10 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			requireSelector();
-			return transport().attackEntity(selectorUuid(), selectorName(), selectorEntityTypeId(), mode);
+			return transport().post(
+				"/v1/player/attack-entity",
+				entitySelectorBody(selectorUuid(), selectorName(), selectorEntityTypeId(), null, mode)
+			);
 		}
 	}
 
@@ -1532,7 +1560,10 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			requireSelector();
-			return transport().useEntity(selectorUuid(), selectorName(), selectorEntityTypeId(), itemId);
+			return transport().post(
+				"/v1/player/use-entity",
+				entitySelectorBody(selectorUuid(), selectorName(), selectorEntityTypeId(), itemId, null)
+			);
 		}
 	}
 
@@ -1549,7 +1580,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		public Integer call() {
-			CapturedImage capture = context.transport.captureScreenshot();
+			CapturedImage capture = CapturedImage.screenshot(context.transport.post("/v1/camera/screenshot", null));
 			Path outputPath = output.toAbsolutePath().normalize();
 			try {
 				Path parent = outputPath.getParent();
@@ -1586,7 +1617,10 @@ public final class AiricraftCliMain {
 
 		@Override
 		public Integer call() {
-			VisionDescriptionResult result = context.transport.describeVision(prompt);
+			VisionDescriptionResult result = VisionDescriptionResult.fromBridgePayload(context.transport.post(
+				"/v1/vision/describe",
+				prompt == null || prompt.isBlank() ? null : Map.of("prompt", prompt)
+			));
 			LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 			payload.put("format", result.format());
 			payload.put("capturedAtMs", result.capturedAtMs());
@@ -1605,7 +1639,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().mapStatus();
+			return transport().get("/v1/map/status");
 		}
 	}
 
@@ -1623,7 +1657,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().listMapWaypoints(provider, dimension);
+			return transport().get(mapWaypointsPath(provider, dimension));
 		}
 	}
 
@@ -1673,7 +1707,7 @@ public final class AiricraftCliMain {
 			if (color != null && !color.isBlank()) {
 				request.put("color", parseHexColor(commandPath(), color));
 			}
-			return transport().setMapWaypoint(request);
+			return transport().post("/v1/map/waypoints", request);
 		}
 	}
 
@@ -1688,7 +1722,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().deleteMapWaypoint(waypointId);
+			return transport().delete("/v1/map/waypoints?id=" + encoded(waypointId), null);
 		}
 	}
 
@@ -1747,7 +1781,7 @@ public final class AiricraftCliMain {
 				request.put("originX", originX);
 				request.put("originZ", originZ);
 			}
-			CapturedImage capture = context.transport.captureMapImage(request);
+			CapturedImage capture = CapturedImage.mapImage(context.transport.post("/v1/map/image", request));
 			Path outputPath = output.toAbsolutePath().normalize();
 			writeCapture(outputPath, capture.bytes());
 
@@ -1791,8 +1825,12 @@ public final class AiricraftCliMain {
 			if (requestedRadius < 0 || requestedRadius > 4) {
 				throw new CliUsageException(commandPath(), "invalid_arguments", "radius must be between 0 and 4");
 			}
+			String path = "/v1/world-snapshot?radius=" + requestedRadius;
+			if (allCoordinates) {
+				path += "&x=" + x + "&y=" + y + "&z=" + z;
+			}
 			return PayloadViews.worldSnapshot(
-				transport().getWorldSnapshot(x, y, z, requestedRadius),
+				transport().get(path),
 				verbose()
 			);
 		}
@@ -1824,14 +1862,16 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().createBlockHighlight(
-				x,
-				y,
-				z,
+			Map<String, Object> body = highlightBody(
+				"block",
 				validatedColor(color, commandPath()),
 				validatedDurationMs(durationSeconds, commandPath()),
 				overlayText
 			);
+			body.put("x", x);
+			body.put("y", y);
+			body.put("z", z);
+			return transport().post("/v1/highlights", body);
 		}
 	}
 
@@ -1870,17 +1910,19 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().createRegionHighlight(
-				x1,
-				y1,
-				z1,
-				x2,
-				y2,
-				z2,
+			Map<String, Object> body = highlightBody(
+				"region",
 				validatedColor(color, commandPath()),
 				validatedDurationMs(durationSeconds, commandPath()),
 				overlayText
 			);
+			body.put("x1", x1);
+			body.put("y1", y1);
+			body.put("z1", z1);
+			body.put("x2", x2);
+			body.put("y2", y2);
+			body.put("z2", z2);
+			return transport().post("/v1/highlights", body);
 		}
 	}
 
@@ -1892,7 +1934,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return PayloadViews.highlightsList(transport().listHighlights(), verbose());
+			return PayloadViews.highlightsList(transport().get("/v1/highlights"), verbose());
 		}
 	}
 
@@ -1907,7 +1949,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().clearHighlight(highlightId);
+			return transport().delete("/v1/highlights?id=" + encoded(highlightId), null);
 		}
 	}
 
@@ -1919,7 +1961,7 @@ public final class AiricraftCliMain {
 
 		@Override
 		Map<String, Object> runCommand() {
-			return transport().clearHighlights();
+			return transport().delete("/v1/highlights", null);
 		}
 	}
 
@@ -2031,6 +2073,73 @@ public final class AiricraftCliMain {
 		if (value != null) {
 			map.put(key, value);
 		}
+	}
+
+	private static Map<String, Object> statusPayload(MinecraftTransport transport) {
+		try {
+			return transport.get("/v1/status");
+		}
+		catch (BridgeUnavailableException exception) {
+			return Map.of(
+				"available", false,
+				"bridgeAvailable", false,
+				"worldLoaded", false,
+				"sessionState", "minecraft_unavailable",
+				"state", "minecraft_unavailable",
+				"message", "Minecraft bridge is not active"
+			);
+		}
+	}
+
+	private static String actionGoalPath(String executionId, boolean list) {
+		if (list) {
+			return "/v1/agent/action-goals?list=true";
+		}
+		return executionId == null || executionId.isBlank()
+			? "/v1/agent/action-goals"
+			: "/v1/agent/action-goals?execution-id=" + encoded(executionId);
+	}
+
+	private static String mapWaypointsPath(String provider, String dimension) {
+		StringBuilder path = new StringBuilder("/v1/map/waypoints");
+		String separator = "?";
+		if (provider != null && !provider.isBlank()) {
+			path.append(separator).append("provider=").append(encoded(provider));
+			separator = "&";
+		}
+		if (dimension != null && !dimension.isBlank()) {
+			path.append(separator).append("dimension=").append(encoded(dimension));
+		}
+		return path.toString();
+	}
+
+	private static String encoded(String value) {
+		return URLEncoder.encode(value, StandardCharsets.UTF_8);
+	}
+
+	private static Map<String, Object> entitySelectorBody(
+		String uuid,
+		String name,
+		String entityTypeId,
+		String itemId,
+		String mode
+	) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		putIfPresent(body, "uuid", uuid);
+		putIfPresent(body, "name", name);
+		putIfPresent(body, "entityTypeId", entityTypeId);
+		putIfPresent(body, "itemId", itemId);
+		putIfPresent(body, "mode", mode);
+		return body;
+	}
+
+	private static Map<String, Object> highlightBody(String kind, String color, Long durationMs, String overlayText) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("kind", kind);
+		putIfPresent(body, "color", color);
+		putIfNonNull(body, "durationMs", durationMs);
+		putIfPresent(body, "overlayText", overlayText);
+		return body;
 	}
 
 	private static int countNonNull(Object... values) {
