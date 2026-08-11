@@ -329,52 +329,18 @@ public final class ModBridgeServer {
 	}
 
 	private void handleCameraScreenshot(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-
-		if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-
-		try {
+		handleJson(exchange, "POST", () -> {
 			CompletableFuture<FirstPersonScreenshotService.CapturedScreenshot> captureFuture = onClientThread(() -> {
 				var client = getClient();
 				ensureWorldLoaded(client);
 				return screenshotService().requestCapture(client);
 			});
-			writeJson(exchange, 200, cameraScreenshotPayload(awaitCameraScreenshot(captureFuture)));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
-		catch (Exception exception) {
-			Airicraft.LOGGER.warn("Bridge request failed", exception);
-			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
-		}
+			return cameraScreenshotPayload(awaitCameraScreenshot(captureFuture));
+		});
 	}
 
 	private void handleClientTickDebugState(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-		try {
-			writeJson(exchange, 200, onClientThread(() -> clientTickDebugStatusPayload(clientTickDebugRuntime().status())));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
-		catch (Exception exception) {
-			Airicraft.LOGGER.warn("Bridge request failed", exception);
-			writeJson(exchange, 500, Map.of("error", "internal_error", "message", String.valueOf(exception.getMessage())));
-		}
+		handleJson(exchange, () -> onClientThread(() -> clientTickDebugStatusPayload(clientTickDebugRuntime().status())));
 	}
 
 	private void handleClientTickDebugPause(HttpExchange exchange) throws IOException {
@@ -532,30 +498,27 @@ public final class ModBridgeServer {
 	}
 
 	private void handleMapWaypoints(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-
-		if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-			String providerId = getQuery(exchange, "provider");
-			String dimension = getQuery(exchange, "dimension");
-			try {
+		handleRequest(exchange, () -> {
+			if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+				String providerId = getQuery(exchange, "provider");
+				String dimension = getQuery(exchange, "dimension");
 				Map<String, Object> payload = onClientThread(() -> {
 					MapIntegrationProvider provider = mapProvider(providerId);
 					return mapWaypointsPayload(provider.listWaypoints(new MapWaypointQuery(provider.id(), dimension)));
 				});
 				writeJson(exchange, 200, payload);
+				return;
 			}
-			catch (BridgeUnavailableException exception) {
-				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-			}
-			return;
-		}
 
-		if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-			try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-				MapWaypointRequest request = GSON.fromJson(reader, MapWaypointRequest.class);
+			if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+				MapWaypointRequest request;
+				try {
+					request = readJson(exchange, MapWaypointRequest.class);
+				}
+				catch (JsonSyntaxException exception) {
+					writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed waypoint request"));
+					return;
+				}
 				if (request == null || request.name() == null || request.name().isBlank()
 					|| request.x() == null || request.y() == null || request.z() == null) {
 					throw new BridgeUnavailableException("invalid_request", "Missing waypoint payload");
@@ -586,42 +549,23 @@ public final class ModBridgeServer {
 				writeJson(exchange, 200, payload);
 				return;
 			}
-			catch (JsonSyntaxException exception) {
-				writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed waypoint request"));
-				return;
-			}
-			catch (BridgeUnavailableException exception) {
-				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-				return;
-			}
-		}
 
-		if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
 			String providerId = getQuery(exchange, "provider");
 			String waypointId = getQuery(exchange, "id");
 			if (waypointId == null || waypointId.isBlank()) {
 				writeJson(exchange, 400, Map.of("error", "invalid_request", "message", "Missing waypoint id"));
 				return;
 			}
-			try {
-				Map<String, Object> payload = onClientThread(() -> {
-					MapIntegrationProvider provider = mapProvider(providerId);
-					boolean deleted = provider.deleteWaypoint(waypointId);
-					if (!deleted) {
-						throw new BridgeUnavailableException("map_waypoint_not_found", "Map waypoint not found: " + waypointId);
-					}
-					return Map.of("deleted", true, "waypointId", waypointId);
-				});
-				writeJson(exchange, 200, payload);
-				return;
-			}
-			catch (BridgeUnavailableException exception) {
-				writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-				return;
-			}
-		}
-
-		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+			Map<String, Object> payload = onClientThread(() -> {
+				MapIntegrationProvider provider = mapProvider(providerId);
+				boolean deleted = provider.deleteWaypoint(waypointId);
+				if (!deleted) {
+					throw new BridgeUnavailableException("map_waypoint_not_found", "Map waypoint not found: " + waypointId);
+				}
+				return Map.of("deleted", true, "waypointId", waypointId);
+			});
+			writeJson(exchange, 200, payload);
+		}, "GET", "POST", "DELETE");
 	}
 
 	private void handleMapImage(HttpExchange exchange) throws IOException {
@@ -648,61 +592,56 @@ public final class ModBridgeServer {
 	}
 
 	private void handleHighlights(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-
-		if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-			var payload = onClientThread(() -> Map.of("highlights", highlightManager().list()));
-			writeJson(exchange, 200, payload);
-			return;
-		}
-
-		if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-			HighlightRequest request;
-			try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-				request = GSON.fromJson(reader, HighlightRequest.class);
-			}
-			catch (JsonSyntaxException exception) {
-				writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed highlight request"));
+		handleRequest(exchange, () -> {
+			if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+				var payload = onClientThread(() -> Map.of("highlights", highlightManager().list()));
+				writeJson(exchange, 200, payload);
 				return;
 			}
 
-			if (request == null) {
-				writeJson(exchange, 400, Map.of("error", "invalid_request", "message", "Missing highlight payload"));
-				return;
-			}
+			if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+				HighlightRequest request;
+				try {
+					request = readJson(exchange, HighlightRequest.class);
+				}
+				catch (JsonSyntaxException exception) {
+					writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed highlight request"));
+					return;
+				}
 
-			var highlightId = onClientThread(() -> {
-				var client = getClient();
-				ensureWorldLoaded(client);
-				String kind = highlightKind(request.kind());
-				int color = parseColor(request.color());
-				Long durationMs = safeDurationMs(request.durationMs());
-				if ("region".equals(kind)) {
-					return highlightManager().addRegion(
-						requiredBlockPos(request.x1(), request.y1(), request.z1(), "x1/y1/z1"),
-						requiredBlockPos(request.x2(), request.y2(), request.z2(), "x2/y2/z2"),
+				if (request == null) {
+					writeJson(exchange, 400, Map.of("error", "invalid_request", "message", "Missing highlight payload"));
+					return;
+				}
+
+				var highlightId = onClientThread(() -> {
+					var client = getClient();
+					ensureWorldLoaded(client);
+					String kind = highlightKind(request.kind());
+					int color = parseColor(request.color());
+					Long durationMs = safeDurationMs(request.durationMs());
+					if ("region".equals(kind)) {
+						return highlightManager().addRegion(
+							requiredBlockPos(request.x1(), request.y1(), request.z1(), "x1/y1/z1"),
+							requiredBlockPos(request.x2(), request.y2(), request.z2(), "x2/y2/z2"),
+							color,
+							durationMs,
+							request.overlayText()
+						);
+					}
+
+					return highlightManager().addBlock(
+						requiredBlockPos(request.x(), request.y(), request.z(), "x/y/z"),
 						color,
 						durationMs,
 						request.overlayText()
 					);
-				}
+				});
 
-				return highlightManager().addBlock(
-					requiredBlockPos(request.x(), request.y(), request.z(), "x/y/z"),
-					color,
-					durationMs,
-					request.overlayText()
-				);
-			});
+				writeJson(exchange, 200, Map.of("highlightId", highlightId));
+				return;
+			}
 
-			writeJson(exchange, 200, Map.of("highlightId", highlightId));
-			return;
-		}
-
-		if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
 			String highlightId = getQuery(exchange, "id");
 			Map<String, Object> payload = onClientThread(() -> {
 				var client = getClient();
@@ -720,10 +659,7 @@ public final class ModBridgeServer {
 				return Map.of("cleared", true, "highlightId", highlightId);
 			});
 			writeJson(exchange, 200, payload);
-			return;
-		}
-
-		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+		}, "GET", "POST", "DELETE");
 	}
 
 	private void handleAgentOpenLan(HttpExchange exchange) throws IOException {
@@ -782,19 +718,12 @@ public final class ModBridgeServer {
 	}
 
 	private void handleAgentTools(HttpExchange exchange) throws IOException {
-		if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-			handleJson(exchange, this::createAgentToolsResponse);
-			return;
-		}
-		if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-			handleJsonBody(exchange, "POST", AgentToolCallRequest.class, this::executeAgentTool);
-			return;
-		}
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+		handleRequest(exchange, () -> {
+			Object response = "GET".equalsIgnoreCase(exchange.getRequestMethod())
+				? createAgentToolsResponse()
+				: executeAgentTool(readJson(exchange, AgentToolCallRequest.class));
+			writeJson(exchange, 200, response);
+		}, "GET", "POST");
 	}
 
 	private Object createAgentToolsResponse() {
@@ -930,35 +859,26 @@ public final class ModBridgeServer {
 	}
 
 	private void handleAgentTasks(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		String method = exchange.getRequestMethod();
-		if ("GET".equalsIgnoreCase(method)) {
-			writeJson(exchange, 200, createAgentTasksResponse());
-			return;
-		}
-		if ("DELETE".equalsIgnoreCase(method)) {
-			Map<String, Object> response = onClientThread(() -> {
-				var task = agentRuntime().cancelTask("bridge_debug_cancel");
-				Map<String, Object> payload = new LinkedHashMap<>();
-				payload.put("available", true);
-				payload.put("cancelled", true);
-				payload.put("task", task);
-				payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
-				payload.put("missionExecution", agentRuntime().missionExecutionSnapshot());
-				return payload;
-			});
-			writeJson(exchange, 200, response);
-			return;
-		}
-		if (!"POST".equalsIgnoreCase(method)) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-		try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-			JsonObject request = GSON.fromJson(reader, JsonObject.class);
+		handleRequest(exchange, () -> {
+			if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+				writeJson(exchange, 200, createAgentTasksResponse());
+				return;
+			}
+			if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
+				Map<String, Object> response = onClientThread(() -> {
+					var task = agentRuntime().cancelTask("bridge_debug_cancel");
+					Map<String, Object> payload = new LinkedHashMap<>();
+					payload.put("available", true);
+					payload.put("cancelled", true);
+					payload.put("task", task);
+					payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
+					payload.put("missionExecution", agentRuntime().missionExecutionSnapshot());
+					return payload;
+				});
+				writeJson(exchange, 200, response);
+				return;
+			}
+			JsonObject request = readJson(exchange, JsonObject.class);
 			if (request == null) {
 				throw new BridgeUnavailableException("invalid_request", "Missing task payload");
 			}
@@ -1001,33 +921,18 @@ public final class ModBridgeServer {
 				return payload;
 			});
 			writeJson(exchange, 200, response);
-		}
-		catch (JsonSyntaxException exception) {
-			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
+		}, "GET", "POST", "DELETE");
 	}
 
 	private void handleAgentTaskResume(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-		try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-			JsonObject request = GSON.fromJson(reader, JsonObject.class);
+		handleJsonBody(exchange, "POST", JsonObject.class, request -> {
 			String holdId = request == null || !request.has("holdId") || request.get("holdId").isJsonNull()
 				? null
 				: request.get("holdId").getAsString();
 			if (holdId == null || holdId.isBlank()) {
 				throw new BridgeUnavailableException("invalid_request", "holdId is required");
 			}
-			Map<String, Object> response = onClientThread(() -> {
+			return onClientThread(() -> {
 				var reflex = agentRuntime().resumeSafetyHold(holdId, "bridge_cli");
 				Map<String, Object> payload = new LinkedHashMap<>();
 				payload.put("available", true);
@@ -1039,14 +944,7 @@ public final class ModBridgeServer {
 				payload.put("missionExecution", agentRuntime().missionExecutionSnapshot());
 				return payload;
 			});
-			writeJson(exchange, 200, response);
-		}
-		catch (JsonSyntaxException exception) {
-			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
+		});
 	}
 
 	private static boolean isMissionLedgerRequest(JsonObject request) {
@@ -1054,52 +952,37 @@ public final class ModBridgeServer {
 	}
 
 	private void handleAgentActionGoals(HttpExchange exchange) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-		String method = exchange.getRequestMethod();
-		if ("GET".equalsIgnoreCase(method)) {
-			String executionId = getQuery(exchange, "execution-id");
-			boolean list = "true".equalsIgnoreCase(getQuery(exchange, "list"));
-			writeJson(exchange, 200, list
-				? createAgentActionGoalsResponse(true)
-				: createAgentActionGoalResponse(executionId, true));
-			return;
-		}
-		if ("DELETE".equalsIgnoreCase(method)) {
-			try {
+		handleRequest(exchange, () -> {
+			if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
 				String executionId = getQuery(exchange, "execution-id");
-				Map<String, Object> response = onClientThread(() -> (executionId == null || executionId.isBlank()
-					? agentRuntime().cancelActionGoal("bridge_debug_cancel")
-					: agentRuntime().cancelActionGoal(executionId, "bridge_debug_cancel"))
-					.toPayload(true));
-				writeJson(exchange, 200, response);
+				boolean list = "true".equalsIgnoreCase(getQuery(exchange, "list"));
+				writeJson(exchange, 200, list
+					? createAgentActionGoalsResponse(true)
+					: createAgentActionGoalResponse(executionId, true));
+				return;
 			}
-			catch (IllegalArgumentException exception) {
-				String code = "execution_id_required".equals(exception.getMessage()) ? exception.getMessage() : "invalid_request";
-				writeJson(exchange, 409, Map.of("error", code, "message", exception.getMessage()));
+			if ("DELETE".equalsIgnoreCase(exchange.getRequestMethod())) {
+				try {
+					String executionId = getQuery(exchange, "execution-id");
+					Map<String, Object> response = onClientThread(() -> (executionId == null || executionId.isBlank()
+						? agentRuntime().cancelActionGoal("bridge_debug_cancel")
+						: agentRuntime().cancelActionGoal(executionId, "bridge_debug_cancel"))
+						.toPayload(true));
+					writeJson(exchange, 200, response);
+				}
+				catch (IllegalArgumentException exception) {
+					String code = "execution_id_required".equals(exception.getMessage()) ? exception.getMessage() : "invalid_request";
+					writeJson(exchange, 409, Map.of("error", code, "message", exception.getMessage()));
+				}
+				return;
 			}
-			return;
-		}
-		if (!"POST".equalsIgnoreCase(method)) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-		try (InputStreamReader reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-			ActionGoalRequest request = GSON.fromJson(reader, ActionGoalRequest.class);
+			ActionGoalRequest request = readJson(exchange, ActionGoalRequest.class);
 			ActionGoal goal = actionGoalFromRequest(request);
 			Map<String, Object> response = onClientThread(() -> agentRuntime()
 				.startActionGoalDetailed(goal, "bridge_debug")
 				.toPayload(true));
 			writeJson(exchange, 200, response);
-		}
-		catch (JsonSyntaxException exception) {
-			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
+		}, "GET", "POST", "DELETE");
 	}
 
 	private static ActionGoal actionGoalFromRequest(ActionGoalRequest request) {
@@ -1174,75 +1057,54 @@ public final class ModBridgeServer {
 	}
 
 	private void handleExtensionRoute(HttpExchange exchange, BridgeRoute route) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
 		BridgeRouteContext context = new BridgeRouteContext(
 			exchange,
 			GSON,
 			this::agentRuntime,
 			supplier -> onClientThread(supplier::get)
 		);
-		try {
-			route.handle(context);
-		}
-		catch (JsonSyntaxException exception) {
-			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
-		catch (Exception exception) {
-			Airicraft.LOGGER.warn("Bridge extension request failed", exception);
-			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
-		}
+		handleRequest(exchange, "Bridge extension request failed", () -> route.handle(context));
 	}
 
-	private void handleJson(HttpExchange exchange, Supplier<Object> supplier) throws IOException {
-		if (!authorize(exchange)) {
-			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
-			return;
-		}
-
-		if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
-			return;
-		}
-
-		try {
-			Object response = supplier.get();
-			writeJson(exchange, 200, response);
-		}
-		catch (BridgeUnavailableException exception) {
-			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
-		}
-		catch (Exception exception) {
-			Airicraft.LOGGER.warn("Bridge request failed", exception);
-			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
-		}
+	void handleJson(HttpExchange exchange, Supplier<Object> supplier) throws IOException {
+		handleJson(exchange, "GET", supplier);
 	}
 
-	private <T> void handleJsonBody(
+	void handleJson(HttpExchange exchange, String method, Supplier<Object> supplier) throws IOException {
+		handleRequest(exchange, () -> writeJson(exchange, 200, supplier.get()), method);
+	}
+
+	<T> void handleJsonBody(
 		HttpExchange exchange,
 		String method,
 		Class<T> requestType,
 		java.util.function.Function<T, Object> handler
+	) throws IOException {
+		handleRequest(exchange, () -> writeJson(exchange, 200, handler.apply(readJson(exchange, requestType))), method);
+	}
+
+	private void handleRequest(HttpExchange exchange, RequestHandler handler, String... allowedMethods) throws IOException {
+		handleRequest(exchange, "Bridge request failed", handler, allowedMethods);
+	}
+
+	private void handleRequest(
+		HttpExchange exchange,
+		String failureLogMessage,
+		RequestHandler handler,
+		String... allowedMethods
 	) throws IOException {
 		if (!authorize(exchange)) {
 			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid bridge token"));
 			return;
 		}
 
-		if (!method.equalsIgnoreCase(exchange.getRequestMethod())) {
+		if (!acceptsMethod(exchange.getRequestMethod(), allowedMethods)) {
 			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
 			return;
 		}
 
-		try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
-			T request = GSON.fromJson(reader, requestType);
-			Object response = handler.apply(request);
-			writeJson(exchange, 200, response);
+		try {
+			handler.handle();
 		}
 		catch (JsonSyntaxException exception) {
 			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
@@ -1251,9 +1113,21 @@ public final class ModBridgeServer {
 			writeJson(exchange, 503, Map.of("error", exception.code(), "message", exception.getMessage()));
 		}
 		catch (Exception exception) {
-			Airicraft.LOGGER.warn("Bridge request failed", exception);
+			Airicraft.LOGGER.warn(failureLogMessage, exception);
 			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
 		}
+	}
+
+	private static boolean acceptsMethod(String requestMethod, String... allowedMethods) {
+		if (allowedMethods.length == 0) {
+			return true;
+		}
+		for (String allowedMethod : allowedMethods) {
+			if (allowedMethod.equalsIgnoreCase(requestMethod)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private Object createStatusResponse() {
@@ -2394,6 +2268,12 @@ public final class ModBridgeServer {
 		}
 	}
 
+	private static <T> T readJson(HttpExchange exchange, Class<T> requestType) throws IOException {
+		try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
+			return GSON.fromJson(reader, requestType);
+		}
+	}
+
 	private static TaskType parseTaskType(String value) {
 		try {
 			return TaskType.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
@@ -2510,6 +2390,11 @@ public final class ModBridgeServer {
 
 	private ClientTickDebugRuntime clientTickDebugRuntime() {
 		return Objects.requireNonNull(clientTickDebugRuntimeSupplier.get(), "clientTickDebugRuntime");
+	}
+
+	@FunctionalInterface
+	private interface RequestHandler {
+		void handle() throws Exception;
 	}
 
 	private record HighlightRequest(
