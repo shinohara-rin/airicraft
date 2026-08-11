@@ -265,12 +265,16 @@ class RecorderPlayTest(unittest.TestCase):
         replay_path = play / runner.RECORDER_REPLAY_RELATIVE_PATH
         events_path.parent.mkdir(parents=True)
 
-        connection = (
-            {"endedAt": "2026-08-08T00:00:00Z", "endServerTick": 20}
-            if finalized
-            else {"startedAt": "2026-08-08T00:00:00Z"}
-        )
+        connection = {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "startedAt": "2026-08-08T00:00:00Z",
+            "startServerTick": "10",
+        }
+        if finalized:
+            connection.update({"endedAt": "2026-08-08T00:00:00Z", "endServerTick": "20"})
         runner.write_json(play / "metadata.json", {
+            "server": {"name": "test", "instanceId": "11111111-1111-4111-8111-111111111111"},
+            "player": {"name": "Player", "uuid": "22222222-2222-4222-8222-222222222222"},
             "connection": connection,
             "capture": {
                 "events": runner.RECORDER_EVENTS_RELATIVE_PATH.as_posix(),
@@ -282,6 +286,28 @@ class RecorderPlayTest(unittest.TestCase):
         with zipfile.ZipFile(replay_path, "w") as replay:
             replay.writestr("capture.flashback", "flashback")
         return play
+
+    def write_planner_calls(self, submitted: str = "12", completed: str = "15") -> None:
+        record = {
+            "schemaVersion": 1,
+            "callId": "planner-call-0001",
+            "sequence": "1",
+            "turnId": "planner-generation-1",
+            "plannerAttempt": {"generation": "1", "attempt": 1, "phase": "PLANNER_REQUEST"},
+            "timeline": {
+                "submitted": {"serverTick": submitted},
+                "completed": {"serverTick": completed},
+            },
+            "timing": {"requestedAtUnixMs": "1000", "completedAtUnixMs": "1100", "latencyMs": "100"},
+            "model": {"provider": "openai-compatible", "name": "planner-model"},
+            "request": {"messages": [], "tools": []},
+            "outcome": {"status": "completed", "toolCalls": [], "usage": {}},
+        }
+        self.scenario_dir.mkdir(parents=True, exist_ok=True)
+        (self.scenario_dir / runner.PLANNER_CALLS_FILE_NAME).write_text(
+            json.dumps(record) + "\n",
+            encoding="utf-8",
+        )
 
     def test_discovers_one_finalized_play(self) -> None:
         play = self.write_play()
@@ -316,6 +342,36 @@ class RecorderPlayTest(unittest.TestCase):
             "recorderPlayPath": f"recorder/{FINALIZED_PLAY_RELATIVE_PATH.as_posix()}",
         }, result)
         self.assertTrue(runner.should_delete_worker(result))
+
+    def test_publishes_planner_calls_as_a_play_extension(self) -> None:
+        play = self.write_play()
+        self.write_planner_calls()
+        result = {"harnessStatus": "OK", "reportStatus": "PASSED"}
+
+        runner.finalize_recorder_capture(result, self.scenario_dir, self.recorder_root)
+
+        extension = play / "extensions" / runner.PLANNER_EXTENSION_TYPE
+        manifest = json.loads((extension / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual("airicraft.planner", manifest["extensionType"])
+        self.assertEqual("33333333-3333-4333-8333-333333333333", manifest["play"]["connectionId"])
+        self.assertEqual("PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK", manifest["timeDomain"])
+        self.assertEqual("airicraft.planner-call.v1", manifest["assets"][0]["schema"])
+        self.assertEqual(
+            (self.scenario_dir / runner.PLANNER_CALLS_FILE_NAME).read_text(encoding="utf-8"),
+            (extension / runner.PLANNER_CALLS_FILE_NAME).read_text(encoding="utf-8"),
+        )
+        self.assertEqual("OK", result["harnessStatus"])
+
+    def test_rejects_planner_ticks_outside_the_play(self) -> None:
+        play = self.write_play()
+        self.write_planner_calls(submitted="9")
+        result = {"harnessStatus": "OK", "reportStatus": "PASSED"}
+
+        runner.finalize_recorder_capture(result, self.scenario_dir, self.recorder_root)
+
+        self.assertEqual("CAPTURE_ERROR", result["harnessStatus"])
+        self.assertIn("outside Play range", result["message"])
+        self.assertFalse((play / "extensions" / runner.PLANNER_EXTENSION_TYPE).exists())
 
     def test_missing_capture_preserves_the_scenario_result(self) -> None:
         result = {

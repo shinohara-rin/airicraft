@@ -36,6 +36,9 @@ RECORDER_JAR_ENVIRONMENT_VARIABLE = "AIRICRAFT_RECORDER_JAR"
 RECORDER_EVENTS_RELATIVE_PATH = Path("capture/events.jsonl")
 RECORDER_REPLAY_RELATIVE_PATH = Path("capture/replay.zip")
 RECORDER_REPLAY_FORMAT = "flashback"
+PLANNER_CALLS_FILE_NAME = "planner-calls.jsonl"
+PLANNER_EXTENSION_TYPE = "airicraft.planner"
+PLANNER_CALL_SCHEMA = "airicraft.planner-call.v1"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -355,6 +358,140 @@ def discover_finalized_recorder_play(recorder_root: Path) -> Path | None:
     return plays[0] if plays else None
 
 
+def publish_planner_extension(scenario_dir: Path, recorder_play: Path) -> bool:
+    source = scenario_dir / PLANNER_CALLS_FILE_NAME
+    if not source.is_file() or source.stat().st_size == 0:
+        return False
+    try:
+        metadata = json.loads((recorder_play / "metadata.json").read_text(encoding="utf-8"))
+        records = [
+            json.loads(line)
+            for line in source.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, json.JSONDecodeError) as error:
+        raise RunnerError(f"invalid {PLANNER_CALLS_FILE_NAME}: {error}") from error
+    if not records:
+        return False
+
+    server = required_mapping(metadata, "server", "Recorder metadata")
+    player = required_mapping(metadata, "player", "Recorder metadata")
+    connection = required_mapping(metadata, "connection", "Recorder metadata")
+    server_instance_id = required_string(server, "instanceId", "Recorder metadata server")
+    player_uuid = required_string(player, "uuid", "Recorder metadata player")
+    connection_id = required_string(connection, "id", "Recorder metadata connection")
+    start_tick = metadata_tick(connection, "startServerTick")
+    end_tick = metadata_tick(connection, "endServerTick")
+    validate_planner_call_records(records, start_tick, end_tick)
+
+    extension_parent = recorder_play / "extensions"
+    extension_dir = extension_parent / PLANNER_EXTENSION_TYPE
+    temporary_dir = extension_parent / f".{PLANNER_EXTENSION_TYPE}.inprogress-{uuid.uuid4()}"
+    temporary_dir.mkdir(parents=True)
+    try:
+        shutil.copyfile(source, temporary_dir / PLANNER_CALLS_FILE_NAME)
+        write_json(temporary_dir / "manifest.json", {
+            "manifestVersion": 1,
+            "extensionType": PLANNER_EXTENSION_TYPE,
+            "play": {
+                "serverInstanceId": server_instance_id,
+                "playerUuid": player_uuid,
+                "connectionId": connection_id,
+            },
+            "timeDomain": "PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK",
+            "assets": [{
+                "role": "planner_calls",
+                "path": PLANNER_CALLS_FILE_NAME,
+                "mediaType": "application/x-ndjson",
+                "schema": PLANNER_CALL_SCHEMA,
+            }],
+        })
+        if extension_dir.exists():
+            shutil.rmtree(extension_dir)
+        temporary_dir.replace(extension_dir)
+    except Exception:
+        if temporary_dir.exists():
+            shutil.rmtree(temporary_dir)
+        raise
+    return True
+
+
+def validate_planner_call_records(records: list[Any], start_tick: int, end_tick: int) -> None:
+    expected_sequence = 1
+    call_ids: set[str] = set()
+    for line_number, record in enumerate(records, start=1):
+        context = f"{PLANNER_CALLS_FILE_NAME} line {line_number}"
+        if not isinstance(record, dict) or record.get("schemaVersion") != 1:
+            raise RunnerError(f"{context} does not match {PLANNER_CALL_SCHEMA}")
+        call_id = required_string(record, "callId", context)
+        if call_id in call_ids:
+            raise RunnerError(f"{context} repeats callId {call_id}")
+        call_ids.add(call_id)
+        sequence = decimal_string(record.get("sequence"), f"{context} sequence")
+        if sequence != expected_sequence:
+            raise RunnerError(f"{context} sequence must be {expected_sequence}")
+        expected_sequence += 1
+
+        timeline = required_mapping(record, "timeline", context)
+        submitted = planner_anchor_tick(timeline, "submitted", context)
+        completed = planner_anchor_tick(timeline, "completed", context)
+        applied = planner_anchor_tick(timeline, "applied", context, required=False)
+        if completed < submitted or (applied is not None and applied < completed):
+            raise RunnerError(f"{context} timeline ticks are not ordered")
+        for tick in (submitted, completed, applied):
+            if tick is not None and not start_tick <= tick <= end_tick:
+                raise RunnerError(
+                    f"{context} serverTick {tick} is outside Play range {start_tick}..{end_tick}"
+                )
+
+
+def planner_anchor_tick(
+    timeline: dict[str, Any],
+    name: str,
+    context: str,
+    required: bool = True,
+) -> int | None:
+    anchor = timeline.get(name)
+    if anchor is None and not required:
+        return None
+    if not isinstance(anchor, dict):
+        raise RunnerError(f"{context} timeline.{name} must be an object")
+    return decimal_string(anchor.get("serverTick"), f"{context} timeline.{name}.serverTick")
+
+
+def required_mapping(value: Any, key: str, context: str) -> dict[str, Any]:
+    child = value.get(key) if isinstance(value, dict) else None
+    if not isinstance(child, dict):
+        raise RunnerError(f"{context} {key} must be an object")
+    return child
+
+
+def required_string(value: dict[str, Any], key: str, context: str) -> str:
+    child = value.get(key)
+    if not isinstance(child, str) or not child.strip():
+        raise RunnerError(f"{context} {key} must be a non-empty string")
+    return child
+
+
+def decimal_string(value: Any, context: str) -> int:
+    if not isinstance(value, str) or re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+        raise RunnerError(f"{context} must be a non-negative decimal string")
+    return int(value)
+
+
+def metadata_tick(connection: dict[str, Any], key: str) -> int:
+    value = connection.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise RunnerError(f"Recorder metadata connection {key} must be an integer")
+    try:
+        tick = int(value)
+    except ValueError as error:
+        raise RunnerError(f"Recorder metadata connection {key} must be an integer") from error
+    if tick < 0:
+        raise RunnerError(f"Recorder metadata connection {key} must not be negative")
+    return tick
+
+
 def finalize_recorder_capture(summary: dict[str, Any], scenario_dir: Path, recorder_root: Path) -> None:
     summary["recorderPlayPath"] = None
     try:
@@ -370,6 +507,12 @@ def finalize_recorder_capture(summary: dict[str, Any], scenario_dir: Path, recor
                 summary["message"] = "Recorder capture failed: no finalized Recorder Play found"
     else:
         summary["recorderPlayPath"] = recorder_play.resolve().relative_to(scenario_dir.resolve()).as_posix()
+        try:
+            publish_planner_extension(scenario_dir, recorder_play)
+        except (OSError, RunnerError) as error:
+            if summary.get("harnessStatus") != "INTERRUPTED":
+                summary["harnessStatus"] = "CAPTURE_ERROR"
+                summary["message"] = f"Recorder planner extension failed: {error}"
 
 
 def ordered_results(results_by_index: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:

@@ -195,11 +195,16 @@ public final class OpenAiCompatibleChatClient {
 			payload.put("tools", toolRegistry.openAiTools());
 			payload.put("tool_choice", "auto");
 		}
-		payload.put("messages", compactRequestMessages(conversation.messages()));
+		payload.put("messages", canonicalRequestMessages(conversation));
 		return payload;
 	}
 
-	private Map<String, Object> toRequestMessage(LlmChatMessage message) {
+	public static List<Map<String, Object>> canonicalRequestMessages(LlmConversation conversation) {
+		Objects.requireNonNull(conversation, "conversation");
+		return compactRequestMessages(conversation.messages());
+	}
+
+	private static Map<String, Object> toRequestMessage(LlmChatMessage message) {
 		LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
 		payload.put("role", message.role());
 		JsonObject replayMessage = OpenAiCompatibleMessageContent.replayMessageObject(message.rawContentOverride())
@@ -232,7 +237,7 @@ public final class OpenAiCompatibleChatClient {
 		return payload;
 	}
 
-	private List<Map<String, Object>> compactRequestMessages(List<LlmChatMessage> messages) {
+	private static List<Map<String, Object>> compactRequestMessages(List<LlmChatMessage> messages) {
 		ArrayList<Map<String, Object>> compacted = new ArrayList<>();
 		for (LlmChatMessage message : messages) {
 			Map<String, Object> requestMessage = toRequestMessage(message);

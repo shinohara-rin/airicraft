@@ -16,10 +16,16 @@ public interface PlannerLifecycleListener {
 	) {
 	}
 
+	default void onPlannerModelCallCompleted(PlannerExecutionResult result) {
+	}
+
 	default void onPlannerExecutionSucceeded(PlannerExecutionResult result) {
 	}
 
 	default void onPlannerExecutionFailed(PlannerExecutionResult result) {
+	}
+
+	default void onPlannerExecutionApplied(PlannerExecutionResult result) {
 	}
 
 	default void onToolRequested(long generation, PlannerToolCall toolCall) {
