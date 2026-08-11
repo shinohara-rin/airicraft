@@ -2,6 +2,7 @@ package ai.moeru.airicraft;
 
 import ai.moeru.airicraft.agent.control.CameraController;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonSyntaxException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.client.gui.screen.TitleScreen;
@@ -66,6 +67,12 @@ class ModBridgeServerTest {
 		assertError(request("GET", "", true, exchange -> BRIDGE.handleJson(exchange, () -> {
 			throw new IllegalStateException("broken");
 		})), 500, "internal_error", "broken");
+		assertError(request("GET", "", true, exchange -> BRIDGE.handleJson(exchange, () -> {
+			throw new JsonSyntaxException("internal JSON failure");
+		})), 500, "internal_error", "internal JSON failure");
+		assertError(request("GET", "", true, exchange -> BRIDGE.handleJson(exchange, () -> {
+			throw new RuntimeException();
+		})), 500, "internal_error", "null");
 	}
 
 	@Test

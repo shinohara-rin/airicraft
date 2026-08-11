@@ -515,7 +515,7 @@ public final class ModBridgeServer {
 				try {
 					request = readJson(exchange, MapWaypointRequest.class);
 				}
-				catch (JsonSyntaxException exception) {
+				catch (MalformedRequestBodyException exception) {
 					writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed waypoint request"));
 					return;
 				}
@@ -604,7 +604,7 @@ public final class ModBridgeServer {
 				try {
 					request = readJson(exchange, HighlightRequest.class);
 				}
-				catch (JsonSyntaxException exception) {
+				catch (MalformedRequestBodyException exception) {
 					writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed highlight request"));
 					return;
 				}
@@ -1106,7 +1106,7 @@ public final class ModBridgeServer {
 		try {
 			handler.handle();
 		}
-		catch (JsonSyntaxException exception) {
+		catch (MalformedRequestBodyException exception) {
 			writeJson(exchange, 400, Map.of("error", "invalid_json", "message", "Malformed request payload"));
 		}
 		catch (BridgeUnavailableException exception) {
@@ -1114,7 +1114,7 @@ public final class ModBridgeServer {
 		}
 		catch (Exception exception) {
 			Airicraft.LOGGER.warn(failureLogMessage, exception);
-			writeJson(exchange, 500, Map.of("error", "internal_error", "message", exception.getMessage()));
+			writeJson(exchange, 500, Map.of("error", "internal_error", "message", String.valueOf(exception.getMessage())));
 		}
 	}
 
@@ -2272,6 +2272,9 @@ public final class ModBridgeServer {
 		try (var reader = new InputStreamReader(exchange.getRequestBody(), StandardCharsets.UTF_8)) {
 			return GSON.fromJson(reader, requestType);
 		}
+		catch (JsonSyntaxException exception) {
+			throw new MalformedRequestBodyException();
+		}
 	}
 
 	private static TaskType parseTaskType(String value) {
@@ -2395,6 +2398,9 @@ public final class ModBridgeServer {
 	@FunctionalInterface
 	private interface RequestHandler {
 		void handle() throws Exception;
+	}
+
+	private static final class MalformedRequestBodyException extends RuntimeException {
 	}
 
 	private record HighlightRequest(
