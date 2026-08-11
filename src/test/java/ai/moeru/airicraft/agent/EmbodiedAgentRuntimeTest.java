@@ -406,7 +406,7 @@ class EmbodiedAgentRuntimeTest {
 	void startActionGoalPlannerToolStartsInventoryGraphGoal() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_goal",
 			PlannerToolCatalog.START_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -414,7 +414,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING"));
 		assertTrue(result.contains("executionId="));
@@ -426,7 +426,7 @@ class EmbodiedAgentRuntimeTest {
 	void startActionGoalPlannerToolStartsResourceGraphGoal() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_goal",
 			PlannerToolCatalog.START_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -434,7 +434,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING"));
 		assertTrue(result.contains("resourceKind=RAW_IRON"));
@@ -445,7 +445,7 @@ class EmbodiedAgentRuntimeTest {
 	void startActionGoalPlannerToolTreatsOutputKindsAsInventoryGraphGoals() {
 		EmbodiedAgentRuntime craftingRuntime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 
-		String craftingResult = craftingRuntime.executePlannerToolCallForTests(new PlannerToolCall(
+		String craftingResult = craftingRuntime.execute(new PlannerToolCall(
 			"call_craft_goal",
 			PlannerToolCatalog.START_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -453,13 +453,13 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(craftingResult.contains("Tool result for start_action_goal: state=RESOLVING"));
 		assertTrue(craftingResult.contains("minecraft:crafting_table"));
 
 		EmbodiedAgentRuntime smeltingRuntime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-		String smeltingResult = smeltingRuntime.executePlannerToolCallForTests(new PlannerToolCall(
+		String smeltingResult = smeltingRuntime.execute(new PlannerToolCall(
 			"call_smelt_goal",
 			PlannerToolCatalog.START_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -467,7 +467,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(smeltingResult.contains("Tool result for start_action_goal: state=RESOLVING"));
 		assertTrue(smeltingResult.contains("minecraft:iron_ingot"));
@@ -479,7 +479,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		ActionGraphExecutionSnapshot first = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:bread", 1), "test");
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_goal_again",
 			PlannerToolCatalog.START_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -487,7 +487,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING admission=busy"));
 		assertTrue(result.contains("executionId=" + first.executionId()));
@@ -505,20 +505,20 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		ActionGraphExecutionSnapshot started = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1), "test");
 
-		String clear = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String clear = runtime.execute(new PlannerToolCall(
 			"call_clear",
 			PlannerToolCatalog.CLEAR_GOAL,
 			new com.google.gson.JsonObject(),
 			null,
 			null
-		));
-		String collectSmelted = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		)).join();
+		String collectSmelted = runtime.execute(new PlannerToolCall(
 			"call_collect_smelted",
 			PlannerToolCatalog.COLLECT_SMELTED_ITEMS,
 			new com.google.gson.JsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(clear.contains("TOOL_ERROR: clear_goal denied reason=active_action_graph_in_progress"));
 		assertTrue(collectSmelted.contains("TOOL_ERROR: collect_smelted_items denied reason=active_action_graph_in_progress"));
@@ -534,28 +534,28 @@ class EmbodiedAgentRuntimeTest {
 			{"executionId":"%s"}
 			""".formatted(started.executionId());
 
-		String inspect = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String inspect = runtime.execute(new PlannerToolCall(
 			"call_inspect",
 			PlannerToolCatalog.INSPECT_ACTION_GOAL,
 			JsonParser.parseString(selection).getAsJsonObject(),
 			null,
 			null
-		));
-		String list = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		)).join();
+		String list = runtime.execute(new PlannerToolCall(
 			"call_list",
 			PlannerToolCatalog.LIST_ACTION_GOALS,
 			new com.google.gson.JsonObject(),
 			null,
 			null
-		));
-		String trace = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		)).join();
+		String trace = runtime.execute(new PlannerToolCall(
 			"call_trace",
 			PlannerToolCatalog.INSPECT_ACTION_TRACE,
 			JsonParser.parseString(selection).getAsJsonObject(),
 			null,
 			null
-		));
-		String cancel = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		)).join();
+		String cancel = runtime.execute(new PlannerToolCall(
 			"call_cancel",
 			PlannerToolCatalog.CANCEL_ACTION_GOAL,
 			JsonParser.parseString("""
@@ -563,7 +563,7 @@ class EmbodiedAgentRuntimeTest {
 				""".formatted(started.executionId())).getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(inspect.contains("Tool result for inspect_action_goal: state=RESOLVING"));
 		assertTrue(list.contains("Tool result for list_action_goals: count=1"));
@@ -577,13 +577,13 @@ class EmbodiedAgentRuntimeTest {
 	void listActionCapabilitiesPlannerToolReportsExecutableInventoryGoal() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_capabilities",
 			PlannerToolCatalog.LIST_ACTION_CAPABILITIES,
 			new com.google.gson.JsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("Tool result for list_action_capabilities"));
 		assertTrue(result.contains("inventory_item"));
@@ -654,7 +654,7 @@ class EmbodiedAgentRuntimeTest {
 			0L
 		));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_drop",
 			"drop_items",
 			JsonParser.parseString("""
@@ -662,7 +662,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -681,7 +681,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 				"call_smelt",
 				"smelt_items",
 				JsonParser.parseString("""
@@ -689,7 +689,7 @@ class EmbodiedAgentRuntimeTest {
 					""").getAsJsonObject(),
 				null,
 				null
-			));
+			)).join();
 		assertTrue(result.contains("accepted"), result);
 		runtime.onClientTick(null);
 
@@ -721,7 +721,7 @@ class EmbodiedAgentRuntimeTest {
 			0L
 		));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 				"call_mine",
 				"mine_blocks",
 				JsonParser.parseString("""
@@ -729,7 +729,7 @@ class EmbodiedAgentRuntimeTest {
 					""").getAsJsonObject(),
 				null,
 				null
-			));
+			)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -747,7 +747,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_mine",
 			"mine_blocks",
 			JsonParser.parseString("""
@@ -755,7 +755,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		assertTrue(result.contains("TOOL_ERROR: mine_blocks invalid_block_id minecraft:raw_iron"));
@@ -770,7 +770,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_mine",
 			"mine_blocks",
 			JsonParser.parseString("""
@@ -778,7 +778,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		runtime.onPlayerPickedUpItem("minecraft:dirt", 3);
@@ -807,7 +807,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_mine",
 			"mine_blocks",
 			JsonParser.parseString("""
@@ -815,7 +815,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		runtime.onPlayerPickedUpItem("minecraft:cobblestone", 1);
@@ -831,7 +831,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_ensure_blocks",
 			"ensure_blocks_in_inventory",
 			JsonParser.parseString("""
@@ -839,7 +839,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		runtime.onPlayerPickedUpItem("minecraft:raw_iron", 1);
@@ -855,7 +855,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_mine",
 			"mine_blocks",
 			JsonParser.parseString("""
@@ -863,7 +863,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 		WorldTaskRequest firstAttempt = executor.lastActiveTask.orElseThrow();
 		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
@@ -898,7 +898,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 				"call_ensure_blocks",
 				"ensure_blocks_in_inventory",
 				JsonParser.parseString("""
@@ -906,7 +906,7 @@ class EmbodiedAgentRuntimeTest {
 					""").getAsJsonObject(),
 				null,
 				null
-			));
+			)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -923,13 +923,13 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_return",
 			"return_to_surface",
 			JsonParser.parseString("{}").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -948,7 +948,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_return",
 			"return_to_surface",
 			JsonParser.parseString("""
@@ -956,7 +956,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		assertTrue(result.contains("TOOL_ERROR"));
@@ -970,13 +970,13 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_return",
 			"return_to_surface",
 			JsonParser.parseString("{}").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 		assertTrue(result.contains("useTowering=true"));
 		assertEquals(WorldTaskType.RETURN_TO_SURFACE, executor.lastActiveTask.orElseThrow().type());
@@ -1017,7 +1017,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.onClientTick(null);
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_place",
 			"place_block",
 			JsonParser.parseString("""
@@ -1025,7 +1025,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("TOOL_ERROR"));
 		assertTrue(result.contains("active_task_in_progress"));
@@ -1049,7 +1049,7 @@ class EmbodiedAgentRuntimeTest {
 		);
 		runtime.onClientTick(null);
 
-		String result = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall()).join();
+		String result = runtime.execute(craftRecipeToolCall()).join();
 
 		assertTrue(result.contains("TOOL_ERROR"));
 		assertTrue(result.contains("active_task_in_progress"));
@@ -1063,7 +1063,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_ensure_blocks",
 			"ensure_blocks_in_inventory",
 			JsonParser.parseString("""
@@ -1071,7 +1071,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		runtime.onPlayerMinedBlock("minecraft:dirt", 0, 64, 0);
@@ -1107,7 +1107,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		runtime.execute(new PlannerToolCall(
 			"call_mine_blocks",
 			"mine_blocks",
 			JsonParser.parseString("""
@@ -1115,7 +1115,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		runtime.onPlayerMinedBlock("minecraft:stone", 0, 64, 0);
@@ -1133,7 +1133,7 @@ class EmbodiedAgentRuntimeTest {
 
 		assertEquals(ActiveJobStatus.COMPLETED, runtime.activeJob().status());
 		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event -> "task.completed".equals(event.type())));
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_navigate",
 			"navigate_to",
 			JsonParser.parseString("""
@@ -1141,7 +1141,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("accepted queued"), result);
 		assertFalse(result.contains("active_task_in_progress"), result);
@@ -1154,7 +1154,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
-		String startResult = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String startResult = runtime.execute(new PlannerToolCall(
 			"call_smelt",
 			"smelt_items",
 			JsonParser.parseString("""
@@ -1162,10 +1162,10 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		String processId = extractProcessId(startResult);
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_collect_smelted",
 			"collect_smelted_items",
 			JsonParser.parseString("""
@@ -1173,7 +1173,7 @@ class EmbodiedAgentRuntimeTest {
 				""".formatted(processId)).getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -1189,7 +1189,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.registerSmeltingOptionsForTests(List.of(testSmeltingOption("smelt:iron:nearby-1", 3)));
-		String startResult = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String startResult = runtime.execute(new PlannerToolCall(
 			"call_smelt",
 			"smelt_items",
 			JsonParser.parseString("""
@@ -1197,10 +1197,10 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		String processId = extractProcessId(startResult);
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_collect_smelted",
 			"collect_smelted_items",
 			JsonParser.parseString("""
@@ -1208,7 +1208,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -1371,7 +1371,7 @@ class EmbodiedAgentRuntimeTest {
 			0L
 		));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_attack",
 			"attack_entity",
 			JsonParser.parseString("""
@@ -1379,7 +1379,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -1409,7 +1409,7 @@ class EmbodiedAgentRuntimeTest {
 			0L
 		));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_attack",
 			"attack_entity",
 			JsonParser.parseString("""
@@ -1417,7 +1417,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -1443,7 +1443,7 @@ class EmbodiedAgentRuntimeTest {
 			0L
 		));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_use",
 			"use_entity",
 			JsonParser.parseString("""
@@ -1451,7 +1451,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -1472,7 +1472,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_place",
 			"place_block",
 			JsonParser.parseString("""
@@ -1480,7 +1480,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		assertTrue(result.contains("blocked reason=target_not_inspected"));
@@ -1496,7 +1496,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.execute(new PlannerToolCall(
 			"call_use_block",
 			"use_block",
 			JsonParser.parseString("""
@@ -1536,7 +1536,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.execute(new PlannerToolCall(
 			"call_use_block",
 			"use_block",
 			JsonParser.parseString("""
@@ -1638,7 +1638,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.recordWorldReadForTests(new BlockPos(2, 65, 2));
 		CompletableFuture<String> secondResult = assertTimeoutPreemptively(
 			Duration.ofSeconds(1),
-			() -> runtime.executePlannerToolCallFutureForTests(useBlockToolCall("call_use_block_2", 2))
+			() -> runtime.execute(useBlockToolCall("call_use_block_2", 2))
 		);
 
 		assertTrue(firstResult.isDone(), "secondResult=" + (secondResult.isDone() ? secondResult.getNow("<missing>") : "pending"));
@@ -1676,7 +1676,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 65, 2));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_use_block",
 			"use_block",
 			JsonParser.parseString("""
@@ -1684,7 +1684,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		assertTrue(result.contains("blocked reason=target_not_inspected"));
@@ -1701,7 +1701,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 		runtime.recordWorldReadForTests(new BlockPos(2, 64, 2));
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.execute(new PlannerToolCall(
 			"call_place",
 			"place_block",
 			JsonParser.parseString("""
@@ -1762,7 +1762,7 @@ class EmbodiedAgentRuntimeTest {
 		executor.forcedSnapshot = null;
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.execute(new PlannerToolCall(
 			"call_place_after_craft",
 			"place_block",
 			JsonParser.parseString("""
@@ -1850,7 +1850,7 @@ class EmbodiedAgentRuntimeTest {
 		setTaskSnapshot(runtime, TaskSnapshot.idle());
 		setTaskExecutionSnapshot(runtime, TaskExecutionSnapshot.idle());
 		runtime.recordWorldReadForTests(new BlockPos(2, 65, 2));
-		CompletableFuture<String> secondResult = runtime.executePlannerToolCallFutureForTests(useBlockToolCall("call_use_block_2", 2));
+		CompletableFuture<String> secondResult = runtime.execute(useBlockToolCall("call_use_block_2", 2));
 		runtime.onClientTick(null);
 		WorldTaskRequest secondRequest = executor.lastActiveTask.orElseThrow();
 
@@ -1913,7 +1913,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_break",
 			"break_blocks",
 			JsonParser.parseString("""
@@ -1921,7 +1921,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		assertTrue(result.contains("blocked reason=target_not_inspected"));
@@ -1937,7 +1937,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 		runtime.recordWorldReadForTests(new BlockPos(1, 64, 2));
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(new PlannerToolCall(
+		CompletableFuture<String> resultFuture = runtime.execute(new PlannerToolCall(
 			"call_break",
 			"break_blocks",
 			JsonParser.parseString("""
@@ -2025,7 +2025,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 
 		assertFalse(resultFuture.isDone());
 		runtime.onClientTick(null);
@@ -2051,7 +2051,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		WorldTaskRequest request = runtimeTaskRequest(runtime, executor);
 
 		invokeCraftSnapshotFallback(runtime, terminalCraftSnapshot(request.taskId()));
@@ -2065,7 +2065,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		WorldTaskRequest request = runtimeTaskRequest(runtime, executor);
 
 		invokeCraftSnapshotFallback(runtime, terminalCraftSnapshot("different-craft-task"));
@@ -2080,7 +2080,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		runtimeTaskRequest(runtime, executor);
 
 		invokeCraftSnapshotFallback(runtime, new TaskSnapshot(
@@ -2108,13 +2108,13 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> firstResult = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> firstResult = runtime.execute(craftRecipeToolCall());
 		WorldTaskRequest firstRequest = runtimeTaskRequest(runtime, executor);
 		activeJobRuntime(runtime).clear();
 		setTaskSnapshot(runtime, TaskSnapshot.idle());
 		setTaskExecutionSnapshot(runtime, TaskExecutionSnapshot.idle());
 
-		CompletableFuture<String> secondResult = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> secondResult = runtime.execute(craftRecipeToolCall());
 		WorldTaskRequest secondRequest = runtimeTaskRequest(runtime, executor);
 
 		assertTrue(firstResult.join().contains("superseded"));
@@ -2130,7 +2130,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		WorldTaskRequest request = runtimeTaskRequest(runtime, executor);
 		invokeCraftTerminalEvent(runtime, new TaskTerminalEvent(
 			request.taskId(),
@@ -2150,7 +2150,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		runtime.onChatReceived("Alice", "@agent reset");
 
 		assertTrue(resultFuture.join().contains("cancelled reason=planner_reset"));
@@ -2184,7 +2184,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		runtime.onPlayerCraftedItem("minecraft:stick", 4);
 
 		AgentDebugTimelineEntry route = runtime.debugTimeline(null).entries().stream()
@@ -2204,7 +2204,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 
 		for (int i = 0; i <= EmbodiedAgentRuntime.CRAFT_TOOL_RESULT_TIMEOUT_TICKS; i++) {
 			runtime.onClientTick(null);
@@ -2223,7 +2223,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(craftRecipeToolCall());
+		CompletableFuture<String> resultFuture = runtime.execute(craftRecipeToolCall());
 		runtime.onClientTick(null);
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 
@@ -2257,7 +2257,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_nav",
 			"navigate_to",
 			JsonParser.parseString("""
@@ -2265,7 +2265,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		assertTrue(result.contains("accepted"));
 
 		runtime.onClientTick(null);
@@ -2294,7 +2294,7 @@ class EmbodiedAgentRuntimeTest {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_give",
 			"give_player",
 			JsonParser.parseString("""
@@ -2302,7 +2302,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("target_not_nearby"));
 		assertTrue(executor.lastActiveTask.isEmpty());
@@ -2332,7 +2332,7 @@ class EmbodiedAgentRuntimeTest {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.injectNearbyPlayerForTests("Alice", new Vec3d(5.0D, 0.0D, 0.0D));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_give",
 			"give_player",
 			JsonParser.parseString("""
@@ -2340,7 +2340,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("target_not_nearby"));
 		assertTrue(executor.lastActiveTask.isEmpty());
@@ -2361,7 +2361,7 @@ class EmbodiedAgentRuntimeTest {
 		));
 		runtime.injectNearbyPlayerForTests("Alice", new Vec3d(2.0D, 0.0D, 0.0D));
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_give",
 			"give_player",
 			JsonParser.parseString("""
@@ -2369,7 +2369,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 		runtime.onClientTick(null);
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
@@ -2695,7 +2695,7 @@ class EmbodiedAgentRuntimeTest {
 		runtime.onClientTick(null);
 		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
 
-		String result = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String result = runtime.execute(new PlannerToolCall(
 			"call_nav",
 			"navigate_to",
 			JsonParser.parseString("""
@@ -2703,11 +2703,11 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(result.contains("TOOL_ERROR: navigate_to denied"));
 		assertTrue(result.contains("active_task_in_progress"));
-		String ensureResult = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String ensureResult = runtime.execute(new PlannerToolCall(
 			"call_ensure",
 			"ensure_blocks_in_inventory",
 			JsonParser.parseString("""
@@ -2715,11 +2715,11 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(ensureResult.contains("TOOL_ERROR: ensure_blocks_in_inventory denied"));
 		assertTrue(ensureResult.contains("active_task_in_progress"));
-		String returnResult = runtime.executePlannerToolCallForTests(new PlannerToolCall(
+		String returnResult = runtime.execute(new PlannerToolCall(
 			"call_return",
 			"return_to_surface",
 			JsonParser.parseString("""
@@ -2727,7 +2727,7 @@ class EmbodiedAgentRuntimeTest {
 				""").getAsJsonObject(),
 			null,
 			null
-		));
+		)).join();
 
 		assertTrue(returnResult.contains("TOOL_ERROR: return_to_surface denied"));
 		assertTrue(returnResult.contains("active_task_in_progress"));
@@ -3136,7 +3136,7 @@ class EmbodiedAgentRuntimeTest {
 		int x
 	) {
 		runtime.recordWorldReadForTests(new BlockPos(x, 65, 2));
-		CompletableFuture<String> resultFuture = runtime.executePlannerToolCallFutureForTests(useBlockToolCall("call_use_block_" + x, x));
+		CompletableFuture<String> resultFuture = runtime.execute(useBlockToolCall("call_use_block_" + x, x));
 		assertFalse(resultFuture.isDone());
 		runtime.onClientTick(null);
 		assertEquals(WorldTaskType.USE_BLOCK, executor.lastActiveTask.orElseThrow().type());
