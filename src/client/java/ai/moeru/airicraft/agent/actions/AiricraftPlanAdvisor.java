@@ -7,7 +7,6 @@ import ai.moeru.actionplan.PlanAdvisor;
 import ai.moeru.actionplan.PlanningOptions;
 import ai.moeru.actionplan.PlanningProblem;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -32,12 +31,7 @@ public final class AiricraftPlanAdvisor {
 		return advisor.advise(new PlanningProblem(
 			AiricraftPlanConversions.toState(snapshot.facts()),
 			AiricraftPlanConversions.toGoal(goal),
-			List.of(
-				new ResourceMethodProvider(snapshot),
-				new RecipeMethodProvider(snapshot),
-				new SmeltingMethodProvider(snapshot),
-				new MiningMethodProvider(snapshot)
-			),
+			AiricraftMethodProvider.providers(snapshot),
 			PlanningOptions.defaults(),
 			blockedMethods == null ? Set.of() : Set.copyOf(blockedMethods)
 		));
