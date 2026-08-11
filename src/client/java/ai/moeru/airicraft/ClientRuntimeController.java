@@ -285,7 +285,7 @@ public final class ClientRuntimeController {
 			miningEnvironment,
 			miningEnvironment
 		);
-		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(
+		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(new DispatchingWorldTaskExecutor.ExecutorSet(
 			miningCoordinator,
 			new CraftingTaskExecutor(baritoneFacade, cameraController),
 			new DropItemsTaskExecutor(baritoneFacade),
@@ -293,7 +293,8 @@ public final class ClientRuntimeController {
 			new SmeltingTaskExecutor(smeltingProcessManager, baritoneFacade),
 			new ReturnToSurfaceTaskExecutor(baritoneFacade),
 			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks(), cameraController, baritoneFacade),
-			new BlockBreakTaskExecutor(),
+			new BlockBreakTaskExecutor()
+		),
 			baritoneFacade
 		);
 		return new EmbodiedAgentRuntime(

@@ -127,11 +127,13 @@ class HybridMiningTaskExecutorTest {
 		assertEquals(request.taskId(), fallback.taskId());
 		assertEquals(request.sourceJobId(), fallback.sourceJobId());
 		assertEquals(request.goal(), fallback.goal());
-		assertEquals(stepArgs(), fallback.underwaterHarvest());
+		assertEquals(stepArgs(), ((WorldTaskRequest.UnderwaterHarvest) fallback.task()).args());
 		assertEquals(HybridMiningTaskExecutor.Phase.UNDERWATER_HARVEST, executor.phase());
 		WorldTaskRequest progressed = request.withMineGoalSatisfied(true);
 		executor.tick(session(8L), Optional.of(progressed));
-		assertEquals(stepArgs(), underwater.lastActive().orElseThrow().underwaterHarvest());
+		WorldTaskRequest.UnderwaterHarvest progressedFallback = (WorldTaskRequest.UnderwaterHarvest) underwater.lastActive().orElseThrow().task();
+		assertEquals(stepArgs(), progressedFallback.args());
+		assertTrue(progressedFallback.mineGoalSatisfied());
 
 		underwater.terminal = Optional.of(new TaskTerminalEvent(
 			request.taskId(),

@@ -2513,7 +2513,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		);
 		applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
 		Optional<WorldTaskRequest> activeTask = activeJobRuntime.activeTaskRequest();
-		if (activeTask.isEmpty() || activeTask.get().craftRecipe() == null) {
+		if (activeTask.isEmpty() || !(activeTask.get().task() instanceof WorldTaskRequest.CraftRecipe)) {
 			return CompletableFuture.completedFuture("TOOL_ERROR: craft_recipe task_not_started");
 		}
 

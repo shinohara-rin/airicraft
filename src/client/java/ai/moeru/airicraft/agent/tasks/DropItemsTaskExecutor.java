@@ -80,9 +80,10 @@ public final class DropItemsTaskExecutor implements WorldTaskExecutor {
 			cancelApproach();
 			reset();
 			appliedTask = request;
-			deliveryState = request.dropItems().targetPlayer() == null
+			DropItemsStepArgs args = ((WorldTaskRequest.DropItems) request.task()).args();
+			deliveryState = args.targetPlayer() == null
 				? null
-				: PlayerItemDeliveryPolicy.initial(request.dropItems().itemId(), request.dropItems().quantity());
+				: PlayerItemDeliveryPolicy.initial(args.itemId(), args.quantity());
 		}
 
 		if (!itemDropActuationAllowed(sessionSnapshot)) {
@@ -112,7 +113,7 @@ public final class DropItemsTaskExecutor implements WorldTaskExecutor {
 		}
 		busyScreenTicks = 0;
 
-		DropItemsStepArgs args = request.dropItems();
+		DropItemsStepArgs args = ((WorldTaskRequest.DropItems) request.task()).args();
 		ScreenHandler handler = player.currentScreenHandler;
 		List<DropSlot> matchingSlots = matchingSlots(handler, args.itemId());
 		int available = matchingSlots.stream().mapToInt(DropSlot::count).sum();
@@ -447,11 +448,12 @@ public final class DropItemsTaskExecutor implements WorldTaskExecutor {
 			return Optional.empty();
 		}
 		terminalEventEmitted = true;
-		String message = request.dropItems().targetPlayer() == null
-			? completionMessage(request.dropItems())
-			: event + " itemId=" + request.dropItems().itemId()
-				+ " quantity=" + request.dropItems().quantity()
-				+ " targetPlayer=" + request.dropItems().targetPlayer();
+		DropItemsStepArgs args = ((WorldTaskRequest.DropItems) request.task()).args();
+		String message = args.targetPlayer() == null
+			? completionMessage(args)
+			: event + " itemId=" + args.itemId()
+				+ " quantity=" + args.quantity()
+				+ " targetPlayer=" + args.targetPlayer();
 		return Optional.of(new TaskTerminalEvent(request.taskId(), null, TaskExecutionState.COMPLETED, message, null));
 	}
 
@@ -483,7 +485,7 @@ public final class DropItemsTaskExecutor implements WorldTaskExecutor {
 			return false;
 		}
 		return Objects.equals(left.taskId(), right.taskId())
-			&& Objects.equals(left.dropItems(), right.dropItems());
+			&& Objects.equals(left.task(), right.task());
 	}
 
 	@Override

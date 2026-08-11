@@ -32,7 +32,9 @@ import ai.moeru.airicraft.agent.session.SessionMode;
 import ai.moeru.airicraft.agent.session.PlayerLifecycleState;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
+import ai.moeru.airicraft.agent.tasks.BlockBreakStepArgs;
 import ai.moeru.airicraft.agent.tasks.BlockPlacementStepArgs;
+import ai.moeru.airicraft.agent.tasks.BlockUseStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftRecipeStepArgs;
 import ai.moeru.airicraft.agent.tasks.CollectSmeltedItemsStepArgs;
@@ -616,7 +618,7 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.CRAFT_RECIPE, request.type());
-		assertEquals(craftRecipe, request.craftRecipe());
+		assertEquals(new WorldTaskRequest.CraftRecipe(craftRecipe), request.task());
 		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
@@ -636,7 +638,7 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
-		assertEquals(dropItems, request.dropItems());
+		assertEquals(new WorldTaskRequest.DropItems(dropItems), request.task());
 		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
@@ -671,7 +673,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("does not mean completed"));
 		assertTrue(result.contains("TASK UPDATE"));
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
-		assertEquals(new DropItemsStepArgs("minecraft:oak_log", 2, null), request.dropItems());
+		assertEquals(new WorldTaskRequest.DropItems(new DropItemsStepArgs("minecraft:oak_log", 2, null)), request.task());
 	}
 
 	@Test
@@ -704,7 +706,7 @@ class EmbodiedAgentRuntimeTest {
 			"minecraft:coal",
 			1,
 			"confirm-1"
-		), request.smeltItems());
+		), ((WorldTaskRequest.SmeltItems) request.task()).args());
 	}
 
 	@Test
@@ -937,9 +939,10 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("useTowering=true"));
 		assertEquals(WorldTaskType.RETURN_TO_SURFACE, request.type());
-		assertTrue(request.returnToSurface().useTowering());
-		assertEquals("none", request.returnToSurface().targetKind());
-		assertEquals(ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS, request.returnToSurface().fillerBlockIds());
+		ReturnToSurfaceStepArgs returnArgs = ((WorldTaskRequest.ReturnToSurface) request.task()).args();
+		assertTrue(returnArgs.useTowering());
+		assertEquals("none", returnArgs.targetKind());
+		assertEquals(ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS, returnArgs.fillerBlockIds());
 	}
 
 	@Test
@@ -1180,7 +1183,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
-		assertEquals(new CollectSmeltedItemsStepArgs(processId, "confirm-2"), request.collectSmeltedItems());
+		assertEquals(new WorldTaskRequest.CollectSmeltedItems(new CollectSmeltedItemsStepArgs(processId, "confirm-2")), request.task());
 	}
 
 	@Test
@@ -1214,7 +1217,7 @@ class EmbodiedAgentRuntimeTest {
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("processId=" + processId));
-		assertEquals(new CollectSmeltedItemsStepArgs(processId, null), request.collectSmeltedItems());
+		assertEquals(new WorldTaskRequest.CollectSmeltedItems(new CollectSmeltedItemsStepArgs(processId, null)), request.task());
 	}
 
 	@Test
@@ -1392,7 +1395,7 @@ class EmbodiedAgentRuntimeTest {
 			new EntitySelector(null, null, "minecraft:sheep"),
 			null,
 			EntityAttackMode.HIT_ONCE
-		), request.entityInteraction());
+		), ((WorldTaskRequest.AttackEntity) request.task()).args());
 	}
 
 	@Test
@@ -1426,7 +1429,7 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(new EntityInteractionStepArgs(
 			new EntitySelector("12345678-aaaa-4d9d-8b9d-fb24b98cb81d", null, null),
 			null
-		), request.entityInteraction());
+		), ((WorldTaskRequest.AttackEntity) request.task()).args());
 	}
 
 	@Test
@@ -1463,7 +1466,7 @@ class EmbodiedAgentRuntimeTest {
 		assertEquals(new EntityInteractionStepArgs(
 			new EntitySelector(null, "Dinner", null),
 			"minecraft:shears"
-		), request.entityInteraction());
+		), ((WorldTaskRequest.UseEntity) request.task()).args());
 	}
 
 	@Test
@@ -1511,9 +1514,10 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.USE_BLOCK, request.type());
-		assertEquals("minecraft:wheat_seeds", request.blockUse().itemId());
-		assertEquals(new GoalPosition(1, 65, 2, true), request.blockUse().targetPosition());
-		assertEquals(List.of("minecraft:farmland"), request.blockUse().expectedSupportBlockIds());
+		BlockUseStepArgs useArgs = ((WorldTaskRequest.UseBlock) request.task()).args();
+		assertEquals("minecraft:wheat_seeds", useArgs.itemId());
+		assertEquals(new GoalPosition(1, 65, 2, true), useArgs.targetPosition());
+		assertEquals(List.of("minecraft:farmland"), useArgs.expectedSupportBlockIds());
 		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
 			request.taskId(),
 			null,
@@ -1722,13 +1726,14 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.PLACE_BLOCK, request.type());
-		assertEquals("minecraft:dirt", request.blockPlacement().itemId());
-		assertEquals(2, request.blockPlacement().targets().size());
-		assertEquals(new GoalPosition(1, 64, 2, true), request.blockPlacement().targets().get(0).targetPosition());
-		assertEquals("down", request.blockPlacement().targets().get(0).facePreference());
-		assertEquals(new GoalPosition(2, 64, 2, true), request.blockPlacement().targets().get(1).targetPosition());
-		assertEquals("north", request.blockPlacement().targets().get(1).facePreference());
-		assertEquals("air", request.blockPlacement().targets().get(1).requiredTargetMaterial());
+		BlockPlacementStepArgs placementArgs = ((WorldTaskRequest.PlaceBlock) request.task()).args();
+		assertEquals("minecraft:dirt", placementArgs.itemId());
+		assertEquals(2, placementArgs.targets().size());
+		assertEquals(new GoalPosition(1, 64, 2, true), placementArgs.targets().get(0).targetPosition());
+		assertEquals("down", placementArgs.targets().get(0).facePreference());
+		assertEquals(new GoalPosition(2, 64, 2, true), placementArgs.targets().get(1).targetPosition());
+		assertEquals("north", placementArgs.targets().get(1).facePreference());
+		assertEquals("air", placementArgs.targets().get(1).requiredTargetMaterial());
 		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
 			request.taskId(),
 			null,
@@ -1951,8 +1956,9 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.BREAK_BLOCKS, request.type());
-		assertEquals(new GoalPosition(1, 64, 2, true), request.blockBreak().targets().getFirst().position());
-		assertEquals(List.of("minecraft:grass_block", "minecraft:dirt"), request.blockBreak().targets().getFirst().expectedBlockIds());
+		BlockBreakStepArgs breakArgs = ((WorldTaskRequest.BreakBlocks) request.task()).args();
+		assertEquals(new GoalPosition(1, 64, 2, true), breakArgs.targets().getFirst().position());
+		assertEquals(List.of("minecraft:grass_block", "minecraft:dirt"), breakArgs.targets().getFirst().expectedBlockIds());
 		executor.nextTerminalEvent = Optional.of(new TaskTerminalEvent(
 			request.taskId(),
 			null,
@@ -1989,7 +1995,7 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
-		assertEquals(new EntityInteractionStepArgs(new EntitySelector(null, null, "minecraft:sheep"), null), request.entityInteraction());
+		assertEquals(new WorldTaskRequest.AttackEntity(new EntityInteractionStepArgs(new EntitySelector(null, null, "minecraft:sheep"), null)), request.task());
 		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
@@ -2015,7 +2021,7 @@ class EmbodiedAgentRuntimeTest {
 
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertEquals(WorldTaskType.USE_ENTITY, request.type());
-		assertEquals(new EntityInteractionStepArgs(new EntitySelector(null, "Dinner", null), "minecraft:shears"), request.entityInteraction());
+		assertEquals(new WorldTaskRequest.UseEntity(new EntityInteractionStepArgs(new EntitySelector(null, "Dinner", null), "minecraft:shears")), request.task());
 		assertEquals(TaskState.RUNNING, runtime.taskSnapshot().state());
 	}
 
@@ -2378,7 +2384,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("does not mean completed"));
 		assertTrue(result.contains("TASK UPDATE"));
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
-		assertEquals(new DropItemsStepArgs("minecraft:oak_log", 2, "Alice"), request.dropItems());
+		assertEquals(new WorldTaskRequest.DropItems(new DropItemsStepArgs("minecraft:oak_log", 2, "Alice")), request.task());
 	}
 
 	@Test

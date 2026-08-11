@@ -357,7 +357,7 @@ class BaritoneTaskExecutorTest {
 			List.of()
 		), 20L, "planner_response");
 		GoalPosition finalBrokenBlock = new GoalPosition(10, 64, 20, true);
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, finalBrokenBlock);
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, List.of(finalBrokenBlock));
 
 		executor.tick(multiplayer(), Optional.of(request));
 		facade.pathEvents.add("AT_GOAL");
@@ -420,7 +420,7 @@ class BaritoneTaskExecutorTest {
 		BaritoneTaskExecutor.MineDropTarget drop = new BaritoneTaskExecutor.MineDropTarget(21, dropPosition);
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(() -> null, facade, request -> List.of(drop));
 		GoalSnapshot goal = new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:short_grass"), 1), 20L, "planner_response");
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, dropPosition);
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, List.of(dropPosition));
 
 		executor.tick(multiplayer(), Optional.of(request));
 		facade.pathEvents.add("AT_GOAL");
@@ -455,7 +455,7 @@ class BaritoneTaskExecutorTest {
 			request -> dropPresent[0] ? List.of(drop) : List.of()
 		);
 		GoalSnapshot goal = new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:short_grass"), 1), 20L, "planner_response");
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, dropPosition);
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, List.of(dropPosition));
 
 		executor.tick(multiplayer(), Optional.of(request));
 		facade.pathEvents.add("AT_GOAL");
@@ -481,7 +481,7 @@ class BaritoneTaskExecutorTest {
 		FakeBaritoneFacade facade = new FakeBaritoneFacade();
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(() -> null, facade, request -> List.of());
 		GoalSnapshot goal = new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:stone"), 1), 20L, "planner_response");
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, new GoalPosition(10, 64, 20, true));
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-task", goal, List.of(new GoalPosition(10, 64, 20, true)));
 
 		executor.tick(multiplayer(), Optional.of(request));
 		facade.pathEvents.add("AT_GOAL");
@@ -497,7 +497,7 @@ class BaritoneTaskExecutorTest {
 		FakeBaritoneFacade facade = new FakeBaritoneFacade();
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(() -> null, facade, request -> List.of());
 		GoalSnapshot goal = new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:short_grass"), 14), 20L, "planner_response");
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, new GoalPosition(10, 64, 20, true))
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, List.of(new GoalPosition(10, 64, 20, true)))
 			.withMineGoalSatisfied(true);
 
 		Optional<TaskTerminalEvent> completed = executor.tick(multiplayer(), Optional.of(request));
@@ -519,7 +519,7 @@ class BaritoneTaskExecutorTest {
 		observedDrops.add(List.of(new BaritoneTaskExecutor.MineDropTarget(31, finalBrokenBlock)));
 		observedDrops.add(List.of());
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(() -> null, facade, request -> observedDrops.removeFirst());
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, finalBrokenBlock)
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, List.of(finalBrokenBlock))
 			.withMineGoalSatisfied(true);
 
 		executor.tick(multiplayer(), Optional.of(request));
@@ -562,7 +562,7 @@ class BaritoneTaskExecutorTest {
 			"mine-task",
 			"mine-job",
 			goal,
-			finalBrokenBlock
+			List.of(finalBrokenBlock)
 		).withMineGoalSatisfied(true);
 
 		assertTrue(executor.tick(multiplayer(), Optional.of(request)).isEmpty());
@@ -581,7 +581,7 @@ class BaritoneTaskExecutorTest {
 		FakeBaritoneFacade facade = new FakeBaritoneFacade();
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(() -> null, facade, request -> List.of());
 		GoalSnapshot goal = new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:short_grass"), 14), 20L, "planner_response");
-		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, new GoalPosition(10, 64, 20, true));
+		WorldTaskRequest request = WorldTaskRequest.collectMine("mine-task", "mine-job", goal, List.of(new GoalPosition(10, 64, 20, true)));
 
 		executor.tick(multiplayer(), Optional.of(request));
 		facade.pathEvents.add("CANCELED");
@@ -938,7 +938,7 @@ class BaritoneTaskExecutorTest {
 	}
 
 	private static WorldTaskRequest request(String taskId, String sourceJobId, GoalSnapshot goal) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.MINE, goal);
+		return WorldTaskRequest.collectMine(taskId, sourceJobId, goal);
 	}
 
 	private static SessionSnapshot multiplayer() {

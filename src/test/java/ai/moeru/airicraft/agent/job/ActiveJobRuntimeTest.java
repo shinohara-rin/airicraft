@@ -110,9 +110,10 @@ class ActiveJobRuntimeTest {
 		assertEquals(1, runtime.current().collectedCount());
 		assertTrue(runtime.recordMinedBlock("minecraft:dirt", secondBrokenBlock, 4L).isEmpty());
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
+		WorldTaskRequest.Mine mine = (WorldTaskRequest.Mine) request.task();
 
-		assertEquals(List.of(firstBrokenBlock, secondBrokenBlock), request.pickupSweepPositions());
-		assertEquals(secondBrokenBlock, request.pickupSweepPosition());
+		assertEquals(List.of(firstBrokenBlock, secondBrokenBlock), mine.pickupSweepPositions());
+		assertEquals(secondBrokenBlock, mine.pickupSweepPositions().getLast());
 		assertEquals(ActiveJobStatus.RUNNING, runtime.current().status());
 		runtime.tick(new TaskExecutionSnapshot(TaskExecutionState.RUNNING, request.taskId(), request.goal(), null, null, null, null), evidence(Map.of("minecraft:dirt", 0), 5L), true, true, 5L);
 		assertEquals(request.taskId(), runtime.activeTaskRequest().orElseThrow().taskId());
@@ -184,7 +185,7 @@ class ActiveJobRuntimeTest {
 		runtime.recordMinedBlock("minecraft:dirt", new GoalPosition(2, 64, 0, true), 4L);
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
-		assertTrue(request.mineGoalSatisfied());
+		assertTrue(((WorldTaskRequest.Mine) request.task()).mineGoalSatisfied());
 		ActiveJobRuntime.TerminalTaskReport report = runtime.reportTerminalTaskEvent(
 			new TaskTerminalEvent(request.taskId(), request.goal(), TaskExecutionState.COMPLETED, "Goal reached", TaskTerminationCause.GOAL_REACHED),
 			Optional.of(request)
@@ -205,7 +206,7 @@ class ActiveJobRuntimeTest {
 
 		runtime.recordMinedBlock("minecraft:stone", new GoalPosition(4, 63, -2, true), 3L);
 
-		assertEquals(new GoalPosition(4, 63, -2, true), runtime.activeTaskRequest().orElseThrow().pickupSweepPosition());
+		assertEquals(new GoalPosition(4, 63, -2, true), ((WorldTaskRequest.Mine) runtime.activeTaskRequest().orElseThrow().task()).pickupSweepPositions().getLast());
 	}
 
 	@Test
@@ -548,7 +549,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.CRAFT_RECIPE, request.type());
-		assertEquals(craftRecipe, request.craftRecipe());
+		assertEquals(new WorldTaskRequest.CraftRecipe(craftRecipe), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.CRAFT_RECIPE, runtime.current().type());
 		assertEquals(craftRecipe, runtime.current().craftRecipe());
@@ -573,7 +574,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
-		assertEquals(dropItems, request.dropItems());
+		assertEquals(new WorldTaskRequest.DropItems(dropItems), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.DROP_ITEMS, runtime.current().type());
 		assertEquals(dropItems, runtime.current().dropItems());
@@ -605,7 +606,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.SMELT_ITEMS, request.type());
-		assertEquals(smeltItems, request.smeltItems());
+		assertEquals(new WorldTaskRequest.SmeltItems(smeltItems), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.SMELT_ITEMS, runtime.current().type());
 		assertEquals(smeltItems, runtime.current().smeltItems());
@@ -630,7 +631,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, request.type());
-		assertEquals(collect, request.collectSmeltedItems());
+		assertEquals(new WorldTaskRequest.CollectSmeltedItems(collect), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.COLLECT_SMELTED_ITEMS, runtime.current().type());
 		assertEquals(collect, runtime.current().collectSmeltedItems());
@@ -660,7 +661,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.RETURN_TO_SURFACE, request.type());
-		assertEquals(returnToSurface, request.returnToSurface());
+		assertEquals(new WorldTaskRequest.ReturnToSurface(returnToSurface), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.RETURN_TO_SURFACE, runtime.current().type());
 		assertEquals(returnToSurface, runtime.current().returnToSurface());
@@ -689,7 +690,7 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest placeRequest = placeRuntime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.PLACE_BLOCK, placeRequest.type());
-		assertEquals(place, placeRequest.blockPlacement());
+		assertEquals(new WorldTaskRequest.PlaceBlock(place), placeRequest.task());
 		assertEquals(ActiveJobType.PLACE_BLOCK, placeRuntime.current().type());
 
 		ActiveJobRuntime useRuntime = runtime();
@@ -714,7 +715,7 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest useRequest = useRuntime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.USE_BLOCK, useRequest.type());
-		assertEquals(use, useRequest.blockUse());
+		assertEquals(new WorldTaskRequest.UseBlock(use), useRequest.task());
 		assertEquals(ActiveJobType.USE_BLOCK, useRuntime.current().type());
 	}
 
@@ -805,7 +806,7 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.USE_BLOCK, request.type());
-		assertEquals(use, request.blockUse());
+		assertEquals(new WorldTaskRequest.UseBlock(use), request.task());
 		assertEquals(ActiveJobType.USE_BLOCK, runtime.current().type());
 	}
 
@@ -833,8 +834,8 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest placeRequest = placeRuntime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.PLACE_BLOCK, placeRequest.type());
-		assertEquals(place, placeRequest.blockPlacement());
-		assertEquals(2, placeRequest.blockPlacement().targets().size());
+		assertEquals(new WorldTaskRequest.PlaceBlock(place), placeRequest.task());
+		assertEquals(2, ((WorldTaskRequest.PlaceBlock) placeRequest.task()).args().targets().size());
 		assertEquals(ActiveJobType.PLACE_BLOCK, placeRuntime.current().type());
 
 		ActiveJobRuntime useRuntime = runtime();
@@ -859,8 +860,8 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest useRequest = useRuntime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.USE_BLOCK, useRequest.type());
-		assertEquals(use, useRequest.blockUse());
-		assertEquals(2, useRequest.blockUse().targets().size());
+		assertEquals(new WorldTaskRequest.UseBlock(use), useRequest.task());
+		assertEquals(2, ((WorldTaskRequest.UseBlock) useRequest.task()).args().targets().size());
 		assertEquals(ActiveJobType.USE_BLOCK, useRuntime.current().type());
 	}
 
@@ -895,7 +896,7 @@ class ActiveJobRuntimeTest {
 
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 		assertEquals(WorldTaskType.BREAK_BLOCKS, request.type());
-		assertEquals(blockBreak, request.blockBreak());
+		assertEquals(new WorldTaskRequest.BreakBlocks(blockBreak), request.task());
 		assertEquals(ActiveJobType.BREAK_BLOCKS, runtime.current().type());
 	}
 
@@ -921,7 +922,7 @@ class ActiveJobRuntimeTest {
 		WorldTaskRequest request = runtime.activeTaskRequest().orElseThrow();
 
 		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
-		assertEquals(attack, request.entityInteraction());
+		assertEquals(new WorldTaskRequest.AttackEntity(attack), request.task());
 		assertNull(request.goal());
 		assertEquals(ActiveJobType.ATTACK_ENTITY, runtime.current().type());
 		assertEquals(attack, runtime.current().entityInteraction());

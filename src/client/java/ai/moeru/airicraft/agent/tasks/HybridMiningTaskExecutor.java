@@ -73,7 +73,7 @@ public final class HybridMiningTaskExecutor implements WorldTaskExecutor {
 			appliedTask = request;
 			if (phase == Phase.UNDERWATER_HARVEST && request.type() == WorldTaskType.UNDERWATER_HARVEST) {
 				underwaterTask = request;
-				underwaterStepArgs = request.underwaterHarvest();
+				underwaterStepArgs = underwaterArgs(request);
 			}
 			else if (underwaterTask != null) {
 				underwaterTask = toUnderwaterTask(request, underwaterStepArgs);
@@ -359,7 +359,7 @@ public final class HybridMiningTaskExecutor implements WorldTaskExecutor {
 		if (request.type() == WorldTaskType.UNDERWATER_HARVEST) {
 			phase = Phase.UNDERWATER_HARVEST;
 			underwaterTask = request;
-			underwaterStepArgs = request.underwaterHarvest();
+			underwaterStepArgs = underwaterArgs(request);
 		}
 		else if (eligibleMiningRequest(request)) {
 			underwaterSourceProbe.beginTask(request);
@@ -401,20 +401,42 @@ public final class HybridMiningTaskExecutor implements WorldTaskExecutor {
 			&& Objects.equals(left.taskId(), right.taskId())
 			&& Objects.equals(left.sourceJobId(), right.sourceJobId())
 			&& Objects.equals(left.goal(), right.goal())
-			&& Objects.equals(left.underwaterHarvest(), right.underwaterHarvest());
+			&& sameUnderwaterArgs(left, right);
 	}
 
 	private static WorldTaskRequest toUnderwaterTask(
 		WorldTaskRequest request,
 		UnderwaterHarvestStepArgs stepArgs
 	) {
-		WorldTaskRequest underwater = WorldTaskRequest.underwaterHarvest(
+		return new WorldTaskRequest(
 			request.taskId(),
 			request.sourceJobId(),
-			request.goal(),
-			Objects.requireNonNull(stepArgs, "stepArgs")
+			new WorldTaskRequest.UnderwaterHarvest(
+				request.goal(),
+				Objects.requireNonNull(stepArgs, "stepArgs"),
+				mineGoalSatisfied(request)
+			)
 		);
-		return underwater.withMineGoalSatisfied(request.mineGoalSatisfied());
+	}
+
+	private static UnderwaterHarvestStepArgs underwaterArgs(WorldTaskRequest request) {
+		return ((WorldTaskRequest.UnderwaterHarvest) request.task()).args();
+	}
+
+	private static boolean sameUnderwaterArgs(WorldTaskRequest left, WorldTaskRequest right) {
+		if (left.task() instanceof WorldTaskRequest.UnderwaterHarvest leftTask) {
+			return right.task() instanceof WorldTaskRequest.UnderwaterHarvest rightTask
+				&& Objects.equals(leftTask.args(), rightTask.args());
+		}
+		return !(right.task() instanceof WorldTaskRequest.UnderwaterHarvest);
+	}
+
+	private static boolean mineGoalSatisfied(WorldTaskRequest request) {
+		return switch (request.task()) {
+			case WorldTaskRequest.Mine task -> task.mineGoalSatisfied();
+			case WorldTaskRequest.UnderwaterHarvest task -> task.mineGoalSatisfied();
+			default -> false;
+		};
 	}
 
 	private static TaskExecutionSnapshot handoffSnapshot(WorldTaskRequest request, String event) {

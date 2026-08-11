@@ -702,7 +702,8 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 		if ((!pickupInProgress && currentOutcome.isEmpty()) || activeTask == null) {
 			return MineDropPickupResult.notHandled();
 		}
-		if (activeTask.goal() == null || activeTask.goal().type() != GoalType.MINE_BLOCKS || activeTask.pickupSweepPositions().isEmpty()) {
+		WorldTaskRequest.Mine mine = mineTask(activeTask);
+		if (mine == null || mine.pickupSweepPositions().isEmpty()) {
 			return MineDropPickupResult.notHandled();
 		}
 		if (!pickupInProgress) {
@@ -803,7 +804,7 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 	private TerminalOutcome cancelledOutcomeFor(WorldTaskRequest activeTask) {
 		if (
 			activeTask != null
-				&& activeTask.mineGoalSatisfied()
+				&& mineGoalSatisfied(activeTask)
 				&& activeTask.goal() != null
 				&& activeTask.goal().type() == GoalType.MINE_BLOCKS
 		) {
@@ -835,13 +836,14 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private static List<MineDropTarget> matchingMineDropsNearby(MinecraftClient client, WorldTaskRequest request) {
-		if (client == null || client.world == null || client.player == null || request == null || request.goal() == null || request.goal().mineSpec() == null || request.pickupSweepPositions().isEmpty()) {
+		WorldTaskRequest.Mine mine = mineTask(request);
+		if (client == null || client.world == null || client.player == null || mine == null || mine.goal().mineSpec() == null || mine.pickupSweepPositions().isEmpty()) {
 			return List.of();
 		}
-		Set<String> matchingItemIds = Set.copyOf(request.goal().mineSpec().matchingItemIds());
+		Set<String> matchingItemIds = Set.copyOf(mine.goal().mineSpec().matchingItemIds());
 		Set<Integer> seenEntityIds = new HashSet<>();
 		ArrayList<ItemEntity> matchingDrops = new ArrayList<>();
-		for (GoalPosition position : request.pickupSweepPositions()) {
+		for (GoalPosition position : mine.pickupSweepPositions()) {
 			Box area = Box.of(
 				Vec3d.ofCenter(new BlockPos(position.x(), position.y(), position.z())),
 				MINE_DROP_PICKUP_RADIUS_BLOCKS * 2.0D,
@@ -947,17 +949,26 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 
 	private static boolean mineGoalJustSatisfied(WorldTaskRequest current, WorldTaskRequest previous) {
 		return current != null
-			&& current.mineGoalSatisfied()
-			&& (previous == null || !previous.mineGoalSatisfied())
+			&& mineGoalSatisfied(current)
+			&& !mineGoalSatisfied(previous)
 			&& current.goal() != null
 			&& current.goal().type() == GoalType.MINE_BLOCKS;
 	}
 
 	private static boolean satisfiedMineRequest(WorldTaskRequest request) {
 		return request != null
-			&& request.mineGoalSatisfied()
+			&& mineGoalSatisfied(request)
 			&& request.goal() != null
 			&& request.goal().type() == GoalType.MINE_BLOCKS;
+	}
+
+	private static WorldTaskRequest.Mine mineTask(WorldTaskRequest request) {
+		return request != null && request.task() instanceof WorldTaskRequest.Mine mine ? mine : null;
+	}
+
+	private static boolean mineGoalSatisfied(WorldTaskRequest request) {
+		WorldTaskRequest.Mine mine = mineTask(request);
+		return mine != null && mine.mineGoalSatisfied();
 	}
 
 	private static boolean sameGoalTarget(GoalSnapshot left, GoalSnapshot right) {
