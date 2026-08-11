@@ -1,7 +1,6 @@
 package ai.moeru.airicraft.agent;
 
 import ai.moeru.airicraft.AiricraftConfig;
-import ai.moeru.airicraft.AiricraftConfigLoader;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.SingleplayerWorldService;
@@ -284,66 +283,6 @@ public final class EmbodiedAgentRuntime {
 		AgentConfig config,
 		FirstPersonScreenshotService screenshotService,
 		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, new SmeltingProcessManager());
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability,
-		SmeltingProcessManager smeltingProcessManager
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, smeltingProcessManager, new CameraController(airicraftConfig.cameraLerpDefaultTicks()));
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, smeltingProcessManager, cameraController, null);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController,
-		BaritoneFacade baritoneFacade
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()),
-			smeltingProcessManager,
-			cameraController,
-			baritoneFacade);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, smeltingProcessManager, cameraController, null);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
 		AgentObservability observability,
 		SmeltingProcessManager smeltingProcessManager,
 		CameraController cameraController,
@@ -383,63 +322,18 @@ public final class EmbodiedAgentRuntime {
 		this.debugRecorder.recordDialogueState(this.dialogueRuntime.snapshot());
 	}
 
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()));
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()),
-			smeltingProcessManager);
-	}
-
-	public EmbodiedAgentRuntime(AiricraftConfig airicraftConfig, AgentConfig config, FirstPersonScreenshotService screenshotService) {
-		this(airicraftConfig, config, screenshotService, NoopWorldTaskExecutor.INSTANCE);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		AgentObservability observability
-	) {
-		this(airicraftConfig, config, screenshotService, NoopWorldTaskExecutor.INSTANCE, observability);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(
-		AiricraftConfig airicraftConfig,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor
-	) {
-		return new EmbodiedAgentRuntime(airicraftConfig, AgentConfigLoader.load(), screenshotService, worldTaskExecutor);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(AiricraftConfig airicraftConfig, FirstPersonScreenshotService screenshotService) {
-		return createDefault(airicraftConfig, screenshotService, NoopWorldTaskExecutor.INSTANCE);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(FirstPersonScreenshotService screenshotService) {
-		return createDefault(AiricraftConfigLoader.load(), screenshotService);
-	}
-
 	static EmbodiedAgentRuntime createForTests(WorldTaskExecutor worldTaskExecutor) {
+		AiricraftConfig airicraftConfig = AiricraftConfig.defaults();
+		AgentConfig agentConfig = AgentConfig.defaults();
 		return new EmbodiedAgentRuntime(
-			AiricraftConfig.defaults(),
-			AgentConfig.defaults(),
+			airicraftConfig,
+			agentConfig,
 			new FirstPersonScreenshotService(),
-			worldTaskExecutor
+			worldTaskExecutor,
+			AgentObservability.create(agentConfig.observability()),
+			new SmeltingProcessManager(),
+			new CameraController(airicraftConfig.cameraLerpDefaultTicks()),
+			null
 		);
 	}
 
@@ -5080,25 +4974,4 @@ public final class EmbodiedAgentRuntime {
 		}
 	}
 
-	private static final class NoopWorldTaskExecutor implements WorldTaskExecutor {
-		private static final NoopWorldTaskExecutor INSTANCE = new NoopWorldTaskExecutor();
-
-		@Override
-		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
-			return Optional.empty();
-		}
-
-		@Override
-		public TaskExecutionSnapshot snapshot() {
-			return TaskExecutionSnapshot.idle();
-		}
-
-		@Override
-		public void onWorldLeave() {
-		}
-
-		@Override
-		public void shutdown() {
-		}
-	}
 }

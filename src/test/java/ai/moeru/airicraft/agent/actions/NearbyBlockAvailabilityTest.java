@@ -52,8 +52,12 @@ class NearbyBlockAvailabilityTest {
 		ActionGraphExecutionInput executionInput = new ActionGraphExecutionInput(
 			CONTEXT,
 			Map.of(),
+			Map.of(),
 			true,
 			true,
+			null,
+			List.of(), List.of(), List.of(), List.of(), List.of(), null, Map.of(),
+			BlockAcquisitionIndex.empty(),
 			null
 		);
 		AiricraftPlanningSnapshot snapshot = new AiricraftPlanningSnapshot(

@@ -1,12 +1,14 @@
 package ai.moeru.airicraft.agent.dialogue;
 
 import ai.moeru.airicraft.agent.AgentConfig;
+import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.events.SemanticEventBuffer;
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 import ai.moeru.airicraft.agent.job.ActiveJobProposal;
+import ai.moeru.airicraft.agent.llm.CurrentInventoryTool;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionTool;
 import ai.moeru.airicraft.agent.llm.LlmBackend;
 import ai.moeru.airicraft.agent.llm.LlmBackendException;
@@ -21,13 +23,20 @@ import ai.moeru.airicraft.agent.llm.PlannerConversationDebugKind;
 import ai.moeru.airicraft.agent.llm.PlannerContextAggregator;
 import ai.moeru.airicraft.agent.llm.PlannerExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerIntent;
+import ai.moeru.airicraft.agent.llm.PlannerActionToolExecutor;
+import ai.moeru.airicraft.agent.llm.PlannerLifecycleListener;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.llm.PlannerResponse;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerToolCatalog;
+import ai.moeru.airicraft.agent.llm.PlannerToolExecutionObserver;
+import ai.moeru.airicraft.agent.llm.PlannerToolNarrationSink;
+import ai.moeru.airicraft.agent.llm.PlannerToolRegistry;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import ai.moeru.airicraft.agent.llm.PlannerVisionMode;
+import ai.moeru.airicraft.agent.observability.NoopObservability;
+import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import ai.moeru.airicraft.agent.tasks.CollectResourceStepArgs;
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunity;
 import ai.moeru.airicraft.agent.tasks.EvidenceKind;
@@ -53,7 +62,6 @@ import ai.moeru.airicraft.agent.tasks.TaskState;
 import ai.moeru.airicraft.agent.tasks.TaskStep;
 import ai.moeru.airicraft.agent.tasks.TaskType;
 import ai.moeru.airicraft.agent.tasks.WorldEvidence;
-import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 
@@ -1014,8 +1022,21 @@ class DialogueRuntimeTest {
 				visionMode
 			),
 			visionTool,
+			CurrentInventoryTool.disabled(),
 			visionMode,
-			config.visionImageDetail()
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			PlannerLifecycleListener.NO_OP,
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			PlannerToolRegistry.empty(),
+			PlannerToolExecutionObserver.NO_OP
 		);
 		return new DialogueRuntime(orchestrator, 8, clock);
 	}

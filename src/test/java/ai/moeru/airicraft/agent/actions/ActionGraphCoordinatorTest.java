@@ -125,7 +125,8 @@ class ActionGraphCoordinatorTest {
 		return new ActionGraphExecutionInput(
 			context(tick), inventory, resources, true, true, terminal,
 			List.of(), ActionGraphRecipeFixtures.survivalCrafts(), List.of(), ActionGraphRecipeFixtures.survivalSmelts(), facts,
-			new ActionGraphAgentPosition(WORLD, DIMENSION, 0, 64, 0), Map.of(), BlockAcquisitionTestFixtures.survival()
+			new ActionGraphAgentPosition(WORLD, DIMENSION, 0, 64, 0), Map.of(), BlockAcquisitionTestFixtures.survival(),
+			NearbyBlockAvailability.unknown()
 		);
 	}
 

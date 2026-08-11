@@ -1,13 +1,14 @@
 package ai.moeru.airicraft;
 
-import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.AgentConfigLoader;
+import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
 import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.idle.IdleIdeasLoader;
+import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.tasks.BaritoneTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.BlockBreakTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.BlockInteractionTaskExecutor;
@@ -300,6 +301,7 @@ public final class ClientRuntimeController {
 			agentConfig,
 			screenshotService,
 			worldTaskExecutor,
+			AgentObservability.create(agentConfig.observability()),
 			smeltingProcessManager,
 			cameraController,
 			baritoneFacade

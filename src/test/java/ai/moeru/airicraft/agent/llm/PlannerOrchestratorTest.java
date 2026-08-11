@@ -845,14 +845,7 @@ class PlannerOrchestratorTest {
 				"low",
 				false
 			);
-			PlannerOrchestrator orchestrator = new PlannerOrchestrator(
-				new PlannerExecutor(new OpenAiCompatibleLlmBackend(config)),
-				new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
-				new PlannerContextAggregator(Clock.systemDefaultZone(), config.plannerCompactionTriggerTokens(), config.plannerVisionMode()),
-				CurrentViewVisionTool.disabled(),
-				config.plannerVisionMode(),
-				config.visionImageDetail()
-			);
+			PlannerOrchestrator orchestrator = newCompactionOrchestrator(config);
 			orchestrator.recordAssistantTurn(new DialogueTurn("agent", "On it.", 10L, 1_000L));
 
 			assertTrue(orchestrator.startDebugCompaction());
@@ -908,14 +901,7 @@ class PlannerOrchestratorTest {
 				"low",
 				false
 			);
-			PlannerOrchestrator orchestrator = new PlannerOrchestrator(
-				new PlannerExecutor(new OpenAiCompatibleLlmBackend(config)),
-				new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
-				new PlannerContextAggregator(Clock.systemDefaultZone(), config.plannerCompactionTriggerTokens(), config.plannerVisionMode()),
-				CurrentViewVisionTool.disabled(),
-				config.plannerVisionMode(),
-				config.visionImageDetail()
-			);
+			PlannerOrchestrator orchestrator = newCompactionOrchestrator(config);
 
 			assertTrue(orchestrator.startDebugCompaction());
 			CompactionExecutionResult result = awaitCompaction(orchestrator);
@@ -2703,6 +2689,31 @@ class PlannerOrchestratorTest {
 		return new PlannerResponse(text, new PlannerIntent("reply_only", null, null));
 	}
 
+	private static PlannerOrchestrator newCompactionOrchestrator(AgentConfig.LlmConfig config) {
+		Clock clock = Clock.systemDefaultZone();
+		return new PlannerOrchestrator(
+			new PlannerExecutor(new OpenAiCompatibleLlmBackend(config)),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config)),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerVisionMode()),
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			config.plannerVisionMode(),
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			NoopObservability.INSTANCE,
+			PlannerLifecycleListener.NO_OP,
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			PlannerToolRegistry.empty(),
+			PlannerToolExecutionObserver.NO_OP
+		);
+	}
+
 	private static PlannerOrchestrator newOrchestrator(LlmBackend backend, CurrentViewVisionTool visionTool, PlannerVisionMode visionMode) {
 		return newOrchestrator(backend, visionTool, CurrentInventoryTool.disabled(), visionMode);
 	}
@@ -2745,7 +2756,8 @@ class PlannerOrchestratorTest {
 			new AgentDebugRecorder(),
 			PlannerActionToolExecutor.DISABLED,
 			PlannerToolNarrationSink.NO_OP,
-			toolRegistry
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 
@@ -2778,7 +2790,8 @@ class PlannerOrchestratorTest {
 			debugRecorder,
 			PlannerActionToolExecutor.DISABLED,
 			PlannerToolNarrationSink.NO_OP,
-			toolRegistry
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 
@@ -2828,7 +2841,8 @@ class PlannerOrchestratorTest {
 			new AgentDebugRecorder(),
 			actionToolExecutor,
 			PlannerToolNarrationSink.NO_OP,
-			toolRegistry
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 
@@ -2861,7 +2875,8 @@ class PlannerOrchestratorTest {
 			new AgentDebugRecorder(),
 			PlannerActionToolExecutor.DISABLED,
 			PlannerToolNarrationSink.NO_OP,
-			toolRegistry
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 
@@ -2993,7 +3008,8 @@ class PlannerOrchestratorTest {
 			new AgentDebugRecorder(),
 			actionToolExecutor,
 			narrationSink,
-			toolRegistry
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
 		);
 	}
 

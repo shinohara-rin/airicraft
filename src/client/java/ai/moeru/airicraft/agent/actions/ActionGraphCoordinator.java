@@ -108,7 +108,7 @@ public final class ActionGraphCoordinator {
 			if (managed.residency != ActionGraphResidency.SUSPENDED) {
 				continue;
 			}
-			managed.runtime.tickPassive(withoutTerminal(input));
+			managed.runtime.tickPassive(input.withoutTerminalTaskEvent());
 			managed.updatedTick = input.context().currentTick();
 			ActionGraphExecutionSnapshot snapshot = managed.runtime.snapshot();
 			if (snapshot.state() != ActionGraphExecutionState.WATCHING) {
@@ -135,7 +135,7 @@ public final class ActionGraphCoordinator {
 			managed.updatedTick = input.context().currentTick();
 			foregroundExecutionId = next.executionId();
 			events.add(new ActionGraphCoordinatorEvent("action_graph.goal_resumed", next.executionId(), Map.of()));
-			managed.runtime.tickForeground(withoutTerminal(input));
+			managed.runtime.tickForeground(input.withoutTerminalTaskEvent());
 			managed.updatedTick = input.context().currentTick();
 			updateForegroundResidency(managed, input.context().currentTick());
 		}
@@ -367,26 +367,6 @@ public final class ActionGraphCoordinator {
 		for (int index = 0; index < excess; index++) {
 			executions.remove(terminals.get(index).getKey());
 		}
-	}
-
-	private static ActionGraphExecutionInput withoutTerminal(ActionGraphExecutionInput input) {
-		return new ActionGraphExecutionInput(
-			input.context(),
-			input.observedInventory(),
-			input.observedResources(),
-			input.worldLoaded(),
-			input.actuationAllowed(),
-			null,
-			input.availableCrafts(),
-			input.knownCrafts(),
-			input.availableSmelts(),
-			input.knownSmelts(),
-			input.observedFacts(),
-			input.agentPosition(),
-			input.watchProgress(),
-			input.blockAcquisitions(),
-			input.nearbyBlockAvailability()
-		);
 	}
 
 	private static boolean terminal(ActionGraphExecutionState state) {
