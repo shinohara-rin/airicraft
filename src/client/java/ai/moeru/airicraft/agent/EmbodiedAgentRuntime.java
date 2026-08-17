@@ -65,6 +65,8 @@ import ai.moeru.airicraft.agent.events.EventPolicyState;
 import ai.moeru.airicraft.agent.events.EventRoutingProfile;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.FlightRecordingObservability;
+import ai.moeru.airicraft.agent.recording.PlannerCallJournal;
+import ai.moeru.airicraft.agent.recording.PlannerCallRecordV1;
 import ai.moeru.airicraft.agent.events.SemanticEventBuffer;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.events.SemanticEventQueryResult;
@@ -239,6 +241,7 @@ public final class EmbodiedAgentRuntime {
 	private final CurrentViewVisionService visionService;
 	private final DialogueRuntime dialogueRuntime;
 	private final PlannerShellJournal plannerJournal;
+	private final PlannerCallJournal plannerCallJournal;
 	private final WorldTaskExecutor worldTaskExecutor;
 	private final InventoryResourceCounter inventoryResourceCounter = new InventoryResourceCounter();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
@@ -372,7 +375,8 @@ public final class EmbodiedAgentRuntime {
 				this::emitPlannerToolNarration,
 				this::beforePlannerToolExecution,
 				worldReadLedger::recordObserved,
-				effectiveCameraController
+				effectiveCameraController,
+				EmbodiedAgentRuntime::integratedServerTick
 			);
 		this.visionService = plannerShell.visionService();
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
@@ -380,6 +384,7 @@ public final class EmbodiedAgentRuntime {
 			this.dialogueRuntime.enableExternalDriver();
 		}
 		this.plannerJournal = plannerShell.plannerJournal();
+		this.plannerCallJournal = plannerShell.plannerCallJournal();
 		this.debugRecorder.recordDialogueState(this.dialogueRuntime.snapshot());
 	}
 
@@ -1254,6 +1259,7 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	public void prepareForEvaluation() {
+		plannerCallJournal.clear();
 		proactiveSocialModeOverride = null;
 		evaluationPlannerSuppressed = false;
 		clearNearbyBlockSnapshot();
@@ -1294,6 +1300,19 @@ public final class EmbodiedAgentRuntime {
 
 	public List<PlannerShellEvent> plannerShellJournal() {
 		return plannerJournal.snapshot();
+	}
+
+	public List<PlannerCallRecordV1> plannerCallRecords() {
+		return plannerCallJournal.snapshot();
+	}
+
+	public void finalizePlannerCallRecordsForEvaluation() {
+		plannerCallJournal.finalizeForEvaluation();
+	}
+
+	private static long integratedServerTick() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		return client == null || client.getServer() == null ? -1L : client.getServer().getTicks();
 	}
 
 	public int activeEventPolicyRuleCount() {

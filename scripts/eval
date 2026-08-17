@@ -57,6 +57,9 @@ case "$command" in
 		if [[ -n "${AIRICRAFT_EVALUATOR_PLAYER_NAME:-}" ]]; then
 			gradle_args+=("-Pairicraft.devPlayerName=$AIRICRAFT_EVALUATOR_PLAYER_NAME")
 		fi
+		if [[ -n "${AIRICRAFT_RECORDER_JAR:-}" ]]; then
+			gradle_args+=("-Pairicraft.evaluator.recorderJar=$AIRICRAFT_RECORDER_JAR")
+		fi
 		exec ./gradlew "${gradle_args[@]}" -Pairicraft.includeEvaluator=true -Pairicraft.includeCompat=true :runClientCompatEvaluator "$@"
 		;;
 	-h | --help | help)

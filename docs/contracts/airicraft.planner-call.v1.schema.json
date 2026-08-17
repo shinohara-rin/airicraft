@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "airicraft.planner-call.v1",
+  "title": "Airicraft Planner Call V1",
+  "description": "One final Airicraft planner model call anchored to Minecraft Server ticks. Submitted must not follow completed, applied must not precede completed, and latencyMs must equal completedAtUnixMs minus requestedAtUnixMs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "callId",
+    "sequence",
+    "turnId",
+    "plannerAttempt",
+    "timeline",
+    "timing",
+    "model",
+    "request",
+    "outcome"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "callId": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "sequence": {
+      "$ref": "#/$defs/positiveDecimal"
+    },
+    "turnId": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "plannerAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation", "attempt", "phase"],
+      "properties": {
+        "generation": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submitted", "completed"],
+      "properties": {
+        "submitted": {
+          "$ref": "#/$defs/anchor"
+        },
+        "completed": {
+          "$ref": "#/$defs/anchor"
+        },
+        "applied": {
+          "$ref": "#/$defs/anchor"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestedAtUnixMs", "completedAtUnixMs", "latencyMs"],
+      "properties": {
+        "requestedAtUnixMs": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        },
+        "completedAtUnixMs": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        },
+        "latencyMs": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "name"],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "tools"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "toolCalls", "usage"],
+      "properties": {
+        "status": {
+          "enum": ["completed", "failed", "cancelled"]
+        },
+        "assistantContent": true,
+        "toolCalls": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "failure": {
+          "$ref": "#/$defs/failure"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "not": {
+              "required": ["failure"]
+            }
+          },
+          "else": {
+            "required": ["failure"]
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "nonNegativeDecimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "positiveDecimal": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverTick"],
+      "properties": {
+        "serverTick": {
+          "$ref": "#/$defs/nonNegativeDecimal"
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "promptTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completionTokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "message": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    }
+  }
+}

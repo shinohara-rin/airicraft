@@ -14,15 +14,16 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
+import uuid
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 
 TERMINAL_STATUSES = {"PASSED", "FAILED", "NEEDS_REVIEW"}
@@ -31,6 +32,13 @@ EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_GAME_DIR"
 EVALUATOR_JDWP_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_JDWP_ENABLED"
 EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_RUNTIME_PREPARED"
 EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE = "AIRICRAFT_EVALUATOR_PLAYER_NAME"
+RECORDER_JAR_ENVIRONMENT_VARIABLE = "AIRICRAFT_RECORDER_JAR"
+RECORDER_EVENTS_RELATIVE_PATH = Path("capture/events.jsonl")
+RECORDER_REPLAY_RELATIVE_PATH = Path("capture/replay.zip")
+RECORDER_REPLAY_FORMAT = "flashback"
+PLANNER_CALLS_FILE_NAME = "planner-calls.jsonl"
+PLANNER_EXTENSION_TYPE = "airicraft.planner"
+PLANNER_CALL_SCHEMA = "airicraft.planner-call.v1"
 SENSITIVE_KEY_RE = re.compile(r"(token|authorization|api[_-]?key|secret|password|credential)", re.IGNORECASE)
 BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 JSON_SECRET_RE = re.compile(
@@ -50,6 +58,12 @@ class BridgeHttpError(RunnerError):
         self.path = path
         self.status = status
         self.payload = payload
+
+
+@dataclass(frozen=True)
+class RecorderOptions:
+    enabled: bool
+    profile: str | None
 
 
 @dataclass(frozen=True)
@@ -169,6 +183,22 @@ def positive_int(value: str) -> int:
     return parsed
 
 
+def resolve_recorder_options(
+    command_profile: str | None,
+    no_recorder: bool,
+    environment: Mapping[str, str],
+) -> RecorderOptions:
+    if no_recorder and command_profile is not None:
+        raise RunnerError("--no-recorder cannot be combined with --recorder-jar")
+    if no_recorder:
+        return RecorderOptions(False, None)
+
+    profile = command_profile if command_profile is not None else environment.get(RECORDER_JAR_ENVIRONMENT_VARIABLE)
+    if profile is None or not profile.strip():
+        raise RunnerError("Recorder-enabled runs need --recorder-jar or AIRICRAFT_RECORDER_JAR")
+    return RecorderOptions(True, profile.strip())
+
+
 def effective_worker_count(jobs: int, scenario_count: int) -> int:
     if jobs < 1:
         raise ValueError("jobs must be at least 1")
@@ -195,6 +225,56 @@ def prepare_worker_directory(seed_dir: Path, worker_dir: Path) -> Path:
     game_dir = worker_dir / "game"
     shutil.copytree(seed_dir, game_dir)
     return game_dir
+
+
+def prepare_recorder_game_directory(game_dir: Path, artifact_root: Path) -> None:
+    artifact_root = artifact_root.resolve()
+    game_dir = game_dir.resolve()
+    recorder_config = {
+        "artifacts_root": str(artifact_root),
+        "server_name": "airicraft-evaluation",
+        "server_instance_id": str(uuid.uuid4()),
+        "record_all_players": True,
+        "writer_queue_capacity": 65_536,
+        "include_inventory_components": True,
+    }
+    server_replay_config = {
+        "allow_downloading_replays": False,
+        "automatically_record": True,
+        "chunk_recorder_load_radius": -1,
+        "chunk_recording_path": str(artifact_root / "server-replay" / "chunks"),
+        "chunk_recording_strategy": "always",
+        "chunks": [],
+        "default_encoding": RECORDER_REPLAY_FORMAT,
+        "delete_replays_after_duration": "0s",
+        "ignore_action_bar_packets": False,
+        "ignore_chat_packets": True,
+        "ignore_custom_payloads": False,
+        "ignore_light_packets": False,
+        "ignore_scoreboard_packets": False,
+        "ignore_sound_packets": False,
+        "include_resource_packs": True,
+        "log_deleted_replays": True,
+        "max_duration": "0s",
+        "max_file_size": "0 B",
+        "notify_admins_of_status": True,
+        "optimize_entity_packets": False,
+        "optimize_explosion_packets": True,
+        "pause_notify_players": False,
+        "player_predicate": {"type": "all"},
+        "player_recording_name": "{uuid}",
+        "player_recording_path": str(artifact_root / "server-replay" / "players"),
+        "record_hotbar": True,
+        "record_voice_chat": False,
+        "recover_unsaved_replays": True,
+        "replay_server_ip": None,
+        "restart_after_max_duration": False,
+        "restart_after_max_file_size": False,
+        "server_name": "airicraft-evaluation",
+        "world_name": "airicraft-evaluation",
+    }
+    write_json(game_dir / "config" / "recorder-minecraft.json", recorder_config)
+    write_json(game_dir / "config" / "server-replay" / "config.json", server_replay_config)
 
 
 def worker_plans(
@@ -230,11 +310,216 @@ def should_delete_worker(summary: dict[str, Any]) -> bool:
     )
 
 
+def is_finalized_recorder_play(play_dir: Path) -> bool:
+    metadata_path = play_dir / "metadata.json"
+    events_path = play_dir / RECORDER_EVENTS_RELATIVE_PATH
+    replay_path = play_dir / RECORDER_REPLAY_RELATIVE_PATH
+    try:
+        if not metadata_path.is_file() or not events_path.is_file() or not replay_path.is_file():
+            return False
+        if events_path.stat().st_size == 0:
+            return False
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(metadata, dict):
+        return False
+    connection = metadata.get("connection", {})
+    capture = metadata.get("capture", {})
+    if not isinstance(connection, dict) or not isinstance(capture, dict):
+        return False
+    if not connection.get("endedAt") or connection.get("endServerTick") is None:
+        return False
+    if (
+        capture.get("events") != RECORDER_EVENTS_RELATIVE_PATH.as_posix()
+        or capture.get("replay") != RECORDER_REPLAY_RELATIVE_PATH.as_posix()
+        or capture.get("replayFormat") != RECORDER_REPLAY_FORMAT
+    ):
+        return False
+    try:
+        with zipfile.ZipFile(replay_path) as replay:
+            if replay.testzip() is not None:
+                return False
+            return any(name.lower().endswith(".flashback") for name in replay.namelist())
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def discover_finalized_recorder_play(recorder_root: Path) -> Path | None:
+    if not recorder_root.is_dir():
+        return None
+    plays = [
+        metadata_path.parent
+        for metadata_path in recorder_root.rglob("metadata.json")
+        if is_finalized_recorder_play(metadata_path.parent)
+    ]
+    if len(plays) > 1:
+        raise RunnerError(f"expected one finalized Recorder Play, found {len(plays)}")
+    return plays[0] if plays else None
+
+
+def publish_planner_extension(scenario_dir: Path, recorder_play: Path) -> bool:
+    source = scenario_dir / PLANNER_CALLS_FILE_NAME
+    if not source.is_file() or source.stat().st_size == 0:
+        return False
+    try:
+        metadata = json.loads((recorder_play / "metadata.json").read_text(encoding="utf-8"))
+        records = [
+            json.loads(line)
+            for line in source.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except (OSError, json.JSONDecodeError) as error:
+        raise RunnerError(f"invalid {PLANNER_CALLS_FILE_NAME}: {error}") from error
+    if not records:
+        return False
+
+    server = required_mapping(metadata, "server", "Recorder metadata")
+    player = required_mapping(metadata, "player", "Recorder metadata")
+    connection = required_mapping(metadata, "connection", "Recorder metadata")
+    server_instance_id = required_string(server, "instanceId", "Recorder metadata server")
+    player_uuid = required_string(player, "uuid", "Recorder metadata player")
+    connection_id = required_string(connection, "id", "Recorder metadata connection")
+    start_tick = metadata_tick(connection, "startServerTick")
+    end_tick = metadata_tick(connection, "endServerTick")
+    validate_planner_call_records(records, start_tick, end_tick)
+
+    extension_parent = recorder_play / "extensions"
+    extension_dir = extension_parent / PLANNER_EXTENSION_TYPE
+    temporary_dir = extension_parent / f".{PLANNER_EXTENSION_TYPE}.inprogress-{uuid.uuid4()}"
+    temporary_dir.mkdir(parents=True)
+    try:
+        shutil.copyfile(source, temporary_dir / PLANNER_CALLS_FILE_NAME)
+        write_json(temporary_dir / "manifest.json", {
+            "manifestVersion": 1,
+            "extensionType": PLANNER_EXTENSION_TYPE,
+            "play": {
+                "serverInstanceId": server_instance_id,
+                "playerUuid": player_uuid,
+                "connectionId": connection_id,
+            },
+            "timeDomain": "PLAY_EXTENSION_TIME_DOMAIN_SERVER_TICK",
+            "assets": [{
+                "role": "planner_calls",
+                "path": PLANNER_CALLS_FILE_NAME,
+                "mediaType": "application/x-ndjson",
+                "schema": PLANNER_CALL_SCHEMA,
+            }],
+        })
+        if extension_dir.exists():
+            shutil.rmtree(extension_dir)
+        temporary_dir.replace(extension_dir)
+    except Exception:
+        if temporary_dir.exists():
+            shutil.rmtree(temporary_dir)
+        raise
+    return True
+
+
+def validate_planner_call_records(records: list[Any], start_tick: int, end_tick: int) -> None:
+    expected_sequence = 1
+    call_ids: set[str] = set()
+    for line_number, record in enumerate(records, start=1):
+        context = f"{PLANNER_CALLS_FILE_NAME} line {line_number}"
+        if not isinstance(record, dict) or record.get("schemaVersion") != 1:
+            raise RunnerError(f"{context} does not match {PLANNER_CALL_SCHEMA}")
+        call_id = required_string(record, "callId", context)
+        if call_id in call_ids:
+            raise RunnerError(f"{context} repeats callId {call_id}")
+        call_ids.add(call_id)
+        sequence = decimal_string(record.get("sequence"), f"{context} sequence")
+        if sequence != expected_sequence:
+            raise RunnerError(f"{context} sequence must be {expected_sequence}")
+        expected_sequence += 1
+
+        timeline = required_mapping(record, "timeline", context)
+        submitted = planner_anchor_tick(timeline, "submitted", context)
+        completed = planner_anchor_tick(timeline, "completed", context)
+        applied = planner_anchor_tick(timeline, "applied", context, required=False)
+        if completed < submitted or (applied is not None and applied < completed):
+            raise RunnerError(f"{context} timeline ticks are not ordered")
+        for tick in (submitted, completed, applied):
+            if tick is not None and not start_tick <= tick <= end_tick:
+                raise RunnerError(
+                    f"{context} serverTick {tick} is outside Play range {start_tick}..{end_tick}"
+                )
+
+
+def planner_anchor_tick(
+    timeline: dict[str, Any],
+    name: str,
+    context: str,
+    required: bool = True,
+) -> int | None:
+    anchor = timeline.get(name)
+    if anchor is None and not required:
+        return None
+    if not isinstance(anchor, dict):
+        raise RunnerError(f"{context} timeline.{name} must be an object")
+    return decimal_string(anchor.get("serverTick"), f"{context} timeline.{name}.serverTick")
+
+
+def required_mapping(value: Any, key: str, context: str) -> dict[str, Any]:
+    child = value.get(key) if isinstance(value, dict) else None
+    if not isinstance(child, dict):
+        raise RunnerError(f"{context} {key} must be an object")
+    return child
+
+
+def required_string(value: dict[str, Any], key: str, context: str) -> str:
+    child = value.get(key)
+    if not isinstance(child, str) or not child.strip():
+        raise RunnerError(f"{context} {key} must be a non-empty string")
+    return child
+
+
+def decimal_string(value: Any, context: str) -> int:
+    if not isinstance(value, str) or re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+        raise RunnerError(f"{context} must be a non-negative decimal string")
+    return int(value)
+
+
+def metadata_tick(connection: dict[str, Any], key: str) -> int:
+    value = connection.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise RunnerError(f"Recorder metadata connection {key} must be an integer")
+    try:
+        tick = int(value)
+    except ValueError as error:
+        raise RunnerError(f"Recorder metadata connection {key} must be an integer") from error
+    if tick < 0:
+        raise RunnerError(f"Recorder metadata connection {key} must not be negative")
+    return tick
+
+
+def finalize_recorder_capture(summary: dict[str, Any], scenario_dir: Path, recorder_root: Path) -> None:
+    summary["recorderPlayPath"] = None
+    try:
+        recorder_play = discover_finalized_recorder_play(recorder_root)
+    except RunnerError as error:
+        recorder_play = None
+        if summary.get("harnessStatus") != "INTERRUPTED":
+            summary["message"] = f"Recorder capture failed: {error}"
+    if recorder_play is None:
+        if summary.get("harnessStatus") != "INTERRUPTED":
+            summary["harnessStatus"] = "CAPTURE_ERROR"
+            if summary.get("message") is None:
+                summary["message"] = "Recorder capture failed: no finalized Recorder Play found"
+    else:
+        summary["recorderPlayPath"] = recorder_play.resolve().relative_to(scenario_dir.resolve()).as_posix()
+        try:
+            publish_planner_extension(scenario_dir, recorder_play)
+        except (OSError, RunnerError) as error:
+            if summary.get("harnessStatus") != "INTERRUPTED":
+                summary["harnessStatus"] = "CAPTURE_ERROR"
+                summary["message"] = f"Recorder planner extension failed: {error}"
+
+
 def ordered_results(results_by_index: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
     return [results_by_index[index] for index in sorted(results_by_index)]
 
 
-def cancelled_worker_result(worker: ScenarioWorker) -> dict[str, Any]:
+def cancelled_worker_result(worker: ScenarioWorker, recorder_enabled: bool = False) -> dict[str, Any]:
     worker.scenario_dir.mkdir(parents=True, exist_ok=True)
     summary = {
         "id": str(worker.scenario["id"]),
@@ -253,11 +538,17 @@ def cancelled_worker_result(worker: ScenarioWorker) -> dict[str, Any]:
         "clientKeptRunning": False,
         "workerDirectoryCleanup": "RETAINED",
     }
+    if recorder_enabled:
+        summary["recorderPlayPath"] = None
     write_json(worker.scenario_dir / "harness-summary.json", summary)
     return summary
 
 
-def failed_worker_result(worker: ScenarioWorker, error: BaseException) -> dict[str, Any]:
+def failed_worker_result(
+    worker: ScenarioWorker,
+    error: BaseException,
+    recorder_enabled: bool = False,
+) -> dict[str, Any]:
     worker.scenario_dir.mkdir(parents=True, exist_ok=True)
     summary = {
         "id": str(worker.scenario["id"]),
@@ -275,6 +566,8 @@ def failed_worker_result(worker: ScenarioWorker, error: BaseException) -> dict[s
         "clientKeptRunning": False,
         "workerDirectoryCleanup": "RETAINED",
     }
+    if recorder_enabled:
+        summary["recorderPlayPath"] = None
     write_json(worker.scenario_dir / "harness-summary.json", summary)
     return summary
 
@@ -284,14 +577,22 @@ def client_environment(
     game_dir: Path,
     worker_id: str,
     runtime_prepared: bool,
+    recorder_options: RecorderOptions,
+    source_environment: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    environment = os.environ.copy()
+    environment = dict(os.environ if source_environment is None else source_environment)
     environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] = str(bridge_state_path.resolve())
     environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] = str(game_dir.resolve())
     environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] = "false"
     environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] = str(runtime_prepared).lower()
     player_suffix = re.sub(r"[^A-Za-z0-9_]", "", worker_id)[-8:]
     environment[EVALUATOR_PLAYER_NAME_ENVIRONMENT_VARIABLE] = "AirEval" + player_suffix
+    if recorder_options.enabled:
+        if recorder_options.profile is None:
+            raise RunnerError("Recorder-enabled runs need a recording profile")
+        environment[RECORDER_JAR_ENVIRONMENT_VARIABLE] = recorder_options.profile
+    else:
+        environment.pop(RECORDER_JAR_ENVIRONMENT_VARIABLE, None)
     return environment
 
 
@@ -303,13 +604,20 @@ def start_client(
     game_dir: Path,
     worker_id: str,
     runtime_prepared: bool,
+    recorder_options: RecorderOptions,
     detach_output: bool = False,
 ) -> ClientProcess:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     bridge_state_path.parent.mkdir(parents=True, exist_ok=True)
     line_queue: "queue.Queue[str]" = queue.Queue()
     log_handle = None
-    environment = client_environment(bridge_state_path, game_dir, worker_id, runtime_prepared)
+    environment = client_environment(
+        bridge_state_path,
+        game_dir,
+        worker_id,
+        runtime_prepared,
+        recorder_options,
+    )
     if detach_output:
         log_handle = log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
@@ -410,7 +718,12 @@ def wait_for_process_exit(process_id: int, timeout_seconds: float) -> bool:
     return not process_alive(process_id)
 
 
-def stop_client(client: ClientProcess, timeout_seconds: float, minecraft_process_id: int = -1) -> dict[str, Any]:
+def stop_client(
+    client: ClientProcess,
+    timeout_seconds: float,
+    minecraft_process_id: int = -1,
+    graceful_stop: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     process = client.process
     result: dict[str, Any] = {
         "requestedAt": utc_now_iso(),
@@ -419,7 +732,15 @@ def stop_client(client: ClientProcess, timeout_seconds: float, minecraft_process
         "initialReturnCode": process.poll(),
         "method": None,
     }
-    if process.poll() is None or process_group_alive(process.pid):
+    graceful_stop_completed = False
+    if graceful_stop is not None and (process.poll() is None or process_group_alive(process.pid)):
+        result["method"] = "BRIDGE"
+        try:
+            graceful_stop()
+            graceful_stop_completed = wait_for_process_group_exit(process, timeout_seconds)
+        except Exception as error:
+            result["gracefulStopError"] = endpoint_error(error)
+    if not graceful_stop_completed and (process.poll() is None or process_group_alive(process.pid)):
         result["method"] = "SIGINT"
         try:
             os.killpg(process.pid, signal.SIGINT)
@@ -607,8 +928,13 @@ def selected_scenarios(scenarios: list[dict[str, Any]], filters: list[str] | Non
     return selected, skipped
 
 
-def keep_client_for_scenario(args: argparse.Namespace, index: int, total: int) -> bool:
-    return not args.stop_client_after_scenario and index == total
+def keep_client_for_scenario(
+    args: argparse.Namespace,
+    index: int,
+    total: int,
+    recorder_enabled: bool = False,
+) -> bool:
+    return not recorder_enabled and not args.stop_client_after_scenario and index == total
 
 
 def discover_scenarios(
@@ -618,9 +944,12 @@ def discover_scenarios(
     args: argparse.Namespace,
     worker_dir: Path,
     game_dir: Path,
+    recorder_options: RecorderOptions,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     launch_started_ms = int(time.time() * 1000)
     bridge_state_path = run_dir / "discovery-bridge-state.json"
+    if recorder_options.enabled:
+        prepare_recorder_game_directory(game_dir, run_dir / "discovery" / "recorder")
     client = start_client(
         repo_root,
         client_command,
@@ -629,6 +958,7 @@ def discover_scenarios(
         game_dir,
         "discovery",
         False,
+        recorder_options,
     )
     discovery: dict[str, Any] = {
         "startedAt": utc_now_iso(),
@@ -667,6 +997,7 @@ def run_scenario(
     args: argparse.Namespace,
     keep_client_after_scenario: bool,
     cancellation: threading.Event,
+    recorder_options: RecorderOptions,
 ) -> dict[str, Any]:
     scenario = worker.scenario
     scenario_id = str(scenario["id"])
@@ -693,6 +1024,8 @@ def run_scenario(
         "addonSummaryPath": str(scenario_dir / "summary.json"),
         "archive": scenario_archive_metadata(scenario_root, scenario),
     }
+    if recorder_options.enabled:
+        summary["recorderPlayPath"] = None
     write_json(scenario_dir / "harness-summary.json", summary)
 
     launch_started_ms = int(time.time() * 1000)
@@ -707,6 +1040,9 @@ def run_scenario(
             summary["message"] = "Cancelled before client launch"
             summary["interrupted"] = True
             return summary
+        if recorder_options.enabled:
+            recorder_root = (scenario_dir / "recorder").resolve()
+            prepare_recorder_game_directory(worker.game_dir, recorder_root)
         client = start_client(
             repo_root,
             client_command,
@@ -715,6 +1051,7 @@ def run_scenario(
             worker.game_dir,
             worker.worker_id,
             True,
+            recorder_options,
             detach_output=keep_client_after_scenario,
         )
         summary["clientPid"] = client.process.pid
@@ -805,15 +1142,24 @@ def run_scenario(
         else:
             if bridge is None:
                 bridge = read_bridge_state(bridge_state_path)
+            graceful_stop = (
+                lambda: bridge_json(bridge, "POST", "/v1/evaluation/client-stop", timeout_seconds=10)
+                if recorder_options.enabled and bridge is not None
+                else None
+            )
             summary["clientExit"] = stop_client(
                 client,
                 args.client_stop_timeout_seconds,
                 bridge.process_id if bridge is not None else -1,
+                graceful_stop,
             )
             summary["clientKeptRunning"] = False
         if not summary["clientKeptRunning"]:
             bridge_state_path.unlink(missing_ok=True)
         summary["bridgeStateRemoved"] = not bridge_state_path.exists()
+        if recorder_options.enabled and client is not None:
+            recorder_root = (scenario_dir / "recorder").resolve()
+            finalize_recorder_capture(summary, scenario_dir, recorder_root)
         if should_delete_worker(summary):
             try:
                 shutil.rmtree(worker.worker_dir)
@@ -894,71 +1240,18 @@ def git_value(repo_root: Path, args: list[str]) -> str:
 
 
 def run_self_test() -> None:
-    redacted = redact_json({
-        "token": "abc",
-        "nested": [{"apiKey": "secret"}, {"message": "Authorization: Bearer abc123"}],
-        "safe": "value",
-    })
-    assert redacted["token"] == "[REDACTED]"
-    assert redacted["nested"][0]["apiKey"] == "[REDACTED]"
-    assert "abc123" not in redacted["nested"][1]["message"]
-    assert safe_name("../Iron Pickaxe!!") == "Iron-Pickaxe"
-    scenarios = [
-        {"id": "a", "promptConfigured": True},
-        {"id": "b", "promptConfigured": False},
-    ]
-    runnable, skipped = selected_scenarios(scenarios, None)
-    assert [item["id"] for item in runnable] == ["a"]
-    assert skipped == [{"id": "b", "name": None, "reason": "empty_prompt"}]
-    runnable, skipped = selected_scenarios(scenarios, ["a"])
-    assert [item["id"] for item in runnable] == ["a"]
-    assert skipped == []
-    default_args = argparse.Namespace(stop_client_after_scenario=False)
-    stopping_args = argparse.Namespace(stop_client_after_scenario=True)
-    assert keep_client_for_scenario(default_args, 1, 1)
-    assert not keep_client_for_scenario(default_args, 1, 2)
-    assert keep_client_for_scenario(default_args, 2, 2)
-    assert not keep_client_for_scenario(stopping_args, 1, 1)
-    bridge_path = Path("/tmp/airicraft-evaluator-test/bridge-state.json")
-    game_dir = Path("/tmp/airicraft-evaluator-test/game")
-    environment = client_environment(bridge_path, game_dir, "worker-01", True)
-    assert environment[BRIDGE_STATE_ENVIRONMENT_VARIABLE] == str(bridge_path.resolve())
-    assert environment[EVALUATOR_GAME_DIR_ENVIRONMENT_VARIABLE] == str(game_dir.resolve())
-    assert environment[EVALUATOR_JDWP_ENVIRONMENT_VARIABLE] == "false"
-    assert environment[EVALUATOR_PREPARED_ENVIRONMENT_VARIABLE] == "true"
-    assert effective_worker_count(4, 2) == 2
-    assert effective_worker_count(1, 0) == 0
-    assert positive_int("2") == 2
-    try:
-        positive_int("0")
-    except argparse.ArgumentTypeError:
-        pass
-    else:
-        raise AssertionError("zero jobs should fail")
-    assert should_delete_worker({"harnessStatus": "OK", "reportStatus": "PASSED", "clientKeptRunning": False})
-    assert not should_delete_worker({"harnessStatus": "OK", "reportStatus": "NEEDS_REVIEW", "clientKeptRunning": False})
-    assert [item["index"] for item in ordered_results({2: {"index": 2}, 1: {"index": 1}})] == [1, 2]
-    with tempfile.TemporaryDirectory(prefix="airicraft-evaluator-self-test-") as temp:
-        temp_root = Path(temp)
-        seed_dir = temp_root / "seed"
-        seed_dir.mkdir()
-        (seed_dir / "options.txt").write_text("onboardAccessibility:false\n", encoding="utf-8")
-        plans = worker_plans(temp_root / "output", temp_root / "workers", seed_dir, [
-            {"id": "a"},
-            {"id": "b"},
-        ])
-        assert plans[0].game_dir != plans[1].game_dir
-        assert plans[0].bridge_state_path != plans[1].bridge_state_path
-        cancellation = threading.Event()
-        assert not cancellation.is_set()
-        cancellation.set()
-        assert cancellation.is_set()
-    try:
-        selected_scenarios(scenarios, ["missing"])
-    except RunnerError:
-        pass
-    else:
-        raise AssertionError("unknown scenario filter should fail")
+    test_path = repo_root_from_script() / "scripts" / "tests" / "test_run_evaluation_scenarios.py"
+    completed = subprocess.run(
+        [sys.executable, str(test_path)],
+        cwd=repo_root_from_script(),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        sys.stdout.write(completed.stdout)
+        sys.stderr.write(completed.stderr)
+        raise RunnerError(f"self-test failed with exit code {completed.returncode}")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -980,6 +1273,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Stop the scenario Minecraft client after each scenario. By default the final scenario client is left running.",
     )
+    parser.add_argument(
+        "--recorder-jar",
+        help="Recording profile path. Overrides AIRICRAFT_RECORDER_JAR.",
+    )
+    parser.add_argument(
+        "--no-recorder",
+        action="store_true",
+        help="Disable integrated-server capture for this evaluation run.",
+    )
     parser.add_argument("--self-test", action="store_true", help="Run built-in unit checks and exit.")
     return parser.parse_args(argv)
 
@@ -990,6 +1292,16 @@ def main(argv: list[str]) -> int:
         run_self_test()
         print("self-test: ok")
         return 0
+
+    try:
+        recorder_options = resolve_recorder_options(
+            args.recorder_jar,
+            args.no_recorder,
+            os.environ,
+        )
+    except RunnerError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
     repo_root = repo_root_from_script()
     client_command = args.client_command or default_client_command(repo_root)
@@ -1014,6 +1326,8 @@ def main(argv: list[str]) -> int:
         "effectiveWorkers": 0,
         "workerRoot": str(worker_root),
         "stopClientAfterScenario": args.stop_client_after_scenario,
+        "recorderEnabled": recorder_options.enabled,
+        "recordingProfile": recorder_options.profile,
         "skipped": [],
         "results": [],
     }
@@ -1029,6 +1343,7 @@ def main(argv: list[str]) -> int:
             args,
             discovery_worker_dir,
             discovery_game_dir,
+            recorder_options,
         )
         shutil.rmtree(discovery_worker_dir, ignore_errors=True)
         manifest["discovery"] = {
@@ -1073,7 +1388,12 @@ def main(argv: list[str]) -> int:
         if args.jobs == 1:
             for worker in plans:
                 print(f"[{worker.index}/{len(plans)}] running {worker.scenario['id']}")
-                keep_client_after_scenario = keep_client_for_scenario(args, worker.index, len(plans))
+                keep_client_after_scenario = keep_client_for_scenario(
+                    args,
+                    worker.index,
+                    len(plans),
+                    recorder_options.enabled,
+                )
                 result = run_scenario(
                     repo_root,
                     scenario_root,
@@ -1082,6 +1402,7 @@ def main(argv: list[str]) -> int:
                     args,
                     keep_client_after_scenario,
                     cancellation,
+                    recorder_options,
                 )
                 record_result(result)
                 if result.get("interrupted"):
@@ -1101,6 +1422,7 @@ def main(argv: list[str]) -> int:
                     args,
                     False,
                     cancellation,
+                    recorder_options,
                 ): worker
                 for worker in plans
             }
@@ -1112,7 +1434,7 @@ def main(argv: list[str]) -> int:
                     try:
                         result = future.result()
                     except Exception as error:
-                        result = failed_worker_result(worker, error)
+                        result = failed_worker_result(worker, error, recorder_options.enabled)
                     record_result(result)
             except KeyboardInterrupt:
                 interrupted = True
@@ -1125,12 +1447,12 @@ def main(argv: list[str]) -> int:
                 if worker.index in results_by_index:
                     continue
                 if future.cancelled():
-                    record_result(cancelled_worker_result(worker))
+                    record_result(cancelled_worker_result(worker, recorder_options.enabled))
                 else:
                     try:
                         result = future.result()
                     except Exception as error:
-                        result = failed_worker_result(worker, error)
+                        result = failed_worker_result(worker, error, recorder_options.enabled)
                     record_result(result)
 
         manifest["finishedAt"] = utc_now_iso()

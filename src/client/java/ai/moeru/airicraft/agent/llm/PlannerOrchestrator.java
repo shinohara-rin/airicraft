@@ -762,6 +762,7 @@ public final class PlannerOrchestrator {
 			pollCoalescedQueue();
 			return null;
 		}
+		lifecycleListener.onPlannerModelCallCompleted(plannerResult);
 		if (isStaleSafetyRequest(plannerResult.request())) {
 			rejectStalePlannerResult(plannerResult);
 			return null;
@@ -824,6 +825,7 @@ public final class PlannerOrchestrator {
 				return finishFailedPlannerResult(promotionFailure);
 			}
 			acceptPlannerReply(plannerResult);
+			lifecycleListener.onPlannerExecutionApplied(plannerResult);
 			return plannerResult;
 		}
 
@@ -1131,6 +1133,7 @@ public final class PlannerOrchestrator {
 			plannerResult.response().rawAssistantContent(),
 			toolCalls
 		);
+		lifecycleListener.onPlannerExecutionApplied(plannerResult);
 		return null;
 	}
 
