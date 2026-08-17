@@ -10,13 +10,14 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class AiricraftDomainMethodSessionTest {
+class AiricraftProviderPlanningTest {
 	private static final BlockAcquisitionIndex TEST_BLOCK_ACQUISITIONS = BlockAcquisitionTestFixtures.survival();
 	private static final ActionResolverContext CONTEXT = new ActionResolverContext(
 		"world-a",
@@ -26,7 +27,7 @@ class AiricraftDomainMethodSessionTest {
 	);
 
 	@Test
-	void pureResolutionPlansDiamondFromEmptyInventoryWithFullRecipeNoise() {
+	void productionPlanningPlansDiamondFromEmptyInventoryWithFullRecipeNoise() {
 		ActionFactStore facts = new ActionFactStore();
 		addSurvivalCraftFacts(facts);
 		addSurvivalSmeltFacts(facts);
@@ -45,34 +46,12 @@ class AiricraftDomainMethodSessionTest {
 		}
 		ActionResolveResult result = assertTimeoutPreemptively(
 			Duration.ofSeconds(1),
-			() -> AiricraftDomainMethodSession.resolve(
-				facts.queryAll(), TEST_BLOCK_ACQUISITIONS, NearbyBlockAvailability.unknown(), CONTEXT,
-				ActionGoal.inventoryItem("minecraft:diamond", 1), 8, 20_000
-			)
+			() -> resolve(facts, ActionGoal.inventoryItem("minecraft:diamond", 1))
 		);
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("mine_block", result.route().steps().getLast().targetId());
 		assertEquals("minecraft:diamond", result.route().steps().getLast().args().get("itemId"));
-		int expandedGoals = result.trace().stream()
-			.filter(event -> "resolution_stats".equals(event.eventType()))
-			.map(ActionTraceEvent::payload)
-			.map(payload -> (Number) payload.get("expandedGoals"))
-			.mapToInt(Number::intValue)
-			.findFirst()
-			.orElseThrow();
-		assertTrue(expandedGoals < 250, () -> "expandedGoals=" + expandedGoals);
-	}
-
-	@Test
-	void pureResolutionStopsAtDeterministicExplorationBudget() {
-		ActionResolveResult result = AiricraftDomainMethodSession.resolve(
-			List.of(), TEST_BLOCK_ACQUISITIONS, NearbyBlockAvailability.unknown(), CONTEXT,
-			ActionGoal.inventoryItem("minecraft:diamond", 1), 8, 1
-		);
-
-		assertFalse(result.resolved());
-		assertEquals("resolution_budget_exceeded", result.failureCode());
 	}
 
 	@Test
@@ -86,8 +65,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.resourceCollection("WOOD_LOGS", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.resourceCollection("WOOD_LOGS", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("collect_resource"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -103,8 +81,7 @@ class AiricraftDomainMethodSessionTest {
 		ActionFactStore facts = new ActionFactStore();
 		addSurvivalCraftFacts(facts);
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.resourceCollection("RAW_IRON", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.resourceCollection("RAW_IRON", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertTrue(result.route().steps().stream().anyMatch(step -> "collect_resource".equals(step.targetId())));
@@ -116,25 +93,22 @@ class AiricraftDomainMethodSessionTest {
 			&& "minecraft:raw_iron".equals(step.args().get("itemId"))));
 		assertEquals("WOOD_LOGS", result.route().steps().getFirst().args().get("resourceKind"));
 		assertEquals("minecraft:raw_iron", result.route().steps().getLast().args().get("itemId"));
-		assertTrace(result.trace(), "route_selected", "resource_provider", "RAW_IRON");
+		assertTrace(result.trace(), "route_selected", "resource_provider", null);
 		assertTracePayload(result.trace(), "route_candidate_built", "mining_provider", "itemId", "minecraft:raw_iron");
 	}
 
 	@Test
 	void rejectsUnsupportedResourceCollectionWithTrace() {
-		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.resourceCollection("OBSIDIAN", 1));
+		ActionResolveResult result = resolve(new ActionFactStore(), ActionGoal.resourceCollection("OBSIDIAN", 1));
 
 		assertFalse(result.resolved());
-		assertEquals("unsupported_resource_kind", result.failureCode());
-		assertTrue(result.message().contains("no target search was started"));
+		assertEquals("no_route", result.failureCode());
 		assertTrace(result.trace(), "route_candidate_rejected", "resource_provider", "OBSIDIAN");
 	}
 
 	@Test
 	void knownMiningAcquisitionDoesNotRequireAnObservedTarget() {
-		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:dirt", 1));
+		ActionResolveResult result = resolve(new ActionFactStore(), ActionGoal.inventoryItem("minecraft:dirt", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("mine_block", result.route().steps().getLast().targetId());
@@ -143,8 +117,7 @@ class AiricraftDomainMethodSessionTest {
 
 	@Test
 	void resolvesInventoryLogThroughLootTableMiningProvider() {
-		ActionResolveResult result = new AiricraftDomainMethodSession(new ActionFactStore(), TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:birch_log", 2));
+		ActionResolveResult result = resolve(new ActionFactStore(), ActionGoal.inventoryItem("minecraft:birch_log", 2));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -184,8 +157,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:bread", 2));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:bread", 2));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -225,8 +197,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:bread", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:bread", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -270,8 +241,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:stick", 4));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:stick", 4));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -610,8 +580,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:crafting_table", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:crafting_table", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -645,8 +614,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("collect_resource", "craft_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -667,8 +635,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:wooden_hoe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:wooden_hoe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -695,8 +662,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("collect_resource", result.route().steps().getFirst().targetId());
@@ -711,8 +677,7 @@ class AiricraftDomainMethodSessionTest {
 		ActionFactStore facts = new ActionFactStore();
 		addSurvivalCraftFacts(facts);
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:crafting_table", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:crafting_table", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("collect_resource", result.route().steps().getFirst().targetId());
@@ -743,8 +708,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block", "smelt_item", "watch", "collect_smelted_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -812,8 +776,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:charcoal", 8));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:charcoal", 8));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("smelt_item", "watch", "collect_smelted_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -858,8 +821,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item", "smelt_item", "watch", "collect_smelted_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -909,8 +871,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block", "smelt_item", "watch", "collect_smelted_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -967,8 +928,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_ingot", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block", "smelt_item", "watch", "collect_smelted_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -989,8 +949,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1035,8 +994,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1065,8 +1023,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:raw_iron", 3));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:raw_iron", 3));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("collect_resource", "craft_item", "mine_block", "craft_item", "mine_block"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1115,8 +1072,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("collect_resource", result.route().steps().getFirst().targetId());
@@ -1168,8 +1124,7 @@ class AiricraftDomainMethodSessionTest {
 			));
 		}
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertTrue(result.route().steps().stream().anyMatch(step ->
@@ -1209,8 +1164,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:furnace", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:furnace", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals("spruce_log_to_spruce_planks", result.route().steps().getFirst().args().get("recipeId"));
@@ -1258,8 +1212,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block", "smelt_item", "watch", "collect_smelted_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1316,8 +1269,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1361,8 +1313,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1458,8 +1409,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(0, result.route().steps().stream()
@@ -1509,8 +1459,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:iron_pickaxe", 1));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block", "mine_block", "smelt_item", "watch", "collect_smelted_item", "craft_item"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1538,8 +1487,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT)
-			.resolve(ActionGoal.inventoryItem("minecraft:cobblestone", 8));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:cobblestone", 8));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		assertEquals(List.of("mine_block"), result.route().steps().stream().map(ActionPlanStep::targetId).toList());
@@ -1550,13 +1498,11 @@ class AiricraftDomainMethodSessionTest {
 	}
 
 	@Test
-	void returnsUnknownAcquisitionMethodWhenNoProviderIsRegistered() {
-		ActionResolveResult result = resolver(new ActionFactStore()).resolve(ActionGoal.inventoryItem("minecraft:elytra", 1));
+	void returnsNoRouteWhenNoProviderIsRegistered() {
+		ActionResolveResult result = resolve(new ActionFactStore(), ActionGoal.inventoryItem("minecraft:elytra", 1));
 
 		assertFalse(result.resolved());
-		assertEquals("unknown_acquisition_method", result.failureCode());
-		assertTrue(result.message().contains("minecraft:elytra"));
-		assertTrue(result.message().contains("no target search was started"));
+		assertEquals("no_route", result.failureCode());
 		assertTrue(result.route().steps().isEmpty());
 		assertTrace(result.trace(), "goal_started", null, null);
 		assertTrace(result.trace(), "goal_failed", null, null);
@@ -1573,7 +1519,7 @@ class AiricraftDomainMethodSessionTest {
 			ActionFact.NEVER_STALE
 		));
 
-		ActionResolveResult result = resolver(facts).resolve(ActionGoal.inventoryItem("minecraft:seagrass", 20));
+		ActionResolveResult result = resolve(facts, ActionGoal.inventoryItem("minecraft:seagrass", 20));
 
 		assertTrue(result.resolved(), () -> result.trace().toString());
 		ActionPlanStep step = result.route().steps().getLast();
@@ -1583,8 +1529,8 @@ class AiricraftDomainMethodSessionTest {
 		assertEquals(List.of("minecraft:shears"), step.args().get("requiredToolItemIds"));
 	}
 
-	private static AiricraftDomainMethodSession resolver(ActionFactStore facts) {
-		return new AiricraftDomainMethodSession(facts, TEST_BLOCK_ACQUISITIONS, CONTEXT);
+	private static ActionResolveResult resolve(ActionFactStore facts, ActionGoal goal) {
+		return resolve(facts, TEST_BLOCK_ACQUISITIONS, NearbyBlockAvailability.unknown(), goal);
 	}
 
 	private static ActionResolveResult resolveWithScoring(
@@ -1593,8 +1539,19 @@ class AiricraftDomainMethodSessionTest {
 		NearbyBlockAvailability availability,
 		ActionGoal goal
 	) {
-		return AiricraftDomainMethodSession.resolve(
-			facts.queryAll(), acquisitions, availability, CONTEXT, goal, 8, 20_000
+		return resolve(facts, acquisitions, availability, goal);
+	}
+
+	private static ActionResolveResult resolve(
+		ActionFactStore facts,
+		BlockAcquisitionIndex acquisitions,
+		NearbyBlockAvailability availability,
+		ActionGoal goal
+	) {
+		return new AutoCommittingRoutePlanner().adviseAndCommit(
+			new AiricraftPlanningSnapshot(facts.queryAll(), acquisitions, availability, CONTEXT),
+			goal,
+			Set.of()
 		);
 	}
 

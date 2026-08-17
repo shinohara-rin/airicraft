@@ -1,12 +1,12 @@
 package ai.moeru.airicraft.agent.tasks;
 
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
-import ai.moeru.airicraft.agent.session.SessionMode;
-import ai.moeru.airicraft.agent.session.SessionSnapshot;
-import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalMineSpec;
+import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
+import ai.moeru.airicraft.agent.session.SessionMode;
+import ai.moeru.airicraft.agent.session.SessionSnapshot;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -15,383 +15,234 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DispatchingWorldTaskExecutorTest {
 	@Test
-	void attackEntityRequestsRouteToEntityExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction);
+	void requestEnvelopeNormalizesIdentityAndDerivesVariantMetadata() {
+		GoalSnapshot goal = miningGoal();
+		WorldTaskRequest request = new WorldTaskRequest(" mine ", " job ", new WorldTaskRequest.Mine(goal, List.of(), false));
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.attackEntity(
-			"task-1",
-			"job-1",
-			new EntityInteractionStepArgs(new EntitySelector(null, null, "minecraft:sheep"), null)
-		)));
-
-		assertEquals(WorldTaskType.ATTACK_ENTITY, entityInteraction.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
+		assertEquals("mine", request.taskId());
+		assertEquals("job", request.sourceJobId());
+		assertEquals(WorldTaskType.MINE, request.type());
+		assertSame(goal, request.goal());
+		assertThrows(IllegalArgumentException.class, () -> new WorldTaskRequest.Mine(navigationGoal(), List.of(), false));
 	}
 
 	@Test
-	void pickupEvidenceRoutesToTheDropItemsExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction);
+	void routesEachTaskVariantToItsExecutor() {
+		GoalSnapshot navigation = navigationGoal();
+		GoalSnapshot mining = miningGoal();
+		List<RouteCase> cases = List.of(
+			new RouteCase(WorldTaskRequest.direct("follow", new GoalSnapshot(GoalType.FOLLOW_PLAYER, "Alex", null, null, 1L, "test")), Route.MINING),
+			new RouteCase(WorldTaskRequest.direct("navigate", navigation), Route.MINING),
+			new RouteCase(WorldTaskRequest.collectMine("mine", "job", mining), Route.MINING),
+			new RouteCase(WorldTaskRequest.underwaterHarvest("harvest", "job", mining, new UnderwaterHarvestStepArgs(new GoalPosition(2, 52, -4, true))), Route.MINING),
+			new RouteCase(WorldTaskRequest.craftRecipe("craft", "job", new CraftRecipeStepArgs("minecraft:stick", 1)), Route.CRAFTING),
+			new RouteCase(WorldTaskRequest.dropItems("drop", "job", new DropItemsStepArgs("minecraft:stone", 1, null)), Route.DROP_ITEMS),
+			new RouteCase(WorldTaskRequest.attackEntity("attack", "job", interaction()), Route.ENTITY),
+			new RouteCase(WorldTaskRequest.useEntity("use-entity", "job", interaction()), Route.ENTITY),
+			new RouteCase(WorldTaskRequest.smeltItems("smelt", "job", new SmeltItemsStepArgs("option", 1, SmeltingFuelMode.AUTO, null, 0, null)), Route.SMELTING),
+			new RouteCase(WorldTaskRequest.collectSmeltedItems("collect", "job", new CollectSmeltedItemsStepArgs("process", "confirm")), Route.SMELTING),
+			new RouteCase(WorldTaskRequest.returnToSurface("surface", "job", new ReturnToSurfaceStepArgs(null, "nearest_surface", false, List.of())), Route.SURFACE),
+			new RouteCase(WorldTaskRequest.placeBlock("place", "job", new BlockPlacementStepArgs("minecraft:dirt", new GoalPosition(1, 64, 2, true), "down", "air")), Route.BLOCK_INTERACTION),
+			new RouteCase(WorldTaskRequest.useBlock("use-block", "job", new BlockUseStepArgs("minecraft:stick", new GoalPosition(1, 64, 2, true), "down", List.of(), "air")), Route.BLOCK_INTERACTION),
+			new RouteCase(WorldTaskRequest.breakBlocks("break", "job", new BlockBreakStepArgs(List.of(new BlockBreakStepArgs.Target(new GoalPosition(1, 64, 2, true), List.of("minecraft:stone"))))), Route.BLOCK_BREAK)
+		);
 
-		executor.onPlayerItemPickupObserved(42, UUID.randomUUID(), "minecraft:oak_log", 1, 2, UUID.randomUUID(), UUID.randomUUID());
+		for (RouteCase routeCase : cases) {
+			Fixture fixture = new Fixture();
+			fixture.dispatcher(null).tick(snapshot(), Optional.of(routeCase.request()));
 
-		assertEquals(42, dropItems.pickupEntityId);
-		assertEquals("minecraft:oak_log", dropItems.pickupItemId);
-		assertEquals(1, dropItems.pickupCount);
-		assertEquals(2, dropItems.pickupEntityStackCount);
-		assertEquals(7L, dropItems.pickupTick);
+			assertEquals(routeCase.request(), fixture.executor(routeCase.route()).lastTask.orElseThrow());
+			assertEquals(1, fixture.all().stream().mapToInt(executor -> executor.calls.size()).sum());
+		}
 	}
 
 	@Test
-	void entityRequestsResetBaritoneOnlyOnTransition() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction);
-		GoalSnapshot goal = new GoalSnapshot(
-			GoalType.NAVIGATE_TO,
-			null,
-			new GoalPosition(10, 64, 20, true),
-			null,
-			20L,
-			"test"
-		);
-		WorldTaskRequest attack = WorldTaskRequest.attackEntity(
-			"attack-task",
-			"job-2",
-			new EntityInteractionStepArgs(new EntitySelector("slime-1", "Slime", "minecraft:slime"), null)
+	void pickupEvidenceRoutesToDropItemsExecutor() {
+		Fixture fixture = new Fixture();
+		UUID entityUuid = UUID.randomUUID();
+		UUID collectorIdentity = UUID.randomUUID();
+		UUID observationId = UUID.randomUUID();
+		fixture.dispatcher(null).onPlayerItemPickupObserved(
+			42, entityUuid, "minecraft:oak_log", 1, 2, collectorIdentity, observationId
 		);
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.direct("nav-task", goal)));
-		executor.tick(snapshot(), Optional.of(attack));
-		executor.tick(snapshot(), Optional.of(attack));
-
-		assertEquals(2, baritone.calls.size());
-		assertEquals(WorldTaskType.NAVIGATE, baritone.calls.get(0).orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.calls.get(1));
+		assertEquals(42, fixture.dropItems.pickupEntityId);
+		assertEquals(entityUuid, fixture.dropItems.pickupEntityUuid);
+		assertEquals("minecraft:oak_log", fixture.dropItems.pickupItemId);
+		assertEquals(1, fixture.dropItems.pickupDelta);
+		assertEquals(2, fixture.dropItems.agentAttributedQuantity);
+		assertEquals(collectorIdentity, fixture.dropItems.pickupCollectorIdentity);
+		assertEquals(observationId, fixture.dropItems.pickupObservationId);
 	}
 
 	@Test
-	void useEntityRequestsRouteToEntityExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
+	void lifecycleBroadcastDeduplicatesExecutorInstancesSharedAcrossRoles() {
+		RecordingExecutor shared = new RecordingExecutor();
+		DispatchingWorldTaskExecutor dispatcher = new DispatchingWorldTaskExecutor(
+			new DispatchingWorldTaskExecutor.ExecutorSet(shared, shared, shared, shared, shared, shared, shared, shared),
+			null
+		);
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.useEntity(
-			"task-2",
-			"job-2",
-			new EntityInteractionStepArgs(new EntitySelector(null, "Dinner", null), "minecraft:shears")
-		)));
+		dispatcher.onWorldLeave();
+		dispatcher.shutdown();
 
-		assertEquals(WorldTaskType.USE_ENTITY, entityInteraction.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
+		assertEquals(1, shared.worldLeaveCalls);
+		assertEquals(1, shared.shutdownCalls);
 	}
 
 	@Test
-	void smeltingRequestsRouteToSmeltingExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
+	void onlyActiveExecutorReceivesOneInactiveTransition() {
+		Fixture fixture = new Fixture();
+		DispatchingWorldTaskExecutor dispatcher = fixture.dispatcher(null);
+		WorldTaskRequest attack = WorldTaskRequest.attackEntity("attack", "job", interaction());
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.smeltItems(
-			"task-3",
-			"job-3",
-			new SmeltItemsStepArgs("smelt:iron:nearby-1", 2, SmeltingFuelMode.AUTO, null, 0, null)
-		)));
+		dispatcher.tick(snapshot(), Optional.empty());
+		dispatcher.tick(snapshot(), Optional.of(WorldTaskRequest.direct("nav", navigationGoal())));
+		dispatcher.tick(snapshot(), Optional.of(attack));
+		dispatcher.tick(snapshot(), Optional.of(attack));
+		dispatcher.tick(snapshot(), Optional.empty());
+		dispatcher.tick(snapshot(), Optional.empty());
 
-		assertEquals(WorldTaskType.SMELT_ITEMS, smelting.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
-		assertEquals(Optional.empty(), entityInteraction.lastTask);
+		assertEquals(List.of("NAVIGATE", "inactive"), types(fixture.mining.calls));
+		assertEquals(List.of("ATTACK_ENTITY", "ATTACK_ENTITY", "inactive"), types(fixture.entity.calls));
+		assertTrue(fixture.all().stream()
+			.filter(executor -> executor != fixture.mining && executor != fixture.entity)
+			.allMatch(executor -> executor.calls.isEmpty()));
 	}
 
 	@Test
-	void collectSmeltedRequestsRouteToSmeltingExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(baritone, crafting, dropItems, entityInteraction, smelting);
+	void typeChangeUsesReleaseBarrierEvenWhenVariantsShareExecutor() {
+		Fixture fixture = new Fixture();
+		RecordingBaritone baritone = new RecordingBaritone();
+		DispatchingWorldTaskExecutor dispatcher = fixture.dispatcher(baritone);
+		WorldTaskRequest mine = WorldTaskRequest.collectMine("mine", "job", miningGoal());
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.collectSmeltedItems(
-			"task-4",
-			"job-4",
-			new CollectSmeltedItemsStepArgs("smelt-process-1", "confirm-1")
-		)));
+		dispatcher.tick(snapshot(), Optional.of(WorldTaskRequest.direct("nav", navigationGoal())));
+		baritone.active = true;
+		assertTrue(dispatcher.tick(snapshot(), Optional.of(mine)).isEmpty());
+		assertEquals("waiting_for_previous_baritone_release", dispatcher.snapshot().lastPathEvent());
+		assertEquals(List.of("NAVIGATE", "inactive"), types(fixture.mining.calls));
 
-		assertEquals(WorldTaskType.COLLECT_SMELTED_ITEMS, smelting.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
-		assertEquals(Optional.empty(), entityInteraction.lastTask);
+		baritone.cancellationPending = false;
+		dispatcher.tick(snapshot(), Optional.of(mine));
+
+		assertEquals(WorldTaskType.MINE, fixture.mining.lastTask.orElseThrow().type());
+		assertEquals(1, baritone.cancelCalls);
 	}
 
 	@Test
-	void returnToSurfaceRequestsRouteToReturnExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		RecordingExecutor returnToSurface = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
-			baritone,
-			crafting,
-			dropItems,
-			entityInteraction,
-			smelting,
-			returnToSurface
-		);
+	void snapshotAndTerminalEventRemainOwnedByActiveExecutor() {
+		Fixture fixture = new Fixture();
+		DispatchingWorldTaskExecutor dispatcher = fixture.dispatcher(null);
+		WorldTaskRequest craft = WorldTaskRequest.craftRecipe("craft", "job", new CraftRecipeStepArgs("minecraft:stick", 1));
+		TaskTerminalEvent terminal = new TaskTerminalEvent("craft", null, TaskExecutionState.COMPLETED, "done", TaskTerminationCause.GOAL_REACHED);
+		fixture.crafting.currentSnapshot = new TaskExecutionSnapshot(TaskExecutionState.RUNNING, "craft", null, "Crafting", "working", null, null);
+		fixture.crafting.terminal = Optional.of(terminal);
 
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.returnToSurface(
-			"task-5",
-			"job-5",
-			new ReturnToSurfaceStepArgs(new GoalPosition(0, 70, 0, false), "nearest_surface", true, List.of("minecraft:dirt"))
-		)));
-
-		assertEquals(WorldTaskType.RETURN_TO_SURFACE, returnToSurface.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
-		assertEquals(Optional.empty(), entityInteraction.lastTask);
-		assertEquals(Optional.empty(), smelting.lastTask);
+		assertEquals(Optional.of(terminal), dispatcher.tick(snapshot(), Optional.of(craft)));
+		assertSame(fixture.crafting.currentSnapshot, dispatcher.snapshot());
 	}
 
-	@Test
-	void blockInteractionRequestsRouteToBlockExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		RecordingExecutor returnToSurface = new RecordingExecutor();
-		RecordingExecutor blockInteraction = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
-			baritone,
-			crafting,
-			dropItems,
-			entityInteraction,
-			smelting,
-			returnToSurface,
-			blockInteraction
-		);
-
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.useBlock(
-			"task-6",
-			"job-6",
-			new BlockUseStepArgs("minecraft:wheat_seeds", new GoalPosition(1, 65, 2, true), "down", List.of("minecraft:farmland"), "air")
-		)));
-
-		assertEquals(WorldTaskType.USE_BLOCK, blockInteraction.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
-		assertEquals(Optional.empty(), entityInteraction.lastTask);
-		assertEquals(Optional.empty(), smelting.lastTask);
-		assertEquals(Optional.empty(), returnToSurface.lastTask);
+	private static List<String> types(List<Optional<WorldTaskRequest>> calls) {
+		return calls.stream().map(call -> call.map(request -> request.type().name()).orElse("inactive")).toList();
 	}
 
-	@Test
-	void blockBreakRequestsRouteToBlockBreakExecutor() {
-		RecordingExecutor baritone = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		RecordingExecutor returnToSurface = new RecordingExecutor();
-		RecordingExecutor blockInteraction = new RecordingExecutor();
-		RecordingExecutor blockBreak = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
-			baritone,
-			crafting,
-			dropItems,
-			entityInteraction,
-			smelting,
-			returnToSurface,
-			blockInteraction,
-			blockBreak
-		);
-
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.breakBlocks(
-			"task-7",
-			"job-7",
-			new BlockBreakStepArgs(List.of(new BlockBreakStepArgs.Target(
-				new GoalPosition(1, 64, 2, true),
-				List.of("minecraft:grass_block")
-			)))
-		)));
-
-		assertEquals(WorldTaskType.BREAK_BLOCKS, blockBreak.lastTask.orElseThrow().type());
-		assertEquals(Optional.empty(), baritone.lastTask);
-		assertEquals(Optional.empty(), crafting.lastTask);
-		assertEquals(Optional.empty(), dropItems.lastTask);
-		assertEquals(Optional.empty(), entityInteraction.lastTask);
-		assertEquals(Optional.empty(), smelting.lastTask);
-		assertEquals(Optional.empty(), returnToSurface.lastTask);
-		assertEquals(Optional.empty(), blockInteraction.lastTask);
+	private static EntityInteractionStepArgs interaction() {
+		return new EntityInteractionStepArgs(new EntitySelector(null, "Alex", "minecraft:sheep"), null);
 	}
 
-	@Test
-	void underwaterHarvestRequestsRouteThroughMiningCoordinator() {
-		RecordingExecutor miningCoordinator = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		RecordingExecutor returnToSurface = new RecordingExecutor();
-		RecordingExecutor blockInteraction = new RecordingExecutor();
-		RecordingExecutor blockBreak = new RecordingExecutor();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
-			miningCoordinator,
-			crafting,
-			dropItems,
-			entityInteraction,
-			smelting,
-			returnToSurface,
-			blockInteraction,
-			blockBreak
-		);
-		GoalSnapshot goal = new GoalSnapshot(
-			GoalType.MINE_BLOCKS,
-			null,
-			null,
-			new GoalMineSpec(List.of("minecraft:seagrass"), 20, List.of("minecraft:seagrass"), List.of("minecraft:shears")),
-			1L,
-			"action_graph"
-		);
-
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.underwaterHarvest(
-			"harvest-1",
-			"job-1",
-			goal,
-			new UnderwaterHarvestStepArgs(new GoalPosition(2, 52, -4, true))
-		)));
-
-		assertEquals(WorldTaskType.UNDERWATER_HARVEST, miningCoordinator.lastTask.orElseThrow().type());
+	private static GoalSnapshot navigationGoal() {
+		return new GoalSnapshot(GoalType.NAVIGATE_TO, null, new GoalPosition(10, 64, 20, true), null, 1L, "test");
 	}
 
-	@Test
-	void taskTypeTransitionWaitsForSharedBaritoneOwnershipAndReceipt() {
-		RecordingExecutor mining = new RecordingExecutor();
-		RecordingExecutor crafting = new RecordingExecutor();
-		RecordingExecutor dropItems = new RecordingExecutor();
-		RecordingExecutor entityInteraction = new RecordingExecutor();
-		RecordingExecutor smelting = new RecordingExecutor();
-		RecordingExecutor returnToSurface = new RecordingExecutor();
-		RecordingExecutor blockInteraction = new RecordingExecutor();
-		RecordingExecutor blockBreak = new RecordingExecutor();
-		RecordingBaritone sharedBaritone = new RecordingBaritone();
-		DispatchingWorldTaskExecutor executor = new DispatchingWorldTaskExecutor(
-			mining,
-			crafting,
-			dropItems,
-			entityInteraction,
-			smelting,
-			returnToSurface,
-			blockInteraction,
-			blockBreak,
-			sharedBaritone
-		);
-		GoalSnapshot navigation = new GoalSnapshot(
-			GoalType.NAVIGATE_TO,
-			null,
-			new GoalPosition(2, 64, 3, true),
-			null,
-			0L,
-			"test"
-		);
-		executor.tick(snapshot(), Optional.of(WorldTaskRequest.direct("nav", navigation)));
-		sharedBaritone.active = true;
-		WorldTaskRequest craft = WorldTaskRequest.craftRecipe(
-			"craft",
-			"job",
-			new CraftRecipeStepArgs("minecraft:stick", 1)
-		);
-
-		assertTrue(executor.tick(snapshot(), Optional.of(craft)).isEmpty());
-		assertTrue(crafting.lastTask.isEmpty());
-		assertEquals("waiting_for_previous_baritone_release", executor.snapshot().lastPathEvent());
-
-		sharedBaritone.cancellationPending = false;
-		executor.tick(snapshot(), Optional.of(craft));
-
-		assertEquals(WorldTaskType.CRAFT_RECIPE, crafting.lastTask.orElseThrow().type());
-		assertEquals(1, sharedBaritone.cancelCalls);
+	private static GoalSnapshot miningGoal() {
+		return new GoalSnapshot(GoalType.MINE_BLOCKS, null, null, new GoalMineSpec(List.of("minecraft:stone"), 1), 1L, "test");
 	}
 
 	private static SessionSnapshot snapshot() {
 		return new SessionSnapshot(SessionMode.REMOTE_MULTIPLAYER, true, true, "minecraft:overworld", false, 0, 0L);
 	}
 
+	private enum Route { MINING, CRAFTING, DROP_ITEMS, ENTITY, SMELTING, SURFACE, BLOCK_INTERACTION, BLOCK_BREAK }
+
+	private record RouteCase(WorldTaskRequest request, Route route) { }
+
+	private static final class Fixture {
+		private final RecordingExecutor mining = new RecordingExecutor();
+		private final RecordingExecutor crafting = new RecordingExecutor();
+		private final RecordingExecutor dropItems = new RecordingExecutor();
+		private final RecordingExecutor entity = new RecordingExecutor();
+		private final RecordingExecutor smelting = new RecordingExecutor();
+		private final RecordingExecutor surface = new RecordingExecutor();
+		private final RecordingExecutor blockInteraction = new RecordingExecutor();
+		private final RecordingExecutor blockBreak = new RecordingExecutor();
+
+		private DispatchingWorldTaskExecutor dispatcher(BaritoneFacade baritone) {
+			return new DispatchingWorldTaskExecutor(new DispatchingWorldTaskExecutor.ExecutorSet(
+				mining, crafting, dropItems, entity, smelting, surface, blockInteraction, blockBreak
+			), baritone);
+		}
+
+		private RecordingExecutor executor(Route route) {
+			return switch (route) {
+				case MINING -> mining;
+				case CRAFTING -> crafting;
+				case DROP_ITEMS -> dropItems;
+				case ENTITY -> entity;
+				case SMELTING -> smelting;
+				case SURFACE -> surface;
+				case BLOCK_INTERACTION -> blockInteraction;
+				case BLOCK_BREAK -> blockBreak;
+			};
+		}
+
+		private List<RecordingExecutor> all() {
+			return List.of(mining, crafting, dropItems, entity, smelting, surface, blockInteraction, blockBreak);
+		}
+	}
+
 	private static final class RecordingExecutor implements WorldTaskExecutor {
 		private Optional<WorldTaskRequest> lastTask = Optional.empty();
 		private final List<Optional<WorldTaskRequest>> calls = new ArrayList<>();
+		private Optional<TaskTerminalEvent> terminal = Optional.empty();
+		private TaskExecutionSnapshot currentSnapshot = TaskExecutionSnapshot.idle();
 		private int pickupEntityId;
+		private UUID pickupEntityUuid;
 		private String pickupItemId;
-		private int pickupCount;
-		private int pickupEntityStackCount;
-		private long pickupTick;
+		private int pickupDelta;
+		private int agentAttributedQuantity;
+		private UUID pickupCollectorIdentity;
+		private UUID pickupObservationId;
+		private int worldLeaveCalls;
+		private int shutdownCalls;
 
 		@Override
-		public void onPlayerItemPickupObserved(
-			int entityId,
-			UUID entityUuid,
-			String itemId,
-			int pickupDelta,
-			int agentAttributedQuantity,
-			UUID collectorIdentity,
-			UUID observationId
-		) {
-			pickupEntityId = entityId;
-			pickupItemId = itemId;
-			pickupCount = pickupDelta;
-			pickupEntityStackCount = agentAttributedQuantity;
-			pickupTick = 7L;
-		}
-
-		@Override
-		public Optional<TaskTerminalEvent> tick(ai.moeru.airicraft.agent.session.SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
+		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
 			lastTask = activeTask;
 			calls.add(activeTask);
-			return Optional.empty();
+			return activeTask.isEmpty() ? Optional.empty() : terminal;
 		}
 
 		@Override
-		public TaskExecutionSnapshot snapshot() {
-			return TaskExecutionSnapshot.idle();
+		public void onPlayerItemPickupObserved(int entityId, UUID entityUuid, String itemId, int pickupDelta, int agentAttributedQuantity, UUID collectorIdentity, UUID observationId) {
+			pickupEntityId = entityId;
+			pickupEntityUuid = entityUuid;
+			pickupItemId = itemId;
+			this.pickupDelta = pickupDelta;
+			this.agentAttributedQuantity = agentAttributedQuantity;
+			pickupCollectorIdentity = collectorIdentity;
+			pickupObservationId = observationId;
 		}
 
-		@Override
-		public void onWorldLeave() {
-		}
-
-		@Override
-		public void shutdown() {
-		}
+		@Override public TaskExecutionSnapshot snapshot() { return currentSnapshot; }
+		@Override public void onWorldLeave() { worldLeaveCalls++; }
+		@Override public void shutdown() { shutdownCalls++; }
 	}
 
 	private static final class RecordingBaritone implements BaritoneFacade {
@@ -409,9 +260,7 @@ class DispatchingWorldTaskExecutorTest {
 		@Override public void startMine(GoalMineSpec spec) { }
 		@Override public boolean mineProcessActive() { return active; }
 		@Override public boolean processActive() { return active; }
-
-		@Override
-		public boolean cancel() {
+		@Override public boolean cancel() {
 			if (active && !cancellationPending) {
 				cancelCalls++;
 				active = false;
@@ -419,7 +268,6 @@ class DispatchingWorldTaskExecutorTest {
 			}
 			return cancellationPending;
 		}
-
 		@Override public boolean cancellationPending() { return cancellationPending; }
 		@Override public Optional<String> activeProcessName() { return Optional.empty(); }
 		@Override public Optional<Double> estimatedTicksToGoal() { return Optional.empty(); }

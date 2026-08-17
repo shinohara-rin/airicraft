@@ -1,13 +1,14 @@
 package ai.moeru.airicraft;
 
-import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.AgentConfigLoader;
+import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
 import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.idle.IdleIdeasLoader;
+import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.tasks.BaritoneTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.BlockBreakTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.BlockInteractionTaskExecutor;
@@ -44,8 +45,7 @@ public final class ClientRuntimeController {
 	private volatile EmbodiedAgentRuntime agentRuntime;
 	private final ModBridgeServer bridgeServer;
 	private final PlannerDebugOverlay plannerDebugOverlay = new PlannerDebugOverlay();
-	private final ClientTickPauseIndicator clientTickPauseIndicator = new ClientTickPauseIndicator();
-	private final ClientTickTraceIndicator clientTickTraceIndicator = new ClientTickTraceIndicator();
+	private final ClientTickIndicator clientTickIndicator = new ClientTickIndicator();
 
 	public ClientRuntimeController() {
 		this.config = AiricraftConfigLoader.load();
@@ -210,8 +210,7 @@ public final class ClientRuntimeController {
 	}
 
 	private void renderClientTickIndicators(MinecraftClient client, DrawContext drawContext) {
-		clientTickPauseIndicator.render(client, drawContext, clientTickDebugRuntime.status());
-		clientTickTraceIndicator.render(client, drawContext, clientTickDebugRuntime.traceStatus());
+		clientTickIndicator.render(client, drawContext, clientTickDebugRuntime.status(), clientTickDebugRuntime.traceStatus());
 	}
 
 	public boolean onScreenMouseScroll(double mouseX, double mouseY, double verticalAmount) {
@@ -286,7 +285,7 @@ public final class ClientRuntimeController {
 			miningEnvironment,
 			miningEnvironment
 		);
-		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(
+		WorldTaskExecutor worldTaskExecutor = new DispatchingWorldTaskExecutor(new DispatchingWorldTaskExecutor.ExecutorSet(
 			miningCoordinator,
 			new CraftingTaskExecutor(baritoneFacade, cameraController),
 			new DropItemsTaskExecutor(baritoneFacade),
@@ -294,7 +293,8 @@ public final class ClientRuntimeController {
 			new SmeltingTaskExecutor(smeltingProcessManager, baritoneFacade),
 			new ReturnToSurfaceTaskExecutor(baritoneFacade),
 			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks(), cameraController, baritoneFacade),
-			new BlockBreakTaskExecutor(),
+			new BlockBreakTaskExecutor()
+		),
 			baritoneFacade
 		);
 		return new EmbodiedAgentRuntime(
@@ -302,6 +302,7 @@ public final class ClientRuntimeController {
 			agentConfig,
 			screenshotService,
 			worldTaskExecutor,
+			AgentObservability.create(agentConfig.observability()),
 			smeltingProcessManager,
 			cameraController,
 			baritoneFacade

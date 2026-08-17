@@ -63,7 +63,7 @@ public final class BlockBreakTaskExecutor implements WorldTaskExecutor {
 			return fail(request, TaskFailure.of(TaskFailureCode.BUSY, "interaction_busy"));
 		}
 
-		BlockBreakStepArgs args = request.blockBreak();
+		BlockBreakStepArgs args = ((WorldTaskRequest.BreakBlocks) request.task()).args();
 		while (targetIndex < args.targets().size()) {
 			Optional<TaskTerminalEvent> event = tickTarget(sessionSnapshot, client, player, request, args.targets().get(targetIndex));
 			if (event.isPresent() || breakingActive) {

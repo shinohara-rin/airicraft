@@ -35,14 +35,15 @@ class CraftingTaskExecutorTest {
 		);
 
 		WorldTaskRequest placement = CraftingTaskExecutor.portableTablePlacementRequest(parent, 2, target);
+		BlockPlacementStepArgs args = ((WorldTaskRequest.PlaceBlock) placement.task()).args();
 
 		assertEquals(WorldTaskType.PLACE_BLOCK, placement.type());
 		assertEquals("craft-1:portable-table:2", placement.taskId());
 		assertEquals("graph-1", placement.sourceJobId());
-		assertEquals("minecraft:crafting_table", placement.blockPlacement().itemId());
-		assertEquals(target, placement.blockPlacement().targetPosition());
-		assertEquals("auto", placement.blockPlacement().facePreference());
-		assertEquals("air_or_replaceable", placement.blockPlacement().requiredTargetMaterial());
+		assertEquals("minecraft:crafting_table", args.itemId());
+		assertEquals(target, args.targetPosition());
+		assertEquals("auto", args.facePreference());
+		assertEquals("air_or_replaceable", args.requiredTargetMaterial());
 	}
 
 	@Test

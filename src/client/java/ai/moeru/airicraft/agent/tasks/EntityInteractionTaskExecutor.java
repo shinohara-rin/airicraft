@@ -114,7 +114,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		}
 		busyStateTicks = 0;
 
-		Selection selection = resolveSelection(client, player, request.entityInteraction().selector());
+		Selection selection = resolveSelection(client, player, interaction(request).selector());
 		if (selection.status() != EntitySelectorResolver.SelectionStatus.SELECTED) {
 			if (completedAfterLandedAttack(request, selection.status())) {
 				return complete(request, "target_died");
@@ -197,7 +197,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 		client.interactionManager.attackEntity(player, target);
 		player.swingHand(Hand.MAIN_HAND);
 		landedAttack = true;
-		if (request.entityInteraction().attackMode() == EntityAttackMode.HIT_ONCE) {
+		if (interaction(request).attackMode() == EntityAttackMode.HIT_ONCE) {
 			return complete(request, "attack_landed");
 		}
 		if (!target.isAlive()) {
@@ -215,7 +215,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 	) {
 		movementController.stop(client);
 		cancelBaritoneChase();
-		Hand hand = resolveInteractionHand(client, player, request.entityInteraction().itemId());
+		Hand hand = resolveInteractionHand(client, player, interaction(request).itemId());
 		if (hand == null) {
 			return fail(request, TaskFailure.of(TaskFailureCode.MISSING_FACT, "required_item_missing"));
 		}
@@ -445,8 +445,7 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 			return false;
 		}
 		return Objects.equals(left.taskId(), right.taskId())
-			&& Objects.equals(left.type(), right.type())
-			&& Objects.equals(left.entityInteraction(), right.entityInteraction());
+			&& Objects.equals(left.task(), right.task());
 	}
 
 	private static boolean isEntityInteractionTask(WorldTaskType type) {
@@ -455,7 +454,15 @@ public final class EntityInteractionTaskExecutor implements WorldTaskExecutor {
 
 	private boolean completedAfterLandedAttack(WorldTaskRequest request, EntitySelectorResolver.SelectionStatus status) {
 		return request != null
-			&& completedAfterLandedAttack(request.type(), request.entityInteraction().attackMode(), landedAttack, status);
+			&& completedAfterLandedAttack(request.type(), interaction(request).attackMode(), landedAttack, status);
+	}
+
+	private static EntityInteractionStepArgs interaction(WorldTaskRequest request) {
+		return switch (request.task()) {
+			case WorldTaskRequest.AttackEntity task -> task.args();
+			case WorldTaskRequest.UseEntity task -> task.args();
+			default -> throw new IllegalArgumentException("entity interaction task required");
+		};
 	}
 
 	static boolean completedAfterLandedAttack(

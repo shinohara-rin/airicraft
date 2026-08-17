@@ -863,7 +863,9 @@ public final class UnderwaterHarvestTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private static BlockPos searchOrigin(WorldTaskRequest request) {
-		UnderwaterHarvestStepArgs args = request == null ? null : request.underwaterHarvest();
+		UnderwaterHarvestStepArgs args = request == null
+			? null
+			: ((WorldTaskRequest.UnderwaterHarvest) request.task()).args();
 		GoalPosition origin = args == null ? null : args.searchOrigin();
 		return origin == null ? null : new BlockPos(origin.x(), origin.y(), origin.z());
 	}

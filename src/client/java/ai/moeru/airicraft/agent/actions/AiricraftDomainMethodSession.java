@@ -5,9 +5,7 @@ import ai.moeru.actionplan.ResolutionContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -15,17 +13,11 @@ import java.util.Optional;
 import java.util.Set;
 
 final class AiricraftDomainMethodSession {
-	static final int DEFAULT_MAX_DEPTH = 8;
-	static final int DEFAULT_EXPLORATION_BUDGET = 20_000;
 	private static final int DEFAULT_SMELT_COOK_TICKS = 200;
 	private static final int FUEL_TICKS_PLANKS = 300;
 	private static final int FUEL_TICKS_LOGS = 300;
 	private static final int FUEL_TICKS_STICKS = 100;
 	private static final int FUEL_TICKS_COAL = 1600;
-	private static final int PROVIDER_RANK_RECIPE = 0;
-	private static final int PROVIDER_RANK_RESOURCE = 0;
-	private static final int PROVIDER_RANK_SMELTING = 1;
-	private static final int PROVIDER_RANK_MINING = 2;
 	private static final Set<ActionFactProvenance> GUARD_USABLE_PROVENANCE = Set.of(
 		ActionFactProvenance.OBSERVED,
 		ActionFactProvenance.EXECUTOR_REPORTED,
@@ -36,31 +28,9 @@ final class AiricraftDomainMethodSession {
 	private final BlockAcquisitionIndex blockAcquisitions;
 	private final NearbyBlockAvailability nearbyBlockAvailability;
 	private final ActionResolverContext context;
-	private final int maxDepth;
-	private final Set<String> blockedAlternativeKeys;
-	private final int explorationBudget;
 	private final Map<String, List<ActionFact>> craftRecipesByOutput;
 	private final Map<String, List<ActionFact>> smeltRecipesByOutput;
-	private final Map<String, ActionRoute> successfulRoutes = new HashMap<>();
-	private int expandedGoals;
-	private int routeCacheHits;
-	private boolean budgetExceeded;
-	private ResolutionContext advisoryContext;
-
-	static ActionResolveResult resolve(
-		List<ActionFact> facts,
-		BlockAcquisitionIndex blockAcquisitions,
-		NearbyBlockAvailability nearbyBlockAvailability,
-		ActionResolverContext context,
-		ActionGoal goal,
-		int maxDepth,
-		int explorationBudget
-	) {
-		return new AiricraftDomainMethodSession(
-			new ActionFactStore(facts), blockAcquisitions, nearbyBlockAvailability, context,
-			maxDepth, Set.of(), explorationBudget
-		).resolve(goal);
-	}
+	private final ResolutionContext advisoryContext;
 
 	static ActionResolveResult resolveResourceProvider(
 		AiricraftPlanningSnapshot snapshot,
@@ -68,8 +38,7 @@ final class AiricraftDomainMethodSession {
 		ResolutionContext advisoryContext
 	) {
 		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
-		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
-			session.resolveResourceProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+		return session.resolveWithProvider(goal, session::resolveResourceProviderGoal);
 	}
 
 	static ActionResolveResult resolveRecipeProvider(
@@ -78,8 +47,7 @@ final class AiricraftDomainMethodSession {
 		ResolutionContext advisoryContext
 	) {
 		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
-		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
-			session.resolveRecipeProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+		return session.resolveWithProvider(goal, session::resolveRecipeProviderGoal);
 	}
 
 	static ActionResolveResult resolveSmeltingProvider(
@@ -88,8 +56,7 @@ final class AiricraftDomainMethodSession {
 		ResolutionContext advisoryContext
 	) {
 		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
-		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
-			session.resolveSmeltingProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+		return session.resolveWithProvider(goal, session::resolveSmeltingProviderGoal);
 	}
 
 	static ActionResolveResult resolveMiningProvider(
@@ -98,21 +65,14 @@ final class AiricraftDomainMethodSession {
 		ResolutionContext advisoryContext
 	) {
 		AiricraftDomainMethodSession session = providerSession(snapshot, advisoryContext);
-		return session.resolveWithProvider(goal, (candidateGoal, trace) ->
-			session.resolveMiningProviderGoal(candidateGoal, 0, new LinkedHashSet<>(), trace));
+		return session.resolveWithProvider(goal, session::resolveMiningProviderGoal);
 	}
 
 	private static AiricraftDomainMethodSession providerSession(
 		AiricraftPlanningSnapshot snapshot,
 		ResolutionContext advisoryContext
 	) {
-		AiricraftDomainMethodSession session = new AiricraftDomainMethodSession(
-			new ActionFactStore(snapshot.facts()), snapshot.blockAcquisitions(),
-			snapshot.nearbyBlockAvailability(), snapshot.context(),
-			DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET
-		);
-		session.advisoryContext = Objects.requireNonNull(advisoryContext, "advisoryContext");
-		return session;
+		return new AiricraftDomainMethodSession(snapshot, advisoryContext);
 	}
 
 	private ActionResolveResult resolveWithProvider(ActionGoal goal, TopLevelProviderResolver provider) {
@@ -127,192 +87,27 @@ final class AiricraftDomainMethodSession {
 		return ActionResolveResult.failure("no_route", "provider has no route", trace);
 	}
 
-	AiricraftDomainMethodSession(ActionFactStore facts, ActionResolverContext context) {
-		this(facts, BlockAcquisitionIndex.empty(), NearbyBlockAvailability.unknown(), context, DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET);
-	}
-
-	AiricraftDomainMethodSession(ActionFactStore facts, BlockAcquisitionIndex blockAcquisitions, ActionResolverContext context) {
-		this(facts, blockAcquisitions, NearbyBlockAvailability.unknown(), context, DEFAULT_MAX_DEPTH, Set.of(), DEFAULT_EXPLORATION_BUDGET);
-	}
-
 	private AiricraftDomainMethodSession(
-		ActionFactStore facts,
-		BlockAcquisitionIndex blockAcquisitions,
-		NearbyBlockAvailability nearbyBlockAvailability,
-		ActionResolverContext context,
-		int maxDepth,
-		Set<String> blockedAlternativeKeys,
-		int explorationBudget
+		AiricraftPlanningSnapshot snapshot,
+		ResolutionContext advisoryContext
 	) {
-		this.facts = Objects.requireNonNull(facts, "facts");
-		this.blockAcquisitions = blockAcquisitions == null ? BlockAcquisitionIndex.empty() : blockAcquisitions;
-		this.nearbyBlockAvailability = nearbyBlockAvailability == null ? NearbyBlockAvailability.unknown() : nearbyBlockAvailability;
-		this.context = Objects.requireNonNull(context, "context");
-		this.maxDepth = Math.max(1, maxDepth);
-		this.blockedAlternativeKeys = blockedAlternativeKeys == null ? Set.of() : Set.copyOf(blockedAlternativeKeys);
-		this.explorationBudget = Math.max(1, explorationBudget);
+		Objects.requireNonNull(snapshot, "snapshot");
+		this.facts = new ActionFactStore(snapshot.facts());
+		this.blockAcquisitions = snapshot.blockAcquisitions();
+		this.nearbyBlockAvailability = snapshot.nearbyBlockAvailability();
+		this.context = snapshot.context();
+		this.advisoryContext = Objects.requireNonNull(advisoryContext, "advisoryContext");
 		this.craftRecipesByOutput = providerFactsByOutput(ActionFactType.CRAFT_RECIPE, "outputItemId", "recipeId");
 		this.smeltRecipesByOutput = providerFactsByOutput(ActionFactType.SMELT_RECIPE, "outputItemId", "optionId");
 	}
 
-	ActionResolveResult resolve(ActionGoal goal) {
-		ArrayList<ActionTraceEvent> trace = new ArrayList<>();
-		Optional<ActionRoute> route = resolveGoal(goal, 0, new LinkedHashSet<>(), trace);
-		trace.add(event("resolution_stats", "", "", "", Map.of(
-			"expandedGoals", expandedGoals,
-			"routeCacheHits", routeCacheHits,
-			"explorationBudget", explorationBudget
-		)));
-		if (budgetExceeded) {
-			trace.add(event("goal_failed", "", "", "", Map.of("goal", goal.normalizedKey(), "failureCode", "resolution_budget_exceeded")));
-			return ActionResolveResult.failure(
-				"resolution_budget_exceeded",
-				"route resolution exceeded its deterministic exploration budget of " + explorationBudget,
-				trace
-			);
-		}
-		if (route.isPresent()) {
-			trace.add(event("goal_succeeded", "", "", "", Map.of("goal", goal.normalizedKey())));
-			return ActionResolveResult.success(route.get(), trace);
-		}
-		ResolutionFailure failure = classifyUnresolvedGoal(goal);
-		LinkedHashMap<String, Object> failurePayload = new LinkedHashMap<>(failure.payload());
-		failurePayload.put("goal", goal.normalizedKey());
-		failurePayload.put("failureCode", failure.code());
-		trace.add(event("goal_failed", "", "", "", failurePayload));
-		return ActionResolveResult.failure(failure.code(), failure.message(), trace);
-	}
-
-	private ResolutionFailure classifyUnresolvedGoal(ActionGoal goal) {
-		if (goal.factType() == ActionFactType.INVENTORY_ITEM) {
-			String itemId = goal.keys().getOrDefault("itemId", "");
-			if (!itemId.isBlank() && !hasKnownInventoryAcquisitionMethod(goal, itemId)) {
-				return new ResolutionFailure(
-					"unknown_acquisition_method",
-					"no registered acquisition method for inventory item " + itemId + "; no target search was started",
-					Map.of("itemId", itemId, "searchStarted", false)
-				);
-			}
-		}
-		if (goal.factType() == ActionFactType.INVENTORY_RESOURCE) {
-			String resourceKind = goal.keys().getOrDefault("resourceKind", "");
-			if (ResourceGatheringCatalog.entry(resourceKind).isEmpty()) {
-				return new ResolutionFailure(
-					"unsupported_resource_kind",
-					"unsupported resource kind " + resourceKind + "; no target search was started",
-					Map.of("resourceKind", resourceKind, "searchStarted", false)
-				);
-			}
-		}
-		return new ResolutionFailure(
-			"no_route",
-			"no route can satisfy " + goal.normalizedKey(),
-			Map.of("searchStarted", false)
-		);
-	}
-
-	private boolean hasKnownInventoryAcquisitionMethod(ActionGoal goal, String itemId) {
-		return !blockAcquisitions.rulesForOutput(itemId).isEmpty()
-			|| craftRecipesByOutput.containsKey(itemId)
-			|| smeltRecipesByOutput.containsKey(itemId);
-	}
-
-	private record ResolutionFailure(String code, String message, Map<String, Object> payload) {
-		private ResolutionFailure {
-			payload = payload == null ? Map.of() : Map.copyOf(payload);
-		}
-	}
-
-	private Optional<ActionRoute> resolveGoal(
-		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
-		List<ActionTraceEvent> trace
-	) {
-		if (advisoryContext != null) {
-			return advisoryContext.resolve(AiricraftPlanConversions.toGoal(goal))
-				.map(route -> AiricraftPlanConversions.toActionRoute(route, context));
-		}
-		trace.add(event("goal_started", "", "", "", Map.of("goal", goal.normalizedKey(), "depth", depth)));
-		if (++expandedGoals > explorationBudget) {
-			budgetExceeded = true;
-			trace.add(event("goal_failed", "", "", "", Map.of("goal", goal.normalizedKey(), "failureCode", "resolution_budget_exceeded")));
-			return Optional.empty();
-		}
-		if (depth > maxDepth) {
-			trace.add(event("goal_failed", "", "", "", Map.of("goal", goal.normalizedKey(), "failureCode", "max_depth_exceeded")));
-			return Optional.empty();
-		}
-		String goalKey = goal.normalizedKey();
-		if (resolving.contains(goalKey)) {
-			trace.add(event("goal_failed", "", "", "", Map.of("goal", goal.normalizedKey(), "failureCode", "cycle_detected")));
-			return Optional.empty();
-		}
-		ActionRoute cached = successfulRoutes.get(goalKey);
-		if (cached != null) {
-			routeCacheHits++;
-			trace.add(event("route_cache_hit", "", "", "", Map.of("goal", goalKey, "cost", cached.cost())));
-			return Optional.of(cached);
-		}
-		resolving.add(goalKey);
-		try {
-			Optional<ActionRoute> route;
-			if (goalSatisfied(goal, trace)) {
-				route = Optional.of(ActionRoute.empty());
-			}
-			else {
-				route = resolveDomainProviderGoal(goal, depth, resolving, trace);
-			}
-			route.ifPresent(resolved -> successfulRoutes.put(goalKey, resolved));
-			return route;
-		}
-		finally {
-			resolving.remove(goalKey);
-		}
-	}
-
-	private Optional<ActionRoute> resolveDomainProviderGoal(
-		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
-		List<ActionTraceEvent> trace
-	) {
-		ArrayList<ProviderCandidate> candidates = new ArrayList<>();
-		for (ProviderResolver resolver : List.<ProviderResolver>of(
-			this::resolveResourceProviderGoal,
-			this::resolveRecipeProviderGoal,
-			this::resolveSmeltingProviderGoal,
-			this::resolveMiningProviderGoal
-		)) {
-			resolver.resolve(goal, depth, resolving, trace).ifPresent(candidates::add);
-			if (budgetExceeded) {
-				return Optional.empty();
-			}
-		}
-		ProviderCandidate selected = candidates.stream()
-			.min(Comparator
-				.comparingInt((ProviderCandidate candidate) -> candidate.route().cost())
-				.thenComparingInt(ProviderCandidate::rank)
-				.thenComparing(ProviderCandidate::actionId)
-				.thenComparing(ProviderCandidate::alternativeId))
-			.orElse(null);
-		if (selected == null) {
-			return Optional.empty();
-		}
-		trace.add(event(
-			"route_selected",
-			selected.actionId(),
-			selected.alternativeId(),
-			"",
-			Map.of("goal", goal.normalizedKey(), "cost", selected.route().cost())
-		));
-		return Optional.of(selected.route());
+	private Optional<ActionRoute> resolveGoal(ActionGoal goal) {
+		return advisoryContext.resolve(AiricraftPlanConversions.toGoal(goal))
+			.map(route -> AiricraftPlanConversions.toActionRoute(route, context));
 	}
 
 	private Optional<ProviderCandidate> resolveResourceProviderGoal(
 		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		if (goal.factType() != ActionFactType.INVENTORY_RESOURCE) {
@@ -330,21 +125,10 @@ final class AiricraftDomainMethodSession {
 			));
 			return Optional.empty();
 		}
-		String alternativeKey = "resource_provider:" + resourceKind;
-		if (blockedAlternativeKeys.contains(alternativeKey)) {
-			trace.add(event(
-				"route_candidate_blocked",
-				"resource_provider",
-				resourceKind,
-				"",
-				Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
-			));
-			return Optional.empty();
-		}
 		int targetCount = goal.minimum("countAtLeast", 1);
 		int deficitCount = Math.max(0, targetCount - existingGoalCount(goal));
 		if (deficitCount <= 0) {
-			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "resource_provider", resourceKind, PROVIDER_RANK_RESOURCE));
+			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "resource_provider", resourceKind));
 		}
 		if (!entry.get().aggregate()) {
 			String itemId = entry.get().primaryItemId();
@@ -358,7 +142,7 @@ final class AiricraftDomainMethodSession {
 				"",
 				Map.of("goal", goal.normalizedKey(), "cost", 35, "resourceKind", resourceKind, "itemId", itemId)
 			));
-			Optional<ActionRoute> itemRoute = resolveGoal(ActionGoal.inventoryItem(itemId, targetCount), depth + 1, resolving, trace);
+			Optional<ActionRoute> itemRoute = resolveGoal(ActionGoal.inventoryItem(itemId, targetCount));
 			if (itemRoute.isEmpty()) {
 				trace.add(event(
 					"route_candidate_rejected",
@@ -369,7 +153,7 @@ final class AiricraftDomainMethodSession {
 				));
 				return Optional.empty();
 			}
-			return Optional.of(new ProviderCandidate(itemRoute.get(), "resource_provider", resourceKind, PROVIDER_RANK_RESOURCE));
+			return Optional.of(new ProviderCandidate(itemRoute.get(), "resource_provider", resourceKind));
 		}
 		int resourceCost = estimateAggregateResourceCost(entry.get(), deficitCount);
 		trace.add(event(
@@ -387,15 +171,12 @@ final class AiricraftDomainMethodSession {
 		return Optional.of(new ProviderCandidate(
 			new ActionRoute(List.of(step), resourceCost),
 			"resource_provider",
-			resourceKind,
-			PROVIDER_RANK_RESOURCE
+			resourceKind
 		));
 	}
 
 	private Optional<ProviderCandidate> resolveRecipeProviderGoal(
 		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		if (goal.factType() != ActionFactType.INVENTORY_ITEM) {
@@ -408,24 +189,13 @@ final class AiricraftDomainMethodSession {
 		int targetCount = goal.minimum("countAtLeast", 1);
 		int deficitCount = Math.max(0, targetCount - existingGoalCount(goal));
 		if (deficitCount <= 0) {
-			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "recipe_provider", outputItemId, PROVIDER_RANK_RECIPE));
+			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "recipe_provider", outputItemId));
 		}
 
 		ActionRoute bestRoute = null;
 		String bestRecipeId = "";
 		for (ActionFact recipe : craftRecipesByOutput.getOrDefault(outputItemId, List.of())) {
 			String recipeId = recipe.identity().keys().getOrDefault("recipeId", "");
-			String alternativeKey = "recipe_provider:" + recipeId;
-			if (blockedAlternativeKeys.contains(alternativeKey)) {
-				trace.add(event(
-					"route_candidate_blocked",
-					"recipe_provider",
-					recipeId,
-					"",
-					Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
-				));
-				continue;
-			}
 			Map<String, Integer> inputCounts = recipeInputCounts(recipe);
 			if (inputCounts.isEmpty()) {
 				continue;
@@ -442,7 +212,7 @@ final class AiricraftDomainMethodSession {
 				if (requiredCount <= 0) {
 					continue;
 				}
-				Optional<ActionRoute> subRoute = resolveRecipeInputGoal(input.getKey(), requiredCount, depth, resolving, trace);
+				Optional<ActionRoute> subRoute = resolveRecipeInputGoal(input.getKey(), requiredCount, trace);
 				if (subRoute.isEmpty()) {
 					inputsResolved = false;
 					break;
@@ -482,7 +252,7 @@ final class AiricraftDomainMethodSession {
 		if (bestRoute == null) {
 			return Optional.empty();
 		}
-		return Optional.of(new ProviderCandidate(bestRoute, "recipe_provider", bestRecipeId, PROVIDER_RANK_RECIPE));
+		return Optional.of(new ProviderCandidate(bestRoute, "recipe_provider", bestRecipeId));
 	}
 
 	private Map<String, Integer> effectiveRecipeInputCounts(
@@ -543,20 +313,13 @@ final class AiricraftDomainMethodSession {
 	private Optional<ActionRoute> resolveRecipeInputGoal(
 		String itemId,
 		int requiredCount,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		if (ActionGraphDomainKnowledge.plankItemIds().contains(itemId)) {
-			return resolveRecipePlankInputGoal(itemId, requiredCount, depth, resolving, trace);
+			return resolveRecipePlankInputGoal(itemId, requiredCount, trace);
 		}
 		if (!ActionGraphDomainKnowledge.logItemIds().contains(itemId)) {
-			return resolveGoal(
-				ActionGoal.inventoryItem(itemId, requiredCount),
-				depth + 1,
-				resolving,
-				trace
-			);
+			return resolveGoal(ActionGoal.inventoryItem(itemId, requiredCount));
 		}
 		int exactCount = existingGoalCount(ActionGoal.inventoryItem(itemId, requiredCount));
 		if (exactCount >= requiredCount) {
@@ -574,19 +337,12 @@ final class AiricraftDomainMethodSession {
 			return Optional.empty();
 		}
 		int missingExactLogs = requiredCount - exactCount;
-		return resolveGoal(
-			ActionGoal.resourceCollection("WOOD_LOGS", totalWoodLogs + missingExactLogs),
-			depth + 1,
-			resolving,
-			trace
-		);
+		return resolveGoal(ActionGoal.resourceCollection("WOOD_LOGS", totalWoodLogs + missingExactLogs));
 	}
 
 	private Optional<ActionRoute> resolveRecipePlankInputGoal(
 		String itemId,
 		int requiredCount,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		int exactCount = existingGoalCount(ActionGoal.inventoryItem(itemId, requiredCount));
@@ -596,22 +352,12 @@ final class AiricraftDomainMethodSession {
 		String logItemId = logItemForPlank(itemId);
 		int logCount = logItemId.isBlank() ? 0 : existingGoalCount(ActionGoal.inventoryItem(logItemId, 1));
 		if (logCount > 0) {
-			return resolveGoal(
-				ActionGoal.inventoryItem(itemId, requiredCount),
-				depth + 1,
-				resolving,
-				trace
-			);
+			return resolveGoal(ActionGoal.inventoryItem(itemId, requiredCount));
 		}
 		int missingLogs = Math.max(1, (int) Math.ceil((requiredCount - exactCount) / 4.0));
 		if (exactCount > 0 || !observedAnyWoodMaterial()) {
 			int totalWoodLogs = existingGoalCount(ActionGoal.resourceCollection("WOOD_LOGS", 1));
-			return resolveGoal(
-				ActionGoal.resourceCollection("WOOD_LOGS", totalWoodLogs + missingLogs),
-				depth + 1,
-				resolving,
-				trace
-			);
+			return resolveGoal(ActionGoal.resourceCollection("WOOD_LOGS", totalWoodLogs + missingLogs));
 		}
 		trace.add(event(
 			"route_candidate_blocked",
@@ -650,8 +396,6 @@ final class AiricraftDomainMethodSession {
 
 	private Optional<ProviderCandidate> resolveMiningProviderGoal(
 		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		if (goal.factType() != ActionFactType.INVENTORY_ITEM) {
@@ -664,24 +408,12 @@ final class AiricraftDomainMethodSession {
 		int targetCount = goal.minimum("countAtLeast", 1);
 		int deficitCount = Math.max(0, targetCount - existingGoalCount(goal));
 		if (deficitCount <= 0) {
-			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "mining_provider", itemId, PROVIDER_RANK_MINING));
+			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "mining_provider", itemId));
 		}
 		List<BlockAcquisitionRule> acquisitionRules = blockAcquisitions.rulesForOutput(itemId);
 		if (acquisitionRules.isEmpty()) {
 			return Optional.empty();
 		}
-		String alternativeKey = "mining_provider:" + itemId;
-		if (blockedAlternativeKeys.contains(alternativeKey)) {
-			trace.add(event(
-				"route_candidate_blocked",
-				"mining_provider",
-				itemId,
-				"",
-				Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
-			));
-			return Optional.empty();
-		}
-
 		ActionRoute bestRoute = null;
 		String bestOptionId = "";
 		for (BlockAcquisitionRule rule : acquisitionRules.stream()
@@ -705,8 +437,6 @@ final class AiricraftDomainMethodSession {
 				rule,
 				expectedBreakCount,
 				availabilityPenalty,
-				depth,
-				resolving,
 				trace,
 				goal,
 				itemId
@@ -768,15 +498,13 @@ final class AiricraftDomainMethodSession {
 			"blockIds", selected.args().get("blockIds"),
 			"requiredToolItemIds", selected.args().get("requiredToolItemIds")
 		)));
-		return Optional.of(new ProviderCandidate(bestRoute, "mining_provider", bestOptionId, PROVIDER_RANK_MINING));
+		return Optional.of(new ProviderCandidate(bestRoute, "mining_provider", bestOptionId));
 	}
 
 	private MiningToolPlan resolveMiningToolPlan(
 		BlockAcquisitionRule rule,
 		int expectedBreakCount,
 		int availabilityPenalty,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace,
 		ActionGoal goal,
 		String outputItemId
@@ -811,12 +539,7 @@ final class AiricraftDomainMethodSession {
 					toolRoute = ActionRoute.empty();
 				}
 				else {
-					Optional<ActionRoute> candidate = resolveGoal(
-						ActionGoal.inventoryItem(toolItemId, 1),
-						depth + 1,
-						resolving,
-						trace
-					);
+					Optional<ActionRoute> candidate = resolveGoal(ActionGoal.inventoryItem(toolItemId, 1));
 					if (candidate.isEmpty()) {
 						continue;
 					}
@@ -851,8 +574,6 @@ final class AiricraftDomainMethodSession {
 
 	private Optional<ProviderCandidate> resolveSmeltingProviderGoal(
 		ActionGoal goal,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace
 	) {
 		if (goal.factType() != ActionFactType.INVENTORY_ITEM) {
@@ -865,7 +586,7 @@ final class AiricraftDomainMethodSession {
 		int targetCount = goal.minimum("countAtLeast", 1);
 		int deficitCount = Math.max(0, targetCount - existingGoalCount(goal));
 		if (deficitCount <= 0) {
-			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "smelting_provider", outputItemId, PROVIDER_RANK_SMELTING));
+			return Optional.of(new ProviderCandidate(ActionRoute.empty(), "smelting_provider", outputItemId));
 		}
 
 		ActionRoute bestRoute = null;
@@ -873,17 +594,6 @@ final class AiricraftDomainMethodSession {
 		int bestProvenanceRank = Integer.MAX_VALUE;
 		for (ActionFact recipe : smeltRecipesByOutput.getOrDefault(outputItemId, List.of())) {
 			String optionId = recipe.identity().keys().getOrDefault("optionId", "");
-			String alternativeKey = "smelting_provider:" + optionId;
-			if (blockedAlternativeKeys.contains(alternativeKey)) {
-				trace.add(event(
-					"route_candidate_blocked",
-					"smelting_provider",
-					optionId,
-					"",
-					Map.of("goal", goal.normalizedKey(), "reason", "previous_failure")
-				));
-				continue;
-			}
 			String inputItemId = scalar(recipe.payload().get("inputItemId"), "");
 			if (inputItemId.isBlank()) {
 				continue;
@@ -899,12 +609,7 @@ final class AiricraftDomainMethodSession {
 			String stationItemId = scalar(recipe.payload().get("stationItemId"), "");
 			int stationItemCount = intPayload(recipe, "stationItemCount", 0);
 			if (!stationItemId.isBlank() && stationItemCount > 0) {
-				Optional<ActionRoute> stationRoute = resolveGoal(
-					ActionGoal.inventoryItem(stationItemId, stationItemCount),
-					depth + 1,
-					resolving,
-					trace
-				);
+				Optional<ActionRoute> stationRoute = resolveGoal(ActionGoal.inventoryItem(stationItemId, stationItemCount));
 				if (stationRoute.isEmpty()) {
 					continue;
 				}
@@ -912,12 +617,7 @@ final class AiricraftDomainMethodSession {
 				routeCost = saturatingAdd(routeCost, stationRoute.get().cost());
 			}
 
-			Optional<ActionRoute> inputRoute = resolveGoal(
-				ActionGoal.inventoryItem(inputItemId, inputQuantity),
-				depth + 1,
-				resolving,
-				trace
-			);
+			Optional<ActionRoute> inputRoute = resolveGoal(ActionGoal.inventoryItem(inputItemId, inputQuantity));
 			if (inputRoute.isEmpty()) {
 				continue;
 			}
@@ -929,8 +629,6 @@ final class AiricraftDomainMethodSession {
 			Optional<FuelPlan> fuelPlan = resolveSmeltingFuel(
 				inputQuantity,
 				cookTimeTicks,
-				depth,
-				resolving,
 				trace,
 				goal
 			);
@@ -1030,14 +728,12 @@ final class AiricraftDomainMethodSession {
 		if (bestRoute == null) {
 			return Optional.empty();
 		}
-		return Optional.of(new ProviderCandidate(bestRoute, "smelting_provider", bestOptionId, PROVIDER_RANK_SMELTING));
+		return Optional.of(new ProviderCandidate(bestRoute, "smelting_provider", bestOptionId));
 	}
 
 	private Optional<FuelPlan> resolveSmeltingFuel(
 		int inputQuantity,
 		int cookTimeTicks,
-		int depth,
-		LinkedHashSet<String> resolving,
 		List<ActionTraceEvent> trace,
 		ActionGoal smeltingGoal
 	) {
@@ -1072,12 +768,9 @@ final class AiricraftDomainMethodSession {
 				continue;
 			}
 			ActionGoal fuelGoal = ActionGoal.inventoryItem(candidate.itemId(), requiredQuantity);
-			Optional<ActionRoute> fuelRoute = resolveGoal(fuelGoal, depth + 1, resolving, trace);
+			Optional<ActionRoute> fuelRoute = resolveGoal(fuelGoal);
 			if (fuelRoute.isPresent()) {
 				bestPlan = new FuelPlan(candidate.itemId(), requiredQuantity, fuelRoute.get(), priority);
-				break;
-			}
-			if (budgetExceeded) {
 				break;
 			}
 		}
@@ -1301,21 +994,10 @@ final class AiricraftDomainMethodSession {
 		return result >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
 	}
 
-	@FunctionalInterface
-	private interface ProviderResolver {
-		Optional<ProviderCandidate> resolve(
-			ActionGoal goal,
-			int depth,
-			LinkedHashSet<String> resolving,
-			List<ActionTraceEvent> trace
-		);
-	}
-
 	private record ProviderCandidate(
 		ActionRoute route,
 		String actionId,
-		String alternativeId,
-		int rank
+		String alternativeId
 	) {
 		private ProviderCandidate {
 			route = route == null ? ActionRoute.empty() : route;

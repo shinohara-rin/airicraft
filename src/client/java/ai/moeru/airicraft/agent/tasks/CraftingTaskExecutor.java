@@ -124,7 +124,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			return fail(request, TaskFailure.of(TaskFailureCode.UNKNOWN, "crafting_busy"));
 		}
 		if (plan == null) {
-			plan = resolvePlan(player, request.craftRecipe());
+			plan = resolvePlan(player, ((WorldTaskRequest.CraftRecipe) request.task()).args());
 			if (plan.failure() != null) {
 				return fail(request, plan.failure());
 			}
@@ -973,7 +973,7 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 			return false;
 		}
 		return Objects.equals(left.taskId(), right.taskId())
-			&& Objects.equals(left.craftRecipe(), right.craftRecipe());
+			&& Objects.equals(left.task(), right.task());
 	}
 
 	@Override

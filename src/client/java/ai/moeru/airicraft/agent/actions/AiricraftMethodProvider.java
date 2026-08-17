@@ -10,17 +10,36 @@ import ai.moeru.actionplan.ResolutionContext;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 
-abstract class AiricraftMethodProvider implements MethodProvider {
+final class AiricraftMethodProvider implements MethodProvider {
 	private final ProviderId id;
 	private final int rank;
-	private final AiricraftPlanningSnapshot snapshot;
+	private final BiFunction<ActionGoal, ResolutionContext, ActionResolveResult> resolver;
 
-	AiricraftMethodProvider(String id, int rank, AiricraftPlanningSnapshot snapshot) {
+	private AiricraftMethodProvider(
+		String id,
+		int rank,
+		BiFunction<ActionGoal, ResolutionContext, ActionResolveResult> resolver
+	) {
 		this.id = new ProviderId(id);
 		this.rank = rank;
-		this.snapshot = snapshot;
+		this.resolver = resolver;
+	}
+
+	static List<MethodProvider> providers(AiricraftPlanningSnapshot snapshot) {
+		return List.of(
+			new AiricraftMethodProvider("resource_provider", 0,
+				(goal, context) -> AiricraftDomainMethodSession.resolveResourceProvider(snapshot, goal, context)),
+			new AiricraftMethodProvider("recipe_provider", 0,
+				(goal, context) -> AiricraftDomainMethodSession.resolveRecipeProvider(snapshot, goal, context)),
+			new AiricraftMethodProvider("smelting_provider", 1,
+				(goal, context) -> AiricraftDomainMethodSession.resolveSmeltingProvider(snapshot, goal, context)),
+			new AiricraftMethodProvider("mining_provider", 2,
+				(goal, context) -> AiricraftDomainMethodSession.resolveMiningProvider(snapshot, goal, context))
+		);
 	}
 
 	@Override
@@ -36,7 +55,7 @@ abstract class AiricraftMethodProvider implements MethodProvider {
 	@Override
 	public final Optional<MethodRoute> resolve(Goal goal, ResolutionContext context) {
 		ActionGoal actionGoal = AiricraftPlanConversions.toActionGoal(goal);
-		ActionResolveResult result = resolveDomainRoute(actionGoal, context);
+		ActionResolveResult result = resolver.apply(actionGoal, context);
 		result.trace().forEach(event -> context.trace(
 			event.eventType(),
 			new MethodKey(new ProviderId(nonEmpty(event.actionId(), id.value())), nonEmpty(event.alternativeId(), "unknown")),
@@ -60,12 +79,6 @@ abstract class AiricraftMethodProvider implements MethodProvider {
 		}
 		return Optional.of(new MethodRoute(methodKey, commands, result.route().cost()));
 	}
-
-	protected final AiricraftPlanningSnapshot snapshot() {
-		return snapshot;
-	}
-
-	protected abstract ActionResolveResult resolveDomainRoute(ActionGoal goal, ResolutionContext context);
 
 	private static String nonEmpty(String value, String fallback) {
 		return value == null || value.isBlank() ? fallback : value;

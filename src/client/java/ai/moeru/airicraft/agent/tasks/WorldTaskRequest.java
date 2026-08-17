@@ -1,199 +1,168 @@
 package ai.moeru.airicraft.agent.tasks;
 
-import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
+import ai.moeru.airicraft.agent.goals.GoalSnapshot;
 import ai.moeru.airicraft.agent.goals.GoalType;
 
 import java.util.List;
 import java.util.Objects;
 
-public record WorldTaskRequest(
-	String taskId,
-	String sourceJobId,
-	WorldTaskType type,
-	GoalSnapshot goal,
-	CraftRecipeStepArgs craftRecipe,
-	DropItemsStepArgs dropItems,
-	EntityInteractionStepArgs entityInteraction,
-	SmeltItemsStepArgs smeltItems,
-	CollectSmeltedItemsStepArgs collectSmeltedItems,
-	ReturnToSurfaceStepArgs returnToSurface,
-	BlockPlacementStepArgs blockPlacement,
-	BlockUseStepArgs blockUse,
-	BlockBreakStepArgs blockBreak,
-	UnderwaterHarvestStepArgs underwaterHarvest,
-	List<GoalPosition> pickupSweepPositions,
-	boolean mineGoalSatisfied
-) {
-	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe, DropItemsStepArgs dropItems, EntityInteractionStepArgs entityInteraction, SmeltItemsStepArgs smeltItems, CollectSmeltedItemsStepArgs collectSmeltedItems, ReturnToSurfaceStepArgs returnToSurface, BlockPlacementStepArgs blockPlacement, BlockUseStepArgs blockUse, BlockBreakStepArgs blockBreak, GoalPosition pickupSweepPosition) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, entityInteraction, smeltItems, collectSmeltedItems, returnToSurface, blockPlacement, blockUse, blockBreak, null, pickupSweepPosition == null ? List.of() : List.of(pickupSweepPosition), false);
-	}
-
-	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe, DropItemsStepArgs dropItems, EntityInteractionStepArgs entityInteraction, SmeltItemsStepArgs smeltItems, CollectSmeltedItemsStepArgs collectSmeltedItems, ReturnToSurfaceStepArgs returnToSurface, BlockPlacementStepArgs blockPlacement, BlockUseStepArgs blockUse, BlockBreakStepArgs blockBreak) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, entityInteraction, smeltItems, collectSmeltedItems, returnToSurface, blockPlacement, blockUse, blockBreak, null, List.of(), false);
-	}
-
-	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal) {
-		this(taskId, sourceJobId, type, goal, null, null, null, null, null, null, null, null, null, null);
-	}
-
-	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, null, null, null, null, null, null, null, null, null);
-	}
-
-	public WorldTaskRequest(String taskId, String sourceJobId, WorldTaskType type, GoalSnapshot goal, CraftRecipeStepArgs craftRecipe, DropItemsStepArgs dropItems) {
-		this(taskId, sourceJobId, type, goal, craftRecipe, dropItems, null, null, null, null, null, null, null);
-	}
-
+public record WorldTaskRequest(String taskId, String sourceJobId, Task task) {
 	public WorldTaskRequest {
-		taskId = normalizedValue(taskId, "taskId");
-		sourceJobId = normalizedValue(sourceJobId, "sourceJobId");
-		type = Objects.requireNonNull(type, "type");
-		pickupSweepPositions = List.copyOf(pickupSweepPositions == null ? List.of() : pickupSweepPositions);
-		if (type == WorldTaskType.CRAFT_RECIPE) {
-			craftRecipe = Objects.requireNonNull(craftRecipe, "craftRecipe");
+		taskId = normalize(taskId, "taskId");
+		sourceJobId = normalize(sourceJobId, "sourceJobId");
+		task = Objects.requireNonNull(task, "task");
+	}
+
+	public WorldTaskType type() {
+		return switch (task) {
+			case Follow ignored -> WorldTaskType.FOLLOW;
+			case Navigate ignored -> WorldTaskType.NAVIGATE;
+			case Mine ignored -> WorldTaskType.MINE;
+			case UnderwaterHarvest ignored -> WorldTaskType.UNDERWATER_HARVEST;
+			case CraftRecipe ignored -> WorldTaskType.CRAFT_RECIPE;
+			case DropItems ignored -> WorldTaskType.DROP_ITEMS;
+			case SmeltItems ignored -> WorldTaskType.SMELT_ITEMS;
+			case CollectSmeltedItems ignored -> WorldTaskType.COLLECT_SMELTED_ITEMS;
+			case AttackEntity ignored -> WorldTaskType.ATTACK_ENTITY;
+			case UseEntity ignored -> WorldTaskType.USE_ENTITY;
+			case PlaceBlock ignored -> WorldTaskType.PLACE_BLOCK;
+			case UseBlock ignored -> WorldTaskType.USE_BLOCK;
+			case BreakBlocks ignored -> WorldTaskType.BREAK_BLOCKS;
+			case ReturnToSurface ignored -> WorldTaskType.RETURN_TO_SURFACE;
+		};
+	}
+
+	public GoalSnapshot goal() {
+		return switch (task) {
+			case Follow value -> value.goal();
+			case Navigate value -> value.goal();
+			case Mine value -> value.goal();
+			case UnderwaterHarvest value -> value.goal();
+			default -> null;
+		};
+	}
+
+	public WorldTaskRequest withPickupSweepPositions(List<GoalPosition> positions) {
+		if (!(task instanceof Mine value)) {
+			throw new IllegalStateException("pickup sweep is only valid for mine tasks");
 		}
-		else if (type == WorldTaskType.DROP_ITEMS) {
-			dropItems = Objects.requireNonNull(dropItems, "dropItems");
-		}
-		else if (type == WorldTaskType.ATTACK_ENTITY || type == WorldTaskType.USE_ENTITY) {
-			entityInteraction = Objects.requireNonNull(entityInteraction, "entityInteraction");
-		}
-		else if (type == WorldTaskType.SMELT_ITEMS) {
-			smeltItems = Objects.requireNonNull(smeltItems, "smeltItems");
-		}
-		else if (type == WorldTaskType.COLLECT_SMELTED_ITEMS) {
-			collectSmeltedItems = Objects.requireNonNull(collectSmeltedItems, "collectSmeltedItems");
-		}
-		else if (type == WorldTaskType.RETURN_TO_SURFACE) {
-			returnToSurface = Objects.requireNonNull(returnToSurface, "returnToSurface");
-		}
-		else if (type == WorldTaskType.PLACE_BLOCK) {
-			blockPlacement = Objects.requireNonNull(blockPlacement, "blockPlacement");
-		}
-		else if (type == WorldTaskType.USE_BLOCK) {
-			blockUse = Objects.requireNonNull(blockUse, "blockUse");
-		}
-		else if (type == WorldTaskType.BREAK_BLOCKS) {
-			blockBreak = Objects.requireNonNull(blockBreak, "blockBreak");
-		}
-		else if (type == WorldTaskType.UNDERWATER_HARVEST) {
-			goal = Objects.requireNonNull(goal, "goal");
-			underwaterHarvest = Objects.requireNonNull(underwaterHarvest, "underwaterHarvest");
-		}
-		else {
-			goal = Objects.requireNonNull(goal, "goal");
-		}
+		return new WorldTaskRequest(taskId, sourceJobId, new Mine(value.goal(), positions, value.mineGoalSatisfied()));
+	}
+
+	public WorldTaskRequest withMineGoalSatisfied(boolean satisfied) {
+		Task updated = switch (task) {
+			case Mine value -> new Mine(value.goal(), value.pickupSweepPositions(), satisfied);
+			case UnderwaterHarvest value -> new UnderwaterHarvest(value.goal(), value.args(), satisfied);
+			default -> throw new IllegalStateException("mine satisfaction is only valid for mining tasks");
+		};
+		return new WorldTaskRequest(taskId, sourceJobId, updated);
 	}
 
 	public static WorldTaskRequest direct(String taskId, GoalSnapshot goal) {
-		return new WorldTaskRequest(taskId, taskId, typeFor(goal), goal, null);
+		Task task = switch (Objects.requireNonNull(goal, "goal").type()) {
+			case FOLLOW_PLAYER -> new Follow(goal);
+			case NAVIGATE_TO -> new Navigate(goal);
+			case MINE_BLOCKS -> new Mine(goal, List.of(), false);
+		};
+		return new WorldTaskRequest(taskId, taskId, task);
 	}
 
 	public static WorldTaskRequest collectMine(String taskId, String sourceJobId, GoalSnapshot goal) {
 		return collectMine(taskId, sourceJobId, goal, List.of());
 	}
 
-	public static WorldTaskRequest collectMine(String taskId, String sourceJobId, GoalSnapshot goal, GoalPosition pickupSweepPosition) {
-		return collectMine(taskId, sourceJobId, goal, pickupSweepPosition == null ? List.of() : List.of(pickupSweepPosition));
+	public static WorldTaskRequest collectMine(String taskId, String sourceJobId, GoalSnapshot goal, List<GoalPosition> positions) {
+		return new WorldTaskRequest(taskId, sourceJobId, new Mine(goal, positions, false));
 	}
 
-	public static WorldTaskRequest collectMine(String taskId, String sourceJobId, GoalSnapshot goal, List<GoalPosition> pickupSweepPositions) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.MINE, goal, null, null, null, null, null, null, null, null, null, null, pickupSweepPositions, false);
+	public static WorldTaskRequest underwaterHarvest(String taskId, String sourceJobId, GoalSnapshot goal, UnderwaterHarvestStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new UnderwaterHarvest(goal, args, false));
 	}
 
-	public static WorldTaskRequest underwaterHarvest(
-		String taskId,
-		String sourceJobId,
-		GoalSnapshot goal,
-		UnderwaterHarvestStepArgs underwaterHarvest
-	) {
-		return new WorldTaskRequest(
-			taskId,
-			sourceJobId,
-			WorldTaskType.UNDERWATER_HARVEST,
-			goal,
-			null,
-			null,
-			null,
-			null,
-			null,
-			null,
-			null,
-			null,
-			null,
-			Objects.requireNonNull(underwaterHarvest, "underwaterHarvest"),
-			List.of(),
-			false
-		);
+	public static WorldTaskRequest craftRecipe(String taskId, String sourceJobId, CraftRecipeStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new CraftRecipe(args));
 	}
 
-	public static WorldTaskRequest craftRecipe(String taskId, String sourceJobId, CraftRecipeStepArgs craftRecipe) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.CRAFT_RECIPE, null, craftRecipe, null, null, null, null, null, null, null, null);
+	public static WorldTaskRequest dropItems(String taskId, String sourceJobId, DropItemsStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new DropItems(args));
 	}
 
-	public static WorldTaskRequest dropItems(String taskId, String sourceJobId, DropItemsStepArgs dropItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.DROP_ITEMS, null, null, dropItems, null, null, null, null, null, null, null);
+	public static WorldTaskRequest attackEntity(String taskId, String sourceJobId, EntityInteractionStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new AttackEntity(args));
 	}
 
-	public static WorldTaskRequest attackEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.ATTACK_ENTITY, null, null, null, entityInteraction, null, null, null, null, null, null);
+	public static WorldTaskRequest useEntity(String taskId, String sourceJobId, EntityInteractionStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new UseEntity(args));
 	}
 
-	public static WorldTaskRequest useEntity(String taskId, String sourceJobId, EntityInteractionStepArgs entityInteraction) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_ENTITY, null, null, null, entityInteraction, null, null, null, null, null, null);
+	public static WorldTaskRequest smeltItems(String taskId, String sourceJobId, SmeltItemsStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new SmeltItems(args));
 	}
 
-	public static WorldTaskRequest smeltItems(String taskId, String sourceJobId, SmeltItemsStepArgs smeltItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.SMELT_ITEMS, null, null, null, null, smeltItems, null, null, null, null, null);
+	public static WorldTaskRequest collectSmeltedItems(String taskId, String sourceJobId, CollectSmeltedItemsStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new CollectSmeltedItems(args));
 	}
 
-	public static WorldTaskRequest collectSmeltedItems(String taskId, String sourceJobId, CollectSmeltedItemsStepArgs collectSmeltedItems) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.COLLECT_SMELTED_ITEMS, null, null, null, null, null, collectSmeltedItems, null, null, null, null);
+	public static WorldTaskRequest returnToSurface(String taskId, String sourceJobId, ReturnToSurfaceStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new ReturnToSurface(args));
 	}
 
-	public static WorldTaskRequest returnToSurface(String taskId, String sourceJobId, ReturnToSurfaceStepArgs returnToSurface) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.RETURN_TO_SURFACE, null, null, null, null, null, null, returnToSurface, null, null, null);
+	public static WorldTaskRequest placeBlock(String taskId, String sourceJobId, BlockPlacementStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new PlaceBlock(args));
 	}
 
-	public static WorldTaskRequest placeBlock(String taskId, String sourceJobId, BlockPlacementStepArgs blockPlacement) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.PLACE_BLOCK, null, null, null, null, null, null, null, blockPlacement, null, null);
+	public static WorldTaskRequest useBlock(String taskId, String sourceJobId, BlockUseStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new UseBlock(args));
 	}
 
-	public static WorldTaskRequest useBlock(String taskId, String sourceJobId, BlockUseStepArgs blockUse) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.USE_BLOCK, null, null, null, null, null, null, null, null, blockUse, null);
+	public static WorldTaskRequest breakBlocks(String taskId, String sourceJobId, BlockBreakStepArgs args) {
+		return new WorldTaskRequest(taskId, sourceJobId, new BreakBlocks(args));
 	}
 
-	public static WorldTaskRequest breakBlocks(String taskId, String sourceJobId, BlockBreakStepArgs blockBreak) {
-		return new WorldTaskRequest(taskId, sourceJobId, WorldTaskType.BREAK_BLOCKS, null, null, null, null, null, null, null, null, null, blockBreak);
+	public sealed interface Task {
 	}
 
-	public WorldTaskRequest withPickupSweepPosition(GoalPosition position) {
-		return withPickupSweepPositions(position == null ? List.of() : List.of(position));
+	public record Follow(GoalSnapshot goal) implements Task {
+		public Follow { requireGoal(goal, GoalType.FOLLOW_PLAYER); }
 	}
 
-	public WorldTaskRequest withPickupSweepPositions(List<GoalPosition> positions) {
-		return new WorldTaskRequest(taskId, sourceJobId, type, goal, craftRecipe, dropItems, entityInteraction, smeltItems, collectSmeltedItems, returnToSurface, blockPlacement, blockUse, blockBreak, underwaterHarvest, positions, mineGoalSatisfied);
+	public record Navigate(GoalSnapshot goal) implements Task {
+		public Navigate { requireGoal(goal, GoalType.NAVIGATE_TO); }
 	}
 
-	public GoalPosition pickupSweepPosition() {
-		return pickupSweepPositions.isEmpty() ? null : pickupSweepPositions.getLast();
+	public record Mine(GoalSnapshot goal, List<GoalPosition> pickupSweepPositions, boolean mineGoalSatisfied) implements Task {
+		public Mine {
+			requireGoal(goal, GoalType.MINE_BLOCKS);
+			pickupSweepPositions = List.copyOf(pickupSweepPositions == null ? List.of() : pickupSweepPositions);
+		}
 	}
 
-	public WorldTaskRequest withMineGoalSatisfied(boolean satisfied) {
-		return new WorldTaskRequest(taskId, sourceJobId, type, goal, craftRecipe, dropItems, entityInteraction, smeltItems, collectSmeltedItems, returnToSurface, blockPlacement, blockUse, blockBreak, underwaterHarvest, pickupSweepPositions, satisfied);
+	public record UnderwaterHarvest(GoalSnapshot goal, UnderwaterHarvestStepArgs args, boolean mineGoalSatisfied) implements Task {
+		public UnderwaterHarvest {
+			requireGoal(goal, GoalType.MINE_BLOCKS);
+			Objects.requireNonNull(args, "underwaterHarvest");
+		}
 	}
 
-	private static WorldTaskType typeFor(GoalSnapshot goal) {
-		GoalType goalType = Objects.requireNonNull(goal, "goal").type();
-		return switch (goalType) {
-			case FOLLOW_PLAYER -> WorldTaskType.FOLLOW;
-			case NAVIGATE_TO -> WorldTaskType.NAVIGATE;
-			case MINE_BLOCKS -> WorldTaskType.MINE;
-		};
+	public record CraftRecipe(CraftRecipeStepArgs args) implements Task { public CraftRecipe { Objects.requireNonNull(args, "craftRecipe"); } }
+	public record DropItems(DropItemsStepArgs args) implements Task { public DropItems { Objects.requireNonNull(args, "dropItems"); } }
+	public record SmeltItems(SmeltItemsStepArgs args) implements Task { public SmeltItems { Objects.requireNonNull(args, "smeltItems"); } }
+	public record CollectSmeltedItems(CollectSmeltedItemsStepArgs args) implements Task { public CollectSmeltedItems { Objects.requireNonNull(args, "collectSmeltedItems"); } }
+	public record AttackEntity(EntityInteractionStepArgs args) implements Task { public AttackEntity { Objects.requireNonNull(args, "entityInteraction"); } }
+	public record UseEntity(EntityInteractionStepArgs args) implements Task { public UseEntity { Objects.requireNonNull(args, "entityInteraction"); } }
+	public record PlaceBlock(BlockPlacementStepArgs args) implements Task { public PlaceBlock { Objects.requireNonNull(args, "blockPlacement"); } }
+	public record UseBlock(BlockUseStepArgs args) implements Task { public UseBlock { Objects.requireNonNull(args, "blockUse"); } }
+	public record BreakBlocks(BlockBreakStepArgs args) implements Task { public BreakBlocks { Objects.requireNonNull(args, "blockBreak"); } }
+	public record ReturnToSurface(ReturnToSurfaceStepArgs args) implements Task { public ReturnToSurface { Objects.requireNonNull(args, "returnToSurface"); } }
+
+	private static void requireGoal(GoalSnapshot goal, GoalType expectedType) {
+		if (Objects.requireNonNull(goal, "goal").type() != expectedType) {
+			throw new IllegalArgumentException("goal must be " + expectedType);
+		}
 	}
 
-	private static String normalizedValue(String value, String fieldName) {
+	private static String normalize(String value, String fieldName) {
 		String trimmed = value == null ? null : value.trim();
 		if (trimmed == null || trimmed.isEmpty()) {
 			throw new IllegalArgumentException(fieldName + " is required");

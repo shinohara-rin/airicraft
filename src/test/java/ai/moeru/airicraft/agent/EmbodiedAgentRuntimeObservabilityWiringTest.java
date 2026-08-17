@@ -2,14 +2,22 @@ package ai.moeru.airicraft.agent;
 
 import ai.moeru.airicraft.AiricraftConfig;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
+import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.dialogue.DialogueRuntime;
 import ai.moeru.airicraft.agent.llm.PlannerOrchestrator;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.FlightRecordingObservability;
+import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
+import ai.moeru.airicraft.agent.tasks.TaskExecutionSnapshot;
+import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
+import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
+import ai.moeru.airicraft.agent.tasks.WorldTaskRequest;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -29,13 +37,18 @@ class EmbodiedAgentRuntimeObservabilityWiringTest {
 			false,
 			false
 		));
+		AiricraftConfig airicraftConfig = AiricraftConfig.defaults();
 
 		try {
 			EmbodiedAgentRuntime runtime = new EmbodiedAgentRuntime(
-				AiricraftConfig.defaults(),
+				airicraftConfig,
 				AgentConfig.defaults(),
 				new FirstPersonScreenshotService(),
-				observability
+				new NoopWorldTaskExecutor(),
+				observability,
+				new SmeltingProcessManager(),
+				new CameraController(airicraftConfig.cameraLerpDefaultTicks()),
+				null
 			);
 
 			DialogueRuntime dialogueRuntime = (DialogueRuntime) readField(runtime, "dialogueRuntime");
@@ -56,5 +69,25 @@ class EmbodiedAgentRuntimeObservabilityWiringTest {
 		Field field = target.getClass().getDeclaredField(fieldName);
 		field.setAccessible(true);
 		return field.get(target);
+	}
+
+	private static final class NoopWorldTaskExecutor implements WorldTaskExecutor {
+		@Override
+		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
+			return Optional.empty();
+		}
+
+		@Override
+		public TaskExecutionSnapshot snapshot() {
+			return TaskExecutionSnapshot.idle();
+		}
+
+		@Override
+		public void onWorldLeave() {
+		}
+
+		@Override
+		public void shutdown() {
+		}
 	}
 }

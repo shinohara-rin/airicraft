@@ -9,6 +9,8 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,13 +24,9 @@ class AiricraftCliMainTest {
 	@Test
 	void statusRendersDeterministicText() {
 		TestTransport transport = new TestTransport();
-		transport.statusPayload = linkedMap(
-			"available", false,
-			"bridgeAvailable", false,
-			"worldLoaded", false,
-			"sessionState", "minecraft_unavailable",
-			"state", "minecraft_unavailable",
-			"message", "Minecraft bridge is not active"
+		transport.when("GET", "/v1/status").failure = new BridgeUnavailableException(
+			"minecraft_unavailable",
+			"Minecraft bridge is not active"
 		);
 
 		CliResult result = execute(transport, "status");
@@ -45,7 +43,7 @@ class AiricraftCliMainTest {
 	@Test
 	void reloadRendersDeterministicText() {
 		TestTransport transport = new TestTransport();
-		transport.reloadPayload = linkedMap(
+		transport.when("POST", "/v1/reload").payload = linkedMap(
 			"available", true,
 			"reloaded", true,
 			"agentStateReset", true,
@@ -67,13 +65,13 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("reloaded: true\n"));
 		assertTrue(result.output().contains("agentStateReset: true\n"));
 		assertTrue(result.output().contains("plannerVisionMode: native_tool_image\n"));
-		assertTrue(transport.reloadCalled);
+		assertTrue(transport.requested("POST", "/v1/reload"));
 	}
 
 	@Test
 	void agentContextRendersCompactionState() {
 		TestTransport transport = new TestTransport();
-		transport.agentContextPayload = linkedMap(
+		transport.when("GET", "/v1/agent/context").payload = linkedMap(
 			"available", true,
 			"planner", linkedMap(
 				"configured", true,
@@ -129,7 +127,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentContextVerboseIncludesContextExcerpt() {
 		TestTransport transport = new TestTransport();
-		transport.agentContextPayload = linkedMap(
+		transport.when("GET", "/v1/agent/context").payload = linkedMap(
 			"available", true,
 			"planner", linkedMap(
 				"configured", true,
@@ -163,7 +161,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentDialogueVerboseIncludesConversationAliases() {
 		TestTransport transport = new TestTransport();
-		transport.agentDialoguePayload = linkedMap(
+		transport.when("GET", "/v1/agent/dialogue").payload = linkedMap(
 			"available", true,
 			"dialogue", linkedMap(
 				"pendingReply", false,
@@ -196,7 +194,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentSessionOpenLanRendersDeterministicText() {
 		TestTransport transport = new TestTransport();
-		transport.agentSessionOpenLanPayload = linkedMap(
+		transport.when("POST", "/v1/agent/session/open-lan").payload = linkedMap(
 			"opened", true,
 			"port", 25565
 		);
@@ -215,7 +213,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentDebugChatPassesMessagePayload() {
 		TestTransport transport = new TestTransport();
-		transport.agentDebugChatPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/chat").payload = linkedMap(
 			"available", true,
 			"accepted", true,
 			"senderName", "Player688",
@@ -229,7 +227,7 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("@agent get me 4 wood logs", transport.lastDebugChatMessage);
+		assertEquals("@agent get me 4 wood logs", transport.body("POST", "/v1/agent/debug/chat").get("message"));
 		assertTrue(result.output().contains("command: agent debug chat\n"));
 		assertTrue(result.output().contains("accepted: true\n"));
 	}
@@ -237,7 +235,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentDebugIdleTriggerFiresManualTrigger() {
 		TestTransport transport = new TestTransport();
-		transport.agentDebugIdleTriggerPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/idle-trigger").payload = linkedMap(
 			"available", true,
 			"accepted", true,
 			"triggerType", "idle_think",
@@ -249,7 +247,7 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "debug", "idle-trigger");
 
 		assertEquals(0, result.exitCode());
-		assertTrue(transport.agentDebugIdleTriggerCalled);
+		assertTrue(transport.requested("POST", "/v1/agent/debug/idle-trigger"));
 		assertTrue(result.output().contains("command: agent debug idle-trigger\n"));
 		assertTrue(result.output().contains("accepted: true\n"));
 		assertTrue(result.output().contains("triggerType: idle_think\n"));
@@ -258,7 +256,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentDebugStateShowsActionDispatchState() {
 		TestTransport transport = new TestTransport();
-		transport.agentDebugStatePayload = linkedMap(
+		transport.when("GET", "/v1/agent/debug/state").payload = linkedMap(
 			"available", true,
 			"planner", linkedMap("configured", true),
 			"dialogueState", linkedMap("pendingReply", false),
@@ -289,7 +287,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentDebugTimelinePassesSinceAndRendersEntries() {
 		TestTransport transport = new TestTransport();
-		transport.agentDebugTimelinePayload = linkedMap(
+		transport.when("GET", "/v1/agent/debug/timeline").payload = linkedMap(
 			"available", true,
 			"oldestEntryId", 3,
 			"latestEntryId", 7,
@@ -309,7 +307,7 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "debug", "timeline", "--since", "4");
 
 		assertEquals(0, result.exitCode());
-		assertEquals(4L, transport.lastDebugTimelineSince);
+		assertEquals("/v1/agent/debug/timeline?since=4", transport.lastRequest("GET", "/v1/agent/debug/timeline").path());
 		assertTrue(result.output().contains("command: agent debug timeline\n"));
 		assertTrue(result.output().contains("entryCount: 1\n"));
 		assertTrue(result.output().contains("summary: TIMEOUT: LLM request timed out\n"));
@@ -318,7 +316,7 @@ class AiricraftCliMainTest {
 	@Test
 	void clientTickPauseSavesFrameAndRendersSnapshotIdentity(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.clientTickDebugPausePayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/ticks/pause").payload = linkedMap(
 			"available", true,
 			"debugSessionId", "debug-1",
 			"pauseEpoch", 1L,
@@ -355,13 +353,13 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("action: attack\n"));
 		assertTrue(result.output().contains("stage: 6\n"));
 		assertTrue(result.output().contains("imageOutputPath: " + output + "\n"));
-		assertTrue(transport.lastClientTickDebugPlayerActions);
+		assertEquals(true, transport.body("POST", "/v1/agent/debug/ticks/pause").get("playerActions"));
 	}
 
 	@Test
 	void clientTickStepPassesExactSessionAndPauseEpoch() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickDebugStepPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/ticks/step").payload = linkedMap(
 			"available", true,
 			"debugSessionId", "debug-1",
 			"pauseEpoch", 3L,
@@ -379,21 +377,21 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("debug-1", transport.lastClientTickDebugSessionId);
-		assertEquals(2L, transport.lastClientTickDebugPauseEpoch);
+		assertEquals("debug-1", transport.body("POST", "/v1/agent/debug/ticks/step").get("debugSessionId"));
+		assertEquals(2L, transport.body("POST", "/v1/agent/debug/ticks/step").get("pauseEpoch"));
 		assertFalse(result.output().contains("imageBase64"));
 	}
 
 	@Test
 	void clientTickTraceStartBuildsSelectedQueriesAndWindow(@TempDir Path tempDir) {
 		TestTransport transport = new TestTransport();
-		transport.clientTickTraceStartPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/trace/start").payload = linkedMap(
 			"active", true,
 			"traceId", "trace-1",
 			"startedClientTickId", 40L,
 			"windowTicks", 100
 		);
-		transport.clientTickTraceRecordsPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/trace/records").payload = linkedMap(
 			"active", false,
 			"complete", true,
 			"records", List.of()
@@ -411,11 +409,11 @@ class AiricraftCliMainTest {
 		assertEquals(0, result.exitCode());
 		assertEquals(
 			List.of("metadata", "player_state", "player_actions", "entities", "frame"),
-			transport.lastClientTickTraceStartRequest.get("infos")
+			transport.body("POST", "/v1/agent/debug/trace/start").get("infos")
 		);
-		assertEquals(100, transport.lastClientTickTraceStartRequest.get("windowTicks"));
-		assertEquals(false, transport.lastClientTickTraceStartRequest.get("once"));
-		Map<String, Object> entityQuery = castMap(transport.lastClientTickTraceStartRequest.get("entityQuery"));
+		assertEquals(100, transport.body("POST", "/v1/agent/debug/trace/start").get("windowTicks"));
+		assertEquals(false, transport.body("POST", "/v1/agent/debug/trace/start").get("once"));
+		Map<String, Object> entityQuery = castMap(transport.body("POST", "/v1/agent/debug/trace/start").get("entityQuery"));
 		assertEquals(16, entityQuery.get("radius"));
 		assertEquals(List.of("minecraft:zombie"), entityQuery.get("entityTypeIds"));
 		assertEquals(12, entityQuery.get("limit"));
@@ -435,7 +433,7 @@ class AiricraftCliMainTest {
 
 		assertEquals(2, result.exitCode());
 		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
-		assertTrue(transport.lastClientTickTraceStartRequest == null);
+		assertTrue(transport.body("POST", "/v1/agent/debug/trace/start") == null);
 	}
 
 	@Test
@@ -457,14 +455,14 @@ class AiricraftCliMainTest {
 	@Test
 	void clientTickTraceStartStreamsJsonLinesAndFrames(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.clientTickTraceStartPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/trace/start").payload = linkedMap(
 			"active", true,
 			"traceId", "trace-1",
 			"startedClientTickId", 40L,
 			"windowTicks", 2,
 			"once", true
 		);
-		transport.clientTickTraceRecordsPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/trace/records").payload = linkedMap(
 			"traceId", "trace-1",
 			"active", false,
 			"complete", true,
@@ -495,11 +493,12 @@ class AiricraftCliMainTest {
 		assertTrue(lines.get(1).contains("\"event\":\"trace_record\""));
 		assertTrue(lines.get(1).contains("\"imageBase64\":\"BwgJ\""));
 		assertTrue(lines.getLast().contains("\"event\":\"trace_end\""));
-		assertEquals("trace-1", transport.lastClientTickTraceId);
-		assertEquals(40L, transport.lastClientTickTraceSince);
-		assertEquals(256, transport.lastClientTickTraceLimit);
-		assertTrue(transport.lastClientTickTraceIncludeImageBytes);
-		assertEquals(true, transport.lastClientTickTraceStartRequest.get("once"));
+		Map<String, Object> recordsRequest = transport.body("POST", "/v1/agent/debug/trace/records");
+		assertEquals("trace-1", recordsRequest.get("traceId"));
+		assertEquals(40L, recordsRequest.get("sinceClientTickId"));
+		assertEquals(256, recordsRequest.get("limit"));
+		assertEquals(true, recordsRequest.get("includeImageBytes"));
+		assertEquals(true, transport.body("POST", "/v1/agent/debug/trace/start").get("once"));
 		assertFalse(result.output().contains("imageBase64"));
 	}
 
@@ -514,13 +513,13 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(2, result.exitCode());
-		assertEquals(null, transport.lastClientTickTraceId);
+		assertFalse(transport.requested("POST", "/v1/agent/debug/trace/records"));
 	}
 
 	@Test
 	void clientTickWorldScanBoxBuildsBoundedRegionRequest() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "blocks", List.of());
+		transport.when("POST", "/v1/agent/debug/world/query").payload = linkedMap("snapshotId", "snapshot-3", "blocks", List.of());
 
 		CliResult result = execute(
 			transport,
@@ -532,18 +531,18 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
-		assertEquals("scan_box", transport.lastClientTickWorldQuery.get("operation"));
-		assertEquals(-10, transport.lastClientTickWorldQuery.get("minX"));
-		assertEquals(40, transport.lastClientTickWorldQuery.get("maxZ"));
-		assertEquals(100L, transport.lastClientTickWorldQuery.get("cursor"));
-		assertEquals(512, transport.lastClientTickWorldQuery.get("limit"));
+		assertEquals("snapshot-3", transport.body("POST", "/v1/agent/debug/world/query").get("snapshotId"));
+		assertEquals("scan_box", transport.body("POST", "/v1/agent/debug/world/query").get("operation"));
+		assertEquals(-10, transport.body("POST", "/v1/agent/debug/world/query").get("minX"));
+		assertEquals(40, transport.body("POST", "/v1/agent/debug/world/query").get("maxZ"));
+		assertEquals(100L, transport.body("POST", "/v1/agent/debug/world/query").get("cursor"));
+		assertEquals(512, transport.body("POST", "/v1/agent/debug/world/query").get("limit"));
 	}
 
 	@Test
 	void clientTickWorldPlayerStateBuildsSnapshotRequest() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "player", Map.of());
+		transport.when("POST", "/v1/agent/debug/world/query").payload = linkedMap("snapshotId", "snapshot-3", "player", Map.of());
 
 		CliResult result = execute(
 			transport,
@@ -552,14 +551,14 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("snapshot-3", transport.lastClientTickWorldQuery.get("snapshotId"));
-		assertEquals("player_state", transport.lastClientTickWorldQuery.get("operation"));
+		assertEquals("snapshot-3", transport.body("POST", "/v1/agent/debug/world/query").get("snapshotId"));
+		assertEquals("player_state", transport.body("POST", "/v1/agent/debug/world/query").get("operation"));
 	}
 
 	@Test
 	void clientTickWorldEntitiesBuildsRadiusAndFilterRequest() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+		transport.when("POST", "/v1/agent/debug/world/query").payload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
 
 		CliResult result = execute(
 			transport,
@@ -576,22 +575,22 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("entities", transport.lastClientTickWorldQuery.get("operation"));
-		assertEquals(16.0D, transport.lastClientTickWorldQuery.get("radius"));
-		assertFalse(transport.lastClientTickWorldQuery.containsKey("centerX"));
-		assertEquals("Sheep", transport.lastClientTickWorldQuery.get("name"));
-		assertEquals(List.of("minecraft:sheep", "minecraft:cow"), transport.lastClientTickWorldQuery.get("entityTypeIds"));
-		assertEquals(false, transport.lastClientTickWorldQuery.get("alive"));
-		assertEquals(true, transport.lastClientTickWorldQuery.get("livingOnly"));
-		assertEquals(true, transport.lastClientTickWorldQuery.get("includeSelf"));
-		assertEquals(4L, transport.lastClientTickWorldQuery.get("cursor"));
-		assertEquals(5, transport.lastClientTickWorldQuery.get("limit"));
+		assertEquals("entities", transport.body("POST", "/v1/agent/debug/world/query").get("operation"));
+		assertEquals(16.0D, transport.body("POST", "/v1/agent/debug/world/query").get("radius"));
+		assertFalse(transport.body("POST", "/v1/agent/debug/world/query").containsKey("centerX"));
+		assertEquals("Sheep", transport.body("POST", "/v1/agent/debug/world/query").get("name"));
+		assertEquals(List.of("minecraft:sheep", "minecraft:cow"), transport.body("POST", "/v1/agent/debug/world/query").get("entityTypeIds"));
+		assertEquals(false, transport.body("POST", "/v1/agent/debug/world/query").get("alive"));
+		assertEquals(true, transport.body("POST", "/v1/agent/debug/world/query").get("livingOnly"));
+		assertEquals(true, transport.body("POST", "/v1/agent/debug/world/query").get("includeSelf"));
+		assertEquals(4L, transport.body("POST", "/v1/agent/debug/world/query").get("cursor"));
+		assertEquals(5, transport.body("POST", "/v1/agent/debug/world/query").get("limit"));
 	}
 
 	@Test
 	void clientTickWorldEntitiesBuildsRegionAndIdentityRequest() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickWorldQueryPayload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
+		transport.when("POST", "/v1/agent/debug/world/query").payload = linkedMap("snapshotId", "snapshot-3", "entities", List.of());
 
 		CliResult result = execute(
 			transport,
@@ -604,10 +603,10 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals(-2, transport.lastClientTickWorldQuery.get("minX"));
-		assertEquals(3, transport.lastClientTickWorldQuery.get("maxZ"));
-		assertEquals(42, transport.lastClientTickWorldQuery.get("entityId"));
-		assertEquals("entity-42", transport.lastClientTickWorldQuery.get("uuid"));
+		assertEquals(-2, transport.body("POST", "/v1/agent/debug/world/query").get("minX"));
+		assertEquals(3, transport.body("POST", "/v1/agent/debug/world/query").get("maxZ"));
+		assertEquals(42, transport.body("POST", "/v1/agent/debug/world/query").get("entityId"));
+		assertEquals("entity-42", transport.body("POST", "/v1/agent/debug/world/query").get("uuid"));
 	}
 
 	@Test
@@ -623,13 +622,13 @@ class AiricraftCliMainTest {
 
 		assertEquals(2, result.exitCode());
 		assertTrue(result.output().contains("error_code: invalid_arguments\n"));
-		assertTrue(transport.lastClientTickWorldQuery == null);
+		assertTrue(transport.body("POST", "/v1/agent/debug/world/query") == null);
 	}
 
 	@Test
 	void clientTickWorldFindBlocksUsesMatchItemLabel() {
 		TestTransport transport = new TestTransport();
-		transport.clientTickWorldQueryPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/world/query").payload = linkedMap(
 			"matches", List.of(linkedMap("id", "minecraft:stone"))
 		);
 
@@ -650,7 +649,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentGoalsShowsActiveDirectJobFailure() {
 		TestTransport transport = new TestTransport();
-		transport.agentGoalsPayload = linkedMap(
+		transport.when("GET", "/v1/agent/goals").payload = linkedMap(
 			"available", true,
 			"activeJob", linkedMap(
 				"type", "NAVIGATE_TO",
@@ -672,7 +671,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentStatusIncludesPlannerVisionMode() {
 		TestTransport transport = new TestTransport();
-		transport.agentStatusPayload = linkedMap(
+		transport.when("GET", "/v1/agent/status").payload = linkedMap(
 			"available", true,
 			"initialized", true,
 			"tickCount", 42,
@@ -697,7 +696,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentToolsListRendersCompleteFunctionSchemas() {
 		TestTransport transport = new TestTransport();
-		transport.agentToolsPayload = linkedMap(
+		transport.when("GET", "/v1/agent/tools").payload = linkedMap(
 			"available", true,
 			"codexDriverActive", true,
 			"toolCount", 1,
@@ -723,7 +722,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentToolsCallPassesJsonAndWritesReturnedImage(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.agentToolCallPayload = linkedMap(
+		transport.when("POST", "/v1/agent/tools").payload = linkedMap(
 			"available", true,
 			"codexDriverActive", true,
 			"toolName", "take_a_look",
@@ -745,9 +744,10 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("take_a_look", transport.lastAgentToolName);
-		assertEquals("north", transport.lastAgentToolArguments.get("direction"));
-		assertEquals(30_000, transport.lastAgentToolTimeoutMs);
+		Map<String, Object> toolRequest = transport.body("POST", "/v1/agent/tools");
+		assertEquals("take_a_look", toolRequest.get("name"));
+		assertEquals("north", castMap(toolRequest.get("arguments")).get("direction"));
+		assertEquals(30_000, toolRequest.get("timeoutMs"));
 		assertArrayEquals(new byte[]{4, 5, 6}, Files.readAllBytes(output));
 		assertTrue(result.output().contains("imageOutputPath: " + output.toAbsolutePath().normalize() + "\n"));
 		assertFalse(result.output().contains("imageBase64"));
@@ -756,7 +756,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentEventPolicyShowsRuleSummary() {
 		TestTransport transport = new TestTransport();
-		transport.agentEventPolicyPayload = linkedMap(
+		transport.when("GET", "/v1/agent/event-policy").payload = linkedMap(
 			"available", true,
 			"activeRuleCount", 2,
 			"recentInterventionCount", 1,
@@ -785,20 +785,20 @@ class AiricraftCliMainTest {
 	@Test
 	void playerAttackEntityPassesSelectorPayload() {
 		TestTransport transport = new TestTransport();
-		transport.playerAttackEntityPayload = linkedMap("accepted", true, "task", linkedMap("state", "QUEUED"));
+		transport.when("POST", "/v1/player/attack-entity").payload = linkedMap("accepted", true, "task", linkedMap("state", "QUEUED"));
 
 		CliResult result = execute(transport, "player", "attack-entity", "--entity-type-id", "minecraft:sheep", "--mode", "hit_once");
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: player attack-entity\n"));
-		assertEquals("minecraft:sheep", transport.lastAttackEntityTypeId);
-		assertEquals("hit_once", transport.lastAttackEntityMode);
+		assertEquals("minecraft:sheep", transport.body("POST", "/v1/player/attack-entity").get("entityTypeId"));
+		assertEquals("hit_once", transport.body("POST", "/v1/player/attack-entity").get("mode"));
 	}
 
 	@Test
 	void playerNearbyEntitiesCallsTransport() {
 		TestTransport transport = new TestTransport();
-		transport.playerNearbyEntitiesPayload = linkedMap(
+		transport.when("GET", "/v1/player/nearby-entities").payload = linkedMap(
 			"entityCount", 1,
 			"entities", List.of(linkedMap("entityTypeId", "minecraft:sheep", "name", "Sheep", "distance", 3.0))
 		);
@@ -808,13 +808,13 @@ class AiricraftCliMainTest {
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: player nearby-entities\n"));
 		assertTrue(result.output().contains("entityCount: 1\n"));
-		assertTrue(transport.playerNearbyEntitiesCalled);
+		assertTrue(transport.requested("GET", "/v1/player/nearby-entities"));
 	}
 
 	@Test
 	void playerUseEntityPassesSelectorAndItemPayload() {
 		TestTransport transport = new TestTransport();
-		transport.playerUseEntityPayload = linkedMap("accepted", true, "task", linkedMap("state", "QUEUED"));
+		transport.when("POST", "/v1/player/use-entity").payload = linkedMap("accepted", true, "task", linkedMap("state", "QUEUED"));
 
 		CliResult result = execute(
 			transport,
@@ -825,14 +825,14 @@ class AiricraftCliMainTest {
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: player use-entity\n"));
-		assertEquals("Dinner", transport.lastUseEntityName);
-		assertEquals("minecraft:shears", transport.lastUseEntityItemId);
+		assertEquals("Dinner", transport.body("POST", "/v1/player/use-entity").get("name"));
+		assertEquals("minecraft:shears", transport.body("POST", "/v1/player/use-entity").get("itemId"));
 	}
 
 	@Test
 	void playerLookAtPassesDurationOverride() {
 		TestTransport transport = new TestTransport();
-		transport.lookAtPayload = linkedMap("available", true, "durationTicks", 12, "scheduled", true);
+		transport.when("POST", "/v1/player/look-at").payload = linkedMap("available", true, "durationTicks", 12, "scheduled", true);
 
 		CliResult result = execute(
 			transport,
@@ -845,10 +845,10 @@ class AiricraftCliMainTest {
 
 		assertEquals(0, result.exitCode());
 		assertTrue(result.output().contains("command: player look-at\n"));
-		assertEquals(1.5D, transport.lastLookAtX, 0.001D);
-		assertEquals(64.0D, transport.lastLookAtY, 0.001D);
-		assertEquals(-2.25D, transport.lastLookAtZ, 0.001D);
-		assertEquals(12, transport.lastLookAtDurationTicks);
+		assertEquals(1.5D, transport.body("POST", "/v1/player/look-at").get("x"));
+		assertEquals(64.0D, transport.body("POST", "/v1/player/look-at").get("y"));
+		assertEquals(-2.25D, transport.body("POST", "/v1/player/look-at").get("z"));
+		assertEquals(12, transport.body("POST", "/v1/player/look-at").get("durationTicks"));
 		assertTrue(result.output().contains("durationTicks: 12\n"));
 		assertTrue(result.output().contains("scheduled: true\n"));
 	}
@@ -856,7 +856,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentEventPolicyClearCallsTransport() {
 		TestTransport transport = new TestTransport();
-		transport.agentEventPolicyPayload = linkedMap(
+		transport.when("POST", "/v1/agent/event-policy/clear").payload = linkedMap(
 			"available", true,
 			"activeRuleCount", 0,
 			"recentInterventionCount", 0,
@@ -867,7 +867,7 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "event-policy", "clear");
 
 		assertEquals(0, result.exitCode());
-		assertTrue(transport.agentEventPolicyCleared);
+		assertTrue(transport.requested("POST", "/v1/agent/event-policy/clear"));
 		assertTrue(result.output().contains("command: agent event-policy clear\n"));
 		assertTrue(result.output().contains("activeRuleCount: 0\n"));
 	}
@@ -875,7 +875,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentTasksShowsCurrentTaskSnapshot() {
 		TestTransport transport = new TestTransport();
-		transport.agentTasksPayload = linkedMap(
+		transport.when("GET", "/v1/agent/tasks").payload = linkedMap(
 			"available", true,
 			"task", linkedMap(
 				"state", "RUNNING",
@@ -898,7 +898,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentTasksSubmitPassesNormalizedTaskPayload() {
 		TestTransport transport = new TestTransport();
-		transport.agentTaskSubmitPayload = linkedMap(
+		transport.when("POST", "/v1/agent/tasks").payload = linkedMap(
 			"available", true,
 			"task", linkedMap("state", "QUEUED")
 		);
@@ -912,16 +912,16 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("COLLECT_RESOURCE", transport.lastSubmittedTask.get("type"));
-		assertEquals("WOOD_LOGS", transport.lastSubmittedTask.get("resourceKind"));
-		assertEquals(4, transport.lastSubmittedTask.get("quantity"));
+		assertEquals("COLLECT_RESOURCE", transport.body("POST", "/v1/agent/tasks").get("type"));
+		assertEquals("WOOD_LOGS", transport.body("POST", "/v1/agent/tasks").get("resourceKind"));
+		assertEquals(4, transport.body("POST", "/v1/agent/tasks").get("quantity"));
 		assertTrue(result.output().contains("command: agent tasks submit\n"));
 	}
 
 	@Test
 	void agentTasksResumePassesSafetyHoldId() {
 		TestTransport transport = new TestTransport();
-		transport.agentTaskResumePayload = linkedMap(
+		transport.when("POST", "/v1/agent/tasks/resume").payload = linkedMap(
 			"available", true,
 			"resumed", true,
 			"holdId", "hold-42",
@@ -931,7 +931,7 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "tasks", "resume", "--hold-id", "hold-42");
 
 		assertEquals(0, result.exitCode());
-		assertEquals("hold-42", transport.lastResumeHoldId);
+		assertEquals("hold-42", transport.body("POST", "/v1/agent/tasks/resume").get("holdId"));
 		assertTrue(result.output().contains("command: agent tasks resume\n"));
 		assertTrue(result.output().contains("resumed: true\n"));
 		assertTrue(result.output().contains("holdId: hold-42\n"));
@@ -940,7 +940,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentLedgerRendersCurrentMissionLedger() {
 		TestTransport transport = new TestTransport();
-		transport.agentLedgerPayload = linkedMap(
+		transport.when("GET", "/v1/agent/ledger").payload = linkedMap(
 			"available", true,
 			"ledger", linkedMap(
 				"missionId", "mission-wood-1",
@@ -959,7 +959,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentEvidenceRendersWorldEvidenceSummary() {
 		TestTransport transport = new TestTransport();
-		transport.agentEvidencePayload = linkedMap(
+		transport.when("GET", "/v1/agent/evidence").payload = linkedMap(
 			"available", true,
 			"evidence", linkedMap(
 				"dimension", "minecraft:overworld",
@@ -980,7 +980,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentStepExecutionRendersLatestStepResult() {
 		TestTransport transport = new TestTransport();
-		transport.agentStepExecutionPayload = linkedMap(
+		transport.when("GET", "/v1/agent/step-execution").payload = linkedMap(
 			"available", true,
 			"stepExecution", linkedMap(
 				"stepId", "craft_sticks",
@@ -999,7 +999,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentActionsInspectRendersActionGraphSummary() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGraphInspectPayload = linkedMap(
+		transport.when("GET", "/v1/agent/action-graph/inspect").payload = linkedMap(
 			"available", true,
 			"worldLoaded", false,
 			"sessionState", "title_screen",
@@ -1031,7 +1031,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentActionsGoalStartSubmitsInventoryGoal() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGoalStartPayload = actionGoalPayload("action-graph-1", "RESOLVING");
+		transport.when("POST", "/v1/agent/action-goals").payload = actionGoalPayload("action-graph-1", "RESOLVING");
 
 		CliResult result = execute(
 			transport,
@@ -1041,9 +1041,9 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("inventory_item", transport.lastActionGoalPayload.get("kind"));
-		assertEquals("minecraft:bread", transport.lastActionGoalPayload.get("itemId"));
-		assertEquals(2, transport.lastActionGoalPayload.get("quantity"));
+		assertEquals("inventory_item", transport.body("POST", "/v1/agent/action-goals").get("kind"));
+		assertEquals("minecraft:bread", transport.body("POST", "/v1/agent/action-goals").get("itemId"));
+		assertEquals(2, transport.body("POST", "/v1/agent/action-goals").get("quantity"));
 		assertTrue(result.output().contains("command: agent actions goal start\n"));
 		assertTrue(result.output().contains("executionId: action-graph-1\n"));
 		assertTrue(result.output().contains("state: RESOLVING\n"));
@@ -1052,7 +1052,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentActionsGoalStartSubmitsResourceGoal() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGoalStartPayload = actionGoalPayload("action-graph-raw-iron", "RESOLVING");
+		transport.when("POST", "/v1/agent/action-goals").payload = actionGoalPayload("action-graph-raw-iron", "RESOLVING");
 
 		CliResult result = execute(
 			transport,
@@ -1063,17 +1063,17 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("resource_collection", transport.lastActionGoalPayload.get("kind"));
-		assertEquals("RAW_IRON", transport.lastActionGoalPayload.get("resourceKind"));
-		assertEquals(3, transport.lastActionGoalPayload.get("quantity"));
+		assertEquals("resource_collection", transport.body("POST", "/v1/agent/action-goals").get("kind"));
+		assertEquals("RAW_IRON", transport.body("POST", "/v1/agent/action-goals").get("resourceKind"));
+		assertEquals(3, transport.body("POST", "/v1/agent/action-goals").get("quantity"));
 		assertTrue(result.output().contains("executionId: action-graph-raw-iron\n"));
 	}
 
 	@Test
 	void agentActionsGoalInspectAndCancelRenderSnapshot() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGoalPayload = actionGoalPayload("action-graph-2", "WAITING_PRIMITIVE");
-		transport.agentActionGoalCancelPayload = actionGoalPayload("action-graph-2", "CANCELLED");
+		transport.when("GET", "/v1/agent/action-goals").payload = actionGoalPayload("action-graph-2", "WAITING_PRIMITIVE");
+		transport.when("DELETE", "/v1/agent/action-goals").payload = actionGoalPayload("action-graph-2", "CANCELLED");
 
 		CliResult inspect = execute(transport, "agent", "actions", "goal", "inspect");
 		CliResult cancel = execute(transport, "agent", "actions", "goal", "cancel");
@@ -1089,7 +1089,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentActionsGoalListAndIdSpecificOperationsUseSchedulerSurface() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGoalsPayload = linkedMap(
+		transport.when("GET", "/v1/agent/action-goals?list=true").payload = linkedMap(
 			"available", true,
 			"foregroundExecutionId", "graph-foreground",
 			"executionCount", 2,
@@ -1103,8 +1103,8 @@ class AiricraftCliMainTest {
 			),
 			"watches", List.of(linkedMap("executionId", "graph-suspended", "watchId", "watch-1", "stepId", "wait", "progressKind", "AREA_TICKING", "consumedEligibleTicks", 4, "timeoutTicks", 20, "progressEligible", true, "pauseReason", ""))
 		);
-		transport.agentActionGoalPayload = actionGoalPayload("graph-suspended", "WATCHING");
-		transport.agentActionGoalCancelPayload = actionGoalPayload("graph-suspended", "CANCELLED");
+		transport.when("GET", "/v1/agent/action-goals").payload = actionGoalPayload("graph-suspended", "WATCHING");
+		transport.when("DELETE", "/v1/agent/action-goals").payload = actionGoalPayload("graph-suspended", "CANCELLED");
 
 		CliResult list = execute(transport, "agent", "actions", "goal", "list");
 		CliResult inspect = execute(transport, "agent", "actions", "goal", "inspect", "--execution-id", "graph-suspended");
@@ -1113,8 +1113,8 @@ class AiricraftCliMainTest {
 		assertEquals(0, list.exitCode());
 		assertTrue(list.output().contains("executionCount: 2\n"));
 		assertTrue(list.output().contains("residency: SUSPENDED\n"));
-		assertEquals("graph-suspended", transport.lastActionGoalInspectExecutionId);
-		assertEquals("graph-suspended", transport.lastActionGoalCancelExecutionId);
+		assertTrue(transport.lastRequest("GET", "/v1/agent/action-goals").path().contains("execution-id=graph-suspended"));
+		assertTrue(transport.lastRequest("DELETE", "/v1/agent/action-goals").path().contains("execution-id=graph-suspended"));
 		assertEquals(0, inspect.exitCode());
 		assertEquals(0, cancel.exitCode());
 	}
@@ -1130,7 +1130,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentActionsWatchesListRendersActiveWatchSummary() {
 		TestTransport transport = new TestTransport();
-		transport.agentActionGoalsPayload = linkedMap(
+		transport.when("GET", "/v1/agent/action-goals?list=true").payload = linkedMap(
 			"available", true,
 			"foregroundExecutionId", "",
 			"executionCount", 1,
@@ -1161,7 +1161,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentMissionSubmitPassesNormalizedMissionPayload() {
 		TestTransport transport = new TestTransport();
-		transport.agentMissionSubmitPayload = linkedMap(
+		transport.when("POST", "/v1/agent/tasks").payload = linkedMap(
 			"available", true,
 			"task", linkedMap("state", "QUEUED")
 		);
@@ -1175,16 +1175,16 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("COLLECT_RESOURCE", transport.lastSubmittedMission.get("type"));
-		assertEquals("WOOD_LOGS", transport.lastSubmittedMission.get("resourceKind"));
-		assertEquals(4, transport.lastSubmittedMission.get("quantity"));
+		assertEquals("COLLECT_RESOURCE", transport.body("POST", "/v1/agent/tasks").get("type"));
+		assertEquals("WOOD_LOGS", transport.body("POST", "/v1/agent/tasks").get("resourceKind"));
+		assertEquals(4, transport.body("POST", "/v1/agent/tasks").get("quantity"));
 		assertTrue(result.output().contains("command: agent mission submit\n"));
 	}
 
 	@Test
 	void agentMissionSubmitReadsLedgerPayloadFromFile(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.agentMissionSubmitPayload = linkedMap(
+		transport.when("POST", "/v1/agent/tasks").payload = linkedMap(
 			"available", true,
 			"task", linkedMap("state", "QUEUED")
 		);
@@ -1213,15 +1213,15 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("mission-craft-1", transport.lastSubmittedMission.get("missionId"));
-		assertEquals("CRAFT_TOOL", transport.lastSubmittedMission.get("missionType"));
+		assertEquals("mission-craft-1", transport.body("POST", "/v1/agent/tasks").get("missionId"));
+		assertEquals("CRAFT_TOOL", transport.body("POST", "/v1/agent/tasks").get("missionType"));
 		assertTrue(result.output().contains("command: agent mission submit\n"));
 	}
 
 	@Test
 	void agentCompactPassesWaitAndTimeout() {
 		TestTransport transport = new TestTransport();
-		transport.agentCompactPayload = linkedMap(
+		transport.when("POST", "/v1/agent/debug/compact").payload = linkedMap(
 			"available", true,
 			"started", true,
 			"completed", false,
@@ -1244,8 +1244,8 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "compact", "--no-wait", "--timeout-seconds", "7");
 
 		assertEquals(0, result.exitCode());
-		assertFalse(transport.lastCompactWait);
-		assertEquals(Integer.valueOf(7000), transport.lastCompactTimeoutMs);
+		assertEquals(false, transport.body("POST", "/v1/agent/debug/compact").get("wait"));
+		assertEquals(7000, transport.body("POST", "/v1/agent/debug/compact").get("timeoutMs"));
 		assertTrue(result.output().contains("command: agent compact\n"));
 		assertTrue(result.output().contains("completed: false\n"));
 	}
@@ -1253,7 +1253,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationStatusShowsCapabilities() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationStatusPayload = linkedMap(
+		transport.when("GET", "/v1/evaluation/status").payload = linkedMap(
 			"available", true,
 			"sessionMode", "SINGLEPLAYER_LOCAL",
 			"worldLoaded", true,
@@ -1280,7 +1280,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationScenariosRendersTrackedScenarioSummary() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationScenariosPayload = linkedMap(
+		transport.when("GET", "/v1/evaluation/scenarios").payload = linkedMap(
 			"available", true,
 			"scenarioRoot", "scenarios",
 			"scenarios", List.of(linkedMap(
@@ -1306,7 +1306,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationConfigShowsCurrentWorldScenarioConfig() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationConfigPayload = linkedMap(
+		transport.when("GET", "/v1/evaluation/config").payload = linkedMap(
 			"available", true,
 			"scenarioId", "smelting-basic",
 			"configPath", "/repo/scenarios/smelting-basic/scenario.yml",
@@ -1334,7 +1334,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationRunPassesScenarioNameAndOutputDir() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationRunPayload = linkedMap(
+		transport.when("POST", "/v1/evaluation/run").payload = linkedMap(
 			"accepted", true,
 			"scenario", "smelting-basic",
 			"worldName", "airicraft_eval_smelting-basic_1",
@@ -1356,8 +1356,8 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals("smelting-basic", transport.lastEvaluationScenario);
-		assertEquals("/tmp/eval-output/run-1", transport.lastEvaluationOutputDir);
+		assertEquals("smelting-basic", transport.body("POST", "/v1/evaluation/run").get("scenario"));
+		assertEquals("/tmp/eval-output/run-1", transport.body("POST", "/v1/evaluation/run").get("outputDir"));
 		assertTrue(result.output().contains("scenario: smelting-basic\n"));
 		assertTrue(result.output().contains("reportStatus: PENDING_WORLD\n"));
 	}
@@ -1365,7 +1365,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationResultsVerboseShowsDiagnostics() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationResultsPayload = linkedMap(
+		transport.when("GET", "/v1/evaluation/results").payload = linkedMap(
 			"available", true,
 			"report", linkedMap(
 				"status", "FAILED",
@@ -1397,7 +1397,7 @@ class AiricraftCliMainTest {
 	@Test
 	void evaluationEvidenceVerboseShowsEvidenceBundle() {
 		TestTransport transport = new TestTransport();
-		transport.evaluationEvidencePayload = linkedMap(
+		transport.when("GET", "/v1/evaluation/evidence").payload = linkedMap(
 			"available", true,
 			"evidence", linkedMap(
 				"report", linkedMap(
@@ -1423,7 +1423,7 @@ class AiricraftCliMainTest {
 	@Test
 	void agentEventsRecentPassesSinceFilter() {
 		TestTransport transport = new TestTransport();
-		transport.agentEventsPayload = linkedMap(
+		transport.when("GET", "/v1/agent/events/recent").payload = linkedMap(
 			"available", true,
 			"oldestSeqNo", 10,
 			"latestSeqNo", 12,
@@ -1439,14 +1439,14 @@ class AiricraftCliMainTest {
 		CliResult result = execute(transport, "agent", "events", "recent", "--since", "11");
 
 		assertEquals(0, result.exitCode());
-		assertEquals(Long.valueOf(11L), transport.lastEventSince);
+		assertEquals("/v1/agent/events/recent?since=11", transport.lastRequest("GET", "/v1/agent/events/recent").path());
 		assertTrue(result.output().contains("eventCount: 1\n"));
 	}
 
 	@Test
 	void worldsListOmitsVerboseFieldsByDefault() {
 		TestTransport transport = new TestTransport();
-		transport.worldsPayload = linkedMap(
+		transport.when("GET", "/v1/worlds").payload = linkedMap(
 			"available", true,
 			"sessionState", "out_of_world",
 			"worlds", List.of(linkedMap(
@@ -1489,8 +1489,8 @@ class AiricraftCliMainTest {
 	@Test
 	void bridgeErrorsMapToExitCodes() {
 		TestTransport transport = new TestTransport();
-		transport.worldsJoinFailure = new BridgeUnavailableException("already_in_world", "A world is already loaded");
-		transport.serversListFailure = new BridgeUnavailableException("minecraft_unavailable", "Minecraft bridge is not active");
+		transport.when("POST", "/v1/worlds/join").failure = new BridgeUnavailableException("already_in_world", "A world is already loaded");
+		transport.when("GET", "/v1/servers").failure = new BridgeUnavailableException("minecraft_unavailable", "Minecraft bridge is not active");
 
 		CliResult domainFailure = execute(transport, "worlds", "join", "--world-id", "survival-12345678");
 		CliResult transportFailure = execute(transport, "servers", "list");
@@ -1514,14 +1514,14 @@ class AiricraftCliMainTest {
 	@Test
 	void cameraScreenshotWritesFileAndPrintsMetadata(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.capturedImage = new CapturedImage(
-			new byte[]{1, 2, 3, 4},
-			"png",
-			854,
-			480,
-			1920,
-			1080,
-			123456789L
+		transport.when("POST", "/v1/camera/screenshot").payload = linkedMap(
+			"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[]{1, 2, 3, 4}),
+			"format", "png",
+			"width", 854,
+			"height", 480,
+			"sourceWidth", 1920,
+			"sourceHeight", 1080,
+			"capturedAtMs", 123456789L
 		);
 		Path output = tempDir.resolve("captures/view.png");
 
@@ -1542,7 +1542,7 @@ class AiricraftCliMainTest {
 	@Test
 	void mapStatusPrintsProviderSummary() {
 		TestTransport transport = new TestTransport();
-		transport.mapStatusPayload = linkedMap(
+		transport.when("GET", "/v1/map/status").payload = linkedMap(
 			"available", true,
 			"preferredProvider", "journeymap",
 			"providers", List.of(linkedMap("id", "journeymap", "available", true))
@@ -1560,7 +1560,7 @@ class AiricraftCliMainTest {
 	@Test
 	void mapWaypointsListPrintsWaypoints() {
 		TestTransport transport = new TestTransport();
-		transport.mapWaypointsPayload = linkedMap(
+		transport.when("GET", "/v1/map/waypoints").payload = linkedMap(
 			"waypoints", List.of(linkedMap(
 				"id", "guid-1",
 				"name", "Home",
@@ -1583,14 +1583,12 @@ class AiricraftCliMainTest {
 	@Test
 	void mapImageWritesFileAndPrintsMetadata(@TempDir Path tempDir) throws Exception {
 		TestTransport transport = new TestTransport();
-		transport.mapImage = new CapturedImage(
-			new byte[] {9, 8, 7},
-			"png",
-			512,
-			512,
-			512,
-			512,
-			123456789L
+		transport.when("POST", "/v1/map/image").payload = linkedMap(
+			"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[]{9, 8, 7}),
+			"format", "png",
+			"width", 512,
+			"height", 512,
+			"capturedAtMs", 123456789L
 		);
 		Path output = tempDir.resolve("captures/map.png");
 
@@ -1608,6 +1606,13 @@ class AiricraftCliMainTest {
 	@Test
 	void mapImagePassesOriginCoordinates(@TempDir Path tempDir) {
 		TestTransport transport = new TestTransport();
+		transport.when("POST", "/v1/map/image").payload = linkedMap(
+			"imageBase64", java.util.Base64.getEncoder().encodeToString(new byte[]{1}),
+			"format", "png",
+			"width", 512,
+			"height", 512,
+			"capturedAtMs", 1L
+		);
 		Path output = tempDir.resolve("map.png");
 
 		CliResult result = execute(
@@ -1623,8 +1628,8 @@ class AiricraftCliMainTest {
 		);
 
 		assertEquals(0, result.exitCode());
-		assertEquals(128, transport.lastMapImageRequest.get("originX"));
-		assertEquals(-64, transport.lastMapImageRequest.get("originZ"));
+		assertEquals(128, transport.body("POST", "/v1/map/image").get("originX"));
+		assertEquals(-64, transport.body("POST", "/v1/map/image").get("originZ"));
 	}
 
 	@Test
@@ -1641,7 +1646,7 @@ class AiricraftCliMainTest {
 	@Test
 	void cameraScreenshotBridgeErrorsUseTransportExitCodes() {
 		TestTransport transport = new TestTransport();
-		transport.captureScreenshotFailure = new BridgeUnavailableException("capture_timeout", "Screenshot capture timed out");
+		transport.when("POST", "/v1/camera/screenshot").failure = new BridgeUnavailableException("capture_timeout", "Screenshot capture timed out");
 
 		CliResult result = execute(transport, "camera", "screenshot", "--output", "capture.png");
 
@@ -1653,11 +1658,11 @@ class AiricraftCliMainTest {
 	@Test
 	void visionDescribePrintsDeterministicText() {
 		TestTransport transport = new TestTransport();
-		transport.visionDescriptionResult = new VisionDescriptionResult(
-			"text",
-			987654321L,
-			"gpt-4.1-mini",
-			"A birch forest hill with open sky and no visible structures."
+		transport.when("POST", "/v1/vision/describe").payload = linkedMap(
+			"format", "text",
+			"capturedAtMs", 987654321L,
+			"model", "gpt-4.1-mini",
+			"description", "A birch forest hill with open sky and no visible structures."
 		);
 
 		CliResult result = execute(transport, "vision", "describe");
@@ -1674,11 +1679,17 @@ class AiricraftCliMainTest {
 	@Test
 	void visionDescribePassesPromptOverride() {
 		TestTransport transport = new TestTransport();
+		transport.when("POST", "/v1/vision/describe").payload = linkedMap(
+			"format", "text",
+			"capturedAtMs", 1L,
+			"model", "test-model",
+			"description", "No hazards."
+		);
 
 		CliResult result = execute(transport, "vision", "describe", "--prompt", "Describe hazards only.");
 
 		assertEquals(0, result.exitCode());
-		assertEquals("Describe hazards only.", transport.lastVisionPrompt);
+		assertEquals("Describe hazards only.", transport.body("POST", "/v1/vision/describe").get("prompt"));
 	}
 
 	private static CliResult execute(MinecraftTransport transport, String... args) {
@@ -1720,535 +1731,69 @@ class AiricraftCliMainTest {
 	}
 
 	private static final class TestTransport implements MinecraftTransport {
-		private Map<String, Object> statusPayload = Map.of();
-		private Map<String, Object> reloadPayload = Map.of();
-		private Map<String, Object> worldsPayload = Map.of("worlds", List.of());
-		private Map<String, Object> serversPayload = Map.of("servers", List.of());
-		private Map<String, Object> focusPayload = Map.of();
-		private Map<String, Object> snapshotPayload = Map.of();
-		private Map<String, Object> playerNearbyEntitiesPayload = Map.of("entities", List.of());
-		private Map<String, Object> agentStatusPayload = Map.of();
-		private Map<String, Object> agentToolsPayload = Map.of("tools", List.of());
-		private Map<String, Object> agentToolCallPayload = Map.of();
-		private Map<String, Object> agentSessionPayload = Map.of();
-		private Map<String, Object> agentSessionOpenLanPayload = Map.of();
-		private Map<String, Object> agentGoalsPayload = Map.of();
-		private Map<String, Object> agentTreePayload = Map.of();
-		private Map<String, Object> agentDialoguePayload = Map.of();
-		private Map<String, Object> agentDebugStatePayload = Map.of();
-		private Map<String, Object> agentDebugTimelinePayload = Map.of("entries", List.of());
-		private Map<String, Object> clientTickDebugStatePayload = Map.of();
-		private Map<String, Object> clientTickDebugPausePayload = Map.of();
-		private boolean lastClientTickDebugPlayerActions;
-		private Map<String, Object> clientTickDebugStepPayload = Map.of();
-		private Map<String, Object> clientTickDebugContinuePayload = Map.of();
-		private Map<String, Object> clientTickWorldQueryPayload = Map.of();
-		private Map<String, Object> clientTickTraceStatusPayload = Map.of();
-		private Map<String, Object> clientTickTraceStartPayload = Map.of();
-		private Map<String, Object> clientTickTraceStopPayload = Map.of();
-		private Map<String, Object> clientTickTraceRecordsPayload = Map.of("records", List.of());
-		private Map<String, Object> agentDebugChatPayload = Map.of();
-		private Map<String, Object> agentDebugIdleTriggerPayload = Map.of();
-		private Map<String, Object> agentContextPayload = Map.of();
-		private Map<String, Object> agentTasksPayload = Map.of();
-		private Map<String, Object> agentLedgerPayload = Map.of();
-		private Map<String, Object> agentEvidencePayload = Map.of();
-		private Map<String, Object> agentStepExecutionPayload = Map.of();
-		private Map<String, Object> agentActionGraphInspectPayload = Map.of();
-		private Map<String, Object> agentActionGoalPayload = Map.of();
-		private Map<String, Object> agentActionGoalsPayload = Map.of("executions", List.of(), "watches", List.of());
-		private Map<String, Object> agentActionGoalStartPayload = Map.of();
-		private Map<String, Object> agentActionGoalCancelPayload = Map.of();
-		private String lastActionGoalInspectExecutionId;
-		private String lastActionGoalCancelExecutionId;
-		private Map<String, Object> agentTaskSubmitPayload = Map.of();
-		private Map<String, Object> agentTaskResumePayload = Map.of();
-		private Map<String, Object> agentMissionSubmitPayload = Map.of();
-		private Map<String, Object> agentEventsPayload = Map.of("events", List.of());
-		private Map<String, Object> agentCompactPayload = Map.of("started", true);
-		private Map<String, Object> agentEventPolicyPayload = Map.of("activeRules", List.of(), "recentInterventions", List.of());
-		private Map<String, Object> evaluationStatusPayload = Map.of("capabilities", List.of(), "report", Map.of());
-		private Map<String, Object> evaluationScenariosPayload = Map.of("scenarios", List.of(), "report", Map.of());
-		private Map<String, Object> evaluationConfigPayload = Map.of("scenario", Map.of());
-		private Map<String, Object> evaluationRunPayload = Map.of("accepted", true);
-		private Map<String, Object> evaluationResultsPayload = Map.of("report", Map.of());
-		private Map<String, Object> evaluationEvidencePayload = Map.of("evidence", Map.of());
-		private Map<String, Object> blockHighlightPayload = Map.of("highlightId", "highlight-1");
-		private Map<String, Object> regionHighlightPayload = Map.of("highlightId", "highlight-2");
-		private Map<String, Object> highlightsPayload = Map.of("highlights", List.of());
-		private Map<String, Object> clearHighlightPayload = Map.of("cleared", true);
-		private Map<String, Object> clearHighlightsPayload = Map.of("cleared", true, "clearedCount", 0);
-		private Map<String, Object> mapStatusPayload = Map.of("available", false, "providers", List.of());
-		private Map<String, Object> mapWaypointsPayload = Map.of("waypoints", List.of());
-		private Map<String, Object> mapWaypointSetPayload = Map.of("waypoint", Map.of("id", "guid-1"));
-		private Map<String, Object> mapWaypointDeletePayload = Map.of("deleted", true);
-		private Map<String, Object> lastMapImageRequest = Map.of();
-		private Map<String, Object> worldsJoinPayload = Map.of("started", true);
-		private Map<String, Object> serversJoinPayload = Map.of("started", true);
-		private Map<String, Object> lookAtPayload = Map.of("started", true);
-		private Map<String, Object> playerAttackEntityPayload = Map.of("accepted", true);
-		private Map<String, Object> playerUseEntityPayload = Map.of("accepted", true);
-		private CapturedImage capturedImage = new CapturedImage(new byte[0], "png", 854, 480, 854, 480, 1L);
-		private CapturedImage mapImage = new CapturedImage(new byte[0], "png", 512, 512, 512, 512, 1L);
-		private VisionDescriptionResult visionDescriptionResult = new VisionDescriptionResult("text", 1L, "gpt-4.1-mini", "desc");
-		private String lastVisionPrompt;
-		private Long lastEventSince;
-		private boolean lastCompactWait = true;
-		private Integer lastCompactTimeoutMs;
-		private boolean agentDebugIdleTriggerCalled;
-		private String lastEvaluationScenario;
-		private String lastEvaluationOutputDir;
-		private boolean agentEventPolicyCleared;
-		private boolean reloadCalled;
-		private Map<String, Object> lastSubmittedTask;
-		private String lastResumeHoldId;
-		private Map<String, Object> lastSubmittedMission;
-		private Map<String, Object> lastActionGoalPayload;
-		private String lastDebugChatMessage;
-		private Long lastDebugTimelineSince;
-		private String lastClientTickDebugSessionId;
-		private Long lastClientTickDebugPauseEpoch;
-		private Map<String, Object> lastClientTickWorldQuery;
-		private Map<String, Object> lastClientTickTraceStartRequest;
-		private String lastClientTickTraceId;
-		private Long lastClientTickTraceSince;
-		private int lastClientTickTraceLimit;
-		private boolean lastClientTickTraceIncludeImageBytes;
-		private String lastAttackEntityUuid;
-		private String lastAttackEntityName;
-		private String lastAttackEntityTypeId;
-		private String lastAttackEntityMode;
-		private String lastUseEntityUuid;
-		private String lastUseEntityName;
-		private String lastUseEntityTypeId;
-		private String lastUseEntityItemId;
-		private double lastLookAtX;
-		private double lastLookAtY;
-		private double lastLookAtZ;
-		private Integer lastLookAtDurationTicks;
-		private boolean playerNearbyEntitiesCalled;
-		private String lastAgentToolName;
-		private Map<String, Object> lastAgentToolArguments;
-		private Integer lastAgentToolTimeoutMs;
+		private final Map<String, Stub> stubs = new HashMap<>();
+		private final List<Request> requests = new ArrayList<>();
 
-		private RuntimeException worldsJoinFailure;
-		private RuntimeException serversListFailure;
-		private RuntimeException captureScreenshotFailure;
-
-		@Override
-		public Map<String, Object> getStatus() {
-			return statusPayload;
+		Stub when(String method, String path) {
+			return stubs.computeIfAbsent(route(method, path), ignored -> new Stub());
 		}
 
-		@Override
-		public Map<String, Object> reload() {
-			reloadCalled = true;
-			return reloadPayload;
-		}
-
-		@Override
-		public Map<String, Object> getFocus() {
-			return focusPayload;
-		}
-
-		@Override
-		public Map<String, Object> getWorldSnapshot(Integer x, Integer y, Integer z, int radius) {
-			return snapshotPayload;
-		}
-
-		@Override
-		public Map<String, Object> listNearbyEntities() {
-			playerNearbyEntitiesCalled = true;
-			return playerNearbyEntitiesPayload;
-		}
-
-		@Override
-		public CapturedImage captureScreenshot() {
-			if (captureScreenshotFailure != null) {
-				throw captureScreenshotFailure;
+		Request lastRequest(String method, String pathPrefix) {
+			for (int index = requests.size() - 1; index >= 0; index--) {
+				Request request = requests.get(index);
+				if (request.method().equals(method) && request.path().startsWith(pathPrefix)) {
+					return request;
+				}
 			}
-			return capturedImage;
+			return null;
+		}
+
+		boolean requested(String method, String pathPrefix) {
+			return lastRequest(method, pathPrefix) != null;
+		}
+
+		Map<String, Object> body(String method, String pathPrefix) {
+			Request request = lastRequest(method, pathPrefix);
+			return request == null ? null : castMap(request.body());
 		}
 
 		@Override
-		public VisionDescriptionResult describeVision(String prompt) {
-			lastVisionPrompt = prompt;
-			return visionDescriptionResult;
-		}
-
-		@Override
-		public Map<String, Object> mapStatus() {
-			return mapStatusPayload;
-		}
-
-		@Override
-		public Map<String, Object> listMapWaypoints(String providerId, String dimension) {
-			return mapWaypointsPayload;
-		}
-
-		@Override
-		public Map<String, Object> setMapWaypoint(Map<String, Object> request) {
-			return mapWaypointSetPayload;
-		}
-
-		@Override
-		public Map<String, Object> deleteMapWaypoint(String waypointId) {
-			return mapWaypointDeletePayload;
-		}
-
-		@Override
-		public CapturedImage captureMapImage(Map<String, Object> request) {
-			lastMapImageRequest = request;
-			return mapImage;
-		}
-
-		@Override
-		public Map<String, Object> listWorlds() {
-			return worldsPayload;
-		}
-
-		@Override
-		public Map<String, Object> joinWorld(String worldId) {
-			if (worldsJoinFailure != null) {
-				throw worldsJoinFailure;
+		public Map<String, Object> request(String method, String path, Object body) {
+			Request request = new Request(method, path, body);
+			requests.add(request);
+			String route = matchingRoute(stubs, method, path);
+			if (route == null) {
+				return Map.of();
 			}
-			return worldsJoinPayload;
-		}
-
-		@Override
-		public Map<String, Object> listServers() {
-			if (serversListFailure != null) {
-				throw serversListFailure;
+			Stub stub = stubs.get(route);
+			if (stub.failure != null) {
+				throw stub.failure;
 			}
-			return serversPayload;
+			return stub.payload;
 		}
 
-		@Override
-		public Map<String, Object> joinServer(String serverId) {
-			return serversJoinPayload;
+		private static String matchingRoute(Map<String, ?> routes, String method, String path) {
+			String exact = route(method, path);
+			if (routes.containsKey(exact)) {
+				return exact;
+			}
+			String prefix = method + " ";
+			return routes.keySet().stream()
+				.filter(candidate -> candidate.startsWith(prefix) && path.startsWith(candidate.substring(prefix.length())))
+				.findFirst()
+				.orElse(null);
 		}
 
-		@Override
-		public Map<String, Object> lookAt(double x, double y, double z, Integer durationTicks) {
-			lastLookAtX = x;
-			lastLookAtY = y;
-			lastLookAtZ = z;
-			lastLookAtDurationTicks = durationTicks;
-			return lookAtPayload;
+		private static String route(String method, String path) {
+			return method + " " + path;
 		}
+	}
 
-		@Override
-		public Map<String, Object> attackEntity(String uuid, String name, String entityTypeId, String mode) {
-			lastAttackEntityUuid = uuid;
-			lastAttackEntityName = name;
-			lastAttackEntityTypeId = entityTypeId;
-			lastAttackEntityMode = mode;
-			return playerAttackEntityPayload;
-		}
+	private static final class Stub {
+		private Map<String, Object> payload = Map.of();
+		private RuntimeException failure;
+	}
 
-		@Override
-		public Map<String, Object> useEntity(String uuid, String name, String entityTypeId, String itemId) {
-			lastUseEntityUuid = uuid;
-			lastUseEntityName = name;
-			lastUseEntityTypeId = entityTypeId;
-			lastUseEntityItemId = itemId;
-			return playerUseEntityPayload;
-		}
-
-		@Override
-		public Map<String, Object> createBlockHighlight(int x, int y, int z, String color, Long durationMs, String overlayText) {
-			return blockHighlightPayload;
-		}
-
-		@Override
-		public Map<String, Object> createRegionHighlight(int x1, int y1, int z1, int x2, int y2, int z2, String color, Long durationMs, String overlayText) {
-			return regionHighlightPayload;
-		}
-
-		@Override
-		public Map<String, Object> listHighlights() {
-			return highlightsPayload;
-		}
-
-		@Override
-		public Map<String, Object> clearHighlight(String highlightId) {
-			return clearHighlightPayload;
-		}
-
-		@Override
-		public Map<String, Object> clearHighlights() {
-			return clearHighlightsPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentStatus() {
-			return agentStatusPayload;
-		}
-
-		@Override
-		public Map<String, Object> listAgentTools() {
-			return agentToolsPayload;
-		}
-
-		@Override
-		public Map<String, Object> callAgentTool(String name, Map<String, Object> arguments, Integer timeoutMs) {
-			lastAgentToolName = name;
-			lastAgentToolArguments = arguments;
-			lastAgentToolTimeoutMs = timeoutMs;
-			return agentToolCallPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentSession() {
-			return agentSessionPayload;
-		}
-
-		@Override
-		public Map<String, Object> openAgentSessionLan() {
-			return agentSessionOpenLanPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentGoals() {
-			return agentGoalsPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentTree() {
-			return agentTreePayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentDialogue() {
-			return agentDialoguePayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentDebugState() {
-			return agentDebugStatePayload;
-		}
-
-		@Override
-		public Map<String, Object> listAgentDebugTimeline(Long sinceEntryId) {
-			lastDebugTimelineSince = sinceEntryId;
-			return agentDebugTimelinePayload;
-		}
-
-		@Override
-		public Map<String, Object> getClientTickDebugState() {
-			return clientTickDebugStatePayload;
-		}
-
-		@Override
-		public Map<String, Object> pauseClientTicks(boolean playerActions) {
-			lastClientTickDebugPlayerActions = playerActions;
-			return clientTickDebugPausePayload;
-		}
-
-		@Override
-		public Map<String, Object> stepClientTick(String debugSessionId, long pauseEpoch) {
-			lastClientTickDebugSessionId = debugSessionId;
-			lastClientTickDebugPauseEpoch = pauseEpoch;
-			return clientTickDebugStepPayload;
-		}
-
-		@Override
-		public Map<String, Object> continueClientTicks(String debugSessionId, long pauseEpoch) {
-			lastClientTickDebugSessionId = debugSessionId;
-			lastClientTickDebugPauseEpoch = pauseEpoch;
-			return clientTickDebugContinuePayload;
-		}
-
-		@Override
-		public Map<String, Object> queryClientTickWorld(Map<String, Object> request) {
-			lastClientTickWorldQuery = request;
-			return clientTickWorldQueryPayload;
-		}
-
-		@Override
-		public Map<String, Object> getClientTickTraceStatus() {
-			return clientTickTraceStatusPayload;
-		}
-
-		@Override
-		public Map<String, Object> startClientTickTrace(Map<String, Object> request) {
-			lastClientTickTraceStartRequest = request;
-			return clientTickTraceStartPayload;
-		}
-
-		@Override
-		public Map<String, Object> stopClientTickTrace(String traceId) {
-			lastClientTickTraceId = traceId;
-			return clientTickTraceStopPayload;
-		}
-
-		@Override
-		public Map<String, Object> listClientTickTraceRecords(
-			String traceId,
-			Long sinceClientTickId,
-			int limit,
-			boolean includeImageBytes
-		) {
-			lastClientTickTraceId = traceId;
-			lastClientTickTraceSince = sinceClientTickId;
-			lastClientTickTraceLimit = limit;
-			lastClientTickTraceIncludeImageBytes = includeImageBytes;
-			return clientTickTraceRecordsPayload;
-		}
-
-		@Override
-		public Map<String, Object> sendAgentDebugChat(String message) {
-			lastDebugChatMessage = message;
-			return agentDebugChatPayload;
-		}
-
-		@Override
-		public Map<String, Object> fireAgentDebugIdleTrigger() {
-			agentDebugIdleTriggerCalled = true;
-			return agentDebugIdleTriggerPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentContext() {
-			return agentContextPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentTasks() {
-			return agentTasksPayload;
-		}
-
-		@Override
-		public Map<String, Object> submitAgentTask(Map<String, Object> taskPayload) {
-			lastSubmittedTask = taskPayload;
-			return agentTaskSubmitPayload;
-		}
-
-		@Override
-		public Map<String, Object> resumeAgentTask(String holdId) {
-			lastResumeHoldId = holdId;
-			return agentTaskResumePayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentLedger() {
-			return agentLedgerPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentEvidence() {
-			return agentEvidencePayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentStepExecution() {
-			return agentStepExecutionPayload;
-		}
-
-		@Override
-		public Map<String, Object> inspectAgentActionGraph() {
-			return agentActionGraphInspectPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentActionGoal() {
-			return agentActionGoalPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentActionGoal(String executionId) {
-			lastActionGoalInspectExecutionId = executionId;
-			return agentActionGoalPayload;
-		}
-
-		@Override
-		public Map<String, Object> listAgentActionGoals() {
-			return agentActionGoalsPayload;
-		}
-
-		@Override
-		public Map<String, Object> startAgentActionGoal(Map<String, Object> goalPayload) {
-			lastActionGoalPayload = goalPayload;
-			return agentActionGoalStartPayload;
-		}
-
-		@Override
-		public Map<String, Object> cancelAgentActionGoal() {
-			return agentActionGoalCancelPayload;
-		}
-
-		@Override
-		public Map<String, Object> cancelAgentActionGoal(String executionId) {
-			lastActionGoalCancelExecutionId = executionId;
-			return agentActionGoalCancelPayload;
-		}
-
-		@Override
-		public Map<String, Object> submitAgentMission(Map<String, Object> missionPayload) {
-			lastSubmittedMission = missionPayload;
-			return agentMissionSubmitPayload;
-		}
-
-		@Override
-		public Map<String, Object> cancelAgentTask() {
-			return Map.of("available", true, "cancelled", true);
-		}
-
-		@Override
-		public Map<String, Object> listRecentAgentEvents(Long sinceSeqNo) {
-			lastEventSince = sinceSeqNo;
-			return agentEventsPayload;
-		}
-
-		@Override
-		public Map<String, Object> triggerAgentCompaction(boolean wait, Integer timeoutMs) {
-			lastCompactWait = wait;
-			lastCompactTimeoutMs = timeoutMs;
-			return agentCompactPayload;
-		}
-
-		@Override
-		public Map<String, Object> getAgentEventPolicy() {
-			return agentEventPolicyPayload;
-		}
-
-		@Override
-		public Map<String, Object> clearAgentEventPolicy() {
-			agentEventPolicyCleared = true;
-			return agentEventPolicyPayload;
-		}
-
-		@Override
-		public Map<String, Object> getEvaluationStatus() {
-			return evaluationStatusPayload;
-		}
-
-		@Override
-		public Map<String, Object> getEvaluationScenarios() {
-			return evaluationScenariosPayload;
-		}
-
-		@Override
-		public Map<String, Object> getEvaluationConfig() {
-			return evaluationConfigPayload;
-		}
-
-		@Override
-		public Map<String, Object> runEvaluationScenario(String scenario, String outputDir) {
-			lastEvaluationScenario = scenario;
-			lastEvaluationOutputDir = outputDir;
-			return evaluationRunPayload;
-		}
-
-		@Override
-		public Map<String, Object> getEvaluationResults() {
-			return evaluationResultsPayload;
-		}
-
-		@Override
-		public Map<String, Object> getEvaluationEvidence() {
-			return evaluationEvidencePayload;
-		}
-
+	private record Request(String method, String path, Object body) {
 	}
 }

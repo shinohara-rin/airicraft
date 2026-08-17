@@ -1,7 +1,6 @@
 package ai.moeru.airicraft.agent;
 
 import ai.moeru.airicraft.AiricraftConfig;
-import ai.moeru.airicraft.AiricraftConfigLoader;
 import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.SingleplayerWorldService;
@@ -91,6 +90,7 @@ import ai.moeru.airicraft.agent.llm.LlmBackendException;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleVisionBackend;
+import ai.moeru.airicraft.agent.llm.PlannerActionToolExecutor;
 import ai.moeru.airicraft.agent.llm.PlannerConversationDebugSnapshot;
 import ai.moeru.airicraft.agent.llm.PlannerContextAggregator;
 import ai.moeru.airicraft.agent.llm.PlannerExecutor;
@@ -193,7 +193,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.TreeMap;
 
-public final class EmbodiedAgentRuntime {
+public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
 	static final int CRAFT_TOOL_RESULT_TIMEOUT_TICKS = 40;
 	static final int BLOCK_MODIFICATION_TOOL_RESULT_TIMEOUT_TICKS = 40;
@@ -252,6 +252,7 @@ public final class EmbodiedAgentRuntime {
 	private final CurrentWorldQueryService guardedWorldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 	private final ActionGraphCoordinator actionGraphCoordinator;
 	private final SurvivalReflexRuntime survivalReflexRuntime;
+	private final EmbodiedPlannerActionToolExecutor plannerActionToolExecutor;
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
 
@@ -287,66 +288,6 @@ public final class EmbodiedAgentRuntime {
 		AgentConfig config,
 		FirstPersonScreenshotService screenshotService,
 		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, new SmeltingProcessManager());
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability,
-		SmeltingProcessManager smeltingProcessManager
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, smeltingProcessManager, new CameraController(airicraftConfig.cameraLerpDefaultTicks()));
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, smeltingProcessManager, cameraController, null);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController,
-		BaritoneFacade baritoneFacade
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()),
-			smeltingProcessManager,
-			cameraController,
-			baritoneFacade);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		AgentObservability observability,
-		SmeltingProcessManager smeltingProcessManager,
-		CameraController cameraController
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor, observability, smeltingProcessManager, cameraController, null);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
 		AgentObservability observability,
 		SmeltingProcessManager smeltingProcessManager,
 		CameraController cameraController,
@@ -364,6 +305,12 @@ public final class EmbodiedAgentRuntime {
 		this.behaviorTreeRuntime = new BehaviorTreeRuntime(effectiveCameraController);
 		this.nearbyPlayerTracker = new NearbyPlayerTracker(resolveNearbyPlayerTrackingRadius(airicraftConfig));
 		this.idleIdeaScheduler = new IdleIdeaScheduler(effectiveIdleIdeasConfig(IdleIdeasConfig.defaults()));
+		this.plannerActionToolExecutor = new EmbodiedPlannerActionToolExecutor(
+			this::plannerActionToolExecutionState,
+			this::executeCraftRecipePlannerTool,
+			this::executeBlockModificationPlannerTool,
+			this::executePlannerToolCallNow
+		);
 		Clock clock = Clock.systemDefaultZone();
 		PlannerShellComponents plannerShell = PlannerShellFactory.create(
 			config,
@@ -371,7 +318,7 @@ public final class EmbodiedAgentRuntime {
 				this.observability,
 				clock,
 				debugRecorder,
-				this::executePlannerToolCall,
+				this,
 				this::emitPlannerToolNarration,
 				this::beforePlannerToolExecution,
 				worldReadLedger::recordObserved,
@@ -388,63 +335,18 @@ public final class EmbodiedAgentRuntime {
 		this.debugRecorder.recordDialogueState(this.dialogueRuntime.snapshot());
 	}
 
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()));
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor,
-		SmeltingProcessManager smeltingProcessManager
-	) {
-		this(airicraftConfig, config, screenshotService, worldTaskExecutor,
-			AgentObservability.create(config == null ? null : config.observability()),
-			smeltingProcessManager);
-	}
-
-	public EmbodiedAgentRuntime(AiricraftConfig airicraftConfig, AgentConfig config, FirstPersonScreenshotService screenshotService) {
-		this(airicraftConfig, config, screenshotService, NoopWorldTaskExecutor.INSTANCE);
-	}
-
-	public EmbodiedAgentRuntime(
-		AiricraftConfig airicraftConfig,
-		AgentConfig config,
-		FirstPersonScreenshotService screenshotService,
-		AgentObservability observability
-	) {
-		this(airicraftConfig, config, screenshotService, NoopWorldTaskExecutor.INSTANCE, observability);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(
-		AiricraftConfig airicraftConfig,
-		FirstPersonScreenshotService screenshotService,
-		WorldTaskExecutor worldTaskExecutor
-	) {
-		return new EmbodiedAgentRuntime(airicraftConfig, AgentConfigLoader.load(), screenshotService, worldTaskExecutor);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(AiricraftConfig airicraftConfig, FirstPersonScreenshotService screenshotService) {
-		return createDefault(airicraftConfig, screenshotService, NoopWorldTaskExecutor.INSTANCE);
-	}
-
-	public static EmbodiedAgentRuntime createDefault(FirstPersonScreenshotService screenshotService) {
-		return createDefault(AiricraftConfigLoader.load(), screenshotService);
-	}
-
 	static EmbodiedAgentRuntime createForTests(WorldTaskExecutor worldTaskExecutor) {
+		AiricraftConfig airicraftConfig = AiricraftConfig.defaults();
+		AgentConfig agentConfig = AgentConfig.defaults();
 		return new EmbodiedAgentRuntime(
-			AiricraftConfig.defaults(),
-			AgentConfig.defaults(),
+			airicraftConfig,
+			agentConfig,
 			new FirstPersonScreenshotService(),
-			worldTaskExecutor
+			worldTaskExecutor,
+			AgentObservability.create(agentConfig.observability()),
+			new SmeltingProcessManager(),
+			new CameraController(airicraftConfig.cameraLerpDefaultTicks()),
+			null
 		);
 	}
 
@@ -2149,60 +2051,23 @@ public final class EmbodiedAgentRuntime {
 		debugRecorder.recordCollectResourceProbe(activeJobRuntime.collectResourceDebugSnapshot());
 	}
 
-	private CompletableFuture<String> executePlannerToolCall(PlannerToolCall toolCall) {
-		try {
-			if (toolCall != null && survivalReflexRuntime.snapshot().state() == SurvivalReflexState.ACTIVE
-				&& !plannerToolAllowedDuringActiveReflex(toolCall.name())) {
-				return CompletableFuture.completedFuture(
-					"TOOL_ERROR: " + PlannerToolCatalog.normalizeName(toolCall.name())
-						+ " reflex_active. Only read and cancel/clear controls are allowed during an active survival reflex."
-				);
-			}
-			if (toolCall != null && plannerToolRequiresLivingPlayer(toolCall.name()) && sessionSnapshot.requiresRespawn()) {
-				return CompletableFuture.completedFuture(playerDeadToolError(toolCall.name()));
-			}
-			if (toolCall != null && PlannerToolCatalog.CRAFT_RECIPE.equals(PlannerToolCatalog.normalizeName(toolCall.name()))) {
-				return executeCraftRecipePlannerTool(toolCall.arguments());
-			}
-			if (toolCall != null && blockModificationToolWaitsForTerminalResult(PlannerToolCatalog.normalizeName(toolCall.name()))) {
-				return executeBlockModificationPlannerTool(toolCall);
-			}
-			return CompletableFuture.completedFuture(executePlannerToolCallNow(toolCall));
-		}
-		catch (RuntimeException exception) {
-			String name = toolCall == null ? "unknown" : toolCall.name();
-			return CompletableFuture.completedFuture("TOOL_ERROR: " + name + " " + safeToolError(exception));
-		}
+	@Override
+	public CompletableFuture<String> execute(PlannerToolCall toolCall) {
+		return plannerActionToolExecutor.execute(toolCall);
 	}
 
-	private static boolean plannerToolRequiresLivingPlayer(String toolName) {
-		String normalized = PlannerToolCatalog.normalizeName(toolName);
-		if (PlannerToolCatalog.isReadTool(normalized)) {
-			return false;
-		}
-		return switch (normalized) {
-			case PlannerToolCatalog.CANCEL_ACTION_GOAL,
-				PlannerToolCatalog.CANCEL_TASK,
-				PlannerToolCatalog.CLEAR_GOAL,
-				PlannerToolCatalog.CANCEL_SMELTING,
-				PlannerToolCatalog.UPDATE_EVENT_POLICY,
-				PlannerToolCatalog.CONFIGURE_PATHFIND -> false;
-			default -> true;
-		};
-	}
-
-	private static boolean plannerToolAllowedDuringActiveReflex(String toolName) {
-		String normalized = PlannerToolCatalog.normalizeName(toolName);
-		return PlannerToolCatalog.isReadTool(normalized)
-			|| PlannerToolCatalog.CANCEL_ACTION_GOAL.equals(normalized)
-			|| PlannerToolCatalog.CANCEL_TASK.equals(normalized)
-			|| PlannerToolCatalog.CLEAR_GOAL.equals(normalized)
-			|| PlannerToolCatalog.CANCEL_SMELTING.equals(normalized);
-	}
-
-	private static String playerDeadToolError(String toolName) {
-		return "TOOL_ERROR: " + PlannerToolCatalog.normalizeName(toolName)
-			+ " player_dead. The controlled player died; the runtime cancelled all actions and is requesting respawn.";
+	private EmbodiedPlannerActionToolExecutor.ExecutionState plannerActionToolExecutionState() {
+		ActiveJob activeJob = activeJobRuntime.current();
+		return new EmbodiedPlannerActionToolExecutor.ExecutionState(
+			survivalReflexRuntime.snapshot().state(),
+			sessionSnapshot.requiresRespawn(),
+			activeTaskInProgress(),
+			activeJob == null ? null : activeJob.type(),
+			actionGraphCoordinator.hasNonterminal(),
+			actionGraphExecutionSnapshot(),
+			taskSnapshot,
+			taskExecutionSnapshot
+		);
 	}
 
 	private void requireLivingPlayerForAction() {
@@ -2231,24 +2096,12 @@ public final class EmbodiedAgentRuntime {
 		};
 	}
 
-	private static boolean blockModificationToolWaitsForTerminalResult(String normalizedToolName) {
-		return PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
-	}
-
 	private String executePlannerToolCallNow(PlannerToolCall toolCall) {
 		if (toolCall == null) {
 			return "TOOL_ERROR: missing_tool_call";
 		}
 		JsonObject args = toolCall.arguments();
 		String normalizedToolName = PlannerToolCatalog.normalizeName(toolCall.name());
-		if (plannerToolWouldPreemptActiveGraph(normalizedToolName)) {
-			return plannerActiveGraphPreemptionError(normalizedToolName);
-		}
-		if (plannerToolWouldPreemptActiveTask(toolCall)) {
-			return plannerActiveTaskPreemptionError(toolCall);
-		}
 		return switch (normalizedToolName) {
 			case PlannerToolCatalog.RESUME_TASK -> {
 				String holdId = stringArg(args, "holdId").orElseThrow(() -> new IllegalArgumentException("holdId is required"));
@@ -2569,63 +2422,6 @@ public final class EmbodiedAgentRuntime {
 		};
 	}
 
-	private boolean plannerToolWouldPreemptActiveTask(PlannerToolCall toolCall) {
-		if (survivalReflexRuntime.snapshot().state() == SurvivalReflexState.AWAITING_PLANNER) {
-			return false;
-		}
-		if (!activeTaskInProgress()) {
-			return false;
-		}
-		String normalizedToolName = PlannerToolCatalog.normalizeName(toolCall == null ? null : toolCall.name());
-		if (PlannerToolCatalog.COLLECT_SMELTED_ITEMS.equals(normalizedToolName)) {
-			ActiveJob activeJob = activeJobRuntime.current();
-			return activeJob == null || activeJob.type() != ActiveJobType.SMELT_ITEMS;
-		}
-		return PlannerToolCatalog.START_ACTION_GOAL.equals(normalizedToolName)
-			|| PlannerToolCatalog.FOLLOW_PLAYER.equals(normalizedToolName)
-			|| PlannerToolCatalog.NAVIGATE_TO.equals(normalizedToolName)
-			|| PlannerToolCatalog.RETURN_TO_SURFACE.equals(normalizedToolName)
-			|| PlannerToolCatalog.MINE_BLOCKS.equals(normalizedToolName)
-			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName)
-			|| PlannerToolCatalog.COLLECT_RESOURCE.equals(normalizedToolName)
-			|| PlannerToolCatalog.SMELT_ITEMS.equals(normalizedToolName)
-			|| PlannerToolCatalog.DROP_ITEMS.equals(normalizedToolName)
-			|| PlannerToolCatalog.GIVE_PLAYER.equals(normalizedToolName)
-			|| PlannerToolCatalog.ATTACK_ENTITY.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_ENTITY.equals(normalizedToolName)
-			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
-	}
-
-	private boolean plannerToolWouldPreemptActiveGraph(String normalizedToolName) {
-		if (!actionGraphCoordinator.hasNonterminal()) {
-			return false;
-		}
-		return legacyActionToolWouldPreemptGraph(normalizedToolName)
-			|| PlannerToolCatalog.CANCEL_TASK.equals(normalizedToolName)
-			|| PlannerToolCatalog.CLEAR_GOAL.equals(normalizedToolName);
-	}
-
-	private static boolean legacyActionToolWouldPreemptGraph(String normalizedToolName) {
-		return PlannerToolCatalog.FOLLOW_PLAYER.equals(normalizedToolName)
-			|| PlannerToolCatalog.NAVIGATE_TO.equals(normalizedToolName)
-			|| PlannerToolCatalog.RETURN_TO_SURFACE.equals(normalizedToolName)
-			|| PlannerToolCatalog.MINE_BLOCKS.equals(normalizedToolName)
-			|| PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY.equals(normalizedToolName)
-			|| PlannerToolCatalog.COLLECT_RESOURCE.equals(normalizedToolName)
-			|| PlannerToolCatalog.CRAFT_RECIPE.equals(normalizedToolName)
-			|| PlannerToolCatalog.SMELT_ITEMS.equals(normalizedToolName)
-			|| PlannerToolCatalog.COLLECT_SMELTED_ITEMS.equals(normalizedToolName)
-			|| PlannerToolCatalog.DROP_ITEMS.equals(normalizedToolName)
-			|| PlannerToolCatalog.GIVE_PLAYER.equals(normalizedToolName)
-			|| PlannerToolCatalog.ATTACK_ENTITY.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_ENTITY.equals(normalizedToolName)
-			|| PlannerToolCatalog.PLACE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.USE_BLOCK.equals(normalizedToolName)
-			|| PlannerToolCatalog.BREAK_BLOCKS.equals(normalizedToolName);
-	}
-
 	private boolean directPlannerIntentWouldPreemptActiveTask(DialogueIntent intent) {
 		return isDirectGoalIntent(intent) && activeTaskInProgress();
 	}
@@ -2644,27 +2440,6 @@ public final class EmbodiedAgentRuntime {
 		return activeJob.status() == ActiveJobStatus.QUEUED
 			|| activeJob.status() == ActiveJobStatus.RUNNING
 			|| activeJob.status() == ActiveJobStatus.BLOCKED;
-	}
-
-	private String plannerActiveTaskPreemptionError(PlannerToolCall toolCall) {
-		String toolName = PlannerToolCatalog.normalizeName(toolCall == null ? null : toolCall.name());
-		String taskState = taskSnapshot == null || taskSnapshot.state() == null ? "UNKNOWN" : taskSnapshot.state().name();
-		String activeStep = taskSnapshot == null || taskSnapshot.activeStepKind() == null ? "UNKNOWN" : taskSnapshot.activeStepKind().name();
-		return "TOOL_ERROR: " + toolName + " denied reason=active_task_in_progress"
-			+ " taskState=" + taskState
-			+ " activeStepKind=" + activeStep
-			+ " taskExecutionState=" + (taskExecutionSnapshot == null || taskExecutionSnapshot.state() == null ? "UNKNOWN" : taskExecutionSnapshot.state().name())
-			+ " taskExecutionProcess=" + (taskExecutionSnapshot == null || taskExecutionSnapshot.processName() == null ? "UNKNOWN" : taskExecutionSnapshot.processName())
-			+ ". Task-changing tools would preempt the active job. Use cancel_task first only if the user explicitly changed tasks; otherwise wait for TASK UPDATE or ask the user.";
-	}
-
-	private String plannerActiveGraphPreemptionError(String toolName) {
-		ActionGraphExecutionSnapshot snapshot = actionGraphExecutionSnapshot();
-		return "TOOL_ERROR: " + toolName + " denied reason=active_action_graph_in_progress"
-			+ " graphState=" + snapshot.state().name()
-			+ " executionId=" + snapshot.executionId()
-			+ " activeTaskId=" + snapshot.activeTaskId()
-			+ ". A graph execution owns the mutation boundary. Use list_action_goals, inspect_action_goal, or inspect_action_trace to observe progress. Additional productive work must use start_action_goal; it is accepted only when the foreground lane is free. Cancel only if the user explicitly changes tasks.";
 	}
 
 	private static String queuedActionToolResult(String toolName, String details) {
@@ -2742,14 +2517,6 @@ public final class EmbodiedAgentRuntime {
 		return "x=" + position.x() + " y=" + position.y() + " z=" + position.z();
 	}
 
-	String executePlannerToolCallForTests(PlannerToolCall toolCall) {
-		return executePlannerToolCall(toolCall).join();
-	}
-
-	CompletableFuture<String> executePlannerToolCallFutureForTests(PlannerToolCall toolCall) {
-		return executePlannerToolCall(toolCall);
-	}
-
 	void registerSmeltingOptionsForTests(List<SmeltingOption> options) {
 		smeltingProcessManager.registerOptions(options);
 	}
@@ -2759,22 +2526,13 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private CompletableFuture<String> executeCraftRecipePlannerTool(JsonObject args) {
-		if (activeTaskInProgress()) {
-			return CompletableFuture.completedFuture(plannerActiveTaskPreemptionError(new PlannerToolCall(
-				"craft_recipe_guard",
-				PlannerToolCatalog.CRAFT_RECIPE,
-				args,
-				null,
-				null
-			)));
-		}
 		CraftRecipeStepArgs craftRecipe = new CraftRecipeStepArgs(
 			stringArg(args, "recipeId").orElseThrow(() -> new IllegalArgumentException("recipeId is required")),
 			intArg(args, "times").orElseThrow(() -> new IllegalArgumentException("times is required"))
 		);
 		applyPlannerJobTool(ActiveJobProposal.craftRecipe(craftRecipe));
 		Optional<WorldTaskRequest> activeTask = activeJobRuntime.activeTaskRequest();
-		if (activeTask.isEmpty() || activeTask.get().craftRecipe() == null) {
+		if (activeTask.isEmpty() || !(activeTask.get().task() instanceof WorldTaskRequest.CraftRecipe)) {
 			return CompletableFuture.completedFuture("TOOL_ERROR: craft_recipe task_not_started");
 		}
 
@@ -2790,9 +2548,6 @@ public final class EmbodiedAgentRuntime {
 	}
 
 	private CompletableFuture<String> executeBlockModificationPlannerTool(PlannerToolCall toolCall) {
-		if (plannerToolWouldPreemptActiveTask(toolCall)) {
-			return CompletableFuture.completedFuture(plannerActiveTaskPreemptionError(toolCall));
-		}
 		String toolName = PlannerToolCatalog.normalizeName(toolCall.name());
 		JsonObject args = toolCall.arguments();
 		ActiveJobProposal proposal;
@@ -3408,14 +3163,6 @@ public final class EmbodiedAgentRuntime {
 			stringArg(object, "damageTypeId").orElse(null),
 			stringArg(object, "attackerName").orElse(null)
 		);
-	}
-
-	private static String safeToolError(RuntimeException exception) {
-		String message = exception.getMessage();
-		if (message == null || message.isBlank()) {
-			return exception.getClass().getSimpleName();
-		}
-		return message.replace('\n', ' ').replace('\r', ' ').strip();
 	}
 
 	private WorldEvidence currentWorldEvidence(MinecraftClient client) {
@@ -5099,25 +4846,4 @@ public final class EmbodiedAgentRuntime {
 		}
 	}
 
-	private static final class NoopWorldTaskExecutor implements WorldTaskExecutor {
-		private static final NoopWorldTaskExecutor INSTANCE = new NoopWorldTaskExecutor();
-
-		@Override
-		public Optional<TaskTerminalEvent> tick(SessionSnapshot sessionSnapshot, Optional<WorldTaskRequest> activeTask) {
-			return Optional.empty();
-		}
-
-		@Override
-		public TaskExecutionSnapshot snapshot() {
-			return TaskExecutionSnapshot.idle();
-		}
-
-		@Override
-		public void onWorldLeave() {
-		}
-
-		@Override
-		public void shutdown() {
-		}
-	}
 }

@@ -194,18 +194,24 @@ class ActionGraphExecutionRuntimeTest {
 		ActionGraphExecutionSnapshot stillPaused = runtime.tick(new ActionGraphExecutionInput(
 			new ActionResolverContext("world-a", "bot", "minecraft:overworld", 103),
 			Map.of("minecraft:wheat", 3),
+			Map.of(),
 			true,
 			false,
-			null
+			null,
+			List.of(), List.of(), List.of(), List.of(), List.of(), null, Map.of(),
+			BlockAcquisitionIndex.empty(), NearbyBlockAvailability.unknown()
 		));
 		assertEquals(ActionGraphExecutionState.BLOCKED, stillPaused.state());
 
 		ActionGraphExecutionSnapshot resumed = runtime.tick(new ActionGraphExecutionInput(
 			new ActionResolverContext("world-a", "bot", "minecraft:overworld", 104),
 			Map.of("minecraft:wheat", 3),
+			Map.of(),
 			true,
 			true,
-			null
+			null,
+			List.of(), List.of(), List.of(), List.of(), List.of(), null, Map.of(),
+			BlockAcquisitionIndex.empty(), NearbyBlockAvailability.unknown()
 		));
 		assertEquals(started.executionId(), resumed.executionId());
 		assertEquals(dispatched.activeTaskId(), resumed.activeTaskId());
@@ -765,7 +771,8 @@ class ActionGraphExecutionRuntimeTest {
 			observedFacts,
 			null,
 			Map.of(),
-			BlockAcquisitionTestFixtures.survival()
+			BlockAcquisitionTestFixtures.survival(),
+			NearbyBlockAvailability.unknown()
 		);
 	}
 
@@ -788,7 +795,8 @@ class ActionGraphExecutionRuntimeTest {
 			List.of(),
 			null,
 			Map.of(),
-			BlockAcquisitionTestFixtures.survival()
+			BlockAcquisitionTestFixtures.survival(),
+			NearbyBlockAvailability.unknown()
 		);
 	}
 
@@ -812,7 +820,8 @@ class ActionGraphExecutionRuntimeTest {
 			List.of(),
 			null,
 			Map.of(),
-			BlockAcquisitionTestFixtures.survival()
+			BlockAcquisitionTestFixtures.survival(),
+			NearbyBlockAvailability.unknown()
 		);
 	}
 
@@ -837,7 +846,8 @@ class ActionGraphExecutionRuntimeTest {
 			List.of(),
 			null,
 			Map.of(),
-			BlockAcquisitionTestFixtures.survival()
+			BlockAcquisitionTestFixtures.survival(),
+			NearbyBlockAvailability.unknown()
 		);
 	}
 

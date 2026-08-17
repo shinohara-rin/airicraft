@@ -88,7 +88,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		if (client == null || client.world == null || client.interactionManager == null || player == null) {
 			return fail(request, TaskFailure.of(TaskFailureCode.UNKNOWN, "world_unavailable"));
 		}
-		ReturnToSurfaceStepArgs args = request.returnToSurface();
+		ReturnToSurfaceStepArgs args = ((WorldTaskRequest.ReturnToSurface) request.task()).args();
 		if (isSurfaceReached(client, player)) {
 			return complete(request, "surface_reached");
 		}
@@ -689,7 +689,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 			return false;
 		}
 		return Objects.equals(left.taskId(), right.taskId())
-			&& Objects.equals(left.returnToSurface(), right.returnToSurface());
+			&& Objects.equals(left.task(), right.task());
 	}
 
 	private static TaskExecutionSnapshot snapshot(TaskExecutionState state, WorldTaskRequest request, String event) {

@@ -90,7 +90,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private Optional<TaskTerminalEvent> tickSmeltItems(WorldTaskRequest request, MinecraftClient client, ClientPlayerEntity player, long tick) {
-		SmeltingOption option = processManager.registeredOption(request.smeltItems().optionId());
+		SmeltingOption option = processManager.registeredOption(smeltArgs(request).optionId());
 		if (option == null) {
 			return fail(request, TaskFailure.of(TaskFailureCode.MISSING_FACT, "option_not_found"));
 		}
@@ -115,7 +115,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		if (!handler.getCursorStack().isEmpty()) {
 			return fail(request, TaskFailure.of(TaskFailureCode.UNKNOWN, "cursor_not_empty"));
 		}
-		option = processManager.registeredOption(request.smeltItems().optionId());
+		option = processManager.registeredOption(smeltArgs(request).optionId());
 		if (option == null) {
 			return fail(request, TaskFailure.of(TaskFailureCode.MISSING_FACT, "option_not_found"));
 		}
@@ -130,7 +130,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		SmeltingOption option,
 		long tick
 	) {
-		SmeltItemsStepArgs args = request.smeltItems();
+		SmeltItemsStepArgs args = smeltArgs(request);
 		FuelSelection fuel = fuelSelection(client, player, handler, option, args).orElse(null);
 		if (fuel == null) {
 			return fail(request, TaskFailure.of(TaskFailureCode.UNKNOWN, "insufficient_fuel"));
@@ -151,7 +151,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	private Optional<TaskTerminalEvent> tickCollectSmeltedItems(WorldTaskRequest request, MinecraftClient client, ClientPlayerEntity player) {
-		CollectSmeltedItemsStepArgs args = request.collectSmeltedItems();
+		CollectSmeltedItemsStepArgs args = collectArgs(request);
 		String processId = args.processId() == null ? processManager.preferredCollectionProcessId() : args.processId();
 		SmeltingStationKey key = processId == null
 			? processManager.confirmedCollectionStationKey(args.confirmationToken())
@@ -603,7 +603,7 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 		cancelNavigationIfStarted();
 		closeOpenedStationIfSafe();
 		if (request.type() == WorldTaskType.SMELT_ITEMS) {
-			processManager.cancelProcessesForOption(request.smeltItems().optionId());
+			processManager.cancelProcessesForOption(smeltArgs(request).optionId());
 		}
 		snapshot = snapshot(TaskExecutionState.FAILED, request, failure.detail());
 		if (terminalEventEmitted) {
@@ -646,8 +646,15 @@ public final class SmeltingTaskExecutor implements WorldTaskExecutor {
 			return false;
 		}
 		return Objects.equals(left.taskId(), right.taskId())
-			&& Objects.equals(left.smeltItems(), right.smeltItems())
-			&& Objects.equals(left.collectSmeltedItems(), right.collectSmeltedItems());
+			&& Objects.equals(left.task(), right.task());
+	}
+
+	private static SmeltItemsStepArgs smeltArgs(WorldTaskRequest request) {
+		return ((WorldTaskRequest.SmeltItems) request.task()).args();
+	}
+
+	private static CollectSmeltedItemsStepArgs collectArgs(WorldTaskRequest request) {
+		return ((WorldTaskRequest.CollectSmeltedItems) request.task()).args();
 	}
 
 	private static TaskExecutionSnapshot snapshot(TaskExecutionState state, WorldTaskRequest request, String event) {
