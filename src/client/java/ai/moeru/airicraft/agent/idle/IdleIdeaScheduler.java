@@ -72,6 +72,7 @@ public final class IdleIdeaScheduler {
 			.append("Pick exactly one small concrete next step now by calling the appropriate action tool, ")
 			.append("or ask the player one short focused question in plaintext if a design decision genuinely needs their input. ")
 			.append("Do not ask the player questions back-to-back across idle turns.\n")
+			.append("If torches would improve mining readiness and none are available, consider smelting a log into minecraft:charcoal, then crafting minecraft:torch from charcoal and sticks.\n")
 			.append("Survival progression ideas to consider (pick one whose preconditions are met now; do not read the list back to the player):\n");
 		for (String idea : ideas) {
 			builder.append("- ").append(idea).append('\n');

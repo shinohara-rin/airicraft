@@ -30,15 +30,21 @@ class LightingPolicyEvaluatorTest {
 	}
 
 	@Test
-	void wallCandidatesPreferEveryLeftPositionBeforeRightFallbacks() {
-		var candidates = LightingRuntime.wallPlacementCandidates(new BlockPos(10, 20, 30), Direction.NORTH);
+	void placementCandidatesPreferWallsOnTheLeftThenRightBeforeFloorFallbacks() {
+		var candidates = LightingRuntime.placementCandidates(new BlockPos(10, 20, 30), Direction.NORTH);
 
-		assertEquals(6, candidates.size());
+		assertEquals(10, candidates.size());
 		assertEquals(new BlockPos(9, 21, 31), candidates.get(0).support());
 		assertEquals(Direction.EAST, candidates.get(0).face());
 		assertEquals("left", candidates.get(0).side());
+		assertEquals(LightingRuntime.PlacementSurface.WALL, candidates.get(0).surface());
 		assertEquals(new BlockPos(11, 21, 31), candidates.get(3).support());
 		assertEquals(Direction.WEST, candidates.get(3).face());
 		assertEquals("right", candidates.get(3).side());
+		assertEquals(LightingRuntime.PlacementSurface.WALL, candidates.get(3).surface());
+		assertEquals(new BlockPos(10, 19, 31), candidates.get(6).support());
+		assertEquals(Direction.UP, candidates.get(6).face());
+		assertEquals("floor", candidates.get(6).side());
+		assertEquals(LightingRuntime.PlacementSurface.FLOOR, candidates.get(6).surface());
 	}
 }

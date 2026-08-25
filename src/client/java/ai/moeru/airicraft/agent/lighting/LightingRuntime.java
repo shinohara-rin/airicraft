@@ -83,7 +83,7 @@ public final class LightingRuntime {
 			return Optional.empty();
 		}
 
-		for (PlacementCandidate candidate : wallPlacementCandidates(player.getBlockPos(), player.getHorizontalFacing())) {
+		for (PlacementCandidate candidate : placementCandidates(player.getBlockPos(), player.getHorizontalFacing())) {
 			if (tryPlace(client, player, candidate, tick)) {
 				break;
 			}
@@ -134,7 +134,9 @@ public final class LightingRuntime {
 			return false;
 		}
 		BlockState targetState = client.world.getBlockState(target);
-		BlockState torchState = Blocks.WALL_TORCH.getDefaultState().with(WallTorchBlock.FACING, candidate.face());
+		BlockState torchState = candidate.surface() == PlacementSurface.WALL
+			? Blocks.WALL_TORCH.getDefaultState().with(WallTorchBlock.FACING, candidate.face())
+			: Blocks.TORCH.getDefaultState();
 		if (!(targetState.isAir() || targetState.isReplaceable()) || !torchState.canPlaceAt(client.world, target)) {
 			return false;
 		}
@@ -167,7 +169,7 @@ public final class LightingRuntime {
 		return true;
 	}
 
-	static List<PlacementCandidate> wallPlacementCandidates(BlockPos origin, Direction forward) {
+	static List<PlacementCandidate> placementCandidates(BlockPos origin, Direction forward) {
 		Direction left = forward.rotateYCounterclockwise();
 		Direction right = forward.rotateYClockwise();
 		List<BlockPos> anchors = List.of(
@@ -175,9 +177,10 @@ public final class LightingRuntime {
 			origin.up(),
 			origin.offset(forward).up()
 		);
-		java.util.ArrayList<PlacementCandidate> candidates = new java.util.ArrayList<>(6);
+		java.util.ArrayList<PlacementCandidate> candidates = new java.util.ArrayList<>(10);
 		addWallCandidates(candidates, anchors, left, "left");
 		addWallCandidates(candidates, anchors, right, "right");
+		addFloorCandidates(candidates, origin, forward);
 		return List.copyOf(candidates);
 	}
 
@@ -189,7 +192,18 @@ public final class LightingRuntime {
 	) {
 		Direction clickedFace = wallDirection.getOpposite();
 		for (BlockPos target : targets) {
-			candidates.add(new PlacementCandidate(target, target.offset(wallDirection), clickedFace, side));
+			candidates.add(new PlacementCandidate(target, target.offset(wallDirection), clickedFace, side, PlacementSurface.WALL));
+		}
+	}
+
+	private static void addFloorCandidates(List<PlacementCandidate> candidates, BlockPos origin, Direction forward) {
+		for (BlockPos target : List.of(
+			origin.offset(forward.getOpposite()),
+			origin.offset(forward.rotateYCounterclockwise()),
+			origin.offset(forward.rotateYClockwise()),
+			origin.offset(forward)
+		)) {
+			candidates.add(new PlacementCandidate(target, target.down(), Direction.UP, "floor", PlacementSurface.FLOOR));
 		}
 	}
 
@@ -229,7 +243,12 @@ public final class LightingRuntime {
 	public record PlacementEvent(Map<String, Object> payload) {
 	}
 
-	record PlacementCandidate(BlockPos target, BlockPos support, Direction face, String side) {
+	record PlacementCandidate(BlockPos target, BlockPos support, Direction face, String side, PlacementSurface surface) {
+	}
+
+	enum PlacementSurface {
+		WALL,
+		FLOOR
 	}
 
 	private record PendingPlacement(
