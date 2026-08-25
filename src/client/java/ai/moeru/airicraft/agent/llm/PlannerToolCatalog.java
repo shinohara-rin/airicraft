@@ -190,15 +190,17 @@ public final class PlannerToolCatalog {
 				prop("useTowering", bool("Whether the executor may build a pillar underfoot while jumping if path navigation cannot return to the surface. Defaults to true when omitted.")),
 				prop("fillerBlockIds", stringArray("Optional namespaced block/item ids to use for towering. Omit to use defaults: " + String.join(", ", ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS) + "."))
 			), List.of()), PlannerToolCatalog::validateReturnToSurfaceArguments),
-		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks by block id. Use for an explicit block-mining request or a registered acquisition route, never as a fallback after unknown_acquisition_method. Do not pass item ids from inventory itemCounts.", properties(
+		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks by block id. Use for an explicit block-mining request or a registered acquisition route, never as a fallback after unknown_acquisition_method. Do not pass item ids from inventory itemCounts. Likely underground work requires at least one torch unless explicitly overridden.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("blockIds", stringArray("Namespaced block ids to mine, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
-				prop("quantity", integer("Number of blocks to mine."))
+				prop("quantity", integer("Number of blocks to mine.")),
+				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
 		builtInTool(ENSURE_BLOCKS_IN_INVENTORY, false, tool(ENSURE_BLOCKS_IN_INVENTORY, "Ensure the inventory contains at least a target count from mined block drops. Do not pass inventory item ids.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("blockIds", stringArray("Namespaced block ids whose drops count toward the target, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
-				prop("quantity", integer("Minimum matching item count required in inventory. Existing inventory and pickups count."))
+				prop("quantity", integer("Minimum matching item count required in inventory. Existing inventory and pickups count.")),
+				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
 		builtInTool(COLLECT_RESOURCE, false, tool(COLLECT_RESOURCE, "Collect a supported resource kind.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -526,6 +528,9 @@ public final class PlannerToolCatalog {
 	private static void validateMineBlocksArguments(JsonObject arguments) {
 		requireStringArray(arguments, "blockIds");
 		requirePositiveInt(arguments, "quantity");
+		if (arguments.has("allowUnilluminated") && !arguments.get("allowUnilluminated").isJsonNull()) {
+			requireBoolean(arguments, "allowUnilluminated");
+		}
 	}
 
 	private static void validateReturnToSurfaceArguments(JsonObject arguments) {

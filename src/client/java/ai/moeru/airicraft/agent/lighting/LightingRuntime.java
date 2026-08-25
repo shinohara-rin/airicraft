@@ -2,9 +2,9 @@ package ai.moeru.airicraft.agent.lighting;
 
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.block.WallTorchBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.entity.Entity;
 import net.minecraft.item.Items;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
@@ -83,8 +83,8 @@ public final class LightingRuntime {
 			return Optional.empty();
 		}
 
-		for (BlockPos target : placementCandidates(player)) {
-			if (tryPlace(client, player, target, tick)) {
+		for (PlacementCandidate candidate : wallPlacementCandidates(player.getBlockPos(), player.getHorizontalFacing())) {
+			if (tryPlace(client, player, candidate, tick)) {
 				break;
 			}
 		}
@@ -117,6 +117,8 @@ public final class LightingRuntime {
 				"z", confirmed.target().getZ(),
 				"lightLevelBefore", confirmed.lightLevelBefore(),
 				"offhandCount", client.player.getOffHandStack().getCount(),
+				"side", confirmed.side(),
+				"facing", confirmed.face().asString(),
 				"miningActive", true
 			)));
 		}
@@ -126,24 +128,28 @@ public final class LightingRuntime {
 		return Optional.empty();
 	}
 
-	private boolean tryPlace(MinecraftClient client, ClientPlayerEntity player, BlockPos target, long tick) {
+	private boolean tryPlace(MinecraftClient client, ClientPlayerEntity player, PlacementCandidate candidate, long tick) {
+		BlockPos target = candidate.target();
 		if (!client.world.isChunkLoaded(target)) {
 			return false;
 		}
 		BlockState targetState = client.world.getBlockState(target);
-		BlockState torchState = Blocks.TORCH.getDefaultState();
+		BlockState torchState = Blocks.WALL_TORCH.getDefaultState().with(WallTorchBlock.FACING, candidate.face());
 		if (!(targetState.isAir() || targetState.isReplaceable()) || !torchState.canPlaceAt(client.world, target)) {
 			return false;
 		}
-		BlockPos support = target.down();
-		Vec3d hit = Vec3d.ofCenter(support).add(0.0D, 0.5D, 0.0D);
+		Vec3d hit = Vec3d.ofCenter(candidate.support()).add(
+			candidate.face().getOffsetX() * 0.5D,
+			candidate.face().getOffsetY() * 0.5D,
+			candidate.face().getOffsetZ() * 0.5D
+		);
 		if (player.getEyePos().squaredDistanceTo(hit) > MAX_REACH_SQUARED) {
 			return false;
 		}
 		ActionResult result = client.interactionManager.interactBlock(
 			player,
 			Hand.OFF_HAND,
-			new BlockHitResult(hit, Direction.UP, support, false)
+			new BlockHitResult(hit, candidate.face(), candidate.support(), false)
 		);
 		if (!result.isAccepted()) {
 			return false;
@@ -154,20 +160,37 @@ public final class LightingRuntime {
 			tick,
 			policy.revision(),
 			policy.mode(),
-			client.world.getLightLevel(target)
+			client.world.getLightLevel(target),
+			candidate.side(),
+			candidate.face()
 		);
 		return true;
 	}
 
-	private static List<BlockPos> placementCandidates(Entity player) {
-		BlockPos origin = player.getBlockPos();
-		Direction forward = player.getHorizontalFacing();
-		return List.of(
-			origin.offset(forward.getOpposite()),
-			origin.offset(forward.rotateYCounterclockwise()),
-			origin.offset(forward.rotateYClockwise()),
-			origin.offset(forward)
+	static List<PlacementCandidate> wallPlacementCandidates(BlockPos origin, Direction forward) {
+		Direction left = forward.rotateYCounterclockwise();
+		Direction right = forward.rotateYClockwise();
+		List<BlockPos> anchors = List.of(
+			origin.offset(forward.getOpposite()).up(),
+			origin.up(),
+			origin.offset(forward).up()
 		);
+		java.util.ArrayList<PlacementCandidate> candidates = new java.util.ArrayList<>(6);
+		addWallCandidates(candidates, anchors, left, "left");
+		addWallCandidates(candidates, anchors, right, "right");
+		return List.copyOf(candidates);
+	}
+
+	private static void addWallCandidates(
+		List<PlacementCandidate> candidates,
+		List<BlockPos> targets,
+		Direction wallDirection,
+		String side
+	) {
+		Direction clickedFace = wallDirection.getOpposite();
+		for (BlockPos target : targets) {
+			candidates.add(new PlacementCandidate(target, target.offset(wallDirection), clickedFace, side));
+		}
 	}
 
 	private static boolean hasNearbyTorch(MinecraftClient client, BlockPos origin, int radius) {
@@ -206,12 +229,17 @@ public final class LightingRuntime {
 	public record PlacementEvent(Map<String, Object> payload) {
 	}
 
+	record PlacementCandidate(BlockPos target, BlockPos support, Direction face, String side) {
+	}
+
 	private record PendingPlacement(
 		BlockPos target,
 		long startedTick,
 		long policyRevision,
 		LightingPolicy.Mode mode,
-		int lightLevelBefore
+		int lightLevelBefore,
+		String side,
+		Direction face
 	) {
 	}
 }

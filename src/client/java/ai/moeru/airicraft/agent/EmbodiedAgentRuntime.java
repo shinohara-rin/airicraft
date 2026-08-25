@@ -84,6 +84,7 @@ import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
 import ai.moeru.airicraft.agent.lighting.LightingPolicy;
 import ai.moeru.airicraft.agent.lighting.LightingRuntime;
+import ai.moeru.airicraft.agent.lighting.MiningIlluminationPreflight;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
 import ai.moeru.airicraft.agent.llm.CurrentWorldQueryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
@@ -1874,6 +1875,20 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				dispatch.payload()
 			);
 		}
+		if ((dispatch.proposal().type() == ActiveJobType.MINE_BLOCKS
+			|| dispatch.proposal().type() == ActiveJobType.ENSURE_BLOCKS_IN_INVENTORY)
+			&& dispatch.proposal().mineSpec() != null) {
+			Optional<String> illuminationError = miningIlluminationError(new JsonObject(), dispatch.proposal().mineSpec());
+			if (illuminationError.isPresent()) {
+				LinkedHashMap<String, Object> payload = new LinkedHashMap<>(dispatch.payload());
+				payload.put("failureReason", "insufficient_illumination");
+				return ActionGraphPrimitiveDispatchResult.failed(
+					TaskFailureCode.MISSING_ITEM,
+					illuminationError.get(),
+					payload
+				);
+			}
+		}
 		ActionGraphPrimitivePreflight preflight = prepareActionGraphPrimitiveProposal(dispatch.proposal());
 		if (preflight == null) {
 			return ActionGraphPrimitiveDispatchResult.failed(
@@ -2202,8 +2217,14 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				if (validationError.isPresent()) {
 					yield "TOOL_ERROR: mine_blocks " + validationError.get();
 				}
+				Optional<String> illuminationError = miningIlluminationError(args, mineSpec);
+				if (illuminationError.isPresent()) {
+					yield "TOOL_ERROR: mine_blocks " + illuminationError.get();
+				}
 				applyPlannerJobTool(ActiveJobProposal.mineBlocks(mineSpec));
-				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
+				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds())
+					+ " quantity=" + mineSpec.quantity()
+					+ " allowUnilluminated=" + booleanArg(args, "allowUnilluminated").orElse(false));
 			}
 			case PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY -> {
 				GoalMineSpec mineSpec = goalMineSpec(
@@ -2227,6 +2248,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 						+ currentItemCount
 						+ " matchingItemIds="
 						+ mineSpec.matchingItemIds();
+				}
+				Optional<String> illuminationError = miningIlluminationError(args, mineSpec);
+				if (illuminationError.isPresent()) {
+					yield "TOOL_ERROR: ensure_blocks_in_inventory " + illuminationError.get();
 				}
 				applyPlannerJobTool(ActiveJobProposal.ensureBlocksInInventory(mineSpec));
 				yield queuedActionToolResult("ensure_blocks_in_inventory", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
@@ -3071,6 +3096,28 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 			}
 		}
 		return Optional.empty();
+	}
+
+	private Optional<String> miningIlluminationError(JsonObject args, GoalMineSpec mineSpec) {
+		boolean allowUnilluminated = booleanArg(args, "allowUnilluminated").orElse(false);
+		int torchCount = inventoryItemCount("minecraft:torch");
+		MiningIlluminationPreflight.Result prediction = MiningIlluminationPreflight.inspect(
+			MinecraftClient.getInstance(),
+			mineSpec,
+			7
+		);
+		MiningIlluminationPreflight.Admission admission = MiningIlluminationPreflight.admit(
+			prediction,
+			torchCount,
+			allowUnilluminated
+		);
+		if (admission.allowed()) {
+			return Optional.empty();
+		}
+		return Optional.of("insufficient_illumination reason=" + prediction.reason()
+			+ " torchCount=" + torchCount
+			+ ". Acquire minecraft:torch and retry. Configure lighting policy if automatic placement is desired."
+			+ " To deliberately accept unilluminated mining, retry with allowUnilluminated=true.");
 	}
 
 	private static Optional<String> validateFillerBlockIds(List<String> blockIds) {
