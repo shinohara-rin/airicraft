@@ -198,6 +198,17 @@ public final class EvaluationAddonRuntime {
 		}
 	}
 
+	public void handleClientStop(BridgeRouteContext context) throws Exception {
+		if (!context.isMethod("POST")) {
+			context.writeJson(405, Map.of("error", "method_not_allowed"));
+			return;
+		}
+		context.writeJson(202, context.onClientThread(() -> {
+			MinecraftClient.getInstance().scheduleStop();
+			return Map.of("stopping", true);
+		}));
+	}
+
 	public void handleSurvivalFixture(BridgeRouteContext context) throws Exception {
 		if (!context.isMethod("POST")) {
 			context.writeJson(405, Map.of("error", "method_not_allowed"));

@@ -212,6 +212,10 @@ public final class PlannerOrchestrator {
 		return contextAggregator.lastObservedEventSeqNo();
 	}
 
+	public void invalidateIdleThinkTriggers() {
+		contextAggregator.invalidateIdleThinkTriggers();
+	}
+
 	public void updateSafetyContext(long safetyEpoch, String holdId, boolean activeReflex) {
 		minimumSafetyEpoch = Math.max(minimumSafetyEpoch, Math.max(0L, safetyEpoch));
 		currentSafetyHoldId = holdId;
@@ -287,6 +291,7 @@ public final class PlannerOrchestrator {
 			pollCoalescedQueue();
 			return null;
 		}
+		lifecycleListener.onPlannerModelCallCompleted(plannerResult);
 		if (isStaleSafetyRequest(plannerResult.request())) {
 			rejectStalePlannerResult(plannerResult);
 			return null;
@@ -349,6 +354,7 @@ public final class PlannerOrchestrator {
 				return finishFailedPlannerResult(promotionFailure);
 			}
 			acceptPlannerReply(plannerResult);
+			lifecycleListener.onPlannerExecutionApplied(plannerResult);
 			return plannerResult;
 		}
 
@@ -656,6 +662,7 @@ public final class PlannerOrchestrator {
 			plannerResult.response().rawAssistantContent(),
 			toolCalls
 		);
+		lifecycleListener.onPlannerExecutionApplied(plannerResult);
 		return null;
 	}
 

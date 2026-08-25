@@ -84,6 +84,8 @@ class EvaluationFlightRecorderTest {
 		assertTrue(Files.exists(tempDir.resolve("results-final.json")));
 		assertTrue(Files.exists(tempDir.resolve("evidence-final.json")));
 		assertTrue(Files.exists(tempDir.resolve("agent-debug-llm-calls-final.json")));
+		assertTrue(Files.exists(tempDir.resolve("planner-calls.jsonl")));
+		assertEquals("", Files.readString(tempDir.resolve("planner-calls.jsonl"), StandardCharsets.UTF_8));
 	}
 
 	private static EvaluationScenario scenario() {

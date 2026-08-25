@@ -159,15 +159,18 @@ class PlannerToolCallInterfaceTest {
 	@Test
 	void exposesAndParsesEnsureBlocksInInventoryTool() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject mineParameters = toolSchema(tools, "mine_blocks");
 
 		assertTrue(toolNames(tools).contains("ensure_blocks_in_inventory"));
+		assertTrue(mineParameters.getAsJsonObject("properties").has("allowUnilluminated"));
 		PlannerToolCall ensureCall = PlannerToolCatalog.parseToolCall(toolCall("ensure_blocks_in_inventory", """
-			{"blockIds":["minecraft:dirt"],"quantity":3}
+			{"blockIds":["minecraft:dirt"],"quantity":3,"allowUnilluminated":true}
 			"""));
 
 		assertEquals("ensure_blocks_in_inventory", ensureCall.name());
 		assertEquals("minecraft:dirt", ensureCall.arguments().getAsJsonArray("blockIds").get(0).getAsString());
 		assertEquals(3, ensureCall.arguments().get("quantity").getAsInt());
+		assertTrue(ensureCall.arguments().get("allowUnilluminated").getAsBoolean());
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("ensure_blocks_in_inventory", """
 				{"blockIds":["minecraft:dirt"],"quantity":0}
@@ -191,6 +194,24 @@ class PlannerToolCallInterfaceTest {
 			""")).name());
 		assertThrows(com.google.gson.JsonParseException.class, () ->
 			PlannerToolCatalog.parseToolCall(toolCall("configure_pathfind", "{\"settings\":{}}"))
+		);
+	}
+
+	@Test
+	void exposesAndParsesPlannerOwnedLightingPolicy() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject parameters = toolSchema(tools, "configure_lighting");
+
+		assertTrue(toolNames(tools).contains("configure_lighting"));
+		assertEquals(5, parameters.getAsJsonArray("required").size());
+		PlannerToolCall call = PlannerToolCatalog.parseToolCall(toolCall("configure_lighting", """
+			{"enabled":true,"mode":"darkness","maxLightLevel":2,"requireUnderground":true,"minSpacingBlocks":6}
+			"""));
+		assertEquals("configure_lighting", call.name());
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("configure_lighting", """
+				{"enabled":true,"mode":"darkness","maxLightLevel":16,"requireUnderground":true,"minSpacingBlocks":6}
+				"""))
 		);
 	}
 

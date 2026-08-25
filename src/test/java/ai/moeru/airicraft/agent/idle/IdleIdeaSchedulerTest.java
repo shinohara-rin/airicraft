@@ -39,6 +39,8 @@ class IdleIdeaSchedulerTest {
 		assertTrue(trigger.get().text().startsWith("IDLE THINK:"));
 		assertTrue(trigger.get().text().contains("Idea A"));
 		assertTrue(trigger.get().text().contains("Idea B"));
+		assertTrue(trigger.get().text().contains("smelting a log into minecraft:charcoal"));
+		assertTrue(trigger.get().text().contains("crafting minecraft:torch from charcoal and sticks"));
 	}
 
 	@Test

@@ -57,6 +57,7 @@ public final class PlannerToolCatalog {
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
 	public static final String CONFIGURE_PATHFIND = "configure_pathfind";
+	public static final String CONFIGURE_LIGHTING = "configure_lighting";
 
 	private static final Consumer<JsonObject> NO_ARGUMENT_VALIDATION = arguments -> {
 	};
@@ -189,15 +190,17 @@ public final class PlannerToolCatalog {
 				prop("useTowering", bool("Whether the executor may build a pillar underfoot while jumping if path navigation cannot return to the surface. Defaults to true when omitted.")),
 				prop("fillerBlockIds", stringArray("Optional namespaced block/item ids to use for towering. Omit to use defaults: " + String.join(", ", ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS) + "."))
 			), List.of()), PlannerToolCatalog::validateReturnToSurfaceArguments),
-		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks by block id. Use for an explicit block-mining request or a registered acquisition route, never as a fallback after unknown_acquisition_method. Do not pass item ids from inventory itemCounts.", properties(
+		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Mine matching blocks by block id. Use for an explicit block-mining request or a registered acquisition route, never as a fallback after unknown_acquisition_method. Do not pass item ids from inventory itemCounts. Likely underground work requires at least one torch unless explicitly overridden.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("blockIds", stringArray("Namespaced block ids to mine, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
-				prop("quantity", integer("Number of blocks to mine."))
+				prop("quantity", integer("Number of blocks to mine.")),
+				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
 		builtInTool(ENSURE_BLOCKS_IN_INVENTORY, false, tool(ENSURE_BLOCKS_IN_INVENTORY, "Ensure the inventory contains at least a target count from mined block drops. Do not pass inventory item ids.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("blockIds", stringArray("Namespaced block ids whose drops count toward the target, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
-				prop("quantity", integer("Minimum matching item count required in inventory. Existing inventory and pickups count."))
+				prop("quantity", integer("Minimum matching item count required in inventory. Existing inventory and pickups count.")),
+				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
 		builtInTool(COLLECT_RESOURCE, false, tool(COLLECT_RESOURCE, "Collect a supported resource kind.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
@@ -297,7 +300,15 @@ public final class PlannerToolCatalog {
 		builtInTool(CONFIGURE_PATHFIND, false, tool(CONFIGURE_PATHFIND, "Atomically update runtime Baritone pathfinding settings. Use this only when the current route needs a deliberate capability or risk trade-off; settings reset to Airicraft defaults on client restart.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("settings", BaritonePathfindSettings.plannerSettingsSchema())
-			), List.of("settings")), PlannerToolCatalog::validateConfigurePathfindArguments)
+			), List.of("settings")), PlannerToolCatalog::validateConfigurePathfindArguments),
+		builtInTool(CONFIGURE_LIGHTING, false, tool(CONFIGURE_LIGHTING, "Configure automatic offhand torch placement while mining. This sets policy only: placement runs without changing camera direction or the selected main-hand slot, and confirmed placements are batched into the next planner window.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("enabled", bool("Whether automatic offhand torch placement is enabled.")),
+				prop("mode", enumString("Lighting rule. darkness uses combined light; spawn_proof uses block light.", List.of("darkness", "spawn_proof"))),
+				prop("maxLightLevel", integer("Place when the selected light value is at or below this threshold, from 0 to 15.")),
+				prop("requireUnderground", bool("Whether sky-visible positions must be excluded.")),
+				prop("minSpacingBlocks", integer("Minimum search radius around the player without an existing torch, from 1 to 16."))
+			), List.of("enabled", "mode", "maxLightLevel", "requireUnderground", "minSpacingBlocks")), PlannerToolCatalog::validateConfigureLightingArguments)
 	);
 	private static final Map<String, BuiltInTool> BUILT_IN_TOOLS_BY_NAME = builtInToolsByName();
 
@@ -517,6 +528,9 @@ public final class PlannerToolCatalog {
 	private static void validateMineBlocksArguments(JsonObject arguments) {
 		requireStringArray(arguments, "blockIds");
 		requirePositiveInt(arguments, "quantity");
+		if (arguments.has("allowUnilluminated") && !arguments.get("allowUnilluminated").isJsonNull()) {
+			requireBoolean(arguments, "allowUnilluminated");
+		}
 	}
 
 	private static void validateReturnToSurfaceArguments(JsonObject arguments) {
@@ -934,6 +948,23 @@ public final class PlannerToolCatalog {
 		if (arguments == null || !arguments.has("settings") || !arguments.get("settings").isJsonObject()
 			|| arguments.getAsJsonObject("settings").isEmpty()) {
 			throw new JsonParseException("settings must be a non-empty object");
+		}
+	}
+
+	private static void validateConfigureLightingArguments(JsonObject arguments) {
+		requireBoolean(arguments, "enabled");
+		String mode = requireString(arguments, "mode");
+		if (!List.of("darkness", "spawn_proof").contains(mode)) {
+			throw new JsonParseException("Unsupported mode: " + mode);
+		}
+		int maxLightLevel = requireInt(arguments, "maxLightLevel");
+		if (maxLightLevel < 0 || maxLightLevel > 15) {
+			throw new JsonParseException("maxLightLevel must be between 0 and 15");
+		}
+		requireBoolean(arguments, "requireUnderground");
+		int minSpacingBlocks = requireInt(arguments, "minSpacingBlocks");
+		if (minSpacingBlocks < 1 || minSpacingBlocks > 16) {
+			throw new JsonParseException("minSpacingBlocks must be between 1 and 16");
 		}
 	}
 

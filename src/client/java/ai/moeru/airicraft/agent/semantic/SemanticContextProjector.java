@@ -79,6 +79,7 @@ public final class SemanticContextProjector {
 	private enum AggregationStrategy {
 		SINGLE,
 		SUM_COUNT_BY_TYPE_ACTOR_ITEM,
+		SUM_LIGHTING_BY_POLICY,
 		SUM_DAMAGE_BY_CONTEXT,
 		DEDUPE_BY_TYPE_PLAYER,
 		DEDUP_BY_TYPE,
@@ -88,6 +89,7 @@ public final class SemanticContextProjector {
 			return switch (this) {
 				case SINGLE -> event.type() + "#seq:" + event.seqNo();
 				case SUM_COUNT_BY_TYPE_ACTOR_ITEM -> event.type() + "|actor=" + value(event, "actor") + "|itemId=" + value(event, "itemId");
+				case SUM_LIGHTING_BY_POLICY -> event.type() + "|policyRevision=" + value(event, "policyRevision") + "|mode=" + value(event, "mode");
 				case SUM_DAMAGE_BY_CONTEXT -> event.type()
 					+ "|actor=" + value(event, "actor")
 					+ "|damageTypeId=" + value(event, "damageTypeId")
@@ -106,6 +108,7 @@ public final class SemanticContextProjector {
 			}
 			return switch (eventType) {
 				case "pickup.item_picked_up", "crafting.item_crafted" -> SUM_COUNT_BY_TYPE_ACTOR_ITEM;
+				case "lighting.torch_placed" -> SUM_LIGHTING_BY_POLICY;
 				case "combat.damage_taken" -> SUM_DAMAGE_BY_CONTEXT;
 				case "social.player_joined_game",
 					"social.player_left_game",
@@ -186,6 +189,15 @@ public final class SemanticContextProjector {
 
 			if (strategy == AggregationStrategy.SUM_COUNT_BY_TYPE_ACTOR_ITEM) {
 				payload.put("count", countValue(payload.get("count")) + countValue(event.payload().get("count")));
+				return;
+			}
+			if (strategy == AggregationStrategy.SUM_LIGHTING_BY_POLICY) {
+				payload.put("count", countValue(payload.getOrDefault("count", 1)) + 1);
+				for (String key : List.of("x", "y", "z", "offhandCount", "lightLevelBefore", "side", "facing")) {
+					if (event.payload().containsKey(key)) {
+						payload.put(key, event.payload().get(key));
+					}
+				}
 				return;
 			}
 			if (strategy == AggregationStrategy.SUM_DAMAGE_BY_CONTEXT) {

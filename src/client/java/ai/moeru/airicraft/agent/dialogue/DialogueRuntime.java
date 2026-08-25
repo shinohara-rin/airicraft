@@ -149,6 +149,10 @@ public final class DialogueRuntime {
 		return plannerOrchestrator.contextExcerpt();
 	}
 
+	public void invalidateIdleThinkTriggers() {
+		plannerOrchestrator.invalidateIdleThinkTriggers();
+	}
+
 	public void updateSafetyContext(long replacementSafetyEpoch, String replacementSafetyHoldId, boolean activeReflex) {
 		safetyEpoch = Math.max(safetyEpoch, Math.max(0L, replacementSafetyEpoch));
 		safetyHoldId = replacementSafetyHoldId;

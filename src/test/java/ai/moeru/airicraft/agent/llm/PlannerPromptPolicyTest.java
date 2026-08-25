@@ -31,6 +31,11 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("same-client admin messages"));
 		assertTrue(prompt.contains("unknown_acquisition_method"));
 		assertTrue(prompt.contains("must not start exploration"));
+		assertTrue(prompt.contains("smelt a log into minecraft:charcoal"));
+		assertTrue(prompt.contains("craft minecraft:torch from charcoal and sticks"));
+		assertTrue(prompt.contains("allowUnilluminated"));
+		assertTrue(prompt.contains("executionPhase=PLANNING"));
+		assertTrue(prompt.contains("A smelting_output goal describes the desired output"));
 	}
 
 	@Test

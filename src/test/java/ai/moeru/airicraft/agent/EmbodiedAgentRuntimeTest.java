@@ -568,6 +568,10 @@ class EmbodiedAgentRuntimeTest {
 		)).join();
 
 		assertTrue(inspect.contains("Tool result for inspect_action_goal: state=RESOLVING"));
+		assertTrue(inspect.contains("executionPhase=PLANNING"), inspect);
+		assertTrue(inspect.contains("activePrimitive=false"), inspect);
+		assertTrue(inspect.contains("resolved=false"), inspect);
+		assertTrue(inspect.contains("accepted=false"), inspect);
 		assertTrue(list.contains("Tool result for list_action_goals: count=1"));
 		assertTrue(trace.contains("Tool result for inspect_action_trace: state=RESOLVING"));
 		assertTrue(trace.contains("trace="));
@@ -1295,6 +1299,33 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(trigger.text().contains("Do not substitute mine_blocks"));
 		assertTrue(trigger.text().contains("acquisition is unsupported"));
 		assertEquals("action_graph_terminal:action-graph-seagrass", trigger.coalescingKey());
+	}
+
+	@Test
+	void actionGraphFailureTriggerNamesFailedPrerequisiteInsteadOfOnlyTopLevelGoal() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+
+		PlannerTrigger trigger = runtime.createPlannerTriggerForTests(new SemanticEvent(
+			1L,
+			20L,
+			1000L,
+			"action_graph.goal_terminal",
+			Map.of(
+				"executionId", "action-graph-charcoal",
+				"state", "FAILED",
+				"goal", "inventory.item|itemId=minecraft:charcoal|countAtLeast>=1",
+				"failureCode", "missing_fact",
+				"message", "insufficient_illumination reason=loaded_target_unilluminated torchCount=0",
+				"failedPrimitive", "mine_block",
+				"failedTarget", "minecraft:cobblestone",
+				"failedArgs", Map.of("itemId", "minecraft:cobblestone", "quantity", 8)
+			)
+		), new EventRoutingProfile("action_graph.goal_terminal", true, PlannerTriggerType.SYSTEM, true));
+
+		assertTrue(trigger.text().contains("failedPrimitive=mine_block"), trigger.text());
+		assertTrue(trigger.text().contains("failedTarget=minecraft:cobblestone"), trigger.text());
+		assertTrue(trigger.text().contains("failedArgs={itemId=minecraft:cobblestone, quantity=8")
+			|| trigger.text().contains("failedArgs={quantity=8, itemId=minecraft:cobblestone"), trigger.text());
 	}
 
 	@Test

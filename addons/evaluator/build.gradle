@@ -88,6 +88,7 @@ def evaluatorJdwpEnabled = providers.gradleProperty("airicraft.evaluator.jdwp.en
 	.orElse("true")
 def evaluatorRuntimePrepared = providers.gradleProperty("airicraft.evaluator.runtimePrepared")
 	.orElse("false")
+def evaluatorRecorderJar = providers.gradleProperty("airicraft.evaluator.recorderJar")
 def evaluatorScenariosDir = rootProject.layout.projectDirectory.dir("scenarios")
 
 if (evaluatorRuntimePrepared.get().toBoolean()) {
@@ -101,6 +102,16 @@ def configureEvaluatorProcess = { task ->
 	task.jvmArgs.add("-Dairicraft.scenariosDir=${evaluatorScenariosDir.asFile.absolutePath}")
 	if (evaluatorJdwpEnabled.get().toBoolean()) {
 		task.jvmArgs.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=127.0.0.1:5008")
+	}
+}
+
+def configureEvaluatorRecordingProfile = { task ->
+	if (evaluatorRecorderJar.isPresent()) {
+		def profile = rootProject.file(evaluatorRecorderJar.get())
+		if (!profile.isFile()) {
+			throw new GradleException("Recording profile does not exist: ${profile}")
+		}
+		task.mods.from(profile)
 	}
 }
 
@@ -119,6 +130,7 @@ tasks.register("runClientEvaluator", net.fabricmc.loom.task.prod.ClientProductio
 		"libs/baritone-unoptimized-fabric-1.15.0.jar",
 		"libs/nether-pathfinder-1.4.1.jar"
 	))
+	configureEvaluatorRecordingProfile(delegate)
 	classpath.from(configurations.evaluatorRuntimeLibraries)
 	configureEvaluatorProcess(delegate)
 	javaLauncher = javaToolchains.launcherFor {
@@ -152,6 +164,7 @@ if (journeyMapCompatProject != null) {
 		else {
 			mods.from(tasks.named("remapJar").flatMap { it.archiveFile })
 		}
+		configureEvaluatorRecordingProfile(delegate)
 		classpath.from(configurations.evaluatorRuntimeLibraries)
 		classpath.from(journeyMapCompatLibrariesDir)
 		configureEvaluatorProcess(delegate)

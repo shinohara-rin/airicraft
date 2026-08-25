@@ -64,6 +64,8 @@ import ai.moeru.airicraft.agent.events.EventPolicyState;
 import ai.moeru.airicraft.agent.events.EventRoutingProfile;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.FlightRecordingObservability;
+import ai.moeru.airicraft.agent.recording.PlannerCallJournal;
+import ai.moeru.airicraft.agent.recording.PlannerCallRecordV1;
 import ai.moeru.airicraft.agent.events.SemanticEventBuffer;
 import ai.moeru.airicraft.agent.events.SemanticEvent;
 import ai.moeru.airicraft.agent.events.SemanticEventQueryResult;
@@ -80,6 +82,9 @@ import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.job.ActiveJobStatus;
 import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
+import ai.moeru.airicraft.agent.lighting.LightingPolicy;
+import ai.moeru.airicraft.agent.lighting.LightingRuntime;
+import ai.moeru.airicraft.agent.lighting.MiningIlluminationPreflight;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
 import ai.moeru.airicraft.agent.llm.CurrentWorldQueryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
@@ -239,6 +244,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final CurrentViewVisionService visionService;
 	private final DialogueRuntime dialogueRuntime;
 	private final PlannerShellJournal plannerJournal;
+	private final PlannerCallJournal plannerCallJournal;
 	private final WorldTaskExecutor worldTaskExecutor;
 	private final InventoryResourceCounter inventoryResourceCounter = new InventoryResourceCounter();
 	private final InventoryItemCounter inventoryItemCounter = new InventoryItemCounter();
@@ -249,6 +255,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final CurrentWorldQueryService guardedWorldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 	private final ActionGraphCoordinator actionGraphCoordinator;
 	private final SurvivalReflexRuntime survivalReflexRuntime;
+	private final LightingRuntime lightingRuntime = new LightingRuntime();
 	private final EmbodiedPlannerActionToolExecutor plannerActionToolExecutor;
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
@@ -319,7 +326,8 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				this::emitPlannerToolNarration,
 				this::beforePlannerToolExecution,
 				worldReadLedger::recordObserved,
-				effectiveCameraController
+				effectiveCameraController,
+				EmbodiedAgentRuntime::integratedServerTick
 			);
 		this.visionService = plannerShell.visionService();
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
@@ -327,6 +335,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 			this.dialogueRuntime.enableExternalDriver();
 		}
 		this.plannerJournal = plannerShell.plannerJournal();
+		this.plannerCallJournal = plannerShell.plannerCallJournal();
 		this.debugRecorder.recordDialogueState(this.dialogueRuntime.snapshot());
 	}
 
@@ -412,6 +421,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		lightingRuntime.reset();
 		seenPlayerNames.clear();
 	}
 
@@ -528,6 +538,13 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				handleTerminalTaskEvent(reportedEvent, semanticTaskContext, activeTaskRequest);
 			});
 		});
+		boolean miningActive = activeTaskRequest
+			.map(request -> request.type() == WorldTaskType.MINE)
+			.orElse(false)
+			&& taskExecutionSnapshot.state() == TaskExecutionState.RUNNING;
+		lightingRuntime.tick(client, miningActive, tickCount).ifPresent(event ->
+			eventBuffer.append(tickCount, "lighting.torch_placed", event.payload())
+		);
 		completePendingCraftToolResultFromTaskSnapshot(taskSnapshot);
 		completePendingBlockModificationToolResultFromTaskSnapshot(taskSnapshot);
 		expirePendingCraftToolResultIfTimedOut();
@@ -779,6 +796,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		lightingRuntime.reset();
 		seenPlayerNames.clear();
 		sessionSnapshot = SessionSnapshot.initial();
 	}
@@ -902,6 +920,9 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		);
 		if (result.admission() == ActionGraphAdmission.STARTED) {
 			releaseSafetyHoldForActionGraphStart("action_graph_started");
+		}
+		if (actionGraphCoordinator.hasNonterminal()) {
+			dialogueRuntime.invalidateIdleThinkTriggers();
 		}
 		Map<String, Object> payload = new LinkedHashMap<>(result.toPayload(false));
 		payload.put("requestedGoal", goal.normalizedKey());
@@ -1156,6 +1177,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	}
 
 	public void prepareForEvaluation() {
+		plannerCallJournal.clear();
 		proactiveSocialModeOverride = null;
 		evaluationPlannerSuppressed = false;
 		clearNearbyBlockSnapshot();
@@ -1196,6 +1218,19 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 
 	public List<PlannerShellEvent> plannerShellJournal() {
 		return plannerJournal.snapshot();
+	}
+
+	public List<PlannerCallRecordV1> plannerCallRecords() {
+		return plannerCallJournal.snapshot();
+	}
+
+	public void finalizePlannerCallRecordsForEvaluation() {
+		plannerCallJournal.finalizeForEvaluation();
+	}
+
+	private static long integratedServerTick() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		return client == null || client.getServer() == null ? -1L : client.getServer().getTicks();
 	}
 
 	public int activeEventPolicyRuleCount() {
@@ -1843,6 +1878,20 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				dispatch.payload()
 			);
 		}
+		if ((dispatch.proposal().type() == ActiveJobType.MINE_BLOCKS
+			|| dispatch.proposal().type() == ActiveJobType.ENSURE_BLOCKS_IN_INVENTORY)
+			&& dispatch.proposal().mineSpec() != null) {
+			Optional<String> illuminationError = miningIlluminationError(new JsonObject(), dispatch.proposal().mineSpec());
+			if (illuminationError.isPresent()) {
+				LinkedHashMap<String, Object> payload = new LinkedHashMap<>(dispatch.payload());
+				payload.put("failureReason", "insufficient_illumination");
+				return ActionGraphPrimitiveDispatchResult.failed(
+					TaskFailureCode.MISSING_ITEM,
+					illuminationError.get(),
+					payload
+				);
+			}
+		}
 		ActionGraphPrimitivePreflight preflight = prepareActionGraphPrimitiveProposal(dispatch.proposal());
 		if (preflight == null) {
 			return ActionGraphPrimitiveDispatchResult.failed(
@@ -2171,8 +2220,14 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				if (validationError.isPresent()) {
 					yield "TOOL_ERROR: mine_blocks " + validationError.get();
 				}
+				Optional<String> illuminationError = miningIlluminationError(args, mineSpec);
+				if (illuminationError.isPresent()) {
+					yield "TOOL_ERROR: mine_blocks " + illuminationError.get();
+				}
 				applyPlannerJobTool(ActiveJobProposal.mineBlocks(mineSpec));
-				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
+				yield queuedActionToolResult("mine_blocks", "blockIds=" + String.join(",", mineSpec.blockIds())
+					+ " quantity=" + mineSpec.quantity()
+					+ " allowUnilluminated=" + booleanArg(args, "allowUnilluminated").orElse(false));
 			}
 			case PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY -> {
 				GoalMineSpec mineSpec = goalMineSpec(
@@ -2196,6 +2251,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 						+ currentItemCount
 						+ " matchingItemIds="
 						+ mineSpec.matchingItemIds();
+				}
+				Optional<String> illuminationError = miningIlluminationError(args, mineSpec);
+				if (illuminationError.isPresent()) {
+					yield "TOOL_ERROR: ensure_blocks_in_inventory " + illuminationError.get();
 				}
 				applyPlannerJobTool(ActiveJobProposal.ensureBlocksInInventory(mineSpec));
 				yield queuedActionToolResult("ensure_blocks_in_inventory", "blockIds=" + String.join(",", mineSpec.blockIds()) + " quantity=" + mineSpec.quantity());
@@ -2399,6 +2458,21 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 					? "Tool result for configure_pathfind: applied " + String.join(", ", result.changed())
 					: "TOOL_ERROR: configure_pathfind " + result.error();
 			}
+			case PlannerToolCatalog.CONFIGURE_LIGHTING -> {
+				LightingPolicy lightingPolicy = lightingRuntime.configure(
+					args.get("enabled").getAsBoolean(),
+					LightingPolicy.Mode.parse(args.get("mode").getAsString()),
+					args.get("maxLightLevel").getAsInt(),
+					args.get("requireUnderground").getAsBoolean(),
+					args.get("minSpacingBlocks").getAsInt()
+				);
+				yield "Tool result for configure_lighting: applied enabled=" + lightingPolicy.enabled()
+					+ " mode=" + lightingPolicy.mode().wireName()
+					+ " maxLightLevel=" + lightingPolicy.maxLightLevel()
+					+ " requireUnderground=" + lightingPolicy.requireUnderground()
+					+ " minSpacingBlocks=" + lightingPolicy.minSpacingBlocks()
+					+ " policyRevision=" + lightingPolicy.revision();
+			}
 			default -> "TOOL_ERROR: unknown_tool " + toolCall.name();
 		};
 	}
@@ -2432,7 +2506,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		Map<String, Object> payload = snapshot == null ? ActionGraphExecutionSnapshot.idle().toPayload(verbose) : snapshot.toPayload(verbose);
 		return "Tool result for " + toolName
 			+ ": state=" + payload.get("state")
+			+ " executionPhase=" + payload.get("executionPhase")
+			+ " resolved=" + payload.get("resolved")
 			+ " accepted=" + payload.get("accepted")
+			+ " activePrimitive=" + payload.get("activePrimitive")
 			+ " executionId=" + payload.get("executionId")
 			+ " activeTaskId=" + payload.get("activeTaskId")
 			+ " traceEventCount=" + payload.get("traceEventCount")
@@ -2444,6 +2521,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		Map<String, Object> payload = result == null ? Map.of("admission", "busy") : result.toPayload(false);
 		return "Tool result for start_action_goal: state=" + payload.getOrDefault("state", "IDLE")
 			+ " admission=" + payload.get("admission")
+			+ " executionPhase=" + payload.getOrDefault("executionPhase", "IDLE")
+			+ " resolved=" + payload.getOrDefault("resolved", false)
+			+ " accepted=" + payload.getOrDefault("accepted", false)
+			+ " activePrimitive=" + payload.getOrDefault("activePrimitive", false)
 			+ " executionId=" + payload.getOrDefault("executionId", "")
 			+ " foregroundExecutionId=" + payload.getOrDefault("foregroundExecutionId", "")
 			+ " suspendedCount=" + payload.getOrDefault("suspendedCount", 0)
@@ -2458,6 +2539,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		}
 		Map<String, Object> payload = view.toPayload(verbose);
 		return "Tool result for " + toolName + ": state=" + payload.get("state")
+			+ " executionPhase=" + payload.get("executionPhase")
+			+ " resolved=" + payload.get("resolved")
+			+ " accepted=" + payload.get("accepted")
+			+ " activePrimitive=" + payload.get("activePrimitive")
 			+ " executionId=" + payload.get("executionId")
 			+ " payload=" + payload;
 	}
@@ -3025,6 +3110,28 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 			}
 		}
 		return Optional.empty();
+	}
+
+	private Optional<String> miningIlluminationError(JsonObject args, GoalMineSpec mineSpec) {
+		boolean allowUnilluminated = booleanArg(args, "allowUnilluminated").orElse(false);
+		int torchCount = inventoryItemCount("minecraft:torch");
+		MiningIlluminationPreflight.Result prediction = MiningIlluminationPreflight.inspect(
+			MinecraftClient.getInstance(),
+			mineSpec,
+			7
+		);
+		MiningIlluminationPreflight.Admission admission = MiningIlluminationPreflight.admit(
+			prediction,
+			torchCount,
+			allowUnilluminated
+		);
+		if (admission.allowed()) {
+			return Optional.empty();
+		}
+		return Optional.of("insufficient_illumination reason=" + prediction.reason()
+			+ " torchCount=" + torchCount
+			+ ". Acquire minecraft:torch and retry. Configure lighting policy if automatic placement is desired."
+			+ " To deliberately accept unilluminated mining, retry with allowUnilluminated=true.");
 	}
 
 	private static Optional<String> validateFillerBlockIds(List<String> blockIds) {
@@ -3675,9 +3782,15 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		String goal = stringPayloadValue(event.payload(), "goal");
 		String failureCode = stringPayloadValue(event.payload(), "failureCode");
 		String failureMessage = stringPayloadValue(event.payload(), "message");
+		String failedPrimitive = stringPayloadValue(event.payload(), "failedPrimitive");
+		String failedTarget = stringPayloadValue(event.payload(), "failedTarget");
+		Object failedArgs = event.payload().get("failedArgs");
 		String normalizedCode = failureCode == null ? "failed" : failureCode;
 		String message = "ACTION GRAPH FAILED: executionId=" + executionId
 			+ " goal=" + (goal == null ? "" : goal)
+			+ " failedPrimitive=" + (failedPrimitive == null ? "" : failedPrimitive)
+			+ " failedTarget=" + (failedTarget == null ? "" : failedTarget)
+			+ " failedArgs=" + (failedArgs == null ? "{}" : failedArgs)
 			+ " failureCode=" + normalizedCode
 			+ " message=" + (failureMessage == null ? "" : failureMessage)
 			+ ". Explain the terminal failure accurately. ";
@@ -3991,6 +4104,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		profiles.put("reflex.resolved", new EventRoutingProfile("reflex.resolved", true, PlannerTriggerType.SYSTEM, true));
 		profiles.put("reflex.hold_released", new EventRoutingProfile("reflex.hold_released", true, null, true));
 		profiles.put("reflex.actuator_failed", new EventRoutingProfile("reflex.actuator_failed", true, null, true));
+		profiles.put("lighting.torch_placed", new EventRoutingProfile("lighting.torch_placed", true, null, true));
 		profiles.put("planner.stale_response_rejected", new EventRoutingProfile("planner.stale_response_rejected", true, null, true));
 		profiles.put("player.died", new EventRoutingProfile("player.died", true, null, true));
 		profiles.put("player.actions_cancelled", new EventRoutingProfile("player.actions_cancelled", true, null, true));

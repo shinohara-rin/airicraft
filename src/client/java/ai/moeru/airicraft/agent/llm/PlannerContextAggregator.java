@@ -136,6 +136,10 @@ public final class PlannerContextAggregator {
 		state = PlannerContextReducer.enqueueTrigger(state, trigger.withSeqNo(state.nextTriggerSeqNo()));
 	}
 
+	public void invalidateIdleThinkTriggers() {
+		state = PlannerContextReducer.invalidateIdleThinkTriggers(state);
+	}
+
 	public PlannerContextSnapshot freezePlannerSnapshot(PlannerRequest request) {
 		Objects.requireNonNull(request, "request");
 		recordPlannerRequestSeed(PlannerRequestSeed.fromRequest(request));

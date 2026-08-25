@@ -74,7 +74,8 @@ record EmbodiedPlannerActionToolExecutor(
 		return switch (toolName) {
 			case PlannerToolCatalog.CANCEL_ACTION_GOAL, PlannerToolCatalog.CANCEL_SMELTING -> ToolPolicy.READ;
 			case PlannerToolCatalog.CANCEL_TASK, PlannerToolCatalog.CLEAR_GOAL -> ToolPolicy.GRAPH_CONTROL;
-			case PlannerToolCatalog.UPDATE_EVENT_POLICY, PlannerToolCatalog.CONFIGURE_PATHFIND -> ToolPolicy.DEAD_SAFE;
+			case PlannerToolCatalog.UPDATE_EVENT_POLICY, PlannerToolCatalog.CONFIGURE_PATHFIND,
+				PlannerToolCatalog.CONFIGURE_LIGHTING -> ToolPolicy.DEAD_SAFE;
 			case PlannerToolCatalog.START_ACTION_GOAL -> ToolPolicy.TASK_MUTATION;
 			case PlannerToolCatalog.FOLLOW_PLAYER, PlannerToolCatalog.NAVIGATE_TO,
 				PlannerToolCatalog.RETURN_TO_SURFACE, PlannerToolCatalog.MINE_BLOCKS,

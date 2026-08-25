@@ -2451,7 +2451,7 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentActionGoal(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "admission", "foregroundExecutionId", "suspendedCount", "runnableCount", "residency", "executionId", "state", "resolved", "accepted", "cursor", "stepAttempt", "replanCount", "watchCount", "pendingWatch", "activeTaskId", "failureCode", "message", "traceEventCount");
+			copy(view, payload, "available", "admission", "foregroundExecutionId", "suspendedCount", "runnableCount", "residency", "executionId", "state", "executionPhase", "resolved", "accepted", "activePrimitive", "cursor", "stepAttempt", "replanCount", "watchCount", "pendingWatch", "activeTaskId", "failureCode", "message", "traceEventCount");
 			copy(view, payload, "goal", "currentStep", "dispatch", "task", "taskExecution");
 			Map<String, Object> route = map(payload.get("route"));
 			if (!route.isEmpty()) {

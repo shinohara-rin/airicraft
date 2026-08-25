@@ -44,10 +44,21 @@ Run scenarios through the batch harness. Parallel execution is opt-in with `--jo
 scripts/run-evaluation-scenarios \
   --scenario pickup \
   --scenario underground \
+  --recorder-jar /path/to/recorder-profile.jar \
   --jobs 2
 ```
 
-Each scenario gets an isolated bridge file, game directory, process, and artifact directory. Parallel runs stop every client. Serial runs can still leave the final client active unless `--stop-client-after-scenario` is set.
+Recorder-enabled runs require a recording profile. Set `AIRICRAFT_RECORDER_JAR`
+to use the same profile without passing `--recorder-jar` each time. Use
+`--no-recorder` to keep the existing run without integrated-server capture.
+
+Each scenario gets an isolated bridge file, game directory, process, and artifact directory. Parallel runs stop every client. Recorder-disabled serial runs can leave the final client active unless `--stop-client-after-scenario` is set.
+
+Recorder-enabled scenarios always stop their client after a terminal scenario
+outcome. The runner writes the recorder and ServerReplay configuration into the
+isolated game directory. The recorder artifact root is under that scenario's
+result directory. Recorder-disabled scenarios keep the existing final-client
+behavior.
 
 The harness copies the base `run/config`, JourneyMap configuration, and `run/options.txt` into each worker. It does not copy saves, logs, screenshots, or JourneyMap world data. Passed worker directories are deleted. Failed, interrupted, and review worker directories remain under `run/evaluator-workers/<run-id>/`.
 

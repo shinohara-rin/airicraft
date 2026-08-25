@@ -82,8 +82,13 @@ public record ActionGraphExecutionSnapshot(
 		payload.put("available", available);
 		payload.put("executionId", executionId);
 		payload.put("state", state.name());
+		payload.put("executionPhase", executionPhase());
 		payload.put("resolved", route != null && (!route.steps().isEmpty() || isTerminalSuccess()));
 		payload.put("accepted", isAccepted());
+		payload.put(
+			"activePrimitive",
+			state == ActionGraphExecutionState.WAITING_PRIMITIVE && !activeTaskId.isBlank()
+		);
 		payload.put("cursor", cursor);
 		payload.put("stepAttempt", stepAttempt);
 		payload.put("replanCount", replanCount);
@@ -126,6 +131,19 @@ public record ActionGraphExecutionSnapshot(
 			payload.put("trace", List.of());
 		}
 		return payload;
+	}
+
+	private String executionPhase() {
+		return switch (state) {
+			case RESOLVING, REPLANNING -> "PLANNING";
+			case READY, DISPATCHING -> "DISPATCHING";
+			case WAITING_PRIMITIVE -> "PRIMITIVE_ACTIVE";
+			case OBSERVING -> "OBSERVING";
+			case WATCHING -> "WAITING_WORLD";
+			case BLOCKED -> "BLOCKED";
+			case SUCCEEDED, FAILED, CANCELLED -> "TERMINAL";
+			case IDLE -> "IDLE";
+		};
 	}
 
 	private boolean isAccepted() {

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "callId": "planner-call-0001",
+  "sequence": "1",
+  "turnId": "session:AUTONOMOUS:sender=server:tick=120",
+  "plannerAttempt": {
+    "generation": "7",
+    "attempt": 1,
+    "phase": "PLANNER_REQUEST"
+  },
+  "timeline": {
+    "submitted": {
+      "serverTick": "120"
+    },
+    "completed": {
+      "serverTick": "129"
+    },
+    "applied": {
+      "serverTick": "130"
+    }
+  },
+  "timing": {
+    "requestedAtUnixMs": "1786437600000",
+    "completedAtUnixMs": "1786437600450",
+    "latencyMs": "450"
+  },
+  "model": {
+    "provider": "openai-compatible",
+    "name": "planner-model"
+  },
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You control a Minecraft agent."
+      },
+      {
+        "role": "user",
+        "content": "Continue the active goal."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "inspect_world",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "outcome": {
+    "status": "completed",
+    "assistantContent": {
+      "role": "assistant",
+      "content": "I will inspect the nearby area."
+    },
+    "toolCalls": [
+      {
+        "id": "call_inspect_world_1",
+        "name": "inspect_world",
+        "arguments": {
+          "radius": 4
+        }
+      }
+    ],
+    "usage": {
+      "promptTokens": 2400,
+      "completionTokens": 120,
+      "totalTokens": 2520
+    }
+  }
+}

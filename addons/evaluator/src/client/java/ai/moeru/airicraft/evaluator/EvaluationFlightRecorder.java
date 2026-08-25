@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -184,6 +185,7 @@ public final class EvaluationFlightRecorder {
 		EmbodiedAgentRuntime runtime,
 		Supplier<Map<String, Object>> evidenceSupplier
 	) throws IOException {
+		runtime.finalizePlannerCallRecordsForEvaluation();
 		writeJson(outputDir.resolve("results-final.json"), Map.of("available", true, "report", report));
 		writeJson(outputDir.resolve("evidence-final.json"), evidenceSupplier.get());
 		writeJson(outputDir.resolve("agent-status-final.json"), Map.of(
@@ -198,6 +200,7 @@ public final class EvaluationFlightRecorder {
 		writeJson(outputDir.resolve("agent-events-final.json"), runtime.recentEvents(null));
 		writeJson(outputDir.resolve("agent-debug-timeline-final.json"), runtime.debugTimeline(null));
 		writeJson(outputDir.resolve("agent-debug-llm-calls-final.json"), runtime.llmFlightRecords(null));
+		writeJsonlSnapshot(outputDir.resolve("planner-calls.jsonl"), runtime.plannerCallRecords());
 		writeJson(outputDir.resolve("world-evidence-final.json"), runtime.currentWorldEvidence());
 	}
 
@@ -218,6 +221,19 @@ public final class EvaluationFlightRecorder {
 		Files.writeString(
 			path,
 			GSON.toJson(value) + "\n",
+			StandardOpenOption.CREATE,
+			StandardOpenOption.TRUNCATE_EXISTING
+		);
+	}
+
+	private static void writeJsonlSnapshot(Path path, List<?> values) throws IOException {
+		StringBuilder content = new StringBuilder();
+		for (Object value : values) {
+			content.append(GSON.toJson(value)).append('\n');
+		}
+		Files.writeString(
+			path,
+			content,
 			StandardOpenOption.CREATE,
 			StandardOpenOption.TRUNCATE_EXISTING
 		);
