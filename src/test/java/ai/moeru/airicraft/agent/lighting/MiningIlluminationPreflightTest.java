@@ -36,6 +36,42 @@ class MiningIlluminationPreflightTest {
 	}
 
 	@Test
+	void observedSurfaceBootstrapOverridesStoneTypeFallback() {
+		var observed = MiningIlluminationPreflight.assess(false, false, true, true);
+		var unobserved = MiningIlluminationPreflight.assess(false, false, false, true);
+
+		assertFalse(observed.illuminationRequired());
+		assertEquals("target_type_likely_underground", unobserved.reason());
+	}
+
+	@Test
+	void permitsSurfaceStoneBootstrapButGuardsUndergroundStoneAndDarkOre() {
+		assertFalse(MiningIlluminationPreflight.loadedTargetRequiresIllumination("minecraft:stone", true, 0, 7));
+		assertFalse(MiningIlluminationPreflight.loadedTargetRequiresIllumination("minecraft:cobblestone", true, 0, 7));
+		assertTrue(MiningIlluminationPreflight.loadedTargetRequiresIllumination("minecraft:stone", false, 0, 7));
+		assertTrue(MiningIlluminationPreflight.loadedTargetRequiresIllumination("minecraft:iron_ore", true, 0, 7));
+	}
+
+	@Test
+	void treatsStoneBelowAShallowSurfaceOpeningAsAccessible() {
+		assertTrue(MiningIlluminationPreflight.hasSurfaceOpeningWithinProbe(offset -> offset == 2));
+		assertFalse(MiningIlluminationPreflight.hasSurfaceOpeningWithinProbe(offset -> false));
+	}
+
+	@Test
+	void doesNotClassifyTreeCanopyAsUndergroundWhenSkyIsVisibleNearby() {
+		assertTrue(MiningIlluminationPreflight.hasNearbySurfaceOpening((x, y, z) -> x == 3 && y == 2 && z == 0));
+		assertFalse(MiningIlluminationPreflight.hasNearbySurfaceOpening((x, y, z) -> false));
+	}
+
+	@Test
+	void surfaceBootstrapUsesAccessibleCandidateInsteadOfRejectingForBuriedCandidates() {
+		assertFalse(MiningIlluminationPreflight.aggregateLoadedTargetEvidence(true, true, true));
+		assertTrue(MiningIlluminationPreflight.aggregateLoadedTargetEvidence(true, true, false));
+		assertTrue(MiningIlluminationPreflight.aggregateLoadedTargetEvidence(false, true, true));
+	}
+
+	@Test
 	void requiresTorchUnlessPlannerExplicitlyOverrides() {
 		var prediction = new MiningIlluminationPreflight.Result(true, "target_type_likely_underground");
 
