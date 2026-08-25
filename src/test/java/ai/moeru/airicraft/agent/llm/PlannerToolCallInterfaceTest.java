@@ -195,6 +195,24 @@ class PlannerToolCallInterfaceTest {
 	}
 
 	@Test
+	void exposesAndParsesPlannerOwnedLightingPolicy() {
+		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
+		JsonObject parameters = toolSchema(tools, "configure_lighting");
+
+		assertTrue(toolNames(tools).contains("configure_lighting"));
+		assertEquals(5, parameters.getAsJsonArray("required").size());
+		PlannerToolCall call = PlannerToolCatalog.parseToolCall(toolCall("configure_lighting", """
+			{"enabled":true,"mode":"darkness","maxLightLevel":2,"requireUnderground":true,"minSpacingBlocks":6}
+			"""));
+		assertEquals("configure_lighting", call.name());
+		assertThrows(com.google.gson.JsonParseException.class, () ->
+			PlannerToolCatalog.parseToolCall(toolCall("configure_lighting", """
+				{"enabled":true,"mode":"darkness","maxLightLevel":16,"requireUnderground":true,"minSpacingBlocks":6}
+				"""))
+		);
+	}
+
+	@Test
 	void exposesResumeTaskWithRequiredSafetyHoldId() {
 		JsonArray tools = JsonParser.parseString(gson().toJson(PlannerToolCatalog.openAiTools())).getAsJsonArray();
 		JsonObject parameters = toolSchema(tools, "resume_task");

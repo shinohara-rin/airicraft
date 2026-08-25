@@ -57,6 +57,7 @@ public final class PlannerToolCatalog {
 	public static final String CLEAR_GOAL = "clear_goal";
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
 	public static final String CONFIGURE_PATHFIND = "configure_pathfind";
+	public static final String CONFIGURE_LIGHTING = "configure_lighting";
 
 	private static final Consumer<JsonObject> NO_ARGUMENT_VALIDATION = arguments -> {
 	};
@@ -297,7 +298,15 @@ public final class PlannerToolCatalog {
 		builtInTool(CONFIGURE_PATHFIND, false, tool(CONFIGURE_PATHFIND, "Atomically update runtime Baritone pathfinding settings. Use this only when the current route needs a deliberate capability or risk trade-off; settings reset to Airicraft defaults on client restart.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("settings", BaritonePathfindSettings.plannerSettingsSchema())
-			), List.of("settings")), PlannerToolCatalog::validateConfigurePathfindArguments)
+			), List.of("settings")), PlannerToolCatalog::validateConfigurePathfindArguments),
+		builtInTool(CONFIGURE_LIGHTING, false, tool(CONFIGURE_LIGHTING, "Configure automatic offhand torch placement while mining. This sets policy only: placement runs without changing camera direction or the selected main-hand slot, and confirmed placements are batched into the next planner window.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("enabled", bool("Whether automatic offhand torch placement is enabled.")),
+				prop("mode", enumString("Lighting rule. darkness uses combined light; spawn_proof uses block light.", List.of("darkness", "spawn_proof"))),
+				prop("maxLightLevel", integer("Place when the selected light value is at or below this threshold, from 0 to 15.")),
+				prop("requireUnderground", bool("Whether sky-visible positions must be excluded.")),
+				prop("minSpacingBlocks", integer("Minimum search radius around the player without an existing torch, from 1 to 16."))
+			), List.of("enabled", "mode", "maxLightLevel", "requireUnderground", "minSpacingBlocks")), PlannerToolCatalog::validateConfigureLightingArguments)
 	);
 	private static final Map<String, BuiltInTool> BUILT_IN_TOOLS_BY_NAME = builtInToolsByName();
 
@@ -934,6 +943,23 @@ public final class PlannerToolCatalog {
 		if (arguments == null || !arguments.has("settings") || !arguments.get("settings").isJsonObject()
 			|| arguments.getAsJsonObject("settings").isEmpty()) {
 			throw new JsonParseException("settings must be a non-empty object");
+		}
+	}
+
+	private static void validateConfigureLightingArguments(JsonObject arguments) {
+		requireBoolean(arguments, "enabled");
+		String mode = requireString(arguments, "mode");
+		if (!List.of("darkness", "spawn_proof").contains(mode)) {
+			throw new JsonParseException("Unsupported mode: " + mode);
+		}
+		int maxLightLevel = requireInt(arguments, "maxLightLevel");
+		if (maxLightLevel < 0 || maxLightLevel > 15) {
+			throw new JsonParseException("maxLightLevel must be between 0 and 15");
+		}
+		requireBoolean(arguments, "requireUnderground");
+		int minSpacingBlocks = requireInt(arguments, "minSpacingBlocks");
+		if (minSpacingBlocks < 1 || minSpacingBlocks > 16) {
+			throw new JsonParseException("minSpacingBlocks must be between 1 and 16");
 		}
 	}
 

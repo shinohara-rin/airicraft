@@ -146,6 +146,25 @@ class SemanticContextProjectorTest {
 		assertTrue(update.text().contains("Zombie"));
 	}
 
+	@Test
+	void batchesTorchPlacementsByPolicyRevisionWithoutTriggerSemantics() {
+		SemanticContextProjectionResult result = projector.project(new SemanticEventQueryResult(
+			1L,
+			2L,
+			false,
+			List.of(
+				lightingEvent(1L, 100L, 1_000L, 4, 50),
+				lightingEvent(2L, 120L, 2_000L, 8, 49)
+			)
+		), 2_000L);
+
+		assertEquals(1, result.updates().size());
+		SemanticContextUpdate update = result.updates().getFirst();
+		assertEquals(2, update.sourceEventCount());
+		assertTrue(update.text().contains("placed 2 torches"));
+		assertTrue(update.text().contains("latest at 8, 64, 0"));
+	}
+
 	private static SemanticEvent itemEvent(long seqNo, long tick, long timestampMs, String type, String itemId, int count) {
 		return new SemanticEvent(seqNo, tick, timestampMs, type, Map.of(
 			"actor", "self",
@@ -177,6 +196,18 @@ class SemanticContextProjectorTest {
 			"attackerName", attackerName,
 			"attackerEntityTypeId", "minecraft:zombie",
 			"directSourceEntityTypeId", "minecraft:zombie"
+		));
+	}
+
+	private static SemanticEvent lightingEvent(long seqNo, long tick, long timestampMs, int x, int offhandCount) {
+		return new SemanticEvent(seqNo, tick, timestampMs, "lighting.torch_placed", Map.of(
+			"policyRevision", 1L,
+			"mode", "darkness",
+			"x", x,
+			"y", 64,
+			"z", 0,
+			"offhandCount", offhandCount,
+			"lightLevelBefore", 0
 		));
 	}
 }

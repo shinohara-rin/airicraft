@@ -82,6 +82,8 @@ import ai.moeru.airicraft.agent.job.ActiveJobProposal;
 import ai.moeru.airicraft.agent.job.ActiveJobStatus;
 import ai.moeru.airicraft.agent.job.ActiveJobType;
 import ai.moeru.airicraft.agent.job.ActiveJobRuntime;
+import ai.moeru.airicraft.agent.lighting.LightingPolicy;
+import ai.moeru.airicraft.agent.lighting.LightingRuntime;
 import ai.moeru.airicraft.agent.llm.CompactionExecutionResult;
 import ai.moeru.airicraft.agent.llm.CurrentWorldQueryService;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
@@ -252,6 +254,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final CurrentWorldQueryService guardedWorldQueryService = new CurrentWorldQueryService(MinecraftClient::getInstance);
 	private final ActionGraphCoordinator actionGraphCoordinator;
 	private final SurvivalReflexRuntime survivalReflexRuntime;
+	private final LightingRuntime lightingRuntime = new LightingRuntime();
 	private final EmbodiedPlannerActionToolExecutor plannerActionToolExecutor;
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
@@ -417,6 +420,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		lightingRuntime.reset();
 		seenPlayerNames.clear();
 	}
 
@@ -533,6 +537,13 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				handleTerminalTaskEvent(reportedEvent, semanticTaskContext, activeTaskRequest);
 			});
 		});
+		boolean miningActive = activeTaskRequest
+			.map(request -> request.type() == WorldTaskType.MINE)
+			.orElse(false)
+			&& taskExecutionSnapshot.state() == TaskExecutionState.RUNNING;
+		lightingRuntime.tick(client, miningActive, tickCount).ifPresent(event ->
+			eventBuffer.append(tickCount, "lighting.torch_placed", event.payload())
+		);
 		completePendingCraftToolResultFromTaskSnapshot(taskSnapshot);
 		completePendingBlockModificationToolResultFromTaskSnapshot(taskSnapshot);
 		expirePendingCraftToolResultIfTimedOut();
@@ -784,6 +795,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		lightingRuntime.reset();
 		seenPlayerNames.clear();
 		sessionSnapshot = SessionSnapshot.initial();
 	}
@@ -2418,6 +2430,21 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 					? "Tool result for configure_pathfind: applied " + String.join(", ", result.changed())
 					: "TOOL_ERROR: configure_pathfind " + result.error();
 			}
+			case PlannerToolCatalog.CONFIGURE_LIGHTING -> {
+				LightingPolicy lightingPolicy = lightingRuntime.configure(
+					args.get("enabled").getAsBoolean(),
+					LightingPolicy.Mode.parse(args.get("mode").getAsString()),
+					args.get("maxLightLevel").getAsInt(),
+					args.get("requireUnderground").getAsBoolean(),
+					args.get("minSpacingBlocks").getAsInt()
+				);
+				yield "Tool result for configure_lighting: applied enabled=" + lightingPolicy.enabled()
+					+ " mode=" + lightingPolicy.mode().wireName()
+					+ " maxLightLevel=" + lightingPolicy.maxLightLevel()
+					+ " requireUnderground=" + lightingPolicy.requireUnderground()
+					+ " minSpacingBlocks=" + lightingPolicy.minSpacingBlocks()
+					+ " policyRevision=" + lightingPolicy.revision();
+			}
 			default -> "TOOL_ERROR: unknown_tool " + toolCall.name();
 		};
 	}
@@ -4010,6 +4037,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		profiles.put("reflex.resolved", new EventRoutingProfile("reflex.resolved", true, PlannerTriggerType.SYSTEM, true));
 		profiles.put("reflex.hold_released", new EventRoutingProfile("reflex.hold_released", true, null, true));
 		profiles.put("reflex.actuator_failed", new EventRoutingProfile("reflex.actuator_failed", true, null, true));
+		profiles.put("lighting.torch_placed", new EventRoutingProfile("lighting.torch_placed", true, null, true));
 		profiles.put("planner.stale_response_rejected", new EventRoutingProfile("planner.stale_response_rejected", true, null, true));
 		profiles.put("player.died", new EventRoutingProfile("player.died", true, null, true));
 		profiles.put("player.actions_cancelled", new EventRoutingProfile("player.actions_cancelled", true, null, true));

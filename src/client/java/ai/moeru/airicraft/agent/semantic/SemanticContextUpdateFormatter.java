@@ -42,6 +42,16 @@ public final class SemanticContextUpdateFormatter {
 				yield actor + " took " + amount + " damage and dropped to " + healthAfter + " health " + relativeTime + ".";
 			}
 			case "pickup.item_picked_up" -> actor(event.payload()) + " picked up " + itemCount(event.payload()) + "x " + itemId(event.payload()) + " " + relativeTime + ".";
+			case "lighting.torch_placed" -> {
+				int count = itemCount(event.payload());
+				Object mode = event.payload().get("mode");
+				Object x = event.payload().get("x");
+				Object y = event.payload().get("y");
+				Object z = event.payload().get("z");
+				String location = x == null || y == null || z == null ? "" : " (latest at " + x + ", " + y + ", " + z + ")";
+				yield "The lighting reflex placed " + count + " torch" + (count == 1 ? "" : "es")
+					+ " under the " + (mode == null ? "active" : mode) + " policy" + location + " " + relativeTime + ".";
+			}
 			case "social.player_joined_game" -> playerName(event.payload()) + " joined the game " + relativeTime + ".";
 			case "social.player_left_game" -> playerName(event.payload()) + " left the game " + relativeTime + ".";
 			case "social.player_joined_nearby" -> playerName(event.payload()) + " came nearby " + relativeTime + ".";
