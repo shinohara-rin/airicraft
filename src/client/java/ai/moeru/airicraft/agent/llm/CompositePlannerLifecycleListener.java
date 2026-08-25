@@ -62,6 +62,11 @@ public final class CompositePlannerLifecycleListener implements PlannerLifecycle
 	}
 
 	@Override
+	public void onPlannerExecutionDiscarded(PlannerExecutionResult result) {
+		listeners.forEach(listener -> listener.onPlannerExecutionDiscarded(result));
+	}
+
+	@Override
 	public void onToolRequested(long generation, PlannerToolCall toolCall) {
 		listeners.forEach(listener -> listener.onToolRequested(generation, toolCall));
 	}

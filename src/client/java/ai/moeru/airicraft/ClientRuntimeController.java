@@ -37,6 +37,7 @@ import java.util.UUID;
 
 public final class ClientRuntimeController {
 	private volatile AiricraftConfig config;
+	private volatile boolean plannerEnabled = true;
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
 	private final ClientTickDebugRuntime clientTickDebugRuntime = new ClientTickDebugRuntime(screenshotService);
@@ -81,6 +82,20 @@ public final class ClientRuntimeController {
 
 	public boolean plannerDebugOverlayEnabled() {
 		return plannerDebugOverlay.enabled();
+	}
+
+	public boolean plannerEnabled() {
+		return plannerEnabled;
+	}
+
+	public boolean togglePlannerEnabled() {
+		setPlannerEnabled(!plannerEnabled);
+		return plannerEnabled;
+	}
+
+	public void setPlannerEnabled(boolean enabled) {
+		plannerEnabled = enabled;
+		currentAgentRuntime().setPlannerEnabled(enabled);
 	}
 
 	public void setPlannerDebugOverlayMode(PlannerDebugOverlayMode mode) {
@@ -210,7 +225,13 @@ public final class ClientRuntimeController {
 	}
 
 	private void renderClientTickIndicators(MinecraftClient client, DrawContext drawContext) {
-		clientTickIndicator.render(client, drawContext, clientTickDebugRuntime.status(), clientTickDebugRuntime.traceStatus());
+		clientTickIndicator.render(
+			client,
+			drawContext,
+			clientTickDebugRuntime.status(),
+			clientTickDebugRuntime.traceStatus(),
+			plannerEnabled
+		);
 	}
 
 	public boolean onScreenMouseScroll(double mouseX, double mouseY, double verticalAmount) {
@@ -297,7 +318,7 @@ public final class ClientRuntimeController {
 		),
 			baritoneFacade
 		);
-		return new EmbodiedAgentRuntime(
+		EmbodiedAgentRuntime runtime = new EmbodiedAgentRuntime(
 			airicraftConfig,
 			agentConfig,
 			screenshotService,
@@ -307,6 +328,8 @@ public final class ClientRuntimeController {
 			cameraController,
 			baritoneFacade
 		);
+		runtime.setPlannerEnabled(plannerEnabled);
+		return runtime;
 	}
 
 	public record ReloadResult(

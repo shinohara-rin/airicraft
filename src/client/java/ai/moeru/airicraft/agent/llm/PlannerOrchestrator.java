@@ -87,6 +87,7 @@ public final class PlannerOrchestrator {
 	private long minimumSafetyEpoch;
 	private String currentSafetyHoldId;
 	private boolean safetyLaunchBlocked;
+	private boolean enabled = true;
 
 	public PlannerOrchestrator(
 		PlannerExecutor plannerExecutor,
@@ -143,6 +144,20 @@ public final class PlannerOrchestrator {
 		return plannerExecutor.isConfigured();
 	}
 
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		if (this.enabled == enabled) {
+			return;
+		}
+		this.enabled = enabled;
+		if (!enabled) {
+			pausePlanner();
+		}
+	}
+
 	public List<Map<String, Object>> allAvailableTools() {
 		return toolRegistry.allAvailableOpenAiTools();
 	}
@@ -157,11 +172,11 @@ public final class PlannerOrchestrator {
 	}
 
 	public boolean hasInFlight() {
-		return contextAggregator.hasPendingOverflowFlush()
+		return enabled && (contextAggregator.hasPendingOverflowFlush()
 			|| coalescePending
 			|| sessionCoordinator.hasInFlight()
 			|| compactionService.hasInFlight()
-			|| pendingToolExecution != null;
+			|| pendingToolExecution != null);
 	}
 
 	public PlannerOrchestratorDebugSnapshot debugSnapshot() {
@@ -245,6 +260,9 @@ public final class PlannerOrchestrator {
 			contextAggregator.enqueueTrigger(trigger);
 		}
 		pendingSubmitRequest = request;
+		if (!enabled) {
+			return discardSubmittedRequest();
+		}
 		if (compactionService.hasInFlight()) {
 			return true;
 		}
@@ -676,11 +694,15 @@ public final class PlannerOrchestrator {
 	}
 
 	public void injectMockResponse(PlannerResponse response) {
-		plannerExecutor.injectMockResponse(response);
+		if (enabled) {
+			plannerExecutor.injectMockResponse(response);
+		}
 	}
 
 	public void injectTimeout() {
-		plannerExecutor.injectTimeout();
+		if (enabled) {
+			plannerExecutor.injectTimeout();
+		}
 	}
 
 	public void recordAssistantTurn(DialogueTurn turn) {
@@ -711,7 +733,7 @@ public final class PlannerOrchestrator {
 	}
 
 	public boolean startDebugCompaction() {
-		if (!isConfigured() || hasInFlight() || plannerExecutor.managesConversationHistory()) {
+		if (!enabled || !isConfigured() || hasInFlight() || plannerExecutor.managesConversationHistory()) {
 			return false;
 		}
 		lastCompactionResult = null;
@@ -765,6 +787,9 @@ public final class PlannerOrchestrator {
 	}
 
 	private boolean startQueuedWorkIfPossible() {
+		if (!enabled) {
+			return true;
+		}
 		if (safetyLaunchBlocked) {
 			return true;
 		}
@@ -789,6 +814,51 @@ public final class PlannerOrchestrator {
 		}
 
 		return startTriggeredPlannerTurn();
+	}
+
+	private boolean discardSubmittedRequest() {
+		PlannerContextSnapshot snapshot = contextAggregator.freezePlannerSnapshot(pendingSubmitRequest);
+		if (snapshot == null) {
+			pendingSubmitRequest = null;
+			endTurnSpan();
+			return false;
+		}
+		snapshot = withInventoryBootstrapIfAvailable(snapshot);
+		PlannerExecutionResult discarded = sessionCoordinator.recordDiscarded(
+			snapshot,
+			toolRegistry.openAiTools(),
+			currentTurnContext()
+		);
+		lifecycleListener.onPlannerModelCallCompleted(discarded);
+		debugRecorder.recordPlannerDiscarded(discarded);
+		lifecycleListener.onPlannerExecutionDiscarded(discarded);
+		contextAggregator.discardSnapshot(snapshot);
+		pendingSubmitRequest = null;
+		awaitingAcceptedReplyRecord = false;
+		pendingAcceptedAssistantRawContent = null;
+		clearCoalesceState();
+		recordConversationSources();
+		endTurnSpan();
+		return false;
+	}
+
+	private void pausePlanner() {
+		long activeGeneration = sessionCoordinator.activeGeneration();
+		cancelPendingTool();
+		sessionCoordinator.pause();
+		compactionService.reset();
+		if (activeGeneration > 0L) {
+			turnJournal.markSuperseded(activeGeneration);
+		}
+		contextAggregator.discardPending();
+		pendingSubmitRequest = null;
+		awaitingAcceptedReplyRecord = false;
+		pendingAcceptedAssistantRawContent = null;
+		committedSnapshotGenerations.clear();
+		clearCoalesceState();
+		recordConversationSources();
+		endTurnSpan();
+		lifecycleListener.onReset("PLANNER OFF");
 	}
 
 	private boolean startCompactionIfIdle() {

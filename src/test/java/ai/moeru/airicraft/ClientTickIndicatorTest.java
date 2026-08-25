@@ -13,12 +13,13 @@ class ClientTickIndicatorTest {
 	@Test
 	void showsOnlyActiveTickStates() {
 		for (ClientTickDebugController.Phase phase : ClientTickDebugController.Phase.values()) {
-			List<ClientTickIndicator.IndicatorPanel> panels = layout(debugStatus(phase), traceStatus(false));
+			List<ClientTickIndicator.IndicatorPanel> panels = layout(debugStatus(phase), traceStatus(false), true);
 			assertEquals(phase == ClientTickDebugController.Phase.PAUSED ? List.of("PAUSED") : List.of(), labels(panels));
 		}
 
-		assertEquals(List.of("TRACE"), labels(layout(null, traceStatus(true))));
-		assertEquals(List.of(), layout(null, traceStatus(false)));
+		assertEquals(List.of("TRACE"), labels(layout(null, traceStatus(true), true)));
+		assertEquals(List.of("PLANNER OFF"), labels(layout(null, traceStatus(false), false)));
+		assertEquals(List.of(), layout(null, traceStatus(false), true));
 	}
 
 	@Test
@@ -29,7 +30,7 @@ class ClientTickIndicatorTest {
 				0xD0B52222,
 				new ClientTickIndicator.IndicatorBounds(270, 6, 314, 23)
 			),
-			layout(debugStatus(ClientTickDebugController.Phase.PAUSED), null).getFirst()
+			layout(debugStatus(ClientTickDebugController.Phase.PAUSED), null, true).getFirst()
 		);
 		assertEquals(
 			new ClientTickIndicator.IndicatorPanel(
@@ -37,7 +38,7 @@ class ClientTickIndicatorTest {
 				0xD0205EBA,
 				new ClientTickIndicator.IndicatorBounds(276, 6, 314, 23)
 			),
-			layout(null, traceStatus(true)).getFirst()
+			layout(null, traceStatus(true), true).getFirst()
 		);
 	}
 
@@ -45,20 +46,24 @@ class ClientTickIndicatorTest {
 	void stacksTraceBelowPauseWhenBothAreVisible() {
 		List<ClientTickIndicator.IndicatorPanel> panels = layout(
 			debugStatus(ClientTickDebugController.Phase.PAUSED),
-			traceStatus(true)
+			traceStatus(true),
+			false
 		);
 
-		assertEquals(List.of("PAUSED", "TRACE"), labels(panels));
+		assertEquals(List.of("PAUSED", "TRACE", "PLANNER OFF"), labels(panels));
 		assertEquals(23, panels.get(0).bounds().bottom());
 		assertEquals(23, panels.get(1).bounds().top());
 		assertEquals(40, panels.get(1).bounds().bottom());
+		assertEquals(40, panels.get(2).bounds().top());
+		assertEquals(57, panels.get(2).bounds().bottom());
 	}
 
 	private static List<ClientTickIndicator.IndicatorPanel> layout(
 		ClientTickDebugController.DebugStatus debugStatus,
-		ClientTickTraceRecorder.TraceStatus traceStatus
+		ClientTickTraceRecorder.TraceStatus traceStatus,
+		boolean plannerEnabled
 	) {
-		return ClientTickIndicator.layout(debugStatus, traceStatus, 320, 36, 30, 9);
+		return ClientTickIndicator.layout(debugStatus, traceStatus, plannerEnabled, 320, 36, 30, 61, 9);
 	}
 
 	private static List<String> labels(List<ClientTickIndicator.IndicatorPanel> panels) {

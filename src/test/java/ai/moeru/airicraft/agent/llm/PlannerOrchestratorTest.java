@@ -5,9 +5,13 @@ import ai.moeru.airicraft.FirstPersonScreenshotService;
 import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.debug.AgentDebugRecorder;
 import ai.moeru.airicraft.agent.debug.ConversationSourcesDebugSnapshot;
+import ai.moeru.airicraft.agent.debug.LlmFlightRecorder;
 import ai.moeru.airicraft.agent.dialogue.DialogueTurn;
 import ai.moeru.airicraft.agent.observability.AgentObservability;
+import ai.moeru.airicraft.agent.observability.FlightRecordingObservability;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
+import ai.moeru.airicraft.agent.recording.PlannerCallJournal;
+import ai.moeru.airicraft.agent.recording.PlannerCallRecordV1;
 import ai.moeru.airicraft.agent.events.EventPolicyChanges;
 import ai.moeru.airicraft.agent.events.EventPolicyMatch;
 import ai.moeru.airicraft.agent.events.EventPolicyRuleUpsert;
@@ -48,6 +52,100 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlannerOrchestratorTest {
+	@Test
+	void plannerOffRecordsAndDiscardsInputWithoutLeakingItIntoTheNextTurn() {
+		RecordingBackend backend = new RecordingBackend();
+		LlmFlightRecorder flightRecorder = new LlmFlightRecorder();
+		AgentObservability observability = new FlightRecordingObservability(NoopObservability.INSTANCE, flightRecorder);
+		AgentConfig.LlmConfig config = AgentConfig.LlmConfig.defaults();
+		Clock clock = Clock.systemUTC();
+		PlannerToolRegistry toolRegistry = PlannerToolRegistry.empty();
+		toolRegistry.activateAllForTesting();
+		PlannerCallJournal plannerCallJournal = new PlannerCallJournal(
+			clock,
+			() -> 100L,
+			"test-provider",
+			"test-model",
+			toolRegistry::openAiTools
+		);
+		PlannerOrchestrator orchestrator = new PlannerOrchestrator(
+			new PlannerExecutor(backend, observability),
+			new PlannerCompactionService(new OpenAiCompatibleChatClient(config, observability, toolRegistry), observability),
+			new PlannerContextAggregator(clock, config.plannerCompactionTriggerTokens(), config.plannerPendingSemanticEventCap(), PlannerVisionMode.EXTERNAL_SUMMARY, toolRegistry),
+			CurrentViewVisionTool.disabled(),
+			CurrentInventoryTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY,
+			config.visionImageDetail(),
+			config.plannerSessionMaxConcurrentAttempts(),
+			config.plannerSessionCoalesceStepMillis(),
+			config.plannerSessionCoalesceMinMillis(),
+			config.plannerSessionCoalesceMaxMillis(),
+			clock,
+			observability,
+			CompositePlannerLifecycleListener.of(plannerCallJournal),
+			new AgentDebugRecorder(),
+			PlannerActionToolExecutor.DISABLED,
+			PlannerToolNarrationSink.NO_OP,
+			toolRegistry,
+			PlannerToolExecutionObserver.NO_OP
+		);
+
+		orchestrator.submit(request("before pause", 1L));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		backend.succeed(0, noActionResponse());
+		assertNotNull(awaitResult(orchestrator));
+
+		orchestrator.setEnabled(false);
+		assertFalse(orchestrator.submit(request("discard during pause", 2L)));
+		assertFalse(orchestrator.hasInFlight());
+		assertEquals(1, backend.callCount());
+		assertNull(orchestrator.poll());
+
+		var flightRecord = flightRecorder.query(null).records().getFirst();
+		assertEquals("COMPLETED", flightRecord.status());
+		assertTrue(flightRecord.requestBody().contains("discard during pause"));
+		assertTrue(flightRecord.requestBody().contains("\"tools\""));
+		assertEquals("PLANNER OFF", flightRecord.rawResponseBody());
+		PlannerCallRecordV1 discardedRecord = plannerCallJournal.snapshot().getLast();
+		assertEquals("PLANNER OFF", discardedRecord.outcome().assistantContent().getAsString());
+		assertNull(discardedRecord.timeline().applied());
+
+		orchestrator.setEnabled(true);
+		orchestrator.submit(request("after pause", 3L));
+		backend.awaitCalls(2, Duration.ofSeconds(1));
+		String resumedConversation = conversationText(backend.conversation(1));
+		assertTrue(resumedConversation.contains("before pause"));
+		assertTrue(resumedConversation.contains("after pause"));
+		assertFalse(resumedConversation.contains("discard during pause"));
+		backend.succeed(1, noActionResponse());
+		assertNotNull(awaitResult(orchestrator));
+	}
+
+	@Test
+	void disablingPlannerSupersedesAnAlreadyInFlightTurn() {
+		RecordingBackend backend = new RecordingBackend();
+		PlannerOrchestrator orchestrator = newOrchestrator(
+			backend,
+			CurrentViewVisionTool.disabled(),
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+
+		orchestrator.submit(request("in flight at pause", 1L));
+		backend.awaitCalls(1, Duration.ofSeconds(1));
+		orchestrator.setEnabled(false);
+		assertFalse(orchestrator.hasInFlight());
+
+		backend.succeed(0, noActionResponse());
+		assertNull(orchestrator.poll());
+
+		orchestrator.setEnabled(true);
+		orchestrator.submit(request("after pause", 2L));
+		backend.awaitCalls(2, Duration.ofSeconds(1));
+		String resumedConversation = conversationText(backend.conversation(1));
+		assertTrue(resumedConversation.contains("after pause"));
+		assertFalse(resumedConversation.contains("in flight at pause"));
+	}
+
 	@Test
 	void returnsImmediatePlannerResponseWhenNoToolIsRequested() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
@@ -3029,6 +3127,14 @@ class PlannerOrchestratorTest {
 			}
 		}
 		throw new AssertionError("Timed out waiting for planner result");
+	}
+
+	private static PlannerRequest request(String message, long tick) {
+		return new PlannerRequest(tick, tick * 1_000L, SessionMode.OUT_OF_WORLD, null, null, "Alice", message, null);
+	}
+
+	private static PlannerResponse noActionResponse() {
+		return new PlannerResponse("", new PlannerIntent("none", null, null));
 	}
 
 	private static List<StalePlannerRejection> awaitStaleRejections(PlannerOrchestrator orchestrator) {

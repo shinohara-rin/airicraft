@@ -33,6 +33,12 @@ public class AiricraftClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
 			ClientCommandManager.literal("airicraft")
+				.then(ClientCommandManager.literal("noplanner")
+					.executes(context -> {
+						boolean enabled = RUNTIME_CONTROLLER.togglePlannerEnabled();
+						context.getSource().sendFeedback(Text.literal("Airicraft planner: " + (enabled ? "on" : "off")));
+						return 1;
+					}))
 				.then(ClientCommandManager.literal("reload")
 					.executes(context -> {
 						try {

@@ -27,6 +27,7 @@ public final class AgentEventPipeline {
 	private final AgentDebugRecorder debugRecorder;
 	private final DefaultPolicyResolver defaultPolicyResolver;
 	private long lastProcessedRawSeqNo;
+	private boolean plannerEnabled = true;
 
 	public AgentEventPipeline(
 		SemanticEventBuffer rawEventBuffer,
@@ -105,6 +106,15 @@ public final class AgentEventPipeline {
 		recordBufferState();
 	}
 
+	public void setPlannerEnabled(boolean enabled) {
+		plannerEnabled = enabled;
+		if (!enabled) {
+			plannerEventBuffer.clearPreservingSequence();
+			lastProcessedRawSeqNo = rawEventBuffer.latestSeqNo();
+			recordBufferState();
+		}
+	}
+
 	public List<PlannerTrigger> drain(TriggerFactory triggerFactory) {
 		Objects.requireNonNull(triggerFactory, "triggerFactory");
 		ArrayList<PlannerTrigger> triggers = new ArrayList<>();
@@ -157,7 +167,7 @@ public final class AgentEventPipeline {
 			rawEventBuffer.append(event.tick(), event.timestampMs(), "policy.event_intervened", payload);
 		}
 
-		boolean emitSemantic = profile.semanticEligible();
+		boolean emitSemantic = plannerEnabled && profile.semanticEligible();
 		boolean emitTrigger = profile.triggerEligible();
 		switch (decision.effect()) {
 			case IGNORE -> {

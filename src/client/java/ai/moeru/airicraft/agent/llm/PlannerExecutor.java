@@ -2,23 +2,32 @@ package ai.moeru.airicraft.agent.llm;
 
 import ai.moeru.airicraft.agent.observability.AgentObservability;
 import ai.moeru.airicraft.agent.observability.NoopObservability;
+import com.google.gson.Gson;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 
+import java.net.URI;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class PlannerExecutor {
+	private static final Gson GSON = new Gson();
+	private static final String PLANNER_OFF = "PLANNER OFF";
+	private static final URI PLANNER_OFF_ENDPOINT = URI.create("airicraft://planner-off");
 	private final LlmBackend llmBackend;
 	private final AgentObservability observability;
 	private final ExecutorService executorService;
 	private final Map<Long, InFlightAttempt> inFlightAttempts = new LinkedHashMap<>();
+	private final Set<Long> detachedGenerations = new HashSet<>();
 
 	private long nextSubmissionId = 1L;
 
@@ -41,11 +50,13 @@ public final class PlannerExecutor {
 	}
 
 	public boolean hasInFlight() {
-		return !inFlightAttempts.isEmpty();
+		return inFlightAttempts.values().stream().anyMatch(attempt -> !detachedGenerations.contains(attempt.generation()));
 	}
 
 	public int activeAttemptCount() {
-		return inFlightAttempts.size();
+		return (int) inFlightAttempts.values().stream()
+			.filter(attempt -> !detachedGenerations.contains(attempt.generation()))
+			.count();
 	}
 
 	public boolean submit(PlannerRequest request, LlmConversation conversation) {
@@ -84,6 +95,61 @@ public final class PlannerExecutor {
 		return true;
 	}
 
+	public PlannerExecutionResult recordDiscarded(
+		long generation,
+		int attempt,
+		PlannerSessionPhase phase,
+		PlannerRequest request,
+		LlmConversation conversation,
+		List<Map<String, Object>> tools,
+		Context parentContext,
+		String spanName
+	) {
+		Objects.requireNonNull(request, "request");
+		Objects.requireNonNull(conversation, "conversation");
+		Objects.requireNonNull(tools, "tools");
+		Objects.requireNonNull(spanName, "spanName");
+		Context executionContext = parentContext == null ? Context.current() : parentContext;
+		Context plannerContext = observability.startChildSpan(spanName, executionContext);
+		PlannerExecutionResult result = PlannerExecutionResult.discarded(request, generation, attempt, phase);
+		try (Scope scope = plannerContext.makeCurrent()) {
+			LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
+			payload.put("model", "planner-off");
+			payload.put("tools", tools);
+			payload.put("tool_choice", "auto");
+			payload.put("messages", OpenAiCompatibleChatClient.canonicalRequestMessages(conversation));
+			payload.put("planner", "off");
+			String requestBody = GSON.toJson(payload);
+			observability.recordLlmRequest(
+				Context.current(),
+				"airicraft",
+				PLANNER_OFF_ENDPOINT,
+				"planner-off",
+				0L,
+				conversation,
+				requestBody
+			);
+			observability.recordRawLlmResponse(
+				Context.current(),
+				null,
+				"planner-off",
+				LlmUsageSnapshot.unknown(),
+				PLANNER_OFF
+			);
+			observability.recordLlmResponse(
+				Context.current(),
+				null,
+				"planner-off",
+				LlmUsageSnapshot.unknown(),
+				result.response()
+			);
+		}
+		finally {
+			observability.endSpan(plannerContext);
+		}
+		return result;
+	}
+
 	public PlannerExecutionResult poll() {
 		Iterator<Map.Entry<Long, InFlightAttempt>> iterator = inFlightAttempts.entrySet().iterator();
 		while (iterator.hasNext()) {
@@ -92,6 +158,7 @@ public final class PlannerExecutor {
 				continue;
 			}
 			iterator.remove();
+			clearDetachedGenerationIfDrained(attempt.generation());
 			endFlightSpan(attempt.context());
 			Context failureContext = attempt.context() == null ? Context.current() : attempt.context();
 			try {
@@ -162,8 +229,19 @@ public final class PlannerExecutor {
 	}
 
 	public void discardGeneration(long generation) {
+		discardGeneration(generation, false);
+	}
+
+	public void pauseGeneration(long generation) {
+		discardGeneration(generation, true);
+	}
+
+	private void discardGeneration(long generation, boolean detachIfUncancellable) {
 		llmBackend.discardGeneration(generation);
 		if (!llmBackend.supportsGenerationCancellation()) {
+			if (detachIfUncancellable) {
+				detachedGenerations.add(generation);
+			}
 			return;
 		}
 		Iterator<Map.Entry<Long, InFlightAttempt>> iterator = inFlightAttempts.entrySet().iterator();
@@ -184,6 +262,7 @@ public final class PlannerExecutor {
 			endFlightSpan(attempt.context());
 		}
 		inFlightAttempts.clear();
+		detachedGenerations.clear();
 		llmBackend.resetBackend();
 	}
 
@@ -193,6 +272,7 @@ public final class PlannerExecutor {
 			endFlightSpan(attempt.context());
 		}
 		inFlightAttempts.clear();
+		detachedGenerations.clear();
 		llmBackend.shutdownBackend();
 		executorService.shutdownNow();
 	}
@@ -200,6 +280,12 @@ public final class PlannerExecutor {
 	private void endFlightSpan(Context context) {
 		if (context != null) {
 			observability.endSpan(context);
+		}
+	}
+
+	private void clearDetachedGenerationIfDrained(long generation) {
+		if (inFlightAttempts.values().stream().noneMatch(attempt -> attempt.generation() == generation)) {
+			detachedGenerations.remove(generation);
 		}
 	}
 

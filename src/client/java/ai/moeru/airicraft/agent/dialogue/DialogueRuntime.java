@@ -109,6 +109,22 @@ public final class DialogueRuntime {
 		return plannerOrchestrator.isConfigured();
 	}
 
+	public boolean plannerEnabled() {
+		return plannerOrchestrator.isEnabled();
+	}
+
+	public void setPlannerEnabled(boolean enabled) {
+		plannerOrchestrator.setEnabled(enabled);
+		if (enabled) {
+			return;
+		}
+		queuedTimeoutInjections = 0;
+		pendingTimeoutVisibleReply = false;
+		pendingInternalTaskUpdates.clear();
+		pendingVisibleReplies.clear();
+		state = state.withPendingReply(false, null);
+	}
+
 	public void enableExternalDriver() {
 		externalDriverActive = true;
 		queuedTimeoutInjections = 0;
@@ -202,7 +218,9 @@ public final class DialogueRuntime {
 	}
 
 	public void injectTimeout() {
-		queuedTimeoutInjections++;
+		if (plannerOrchestrator.isEnabled()) {
+			queuedTimeoutInjections++;
+		}
 	}
 
 	public boolean handleResetCommand(String senderName, String plainTextMessage, long tick, SemanticEventBuffer eventBuffer) {
@@ -332,7 +350,7 @@ public final class DialogueRuntime {
 	) {
 		long timestampMs = clock.millis();
 		appendTurn(new DialogueTurn("system", updateMessage, tick, timestampMs));
-		if (externalDriverActive || state.degraded() || !plannerOrchestrator.isConfigured()) {
+		if (externalDriverActive || (state.degraded() && plannerOrchestrator.isEnabled()) || !plannerOrchestrator.isConfigured()) {
 			return;
 		}
 		PendingInternalTaskUpdate pendingUpdate = new PendingInternalTaskUpdate(
@@ -471,7 +489,7 @@ public final class DialogueRuntime {
 		if (directUserGuidance) {
 			supersedePendingInternalTaskUpdates("new_user_guidance", request.tick(), eventBuffer);
 		}
-		if (state.degraded()) {
+		if (state.degraded() && plannerOrchestrator.isEnabled()) {
 			applyTransition(
 				DialogueCore.onPlannerDegradedBlocked(state, request.senderName(), directUserGuidance, request.tick()),
 				request.tick(),
@@ -490,8 +508,8 @@ public final class DialogueRuntime {
 				request.activeGoal()
 			)
 		);
-		pendingTimeoutVisibleReply = directUserGuidance;
-		plannerOrchestrator.submit(request);
+		boolean submitted = plannerOrchestrator.submit(request);
+		pendingTimeoutVisibleReply = directUserGuidance && submitted;
 	}
 
 	private boolean submitNextPendingInternalTaskUpdate(
@@ -504,7 +522,7 @@ public final class DialogueRuntime {
 		if (externalDriverActive || pendingInternalTaskUpdates.isEmpty()) {
 			return false;
 		}
-		if (state.degraded() || !plannerOrchestrator.isConfigured()) {
+		if ((state.degraded() && plannerOrchestrator.isEnabled()) || !plannerOrchestrator.isConfigured()) {
 			pendingInternalTaskUpdates.clear();
 			return false;
 		}
@@ -597,7 +615,13 @@ public final class DialogueRuntime {
 	}
 
 	private boolean submitInternalTaskUpdate(PendingInternalTaskUpdate pendingUpdate, SemanticEventBuffer eventBuffer) {
-		if (externalDriverActive || pendingUpdate == null || state.degraded() || plannerOrchestrator.hasInFlight() || !plannerOrchestrator.isConfigured()) {
+		if (
+			externalDriverActive
+				|| pendingUpdate == null
+				|| (state.degraded() && plannerOrchestrator.isEnabled())
+				|| plannerOrchestrator.hasInFlight()
+				|| !plannerOrchestrator.isConfigured()
+		) {
 			return false;
 		}
 		Long sinceSeqNo = plannerOrchestrator.lastObservedEventSeqNo();

@@ -12,6 +12,53 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentEventPipelineTest {
 	@Test
+	void plannerOffStillProducesTriggersButDoesNotRetainSemanticInput() {
+		SemanticEventBuffer raw = new SemanticEventBuffer(16, () -> 1000L);
+		SemanticEventBuffer planner = new SemanticEventBuffer(16, () -> 1000L);
+		AgentEventPipeline pipeline = new AgentEventPipeline(raw, planner, new EventPolicyState(), Map.of(
+			"pickup.item_picked_up", new EventRoutingProfile("pickup.item_picked_up", true, PlannerTriggerType.PICKUP, false)
+		));
+		pipeline.setPlannerEnabled(false);
+
+		pipeline.appendRaw(10L, "pickup.item_picked_up", Map.of("actor", "self", "itemId", "minecraft:apple"));
+		List<PlannerTrigger> triggers = pipeline.drain((event, profile) ->
+			PlannerTrigger.pending(profile.triggerType(), "self", "picked up", event.tick(), event.timestampMs())
+		);
+
+		assertEquals(1, triggers.size());
+		assertEquals(0, planner.size());
+
+		pipeline.setPlannerEnabled(true);
+		assertEquals(0, planner.size());
+	}
+
+	@Test
+	void reenabledPlannerFeedContinuesAfterThePreviousSequenceWatermark() {
+		SemanticEventBuffer raw = new SemanticEventBuffer(16, () -> 1000L);
+		SemanticEventBuffer planner = new SemanticEventBuffer(16, () -> 1000L);
+		AgentEventPipeline pipeline = new AgentEventPipeline(raw, planner, new EventPolicyState(), Map.of(
+			"pickup.item_picked_up", new EventRoutingProfile("pickup.item_picked_up", true, PlannerTriggerType.PICKUP, false)
+		));
+
+		pipeline.appendRaw(10L, "pickup.item_picked_up", Map.of("actor", "self", "itemId", "minecraft:apple"));
+		pipeline.drain((event, profile) ->
+			PlannerTrigger.pending(profile.triggerType(), "self", "picked up", event.tick(), event.timestampMs())
+		);
+		long previousPlannerSeqNo = planner.latestSeqNo();
+
+		pipeline.setPlannerEnabled(false);
+		pipeline.setPlannerEnabled(true);
+		pipeline.appendRaw(11L, "pickup.item_picked_up", Map.of("actor", "self", "itemId", "minecraft:stick"));
+		pipeline.drain((event, profile) ->
+			PlannerTrigger.pending(profile.triggerType(), "self", "picked up", event.tick(), event.timestampMs())
+		);
+
+		SemanticEventQueryResult resumed = planner.query(previousPlannerSeqNo);
+		assertEquals(1, resumed.events().size());
+		assertEquals("minecraft:stick", resumed.events().getFirst().payload().get("itemId"));
+	}
+
+	@Test
 	void ignoreKeepsRawEventButSuppressesSemanticAndTrigger() {
 		SemanticEventBuffer raw = new SemanticEventBuffer(16, () -> 1000L);
 		SemanticEventBuffer planner = new SemanticEventBuffer(16, () -> 1000L);

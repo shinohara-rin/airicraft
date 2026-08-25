@@ -41,6 +41,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlannerContextAggregatorTest {
 	@Test
+	void discardedSnapshotConsumesInputWithoutAddingItToHistory() {
+		PlannerContextAggregator aggregator = new PlannerContextAggregator(
+			Clock.systemUTC(),
+			10_000,
+			PlannerVisionMode.EXTERNAL_SUMMARY
+		);
+		PlannerRequest discardedRequest = requestAt(10_000L, "Alice", "discard me");
+		aggregator.enqueueTrigger(discardedRequest.triggerBatch().triggers().getFirst());
+		PlannerContextSnapshot discarded = aggregator.freezePlannerSnapshot(discardedRequest);
+
+		aggregator.discardSnapshot(discarded);
+
+		assertEquals(0, aggregator.queuedTriggerCount());
+		PlannerRequest nextRequest = requestAt(11_000L, "Alice", "keep me");
+		aggregator.enqueueTrigger(nextRequest.triggerBatch().triggers().getFirst());
+		String nextConversation = aggregator.freezePlannerSnapshot(nextRequest).plannerConversation().messages().toString();
+		assertFalse(nextConversation.contains("discard me"));
+		assertTrue(nextConversation.contains("keep me"));
+	}
+
+	@Test
 	void injectsSingleTimeBeaconPerThirtyMinuteWindow() {
 		Clock clock = Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneId.of("Asia/Taipei"));
 		PlannerContextAggregator aggregator = new PlannerContextAggregator(clock, 65_536, PlannerVisionMode.EXTERNAL_SUMMARY);

@@ -63,6 +63,17 @@ public final class PlannerShellJournal implements PlannerLifecycleListener {
 	}
 
 	@Override
+	public synchronized void onPlannerExecutionDiscarded(PlannerExecutionResult result) {
+		append(
+			"planner_discarded",
+			result == null ? 0L : result.generation(),
+			result == null ? 0 : result.attempt(),
+			result == null ? null : result.phase(),
+			"PLANNER OFF"
+		);
+	}
+
+	@Override
 	public synchronized void onToolRequested(long generation, PlannerToolCall toolCall) {
 		append(
 			"tool_requested",

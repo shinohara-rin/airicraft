@@ -28,6 +28,9 @@ public interface PlannerLifecycleListener {
 	default void onPlannerExecutionApplied(PlannerExecutionResult result) {
 	}
 
+	default void onPlannerExecutionDiscarded(PlannerExecutionResult result) {
+	}
+
 	default void onToolRequested(long generation, PlannerToolCall toolCall) {
 	}
 

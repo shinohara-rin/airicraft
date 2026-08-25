@@ -20,7 +20,7 @@ import java.util.concurrent.Executors;
 public final class PlannerCompactionService {
 	private final OpenAiCompatibleChatClient chatClient;
 	private final AgentObservability observability;
-	private final ExecutorService executorService;
+	private ExecutorService executorService;
 
 	private CompletableFuture<LlmCallResult<CompactionCheckpoint>> inFlight;
 	private Context inFlightContext;
@@ -32,7 +32,11 @@ public final class PlannerCompactionService {
 	public PlannerCompactionService(OpenAiCompatibleChatClient chatClient, AgentObservability observability) {
 		this.chatClient = Objects.requireNonNull(chatClient, "chatClient");
 		this.observability = Objects.requireNonNull(observability, "observability");
-		this.executorService = Executors.newSingleThreadExecutor(runnable -> {
+		this.executorService = newExecutorService();
+	}
+
+	private static ExecutorService newExecutorService() {
+		return Executors.newSingleThreadExecutor(runnable -> {
 			Thread thread = new Thread(runnable, "airicraft-compaction");
 			thread.setDaemon(true);
 			return thread;
@@ -115,17 +119,24 @@ public final class PlannerCompactionService {
 	}
 
 	public void reset() {
-		if (inFlight != null) {
-			inFlight.cancel(true);
-			inFlight = null;
-			endCurrentFlightSpan(inFlightContext);
-			inFlightContext = null;
-		}
+		cancelInFlight();
+		executorService.shutdownNow();
+		executorService = newExecutorService();
 	}
 
 	public void shutdown() {
-		reset();
+		cancelInFlight();
 		executorService.shutdownNow();
+	}
+
+	private void cancelInFlight() {
+		if (inFlight == null) {
+			return;
+		}
+		inFlight.cancel(true);
+		inFlight = null;
+		endCurrentFlightSpan(inFlightContext);
+		inFlightContext = null;
 	}
 
 	private void endCurrentFlightSpan(Context context) {

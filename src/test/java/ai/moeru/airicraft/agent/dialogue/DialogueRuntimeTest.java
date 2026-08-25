@@ -486,6 +486,50 @@ class DialogueRuntimeTest {
 	}
 
 	@Test
+	void plannerOffSilentlyDiscardsDirectChatEvenWhileDegraded() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+
+		for (long tick = 1L; tick <= 3L; tick++) {
+			backend.injectTimeout();
+			runtime.onPlayerChat("Alice", "@agent follow me", tick, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+			awaitFailureProcessed(runtime, eventBuffer, tick, Duration.ofSeconds(1));
+		}
+		recordPendingReply(runtime);
+		long sinceSeqNo = eventBuffer.latestSeqNo();
+
+		runtime.setPlannerEnabled(false);
+		runtime.onPlayerChat("Alice", "@agent are you alive?", 50L, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+
+		assertTrue(runtime.isDegraded());
+		assertFalse(runtime.hasPendingReply());
+		assertFalse(eventBuffer.containsTypeSince(sinceSeqNo, "planner.degraded_blocked"));
+		runtime.shutdown();
+	}
+
+	@Test
+	void plannerOffDoesNotQueueInjectedResponsesOrTimeoutsForReenable() {
+		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+		runtime.setPlannerEnabled(false);
+
+		runtime.injectMockResponse(new PlannerResponse("stale reply", new PlannerIntent("reply_only", null, null)));
+		runtime.injectTimeout();
+		runtime.poll(1L, eventBuffer);
+
+		runtime.setPlannerEnabled(true);
+		runtime.injectMockResponse(new PlannerResponse("fresh reply", new PlannerIntent("reply_only", null, null)));
+		runtime.onPlayerChat("Alice", "@agent hello", 2L, SessionSnapshot.initial(), "Alice", Optional.empty(), eventBuffer);
+		DialogueResponse response = awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1));
+
+		assertEquals("fresh reply", response.text());
+		assertFalse(runtime.isDegraded());
+		runtime.shutdown();
+	}
+
+	@Test
 	void timeoutEmitsFreshVisibleReplyForDirectChat() {
 		OpenAiCompatibleLlmBackend backend = new OpenAiCompatibleLlmBackend(AgentConfig.LlmConfig.defaults());
 		DialogueRuntime runtime = newDialogueRuntime(backend);

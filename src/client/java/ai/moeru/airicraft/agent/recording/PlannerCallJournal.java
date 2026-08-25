@@ -121,6 +121,14 @@ public final class PlannerCallJournal implements PlannerLifecycleListener {
 	}
 
 	@Override
+	public synchronized void onPlannerExecutionDiscarded(PlannerExecutionResult result) {
+		PendingCall call = find(result);
+		if (call != null) {
+			activeCalls.remove(key(result), call);
+		}
+	}
+
+	@Override
 	public synchronized void onReset(String reason) {
 		cancelPending("RESET", reason == null || reason.isBlank() ? "Planner runtime reset" : reason);
 	}

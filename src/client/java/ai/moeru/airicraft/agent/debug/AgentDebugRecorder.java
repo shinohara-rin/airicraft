@@ -82,6 +82,14 @@ public final class AgentDebugRecorder {
 	}
 
 	public synchronized void recordPlannerCompletion(PlannerExecutionResult result) {
+		recordPlannerCompletion(result, result != null && result.succeeded() ? "SUCCEEDED" : "FAILED", null);
+	}
+
+	public synchronized void recordPlannerDiscarded(PlannerExecutionResult result) {
+		recordPlannerCompletion(result, "DISCARDED", "discarded");
+	}
+
+	private void recordPlannerCompletion(PlannerExecutionResult result, String status, String eventKind) {
 		if (result == null) {
 			return;
 		}
@@ -89,9 +97,8 @@ public final class AgentDebugRecorder {
 		if (index < 0) {
 			return;
 		}
-		String status = result.succeeded() ? "SUCCEEDED" : "FAILED";
 		String failureType = result.failureType() == null ? null : result.failureType().name();
-		String summary = summarizePlannerResult(result);
+		String summary = "DISCARDED".equals(status) ? "PLANNER OFF" : summarizePlannerResult(result);
 		PlannerResponse response = result.response();
 		PlannerAttemptDebugSnapshot current = plannerAttempts.get(index);
 		plannerAttempts.set(index, current.completed(
@@ -106,7 +113,7 @@ public final class AgentDebugRecorder {
 			result.request() == null ? -1L : result.request().tick(),
 			System.currentTimeMillis(),
 			"planner",
-			result.succeeded() ? "completion" : "failure",
+			eventKind == null ? (result.succeeded() ? "completion" : "failure") : eventKind,
 			summary,
 			Map.of(
 				"submissionId", current.submissionId(),

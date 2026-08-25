@@ -257,11 +257,23 @@ final class PlannerContextReducer {
 	}
 
 	static PlannerContextState commitAcceptedSnapshot(PlannerContextState state, PlannerContextSnapshot snapshot) {
+		return consumeSnapshot(state, snapshot, true);
+	}
+
+	static PlannerContextState discardSnapshot(PlannerContextState state, PlannerContextSnapshot snapshot) {
+		return consumeSnapshot(state, snapshot, false);
+	}
+
+	private static PlannerContextState consumeSnapshot(
+		PlannerContextState state,
+		PlannerContextSnapshot snapshot,
+		boolean recordUserTurn
+	) {
 		if (snapshot == null) {
 			return state;
 		}
 
-		PlannerContextState next = snapshot.mode() == PlannerSnapshotMode.TRIGGERED
+		PlannerContextState next = recordUserTurn && snapshot.mode() == PlannerSnapshotMode.TRIGGERED
 			? recordAcceptedUserTurn(state, snapshot.triggerBatch(), snapshot.request().tick(), snapshot.request().timestampMs())
 			: state;
 
@@ -303,6 +315,23 @@ final class PlannerContextReducer {
 			next.lastObservedUsage(),
 			List.copyOf(remainingQueued),
 			next.nextTriggerSeqNo()
+		);
+	}
+
+	static PlannerContextState discardPending(PlannerContextState state) {
+		return new PlannerContextState(
+			state.acceptedHistoryTape(),
+			state.activeCheckpoint(),
+			List.of(),
+			0L,
+			state.nextSemanticGapVersion(),
+			state.lastObservedEventSeqNo(),
+			state.lastAcceptedAmbientContext(),
+			state.lastAcceptedTimeContextAtMs(),
+			state.compactionPending(),
+			state.lastObservedUsage(),
+			List.of(),
+			state.nextTriggerSeqNo()
 		);
 	}
 

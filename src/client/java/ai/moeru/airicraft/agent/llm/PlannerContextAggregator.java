@@ -209,6 +209,22 @@ public final class PlannerContextAggregator {
 		recomputeOverflowFlushPending();
 	}
 
+	public void discardSnapshot(PlannerContextSnapshot snapshot) {
+		if (snapshot == null) {
+			return;
+		}
+		state = PlannerContextReducer.discardSnapshot(state, snapshot);
+		lastFrozenSnapshot = null;
+		recomputeOverflowFlushPending();
+	}
+
+	public void discardPending() {
+		state = PlannerContextReducer.discardPending(state);
+		lastFrozenSnapshot = null;
+		latestRequestSeed = null;
+		overflowFlushPending = false;
+	}
+
 	public void dropSupersededGeneration(PlannerContextSnapshot snapshot) {
 		if (snapshot == null) {
 			return;

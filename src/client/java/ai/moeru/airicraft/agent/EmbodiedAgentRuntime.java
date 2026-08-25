@@ -1087,6 +1087,15 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return dialogueRuntime.isDegraded();
 	}
 
+	public boolean plannerEnabled() {
+		return dialogueRuntime.plannerEnabled();
+	}
+
+	public void setPlannerEnabled(boolean enabled) {
+		eventPipeline.setPlannerEnabled(enabled);
+		dialogueRuntime.setPlannerEnabled(enabled);
+	}
+
 	public PlannerOrchestratorDebugSnapshot plannerDebugSnapshot() {
 		return dialogueRuntime.plannerDebugSnapshot();
 	}

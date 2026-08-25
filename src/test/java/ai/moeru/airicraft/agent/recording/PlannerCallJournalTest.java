@@ -89,6 +89,34 @@ class PlannerCallJournalTest {
 	}
 
 	@Test
+	void recordsPlannerOffAsDiscardedCompletionWithoutAnAppliedTick() {
+		MutableClock clock = new MutableClock(2_500L);
+		AtomicLong tick = new AtomicLong(20L);
+		PlannerCallJournal journal = journal(clock, tick);
+		journal.onConversationSubmitted(
+			4L,
+			1,
+			PlannerSessionPhase.PLANNER_REQUEST,
+			null,
+			LlmConversation.of(List.of(LlmChatMessage.user("discard me", ai.moeru.airicraft.agent.llm.LlmMessageKind.USER_TURN)))
+		);
+		PlannerExecutionResult discarded = PlannerExecutionResult.discarded(
+			null,
+			4L,
+			1,
+			PlannerSessionPhase.PLANNER_REQUEST
+		);
+
+		journal.onPlannerModelCallCompleted(discarded);
+		journal.onPlannerExecutionDiscarded(discarded);
+
+		PlannerCallRecordV1 record = journal.snapshot().getFirst();
+		assertEquals(PlannerCallRecordV1.Status.COMPLETED, record.outcome().status());
+		assertEquals("PLANNER OFF", record.outcome().assistantContent().getAsString());
+		assertNull(record.timeline().applied());
+	}
+
+	@Test
 	void cancelsAnUnfinishedCallOnResetAndCanClearForTheNextEvaluation() {
 		MutableClock clock = new MutableClock(3_000L);
 		AtomicLong tick = new AtomicLong(40L);

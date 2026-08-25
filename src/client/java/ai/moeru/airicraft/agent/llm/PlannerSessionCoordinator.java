@@ -5,6 +5,8 @@ import io.opentelemetry.context.Context;
 
 import java.time.Clock;
 import java.util.ArrayDeque;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public final class PlannerSessionCoordinator {
@@ -109,6 +111,35 @@ public final class PlannerSessionCoordinator {
 		Objects.requireNonNull(contextSnapshot, "contextSnapshot");
 		activeSession = new PlannerSession(nextGeneration++, contextSnapshot, parentContext);
 		launchIfPossible(activeSession);
+	}
+
+	public PlannerExecutionResult recordDiscarded(
+		PlannerContextSnapshot contextSnapshot,
+		List<Map<String, Object>> tools,
+		Context parentContext
+	) {
+		Objects.requireNonNull(contextSnapshot, "contextSnapshot");
+		Objects.requireNonNull(tools, "tools");
+		long generation = nextGeneration++;
+		int attempt = 1;
+		PlannerSessionPhase phase = PlannerSessionPhase.PLANNER_REQUEST;
+		submissionObserver.onSubmitted(
+			generation,
+			attempt,
+			phase,
+			contextSnapshot.request(),
+			contextSnapshot.plannerConversation()
+		);
+		return plannerExecutor.recordDiscarded(
+			generation,
+			attempt,
+			phase,
+			contextSnapshot.request(),
+			contextSnapshot.plannerConversation(),
+			tools,
+			parentContext,
+			spanNameFor(phase)
+		);
 	}
 
 	public PlannerExecutionResult poll() {
@@ -224,6 +255,15 @@ public final class PlannerSessionCoordinator {
 		supersededCount = 0L;
 		readyResults.clear();
 		plannerExecutor.reset();
+	}
+
+	public void pause() {
+		if (activeSession != null) {
+			plannerExecutor.pauseGeneration(activeSession.generation());
+			activeSession.markSuperseded();
+			activeSession = null;
+		}
+		readyResults.clear();
 	}
 
 	public void shutdown() {

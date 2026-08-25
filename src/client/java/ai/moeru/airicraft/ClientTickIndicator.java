@@ -12,8 +12,10 @@ import java.util.List;
 final class ClientTickIndicator {
 	private static final String PAUSED_LABEL = "PAUSED";
 	private static final String TRACE_LABEL = "TRACE";
+	private static final String PLANNER_OFF_LABEL = "PLANNER OFF";
 	private static final int PAUSED_COLOR = 0xD0B52222;
 	private static final int TRACE_COLOR = 0xD0205EBA;
+	private static final int PLANNER_OFF_COLOR = 0xD0B56A22;
 	private static final int TEXT_COLOR = 0xFFFFFFFF;
 	private static final int MARGIN = 6;
 	private static final int PADDING = 4;
@@ -22,9 +24,10 @@ final class ClientTickIndicator {
 		MinecraftClient client,
 		DrawContext drawContext,
 		ClientTickDebugController.DebugStatus debugStatus,
-		ClientTickTraceRecorder.TraceStatus traceStatus
+		ClientTickTraceRecorder.TraceStatus traceStatus,
+		boolean plannerEnabled
 	) {
-		if ((debugStatus == null || !debugStatus.paused()) && (traceStatus == null || !traceStatus.active())) {
+		if ((debugStatus == null || !debugStatus.paused()) && (traceStatus == null || !traceStatus.active()) && plannerEnabled) {
 			return;
 		}
 		if (client == null || drawContext == null || client.textRenderer == null) {
@@ -35,9 +38,11 @@ final class ClientTickIndicator {
 		for (IndicatorPanel panel : layout(
 			debugStatus,
 			traceStatus,
+			plannerEnabled,
 			drawContext.getScaledWindowWidth(),
 			textRenderer.getWidth(PAUSED_LABEL),
 			textRenderer.getWidth(TRACE_LABEL),
+			textRenderer.getWidth(PLANNER_OFF_LABEL),
 			textRenderer.fontHeight
 		)) {
 			IndicatorBounds bounds = panel.bounds();
@@ -56,12 +61,14 @@ final class ClientTickIndicator {
 	static List<IndicatorPanel> layout(
 		ClientTickDebugController.DebugStatus debugStatus,
 		ClientTickTraceRecorder.TraceStatus traceStatus,
+		boolean plannerEnabled,
 		int scaledWindowWidth,
 		int pausedTextWidth,
 		int traceTextWidth,
+		int plannerOffTextWidth,
 		int fontHeight
 	) {
-		List<IndicatorPanel> panels = new ArrayList<>(2);
+		List<IndicatorPanel> panels = new ArrayList<>(3);
 		int top = MARGIN;
 		if (debugStatus != null && debugStatus.paused()) {
 			IndicatorBounds bounds = bounds(scaledWindowWidth, pausedTextWidth, fontHeight, top);
@@ -69,10 +76,19 @@ final class ClientTickIndicator {
 			top = bounds.bottom();
 		}
 		if (traceStatus != null && traceStatus.active()) {
+			IndicatorBounds bounds = bounds(scaledWindowWidth, traceTextWidth, fontHeight, top);
 			panels.add(new IndicatorPanel(
 				TRACE_LABEL,
 				TRACE_COLOR,
-				bounds(scaledWindowWidth, traceTextWidth, fontHeight, top)
+				bounds
+			));
+			top = bounds.bottom();
+		}
+		if (!plannerEnabled) {
+			panels.add(new IndicatorPanel(
+				PLANNER_OFF_LABEL,
+				PLANNER_OFF_COLOR,
+				bounds(scaledWindowWidth, plannerOffTextWidth, fontHeight, top)
 			));
 		}
 		return List.copyOf(panels);
