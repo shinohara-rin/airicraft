@@ -921,6 +921,9 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		if (result.admission() == ActionGraphAdmission.STARTED) {
 			releaseSafetyHoldForActionGraphStart("action_graph_started");
 		}
+		if (actionGraphCoordinator.hasNonterminal()) {
+			dialogueRuntime.invalidateIdleThinkTriggers();
+		}
 		Map<String, Object> payload = new LinkedHashMap<>(result.toPayload(false));
 		payload.put("requestedGoal", goal.normalizedKey());
 		payload.put("source", source == null || source.isBlank() ? "bridge_debug" : source);
@@ -2503,7 +2506,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		Map<String, Object> payload = snapshot == null ? ActionGraphExecutionSnapshot.idle().toPayload(verbose) : snapshot.toPayload(verbose);
 		return "Tool result for " + toolName
 			+ ": state=" + payload.get("state")
+			+ " executionPhase=" + payload.get("executionPhase")
+			+ " resolved=" + payload.get("resolved")
 			+ " accepted=" + payload.get("accepted")
+			+ " activePrimitive=" + payload.get("activePrimitive")
 			+ " executionId=" + payload.get("executionId")
 			+ " activeTaskId=" + payload.get("activeTaskId")
 			+ " traceEventCount=" + payload.get("traceEventCount")
@@ -2515,6 +2521,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		Map<String, Object> payload = result == null ? Map.of("admission", "busy") : result.toPayload(false);
 		return "Tool result for start_action_goal: state=" + payload.getOrDefault("state", "IDLE")
 			+ " admission=" + payload.get("admission")
+			+ " executionPhase=" + payload.getOrDefault("executionPhase", "IDLE")
+			+ " resolved=" + payload.getOrDefault("resolved", false)
+			+ " accepted=" + payload.getOrDefault("accepted", false)
+			+ " activePrimitive=" + payload.getOrDefault("activePrimitive", false)
 			+ " executionId=" + payload.getOrDefault("executionId", "")
 			+ " foregroundExecutionId=" + payload.getOrDefault("foregroundExecutionId", "")
 			+ " suspendedCount=" + payload.getOrDefault("suspendedCount", 0)
@@ -2529,6 +2539,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		}
 		Map<String, Object> payload = view.toPayload(verbose);
 		return "Tool result for " + toolName + ": state=" + payload.get("state")
+			+ " executionPhase=" + payload.get("executionPhase")
+			+ " resolved=" + payload.get("resolved")
+			+ " accepted=" + payload.get("accepted")
+			+ " activePrimitive=" + payload.get("activePrimitive")
 			+ " executionId=" + payload.get("executionId")
 			+ " payload=" + payload;
 	}
@@ -3768,9 +3782,15 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		String goal = stringPayloadValue(event.payload(), "goal");
 		String failureCode = stringPayloadValue(event.payload(), "failureCode");
 		String failureMessage = stringPayloadValue(event.payload(), "message");
+		String failedPrimitive = stringPayloadValue(event.payload(), "failedPrimitive");
+		String failedTarget = stringPayloadValue(event.payload(), "failedTarget");
+		Object failedArgs = event.payload().get("failedArgs");
 		String normalizedCode = failureCode == null ? "failed" : failureCode;
 		String message = "ACTION GRAPH FAILED: executionId=" + executionId
 			+ " goal=" + (goal == null ? "" : goal)
+			+ " failedPrimitive=" + (failedPrimitive == null ? "" : failedPrimitive)
+			+ " failedTarget=" + (failedTarget == null ? "" : failedTarget)
+			+ " failedArgs=" + (failedArgs == null ? "{}" : failedArgs)
 			+ " failureCode=" + normalizedCode
 			+ " message=" + (failureMessage == null ? "" : failureMessage)
 			+ ". Explain the terminal failure accurately. ";

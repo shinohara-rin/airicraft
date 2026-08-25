@@ -34,6 +34,8 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("smelt a log into minecraft:charcoal"));
 		assertTrue(prompt.contains("craft minecraft:torch from charcoal and sticks"));
 		assertTrue(prompt.contains("allowUnilluminated"));
+		assertTrue(prompt.contains("executionPhase=PLANNING"));
+		assertTrue(prompt.contains("A smelting_output goal describes the desired output"));
 	}
 
 	@Test

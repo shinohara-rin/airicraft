@@ -585,6 +585,41 @@ class DialogueRuntimeTest {
 	}
 
 	@Test
+	void queuedIdleThinkIsInvalidatedWhenActionStartsDuringInFlightPlannerRequest() {
+		BlockingLlmBackend backend = new BlockingLlmBackend();
+		CompletableFuture<PlannerResponse> firstResponse = backend.enqueueResponse();
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer eventBuffer = new SemanticEventBuffer(32);
+
+		runtime.onPlayerChat(
+			"Alice",
+			"@agent make charcoal",
+			10L,
+			SessionSnapshot.initial(),
+			"Alice",
+			Optional.empty(),
+			eventBuffer
+		);
+		backend.awaitConversationCount(1);
+		runtime.onPlannerTrigger(
+			PlannerTrigger.pending(PlannerTriggerType.IDLE_THINK, "self", "IDLE THINK: You currently have no active task.", 11L, 1_100L),
+			SessionSnapshot.initial(),
+			null,
+			Optional.empty(),
+			TaskSnapshot.idle(),
+			MissionExecutionSnapshot.idle(),
+			eventBuffer
+		);
+
+		runtime.invalidateIdleThinkTriggers();
+		firstResponse.complete(new PlannerResponse("Planning charcoal.", new PlannerIntent("reply_only", null, null)));
+
+		assertEquals("Planning charcoal.", awaitResponse(runtime, eventBuffer, Duration.ofSeconds(1)).text());
+		backend.assertConversationCountRemains(1, Duration.ofMillis(100));
+		runtime.shutdown();
+	}
+
+	@Test
 	void directPlayerGuidanceSupersedesQueuedInternalTaskUpdate() {
 		BlockingLlmBackend backend = new BlockingLlmBackend();
 		CompletableFuture<PlannerResponse> firstResponse = backend.enqueueResponse();

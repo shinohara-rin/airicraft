@@ -2,6 +2,7 @@ package ai.moeru.airicraft.agent.actions;
 
 import ai.moeru.airicraft.agent.tasks.TaskExecutionState;
 import ai.moeru.airicraft.agent.tasks.TaskTerminalEvent;
+import ai.moeru.airicraft.agent.tasks.SmeltingRecipeKnowledge;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -64,6 +65,51 @@ class ActionGraphCoordinatorTest {
 	}
 
 	@Test
+	void terminalFailureEventIdentifiesFailedCharcoalPrerequisite() throws Exception {
+		ActionGraphCoordinator coordinator = new ActionGraphCoordinator(step ->
+			ActionGraphPrimitiveDispatchResult.failed(
+				ai.moeru.airicraft.agent.tasks.TaskFailureCode.MISSING_FACT,
+				"insufficient_illumination reason=loaded_target_unilluminated torchCount=0",
+				Map.of("failureReason", "insufficient_illumination")
+			)
+		);
+		Map<String, Integer> inventory = Map.of(
+			"minecraft:oak_log", 2,
+			"minecraft:oak_planks", 8,
+			"minecraft:stick", 2,
+			"minecraft:crafting_table", 1,
+			"minecraft:wooden_pickaxe", 1
+		);
+		SmeltingRecipeKnowledge charcoal = new SmeltingRecipeKnowledge(
+			"inferred:minecraft_oak_log_to_minecraft_charcoal",
+			"minecraft:oak_log",
+			"minecraft:charcoal",
+			1,
+			64,
+			200,
+			"minecraft:furnace",
+			1
+		);
+		ActionGraphStartResult started = coordinator.submit(
+			ActionGoal.inventoryItem("minecraft:charcoal", 1), inventory, context(100), 100
+		);
+
+		for (int attempt = 0; attempt < 200 && coordinator.inspect(started.execution().execution().executionId()).residency() != ActionGraphResidency.TERMINAL; attempt++) {
+			coordinator.tick(input(101 + attempt, inventory, Map.of(), null, List.of(), List.of(charcoal)), true);
+			Thread.sleep(2L);
+		}
+
+		ActionGraphCoordinatorEvent terminal = coordinator.drainEvents().stream()
+			.filter(event -> "action_graph.goal_terminal".equals(event.type()))
+			.findFirst()
+			.orElseThrow();
+		assertEquals("mine_block", terminal.payload().get("failedPrimitive"));
+		assertEquals("minecraft:cobblestone", terminal.payload().get("failedTarget"));
+		assertTrue(((Map<?, ?>) terminal.payload().get("failedArgs")).containsValue("minecraft:cobblestone"));
+		coordinator.shutdown();
+	}
+
+	@Test
 	void smeltingWatchReleasesTheForegroundLaneAndCanBeCancelled() throws Exception {
 		RecordingDispatcher dispatcher = new RecordingDispatcher();
 		ActionGraphCoordinator coordinator = new ActionGraphCoordinator(dispatcher);
@@ -122,9 +168,20 @@ class ActionGraphCoordinatorTest {
 		TaskTerminalEvent terminal,
 		List<ActionFact> facts
 	) {
+		return input(tick, inventory, resources, terminal, facts, ActionGraphRecipeFixtures.survivalSmelts());
+	}
+
+	private static ActionGraphExecutionInput input(
+		long tick,
+		Map<String, Integer> inventory,
+		Map<String, Integer> resources,
+		TaskTerminalEvent terminal,
+		List<ActionFact> facts,
+		List<SmeltingRecipeKnowledge> smelts
+	) {
 		return new ActionGraphExecutionInput(
 			context(tick), inventory, resources, true, true, terminal,
-			List.of(), ActionGraphRecipeFixtures.survivalCrafts(), List.of(), ActionGraphRecipeFixtures.survivalSmelts(), facts,
+			List.of(), ActionGraphRecipeFixtures.survivalCrafts(), List.of(), smelts, facts,
 			new ActionGraphAgentPosition(WORLD, DIMENSION, 0, 64, 0), Map.of(), BlockAcquisitionTestFixtures.survival(),
 			NearbyBlockAvailability.unknown()
 		);

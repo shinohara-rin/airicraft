@@ -97,7 +97,7 @@ class ActionGraphExecutionRuntimeTest {
 			0,
 			0,
 			"",
-			"",
+			"stale-task-id",
 			"no_route",
 			"no route",
 			Map.of(),
@@ -116,6 +116,7 @@ class ActionGraphExecutionRuntimeTest {
 		assertEquals("event_5", map(list(payload.get("trace")).getFirst()).get("eventType"));
 		assertEquals(2, payload.get("recoveryHistoryOmitted"));
 		assertEquals(10, list(payload.get("recoveryHistory")).size());
+		assertEquals(false, payload.get("activePrimitive"));
 	}
 
 	@Test

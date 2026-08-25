@@ -164,8 +164,23 @@ public final class ActionGraphCoordinator {
 			payload.put("goal", snapshot.goal() == null ? "" : snapshot.goal().normalizedKey());
 			payload.put("failureCode", snapshot.failureCode());
 			payload.put("message", snapshot.message());
+			ActionPlanStep failedStep = snapshot.currentStep();
+			if (snapshot.state() == ActionGraphExecutionState.FAILED && failedStep != null) {
+				payload.put("failedPrimitive", failedStep.targetId());
+				payload.put("failedTarget", failedTarget(failedStep));
+				payload.put("failedArgs", failedStep.args());
+			}
 			events.add(new ActionGraphCoordinatorEvent("action_graph.goal_terminal", snapshot.executionId(), payload));
 		}
+	}
+
+	private static String failedTarget(ActionPlanStep step) {
+		Object itemId = step.args().get("itemId");
+		if (itemId != null && !String.valueOf(itemId).isBlank()) {
+			return String.valueOf(itemId);
+		}
+		Object blockIds = step.args().get("blockIds");
+		return blockIds == null ? step.targetId() : String.valueOf(blockIds);
 	}
 
 	public synchronized ActionGraphExecutionView cancel(String executionId, String reason, long tick) {

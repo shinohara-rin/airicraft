@@ -71,6 +71,30 @@ final class PlannerContextReducer {
 		);
 	}
 
+	static PlannerContextState invalidateIdleThinkTriggers(PlannerContextState state) {
+		List<PlannerTrigger> remaining = state.queuedTriggers().stream()
+			.filter(trigger -> trigger.type() != PlannerTriggerType.IDLE_THINK
+				|| trigger.origin() != PlannerTriggerOrigin.AUTONOMOUS)
+			.toList();
+		if (remaining.size() == state.queuedTriggers().size()) {
+			return state;
+		}
+		return new PlannerContextState(
+			state.acceptedHistoryTape(),
+			state.activeCheckpoint(),
+			state.pendingSemanticEvents(),
+			state.pendingSemanticGapVersion(),
+			state.nextSemanticGapVersion(),
+			state.lastObservedEventSeqNo(),
+			state.lastAcceptedAmbientContext(),
+			state.lastAcceptedTimeContextAtMs(),
+			state.compactionPending(),
+			state.lastObservedUsage(),
+			remaining,
+			state.nextTriggerSeqNo()
+		);
+	}
+
 	static PlannerContextState recordAcceptedUserTurn(
 		PlannerContextState state,
 		PlannerTriggerBatch triggerBatch,

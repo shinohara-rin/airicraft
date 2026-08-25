@@ -212,6 +212,10 @@ public final class PlannerOrchestrator {
 		return contextAggregator.lastObservedEventSeqNo();
 	}
 
+	public void invalidateIdleThinkTriggers() {
+		contextAggregator.invalidateIdleThinkTriggers();
+	}
+
 	public void updateSafetyContext(long safetyEpoch, String holdId, boolean activeReflex) {
 		minimumSafetyEpoch = Math.max(minimumSafetyEpoch, Math.max(0L, safetyEpoch));
 		currentSafetyHoldId = holdId;

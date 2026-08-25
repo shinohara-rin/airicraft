@@ -1047,6 +1047,8 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("command: agent actions goal start\n"));
 		assertTrue(result.output().contains("executionId: action-graph-1\n"));
 		assertTrue(result.output().contains("state: RESOLVING\n"));
+		assertTrue(result.output().contains("executionPhase: PLANNING\n"));
+		assertTrue(result.output().contains("activePrimitive: false\n"));
 	}
 
 	@Test
@@ -1718,8 +1720,10 @@ class AiricraftCliMainTest {
 			"available", true,
 			"executionId", executionId,
 			"state", state,
+			"executionPhase", "RESOLVING".equals(state) ? "PLANNING" : "TERMINAL",
 			"resolved", false,
 			"accepted", false,
+			"activePrimitive", false,
 			"cursor", 0,
 			"traceEventCount", 1,
 			"goal", linkedMap("fact", "inventory.item", "itemId", "minecraft:bread", "countAtLeast", 1),
