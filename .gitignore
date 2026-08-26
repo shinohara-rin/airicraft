@@ -58,3 +58,4 @@ mappings/
 .worktrees/
 eval-output/
 /.alintcache
+/.codex/environments
