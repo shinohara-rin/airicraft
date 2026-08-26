@@ -93,13 +93,7 @@ public final class MiningIlluminationPreflight {
 		if (prediction == null || !prediction.illuminationRequired()) {
 			return new Admission(true, "illumination_not_required");
 		}
-		if (torchCount > 0) {
-			return new Admission(true, "torch_available");
-		}
-		if (allowUnilluminated) {
-			return new Admission(true, "planner_override");
-		}
-		return new Admission(false, "insufficient_illumination");
+		return new Admission(true, "illumination_advisory");
 	}
 
 	private static LoadedTargetEvidence inspectLoadedTargetEvidence(
