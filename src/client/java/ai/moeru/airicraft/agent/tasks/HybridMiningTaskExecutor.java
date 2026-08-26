@@ -110,7 +110,6 @@ public final class HybridMiningTaskExecutor implements WorldTaskExecutor {
 					return Optional.empty();
 				}
 			}
-			// In particular, BARITONE_CANCELLED is never eligible for fallback.
 			return emitOnce(terminal, request);
 		}
 

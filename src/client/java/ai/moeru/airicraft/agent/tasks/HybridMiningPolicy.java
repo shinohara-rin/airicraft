@@ -45,7 +45,8 @@ public final class HybridMiningPolicy {
 	}
 
 	static boolean shouldTryUnderwaterFallback(TaskTerminationCause terminationCause) {
-		return terminationCause == TaskTerminationCause.CALCULATION_FAILED;
+		return terminationCause == TaskTerminationCause.CALCULATION_FAILED
+			|| terminationCause == TaskTerminationCause.BARITONE_CANCELLED;
 	}
 
 	enum ReleaseDecision {

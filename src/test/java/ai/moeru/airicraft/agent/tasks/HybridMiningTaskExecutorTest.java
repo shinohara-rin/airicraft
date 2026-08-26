@@ -158,7 +158,7 @@ class HybridMiningTaskExecutorTest {
 	}
 
 	@Test
-	void baritoneCancellationNeverTriggersFallback() {
+	void baritoneCancellationHandsOffWhenUnderwaterSourceExists() {
 		RecordingExecutor baritone = new RecordingExecutor();
 		RecordingExecutor underwater = new RecordingExecutor();
 		AtomicInteger sourceProbes = new AtomicInteger();
@@ -177,9 +177,37 @@ class HybridMiningTaskExecutorTest {
 
 		Optional<TaskTerminalEvent> cancelled = executor.tick(session(0L), Optional.of(request));
 
+		assertTrue(cancelled.isEmpty());
+		assertEquals(HybridMiningTaskExecutor.Phase.RELEASING_BARITONE, executor.phase());
+		assertEquals(1, sourceProbes.get());
+		assertEquals(1, baritone.emptyCalls());
+		assertEquals(0, underwater.activeCalls());
+	}
+
+	@Test
+	void baritoneCancellationWithoutUnderwaterSourcePropagatesOriginalCancellation() {
+		RecordingExecutor baritone = new RecordingExecutor();
+		RecordingExecutor underwater = new RecordingExecutor();
+		AtomicInteger sourceProbes = new AtomicInteger();
+		HybridMiningTaskExecutor executor = executor(
+			baritone,
+			underwater,
+			request -> {
+				sourceProbes.incrementAndGet();
+				return Optional.empty();
+			},
+			Optional::empty,
+			() -> released()
+		);
+		WorldTaskRequest request = request();
+		baritone.terminal = Optional.of(terminal(request, TaskExecutionState.CANCELLED, TaskTerminationCause.BARITONE_CANCELLED));
+
+		Optional<TaskTerminalEvent> cancelled = executor.tick(session(0L), Optional.of(request));
+
 		assertTrue(cancelled.isPresent());
 		assertEquals(TaskTerminationCause.BARITONE_CANCELLED, cancelled.orElseThrow().terminationCause());
-		assertEquals(0, sourceProbes.get());
+		assertEquals(1, sourceProbes.get());
+		assertEquals(0, baritone.emptyCalls());
 		assertEquals(0, underwater.activeCalls());
 	}
 

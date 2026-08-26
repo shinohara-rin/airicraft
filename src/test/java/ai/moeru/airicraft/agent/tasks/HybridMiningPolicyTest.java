@@ -9,7 +9,7 @@ class HybridMiningPolicyTest {
 	@Test
 	void underwaterFallbackRequiresBaritoneTargetSearchFailure() {
 		assertTrue(HybridMiningPolicy.shouldTryUnderwaterFallback(TaskTerminationCause.CALCULATION_FAILED));
-		assertFalse(HybridMiningPolicy.shouldTryUnderwaterFallback(TaskTerminationCause.BARITONE_CANCELLED));
+		assertTrue(HybridMiningPolicy.shouldTryUnderwaterFallback(TaskTerminationCause.BARITONE_CANCELLED));
 		assertFalse(HybridMiningPolicy.shouldTryUnderwaterFallback(TaskTerminationCause.GOAL_REACHED));
 		assertFalse(HybridMiningPolicy.shouldTryUnderwaterFallback(null));
 	}
