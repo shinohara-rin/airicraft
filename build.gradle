@@ -33,12 +33,6 @@ def arthasDisabledCommands = providers.gradleProperty("airicraft.arthas.disabled
 def arthasExtraArgs = providers.gradleProperty("airicraft.arthas.args").orElse("")
 def arthasBootJar = layout.buildDirectory.file("arthas/arthas-boot-${arthasVersion.get()}.jar")
 def evaluatorRunDir = providers.gradleProperty("airicraft.evaluator.runDir")
-def hotswapAgentVersion = providers.gradleProperty("airicraft.hotswap.agent.version")
-def hotswapAgentUrl = providers.gradleProperty("airicraft.hotswap.agent.url")
-def hotswapAgentSha512 = providers.gradleProperty("airicraft.hotswap.agent.sha512")
-def hotswapCacheDir = new File(gradle.gradleUserHomeDir, "caches/airicraft-hotswap")
-def hotswapDownloadDir = new File(hotswapCacheDir, "downloads")
-def hotswapAgentJar = new File(hotswapDownloadDir, "hotswap-agent-${hotswapAgentVersion.get()}.jar")
 def hotswapProductionClassesDir = layout.buildDirectory.dir("hotswap/production/classes")
 def hotswapStateFile = layout.buildDirectory.file("hotswap/reload-state.properties")
 def hotswapToolSourceSet = sourceSets.create("hotswapTool") {
@@ -55,20 +49,6 @@ def hotswapDisabledPlugins = [
 	"IBatis", "JacksonPlugin", "Idea", "Thymeleaf", "Velocity", "Sponge"
 ]
 
-def sha512 = { File file ->
-	def digest = MessageDigest.getInstance("SHA-512")
-	file.withInputStream { input ->
-		byte[] buffer = new byte[1024 * 1024]
-		int count
-		while ((count = input.read(buffer)) >= 0) {
-			if (count > 0) {
-				digest.update(buffer, 0, count)
-			}
-		}
-	}
-	return digest.digest().collect { String.format("%02x", it & 0xff) }.join()
-}
-
 def atomicMove = { File source, File target ->
 	try {
 		Files.move(
@@ -83,64 +63,45 @@ def atomicMove = { File source, File target ->
 	}
 }
 
-def downloadVerified = { String url, String expectedSha512, File target ->
-	if (target.isFile() && sha512(target) == expectedSha512) {
-		return
-	}
-	if (target.exists()) {
-		Files.delete(target.toPath())
-	}
-	Files.createDirectories(target.parentFile.toPath())
-	def temporary = new File(target.parentFile, ".${target.name}.${UUID.randomUUID()}.tmp")
-	try {
-		logger.lifecycle("Downloading ${url}")
-		try {
-			def connection = URI.create(url).toURL().openConnection()
-			connection.connectTimeout = 30_000
-			connection.readTimeout = 120_000
-			connection.setRequestProperty("User-Agent", "airicraft-gradle-hotswap")
-			connection.inputStream.withCloseable { input ->
-				temporary.withOutputStream { output ->
-					input.transferTo(output)
-				}
-			}
-		}
-		catch (IOException exception) {
-			throw new GradleException(
-				"Failed to download ${url}. The first Airicraft HotSwap setup needs network access.",
-				exception
-			)
-		}
-		def actualSha512 = sha512(temporary)
-		if (actualSha512 != expectedSha512) {
-			throw new GradleException("SHA-512 mismatch for ${url}: expected ${expectedSha512}, got ${actualSha512}")
-		}
-		atomicMove(temporary, target)
-	}
-	finally {
-		if (temporary.exists()) {
-			Files.delete(temporary.toPath())
-		}
-	}
-}
-
 def hotswapJvmArgs = { Provider<RegularFile> propertiesFile ->
 	def agentOptions = [
 		"autoHotswap=false",
 		"propertiesFilePath=${propertiesFile.get().asFile.absolutePath}"
 	]
 	agentOptions.addAll(hotswapDisabledPlugins.collect { "disablePlugin=${it}" })
+
+	def hotswapAgentPath = configurations.hotswapAgent.files.first().toPath()
+	def mixinAgentPath = configurations.mixinAgent.files.first().toPath()
+
 	return [
         '-XX:+IgnoreUnrecognizedVMOptions',
 		"-XX:+AllowEnhancedClassRedefinition",
 		"-XX:HotswapAgent=external",
 		"-Xlog:redefine+class*=info",
-		"-javaagent:${hotswapAgentJar.absolutePath}=${agentOptions.join(',')}"
+		"-javaagent:${hotswapAgentPath}=${agentOptions.join(',')}",
+		"-javaagent:${mixinAgentPath}"
 	]
 }
 
 base {
 	archivesName = project.archives_base_name
+}
+
+configurations {
+	create('hotswapAgent') {
+		canBeConsumed = false
+		canBeResolved = true
+		defaultDependencies {
+			add dependencyFactory.create('org.hotswapagent:hotswap-agent:2.0.3').setTransitive(false)
+		}
+	}
+	create('mixinAgent') {
+		canBeConsumed = false
+		canBeResolved = true
+		defaultDependencies {
+			add dependencyFactory.create('net.fabricmc:sponge-mixin:0.17.3+mixin.0.8.7').setTransitive(false)
+		}
+	}
 }
 
 loom {
@@ -187,26 +148,6 @@ def prepareMinecraftRunOptions = tasks.register("prepareMinecraftRunOptions") {
 			optionsFile.parentFile.mkdirs()
 			optionsFile.setText(updatedText, "UTF-8")
 		}
-	}
-}
-
-def prepareHotswapRuntime = tasks.register("prepareHotswapRuntime") {
-	group = "airicraft debug"
-	description = "Downloads and verifies the pinned JetBrains Runtime and HotswapAgent."
-	inputs.property("agentVersion", hotswapAgentVersion)
-	inputs.property("agentUrl", hotswapAgentUrl)
-	inputs.property("agentSha512", hotswapAgentSha512)
-	outputs.file(hotswapAgentJar)
-	outputs.upToDateWhen { false }
-
-	doLast {
-		def osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT)
-		def architecture = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT)
-		if (!osName.contains("mac") || !(architecture in ["aarch64", "arm64"])) {
-			throw new GradleException("Airicraft HotSwap supports macOS ARM64 only. Detected ${osName}/${architecture}.")
-		}
-
-		downloadVerified(hotswapAgentUrl.get(), hotswapAgentSha512.get(), hotswapAgentJar)
 	}
 }
 
@@ -276,7 +217,6 @@ def hotswapDevConfig = hotswapConfigFile(":runClient")
 def prepareHotswapDevConfig = tasks.register("prepareHotswapDevConfig") {
 	group = "airicraft debug"
 	description = "Writes the runClient HotswapAgent settings."
-	dependsOn prepareHotswapRuntime
 	outputs.file(hotswapDevConfig)
 	outputs.upToDateWhen { false }
 	doLast {
@@ -288,7 +228,6 @@ def productionHotswapConfigs = []
 def prepareHotswapProductionConfigs = tasks.register("prepareHotswapProductionConfigs") {
 	group = "airicraft debug"
 	description = "Writes task-specific HotswapAgent settings for production clients."
-	dependsOn prepareHotswapRuntime
 	dependsOn syncHotswapMainClasses
 	outputs.files(providers.provider { productionHotswapConfigs.collect { it.get().asFile } })
 	outputs.upToDateWhen { false }
@@ -300,7 +239,6 @@ def prepareHotswapProductionConfigs = tasks.register("prepareHotswapProductionCo
 tasks.register("hotswapMain", JavaExec) {
 	group = "airicraft debug"
 	description = "Compiles and reloads main Airicraft classes in existing clients."
-	dependsOn prepareHotswapRuntime
 	dependsOn tasks.named("classes")
 	dependsOn syncHotswapMainClasses
 	dependsOn tasks.named(hotswapToolSourceSet.classesTaskName)
@@ -339,6 +277,8 @@ tasks.named("runClient").configure {
 }
 
 allprojects {
+	apply plugin: 'java'
+
 	tasks.withType(net.fabricmc.loom.task.prod.ClientProductionRunTask).configureEach {
 		def taskHotswapConfig = hotswapConfigFile(path)
 		productionHotswapConfigs.add(taskHotswapConfig)
@@ -463,6 +403,9 @@ dependencies {
 	implementation "io.opentelemetry:opentelemetry-api:1.60.1"
 	implementation "io.opentelemetry:opentelemetry-sdk:1.60.1"
 	implementation "io.opentelemetry:opentelemetry-exporter-otlp:1.60.1"
+
+	// Source: https://mvnrepository.com/artifact/org.hotswapagent/hotswap-agent
+	runtimeOnly('org.hotswapagent:hotswap-agent:2.0.3') { transitive = false }
 
 	testImplementation platform("org.junit:junit-bom:5.11.4")
 	testImplementation "org.junit.jupiter:junit-jupiter"
