@@ -1,5 +1,6 @@
 plugins {
 	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'com.gradleup.shadow' version '9.6.+' apply false
 	id 'maven-publish'
 }
 
@@ -302,6 +303,11 @@ allprojects {
             vendor = JvmVendorSpec.JETBRAINS
         }
     }
+
+	tasks.withType(JavaCompile).configureEach {
+		options.encoding = 'UTF-8'
+		options.release = 21
+	}
 }
 
 def arthasJavaExecutable = {

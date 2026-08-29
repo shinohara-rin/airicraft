@@ -1,8 +1,7 @@
 plugins {
+	id 'com.gradleup.shadow'
 	id 'application'
 }
-
-import org.gradle.jvm.application.tasks.CreateStartScripts
 
 group = project.maven_group
 version = project.mod_version
@@ -44,18 +43,19 @@ tasks.named('installDist') {
 	}
 }
 
-tasks.named('jar') {
+jar {
 	manifest {
 		attributes 'Main-Class': application.mainClass.get()
 	}
 
-	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-	from({
-		configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-	})
+	archiveClassifier = 'thin'
 }
 
-tasks.withType(JavaCompile).configureEach {
-	options.release = 21
+shadowJar {
+	configurations = [project.configurations.runtimeClasspath]
+	archiveClassifier = ''
+}
+
+build {
+	dependsOn shadowJar
 }
