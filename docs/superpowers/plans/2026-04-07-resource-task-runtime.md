@@ -90,7 +90,6 @@
 - `src/client/java/ai/moeru/airicraft/agent/goals/GoalDirector.java`
 - `src/client/java/ai/moeru/airicraft/agent/tasks/BaritoneTaskExecutor.java`
 - `src/client/java/ai/moeru/airicraft/agent/tasks/WorldTaskExecutor.java`
-- `src/client/java/ai/moeru/airicraft/agent/verification/scenarios/NavigateVerification.java`
 
 ### Task 1: Planner Contract For Task Submission
 
@@ -706,15 +705,17 @@ git commit -m "feat: expose agent task debug surface"
 
 ### Task 5: Live Verification And End-To-End Task Scenario
 
+Historical note: live end-to-end verification now belongs to the reusable evaluator under `scenarios/` and `scripts/run-evaluation-scenarios`; the retired in-process verification DSL has been removed.
+
 **Files:**
-- Modify: `src/client/java/ai/moeru/airicraft/agent/verification/scenarios/NavigateVerification.java`
+- Add: `scenarios/<scenario-id>/scenario.yml`
 - Modify: `src/client/java/ai/moeru/airicraft/agent/EmbodiedAgentRuntime.java`
 - Modify: `docs/superpowers/plans/2026-04-06-baritone-planner-integration.md`
 
 - [ ] **Step 1: Add a dedicated controlled task verification entry point**
 
 ```java
-registerScenario("task.collect_resource_wood_logs", this::runCollectResourceVerification);
+// Express the prompt, budget, outcome checks, and evidence settings in scenario.yml.
 ```
 
 - [ ] **Step 2: Start the client and verify bridge/wrapper availability**
@@ -763,7 +764,7 @@ Expected:
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/client/java/ai/moeru/airicraft/agent/verification/scenarios/NavigateVerification.java \
+git add scenarios/<scenario-id>/scenario.yml \
   src/client/java/ai/moeru/airicraft/agent/EmbodiedAgentRuntime.java \
   docs/superpowers/plans/2026-04-06-baritone-planner-integration.md
 git commit -m "test: verify wood collection task live"
