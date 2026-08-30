@@ -45,6 +45,8 @@ The current evaluator is an optional **client addon**, not merely an assertion l
 
 The checked-in scenarios demonstrate the mismatch in scale. They restore complete 5.5-16 MB zipped saves and allow 1,200-120,000 ticks (up to 6,000 nominal seconds), with 4-80 planner turns. For example, [`farm_from_scratch`](../../scenarios/farm_from_scratch/scenario.yml) allows 120,000 ticks and [`iron-pickaxe`](../../scenarios/iron-pickaxe/scenario.yml) allows 72,000. GameTest's configurable timeout can represent those numbers, but doing so does not make its small, deterministic test-site execution model suitable for probabilistic LLM jobs.
 
+There is also an older in-process verification DSL under [`agent/verification`](../../src/client/java/ai/moeru/airicraft/agent/verification). It implements the familiar `require` / `action` / `waitUntil` / `assertThat` sequence, but it is no longer wired into production: the former `/v1/verification/*` bridge path was replaced by the reusable evaluator in commit `b8d407d`, no production code outside that package references its runner or scenarios, and only `DamageFallContextVerificationTest` still exercises it. Its roughly 1,744 tracked lines should be audited as dead or legacy code, not used as evidence that the current evaluator needs a one-for-one GameTest port. If those behaviors are still valuable, move each to the narrowest current test surface (ordinary unit test, server GameTest, Client GameTest, or evaluator scenario) and delete the old DSL rather than maintaining two orchestration frameworks.
+
 ## Capability fit
 
 | Concern | Server GameTest | Client GameTest | Current evaluator |
@@ -67,6 +69,7 @@ The checked-in scenarios demonstrate the mismatch in scale. They restore complet
 - New deterministic tests for block/entity mechanics, callbacks, world-state transitions, and action primitives that can complete in a small bounded structure.
 - Existing tests that currently spend most of their code constructing Minecraft world state before making one server-authoritative assertion.
 - Focused client smoke for screen registration, key bindings, HUD/render behavior, and screenshot stability. Keep these separate from the evaluator rather than making Client GameTest a parent harness for evaluator scenarios.
+- Any still-relevant behavior in the disconnected legacy verification package, migrated case by case to the narrowest suitable test surface; do not port the DSL itself.
 
 ### Keep in the evaluator
 
