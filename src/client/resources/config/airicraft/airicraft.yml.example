@@ -18,3 +18,15 @@ blockInteractionDelayTicks: 2
 # Default duration in client ticks for opt-in smooth camera movement.
 # Use 0 to keep camera movement instant unless a tool explicitly requests smoothing.
 cameraLerpDefaultTicks: 0
+
+# Read-only realtime debug dashboard. Each Airicraft client owns one dashboard.
+debugDashboard:
+  enabled: true
+  # The server binds on all interfaces and scans upward when this port is taken.
+  basePort: 8765
+  portScanLimit: 100
+  # Total retained observation history across runtime snapshots, events, LLM calls, and logs.
+  historyMegabytes: 256
+  # Optional, higher-cost visual context. When enabled, captures at most one frame per interval.
+  visualCaptureEnabled: false
+  visualCaptureIntervalTicks: 20

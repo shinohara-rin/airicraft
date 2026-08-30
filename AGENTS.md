@@ -143,6 +143,9 @@
 - `GET|POST|DELETE /v1/highlights`
 
 ## Behavior Notes
+- Each client automatically owns a read-only LAN debug dashboard. It scans upward from configured port `8765`, uses a viewer token distinct from the control bridge token, and prints the clickable URL in logs, `airicraft status`, and in-game chat.
+- Dashboard observations include full raw LLM envelopes, 4 Hz runtime snapshots, event/debug histories, and logs. The default 256 MiB history is bounded and reports evictions. Optional one-frame-per-second visual capture is off by default.
+- Dashboard export is replayable JSONL. The dashboard must never expose bridge mutation routes or backpressure the client tick when a viewer is slow.
 - The bridge is tied to the Minecraft client process, not world load state.
 - `airicraft reload` and `/airicraft reload` reload both config files live without restarting the client.
 - Reload preserves the bridge session, highlights, and current world connection, but resets active agent/planner/task state.

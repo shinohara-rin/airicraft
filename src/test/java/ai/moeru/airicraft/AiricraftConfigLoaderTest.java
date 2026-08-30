@@ -29,6 +29,28 @@ class AiricraftConfigLoaderTest {
 		assertFalse(parsed.suppressAutoPauseOnFocusLost());
 		assertEquals(4, parsed.blockInteractionDelayTicks());
 		assertEquals(7, parsed.cameraLerpDefaultTicks());
+		assertEquals(8765, parsed.debugDashboard().basePort());
+	}
+
+	@Test
+	void fromMapReadsDebugDashboardSettings() {
+		AiricraftConfig parsed = AiricraftConfigLoader.fromMap(Map.of(
+			"debugDashboard", Map.of(
+				"enabled", false,
+				"basePort", 9100,
+				"portScanLimit", 8,
+				"historyMegabytes", 64,
+				"visualCaptureEnabled", true,
+				"visualCaptureIntervalTicks", 40
+			)
+		), AiricraftConfig.defaults());
+
+		assertFalse(parsed.debugDashboard().enabled());
+		assertEquals(9100, parsed.debugDashboard().basePort());
+		assertEquals(8, parsed.debugDashboard().portScanLimit());
+		assertEquals(64L * 1024L * 1024L, parsed.debugDashboard().historyByteBudget());
+		assertTrue(parsed.debugDashboard().visualCaptureEnabled());
+		assertEquals(40, parsed.debugDashboard().visualCaptureIntervalTicks());
 	}
 
 	@Test

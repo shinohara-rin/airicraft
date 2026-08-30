@@ -1,0 +1,102 @@
+package ai.moeru.airicraft.dashboard;
+
+import com.google.gson.JsonParser;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.net.ServerSocket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.Map;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class DebugDashboardServerTest {
+	@TempDir
+	Path temporaryDirectory;
+
+	@Test
+	void servesStaticUiAndKeepsObservationApisBehindTheViewerToken() throws Exception {
+		int port = freePort();
+		DashboardObservationStore store = new DashboardObservationStore(1024L * 1024L);
+		store.startSession("test", 0L, 100L);
+		store.append("llm_call", 5L, 150L, Map.of("requestBody", "full prompt", "rawResponseBody", "full response"));
+		DebugDashboardServer server = new DebugDashboardServer(store, temporaryDirectory.resolve("latest.log"));
+		server.start(new DebugDashboardConfig(true, port, 1, 1024L * 1024L));
+		try {
+			String baseUrl = "http://127.0.0.1:" + server.status().port();
+			String token = server.status().primaryUrl().substring(server.status().primaryUrl().indexOf("#token=") + 7);
+
+			HttpResponse<String> index = send(baseUrl + "/", null);
+			HttpResponse<String> unauthorized = send(baseUrl + "/api/bootstrap", null);
+			HttpResponse<String> bootstrap = send(baseUrl + "/api/bootstrap", token);
+			HttpResponse<String> observations = send(baseUrl + "/api/observations?since=0", token);
+			HttpResponse<String> export = send(baseUrl + "/api/export", token);
+
+			assertEquals(200, index.statusCode());
+			assertTrue(index.body().contains("Runtime Observatory"));
+			assertEquals(401, unauthorized.statusCode());
+			assertEquals(200, bootstrap.statusCode());
+			assertTrue(JsonParser.parseString(bootstrap.body()).getAsJsonObject().has("sessionId"));
+			assertEquals(2, JsonParser.parseString(observations.body()).getAsJsonObject().getAsJsonArray("observations").size());
+			assertTrue(export.body().contains("full prompt"));
+			assertTrue(export.body().contains("full response"));
+		}
+		finally {
+			server.stop();
+		}
+	}
+
+	@Test
+	void scansUpwardWhenTheConfiguredBasePortIsTaken() throws Exception {
+		try (ConsecutivePorts ports = ConsecutivePorts.reserve()) {
+			DashboardObservationStore store = new DashboardObservationStore(1024L * 1024L);
+			DebugDashboardServer server = new DebugDashboardServer(store, temporaryDirectory.resolve("latest.log"));
+			server.start(new DebugDashboardConfig(true, ports.first(), 2, 1024L * 1024L));
+			try {
+				assertTrue(server.status().running());
+				assertEquals(ports.second(), server.status().port());
+			}
+			finally {
+				server.stop();
+			}
+		}
+	}
+
+	private static HttpResponse<String> send(String url, String token) throws Exception {
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).GET();
+		if (token != null) {
+			request.header("Authorization", "Bearer " + token);
+		}
+		return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private static int freePort() throws Exception {
+		try (ServerSocket socket = new ServerSocket(0)) {
+			return socket.getLocalPort();
+		}
+	}
+
+	private record ConsecutivePorts(int first, int second, ServerSocket occupied) implements AutoCloseable {
+		private static ConsecutivePorts reserve() throws Exception {
+			for (int first = 40_000; first < 60_000; first++) {
+				try (ServerSocket secondProbe = new ServerSocket(first + 1)) {
+					ServerSocket occupied = new ServerSocket(first);
+					return new ConsecutivePorts(first, first + 1, occupied);
+				}
+				catch (java.io.IOException ignored) {
+				}
+			}
+			throw new IllegalStateException("No consecutive test ports available");
+		}
+
+		@Override
+		public void close() throws Exception {
+			occupied.close();
+		}
+	}
+}

@@ -326,7 +326,7 @@ public final class AgentDebugRecorder {
 				matches.add(entry);
 			}
 		}
-		boolean truncated = sinceEntryId != null && oldestEntryId > 0L && sinceEntryId < oldestEntryId;
+		boolean truncated = sinceEntryId != null && oldestEntryId > 1L && sinceEntryId < oldestEntryId - 1L;
 		return new AgentDebugTimelineQueryResult(oldestEntryId, latestEntryId, truncated, matches);
 	}
 

@@ -101,6 +101,7 @@ public final class ModBridgeServer {
 	private final Supplier<FirstPersonScreenshotService> screenshotServiceSupplier;
 	private final Supplier<ClientTickDebugRuntime> clientTickDebugRuntimeSupplier;
 	private final Supplier<ClientRuntimeController.ReloadResult> reloadSupplier;
+	private final Supplier<Map<String, Object>> dashboardStatusSupplier;
 	private final BridgeDiscoveryFile bridgeDiscoveryFile;
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
@@ -120,6 +121,28 @@ public final class ModBridgeServer {
 		CameraController cameraController,
 		BridgeDiscoveryFile bridgeDiscoveryFile
 	) {
+		this(
+			highlightManagerSupplier,
+			agentRuntimeSupplier,
+			screenshotServiceSupplier,
+			clientTickDebugRuntimeSupplier,
+			reloadSupplier,
+			cameraController,
+			bridgeDiscoveryFile,
+			() -> Map.of("enabled", false, "running", false)
+		);
+	}
+
+	public ModBridgeServer(
+		Supplier<HighlightManager> highlightManagerSupplier,
+		Supplier<EmbodiedAgentRuntime> agentRuntimeSupplier,
+		Supplier<FirstPersonScreenshotService> screenshotServiceSupplier,
+		Supplier<ClientTickDebugRuntime> clientTickDebugRuntimeSupplier,
+		Supplier<ClientRuntimeController.ReloadResult> reloadSupplier,
+		CameraController cameraController,
+		BridgeDiscoveryFile bridgeDiscoveryFile,
+		Supplier<Map<String, Object>> dashboardStatusSupplier
+	) {
 		this.highlightManagerSupplier = Objects.requireNonNull(highlightManagerSupplier, "highlightManagerSupplier");
 		this.agentRuntimeSupplier = Objects.requireNonNull(agentRuntimeSupplier, "agentRuntimeSupplier");
 		this.screenshotServiceSupplier = Objects.requireNonNull(screenshotServiceSupplier, "screenshotServiceSupplier");
@@ -127,6 +150,7 @@ public final class ModBridgeServer {
 		this.reloadSupplier = Objects.requireNonNull(reloadSupplier, "reloadSupplier");
 		this.playerViewService = new PlayerViewService(Objects.requireNonNull(cameraController, "cameraController"));
 		this.bridgeDiscoveryFile = Objects.requireNonNull(bridgeDiscoveryFile, "bridgeDiscoveryFile");
+		this.dashboardStatusSupplier = Objects.requireNonNull(dashboardStatusSupplier, "dashboardStatusSupplier");
 	}
 
 	public synchronized void start() {
@@ -1936,6 +1960,7 @@ public final class ModBridgeServer {
 		response.put("sessionState", sessionState(client));
 		response.put("currentScreen", currentScreenName(client));
 		response.put("canJoinWorldOrServer", !worldLoaded);
+		response.put("debugDashboard", dashboardStatusSupplier.get());
 
 		if (!worldLoaded) {
 			response.put("state", "world_not_loaded");

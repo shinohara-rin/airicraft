@@ -86,6 +86,35 @@ source .envrc && ./gradlew runClient
 jdb -attach 127.0.0.1:5005
 ```
 
+### Realtime debug dashboard
+
+Every Airicraft client starts its own read-only debug dashboard. The client binds the first available LAN port starting at `8765` and prints a clickable viewer-token URL in the log, in `airicraft status`, and once in Minecraft chat after a world loads.
+
+The dashboard provides:
+
+- full LLM request/response envelopes, parsed responses, failures, timing, and token usage
+- embodied runtime, planner, conversation, task, mission, survival-reflex, behavior-tree, and action-graph snapshots
+- semantic events, the correlated debug timeline, and Minecraft/Airicraft log history
+- a global time cursor for inspecting all panels at an earlier observation
+- bounded history with explicit eviction/gap reporting
+- JSONL session export and replay through **Open session**
+
+The dashboard is observation-only. It has a separate viewer token and does not expose the localhost bridge token or any bridge mutation route. Runtime state is sampled every five client ticks while discrete transitions are captured as they arrive. A slow or disconnected browser never backpressures the game.
+
+Configure it in `config/airicraft/airicraft.yml`:
+
+```yaml
+debugDashboard:
+  enabled: true
+  basePort: 8765
+  portScanLimit: 100
+  historyMegabytes: 256
+  visualCaptureEnabled: false
+  visualCaptureIntervalTicks: 20
+```
+
+Visual context is intentionally off by default because screenshot capture and PNG encoding cost more than structured observation. When enabled, it captures at most one correlated frame per configured interval. This development dashboard preserves raw LLM content and does not redact it.
+
 ### Main-mod HotSwap
 
 All existing client tasks use HotSwap by default. This includes `runClient`, `scripts/compat run`, and `scripts/eval run`.

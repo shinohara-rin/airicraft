@@ -41,6 +41,30 @@ class AiricraftCliMainTest {
 	}
 
 	@Test
+	void statusPrintsClickableDebugDashboardUrl() {
+		TestTransport transport = new TestTransport();
+		transport.when("GET", "/v1/status").payload = linkedMap(
+			"available", true,
+			"bridgeAvailable", true,
+			"worldLoaded", false,
+			"sessionState", "out_of_world",
+			"state", "world_not_loaded",
+			"debugDashboard", linkedMap(
+				"enabled", true,
+				"running", true,
+				"port", 8765,
+				"url", "http://192.168.1.20:8765/#token=test-token"
+			)
+		);
+
+		CliResult result = execute(transport, "status");
+
+		assertEquals(0, result.exitCode());
+		assertTrue(result.output().contains("[debugDashboard]\n"));
+		assertTrue(result.output().contains("url: http://192.168.1.20:8765/#token=test-token\n"));
+	}
+
+	@Test
 	void reloadRendersDeterministicText() {
 		TestTransport transport = new TestTransport();
 		transport.when("POST", "/v1/reload").payload = linkedMap(

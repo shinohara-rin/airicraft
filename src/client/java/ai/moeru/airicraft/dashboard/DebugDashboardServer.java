@@ -1,0 +1,450 @@
+package ai.moeru.airicraft.dashboard;
+
+import ai.moeru.airicraft.Airicraft;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import net.fabricmc.loader.api.FabricLoader;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public final class DebugDashboardServer {
+	private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
+	private static final SecureRandom RANDOM = new SecureRandom();
+	private static final Duration STREAM_HEARTBEAT = Duration.ofSeconds(15);
+	private static final int QUERY_LIMIT = 1000;
+
+	private final DashboardObservationStore store;
+	private final Path logPath;
+	private volatile HttpServer server;
+	private volatile ExecutorService requestExecutor;
+	private volatile ScheduledExecutorService logExecutor;
+	private volatile String token = "";
+	private volatile Status status = Status.stopped();
+
+	public DebugDashboardServer(DashboardObservationStore store) {
+		this(store, FabricLoader.getInstance().getGameDir().resolve("logs").resolve("latest.log"));
+	}
+
+	DebugDashboardServer(DashboardObservationStore store, Path logPath) {
+		this.store = store;
+		this.logPath = logPath;
+	}
+
+	public synchronized void start(DebugDashboardConfig config) {
+		if (server != null || !config.enabled()) {
+			if (!config.enabled()) {
+				status = Status.disabled();
+			}
+			return;
+		}
+
+		HttpServer candidate = null;
+		IOException lastFailure = null;
+		for (int port = config.basePort(); port <= config.lastPort(); port++) {
+			try {
+				candidate = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
+				break;
+			}
+			catch (IOException exception) {
+				lastFailure = exception;
+			}
+		}
+
+		if (candidate == null) {
+			String message = lastFailure == null ? "No dashboard port was available" : lastFailure.getMessage();
+			status = Status.failed(message);
+			Airicraft.LOGGER.error(
+				"Failed to start Airicraft debug dashboard on ports {}-{}: {}",
+				config.basePort(),
+				config.lastPort(),
+				message
+			);
+			return;
+		}
+
+		token = generateToken();
+		requestExecutor = Executors.newCachedThreadPool(daemonThreadFactory("airicraft-dashboard-http"));
+		candidate.setExecutor(requestExecutor);
+		candidate.createContext("/", this::handleIndex);
+		candidate.createContext("/app.css", exchange -> handleResource(exchange, "/assets/airicraft/dashboard/app.css", "text/css; charset=utf-8"));
+		candidate.createContext("/app.js", exchange -> handleResource(exchange, "/assets/airicraft/dashboard/app.js", "text/javascript; charset=utf-8"));
+		candidate.createContext("/api/bootstrap", this::handleBootstrap);
+		candidate.createContext("/api/observations", this::handleObservations);
+		candidate.createContext("/api/stream", this::handleStream);
+		candidate.createContext("/api/export", this::handleExport);
+		candidate.start();
+
+		server = candidate;
+		long startedAtMs = System.currentTimeMillis();
+		List<String> urls = dashboardUrls(candidate.getAddress().getPort(), token);
+		status = new Status(true, true, candidate.getAddress().getPort(), startedAtMs, urls, "");
+		DashboardLogTailer logTailer = new DashboardLogTailer(logPath, store);
+		logTailer.startAtTail();
+		logExecutor = Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("airicraft-dashboard-log"));
+		logExecutor.scheduleWithFixedDelay(logTailer::poll, 250L, 250L, TimeUnit.MILLISECONDS);
+
+		Airicraft.LOGGER.info("Airicraft debug dashboard: {}", status.primaryUrl());
+	}
+
+	public synchronized void reconfigure(DebugDashboardConfig config) {
+		store.updateMaxBytes(config.historyByteBudget());
+		if (!config.enabled()) {
+			stop();
+			status = Status.disabled();
+			return;
+		}
+		if (server == null || status.port() < config.basePort() || status.port() > config.lastPort()) {
+			stop();
+			start(config);
+		}
+	}
+
+	public synchronized void stop() {
+		HttpServer currentServer = server;
+		server = null;
+		if (currentServer != null) {
+			currentServer.stop(0);
+		}
+		ScheduledExecutorService currentLogExecutor = logExecutor;
+		logExecutor = null;
+		if (currentLogExecutor != null) {
+			currentLogExecutor.shutdownNow();
+		}
+		ExecutorService currentRequestExecutor = requestExecutor;
+		requestExecutor = null;
+		if (currentRequestExecutor != null) {
+			currentRequestExecutor.shutdownNow();
+		}
+		token = "";
+		status = Status.stopped();
+	}
+
+	public Status status() {
+		return status;
+	}
+
+	public Map<String, Object> statusPayload() {
+		Status current = status;
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("enabled", current.enabled());
+		payload.put("running", current.running());
+		payload.put("port", current.port());
+		payload.put("startedAtMs", current.startedAtMs());
+		payload.put("urls", current.urls());
+		payload.put("url", current.primaryUrl());
+		if (!current.error().isBlank()) {
+			payload.put("error", current.error());
+		}
+		return payload;
+	}
+
+	private void handleIndex(HttpExchange exchange) throws IOException {
+		if (!"/".equals(exchange.getRequestURI().getPath())) {
+			writeText(exchange, 404, "text/plain; charset=utf-8", "Not found");
+			return;
+		}
+		handleResource(exchange, "/assets/airicraft/dashboard/index.html", "text/html; charset=utf-8");
+	}
+
+	private void handleResource(HttpExchange exchange, String resourcePath, String contentType) throws IOException {
+		if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+			writeText(exchange, 405, "text/plain; charset=utf-8", "Method not allowed");
+			return;
+		}
+		try (InputStream input = DebugDashboardServer.class.getResourceAsStream(resourcePath)) {
+			if (input == null) {
+				writeText(exchange, 404, "text/plain; charset=utf-8", "Missing dashboard resource");
+				return;
+			}
+			byte[] body = input.readAllBytes();
+			exchange.getResponseHeaders().set("Content-Type", contentType);
+			exchange.getResponseHeaders().set("Cache-Control", "no-store");
+			exchange.sendResponseHeaders(200, body.length);
+			try (OutputStream output = exchange.getResponseBody()) {
+				output.write(body);
+			}
+		}
+	}
+
+	private void handleBootstrap(HttpExchange exchange) throws IOException {
+		if (!authorizeGet(exchange)) {
+			return;
+		}
+		DashboardObservationStore.Query query = store.queryAfter(Long.MAX_VALUE, 1);
+		JsonObject response = queryMetadata(query);
+		response.add("dashboard", GSON.toJsonTree(statusPayload()));
+		writeJson(exchange, 200, response);
+	}
+
+	private void handleObservations(HttpExchange exchange) throws IOException {
+		if (!authorizeGet(exchange)) {
+			return;
+		}
+		long since = longQuery(exchange, "since", 0L);
+		int limit = (int) Math.min(QUERY_LIMIT, Math.max(1L, longQuery(exchange, "limit", QUERY_LIMIT)));
+		writeJson(exchange, 200, queryJson(store.queryAfter(since, limit)));
+	}
+
+	private void handleStream(HttpExchange exchange) throws IOException {
+		if (!authorizeGet(exchange)) {
+			return;
+		}
+		exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
+		exchange.getResponseHeaders().set("Cache-Control", "no-store");
+		exchange.getResponseHeaders().set("Connection", "keep-alive");
+		exchange.sendResponseHeaders(200, 0);
+		long cursor = longQuery(exchange, "since", 0L);
+		try (OutputStream output = exchange.getResponseBody()) {
+			while (server != null) {
+				DashboardObservationStore.Query query = store.queryAfter(cursor, 500);
+				if (!query.observations().isEmpty()) {
+					String data = "event: observations\ndata: " + GSON.toJson(queryJson(query)) + "\n\n";
+					output.write(data.getBytes(StandardCharsets.UTF_8));
+					output.flush();
+					cursor = query.observations().getLast().sequence();
+					continue;
+				}
+				try {
+					store.awaitAfter(cursor, STREAM_HEARTBEAT);
+				}
+				catch (InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					return;
+				}
+				output.write(": heartbeat\n\n".getBytes(StandardCharsets.UTF_8));
+				output.flush();
+			}
+		}
+		catch (IOException ignored) {
+			// Browser disconnected.
+		}
+	}
+
+	private void handleExport(HttpExchange exchange) throws IOException {
+		if (!authorizeGet(exchange)) {
+			return;
+		}
+		DashboardObservationStore.Query metadata = store.queryAfter(Long.MAX_VALUE, 1);
+		List<DashboardObservation> retained = store.retainedObservations();
+		String fileName = "airicraft-debug-" + metadata.sessionId() + ".jsonl";
+		exchange.getResponseHeaders().set("Content-Type", "application/x-ndjson; charset=utf-8");
+		exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+		exchange.getResponseHeaders().set("Cache-Control", "no-store");
+		exchange.sendResponseHeaders(200, 0);
+		try (OutputStream output = exchange.getResponseBody()) {
+			JsonObject manifest = queryMetadata(metadata);
+			manifest.addProperty("recordType", "manifest");
+			manifest.addProperty("schemaVersion", 1);
+			writeJsonLine(output, manifest);
+			for (DashboardObservation observation : retained) {
+				JsonObject line = observationJson(observation);
+				line.addProperty("recordType", "observation");
+				writeJsonLine(output, line);
+			}
+		}
+	}
+
+	private boolean authorizeGet(HttpExchange exchange) throws IOException {
+		if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+			writeJson(exchange, 405, Map.of("error", "method_not_allowed"));
+			return false;
+		}
+		String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+		if (!authorizationEquals(authorization, "Bearer " + token)) {
+			writeJson(exchange, 401, Map.of("error", "unauthorized", "message", "Invalid dashboard token"));
+			return false;
+		}
+		return true;
+	}
+
+	private static boolean authorizationEquals(String actual, String expected) {
+		if (actual == null || actual.length() != expected.length()) {
+			return false;
+		}
+		int difference = 0;
+		for (int index = 0; index < actual.length(); index++) {
+			difference |= actual.charAt(index) ^ expected.charAt(index);
+		}
+		return difference == 0;
+	}
+
+	private static JsonObject queryJson(DashboardObservationStore.Query query) {
+		JsonObject response = queryMetadata(query);
+		JsonArray observations = new JsonArray();
+		for (DashboardObservation observation : query.observations()) {
+			observations.add(observationJson(observation));
+		}
+		response.add("observations", observations);
+		return response;
+	}
+
+	private static JsonObject queryMetadata(DashboardObservationStore.Query query) {
+		JsonObject response = new JsonObject();
+		response.addProperty("schemaVersion", 1);
+		response.addProperty("sessionId", query.sessionId());
+		response.addProperty("sessionStartedAtMs", query.sessionStartedAtMs());
+		response.addProperty("latestTick", query.latestTick());
+		response.addProperty("oldestSequence", query.oldestSequence());
+		response.addProperty("latestSequence", query.latestSequence());
+		response.addProperty("truncated", query.truncated());
+		response.addProperty("retainedBytes", query.retainedBytes());
+		response.addProperty("maxBytes", query.maxBytes());
+		response.add("droppedByType", GSON.toJsonTree(query.droppedByType()));
+		return response;
+	}
+
+	private static JsonObject observationJson(DashboardObservation observation) {
+		JsonObject json = new JsonObject();
+		json.addProperty("sequence", observation.sequence());
+		json.addProperty("sessionId", observation.sessionId());
+		json.addProperty("tick", observation.tick());
+		json.addProperty("capturedAtMs", observation.capturedAtMs());
+		json.addProperty("type", observation.type());
+		json.add("payload", observation.payload());
+		return json;
+	}
+
+	private static void writeJsonLine(OutputStream output, JsonObject json) throws IOException {
+		output.write(GSON.toJson(json).getBytes(StandardCharsets.UTF_8));
+		output.write('\n');
+	}
+
+	private static void writeJson(HttpExchange exchange, int status, Object payload) throws IOException {
+		writeText(exchange, status, "application/json; charset=utf-8", GSON.toJson(payload));
+	}
+
+	private static void writeText(HttpExchange exchange, int status, String contentType, String body) throws IOException {
+		byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+		exchange.getResponseHeaders().set("Content-Type", contentType);
+		exchange.getResponseHeaders().set("Cache-Control", "no-store");
+		exchange.sendResponseHeaders(status, bytes.length);
+		try (OutputStream output = exchange.getResponseBody()) {
+			output.write(bytes);
+		}
+	}
+
+	private static long longQuery(HttpExchange exchange, String key, long fallback) {
+		String raw = exchange.getRequestURI().getRawQuery();
+		if (raw == null || raw.isBlank()) {
+			return fallback;
+		}
+		for (String part : raw.split("&")) {
+			String[] pair = part.split("=", 2);
+			if (pair.length == 2 && URLDecoder.decode(pair[0], StandardCharsets.UTF_8).equals(key)) {
+				try {
+					return Long.parseLong(URLDecoder.decode(pair[1], StandardCharsets.UTF_8));
+				}
+				catch (NumberFormatException ignored) {
+					return fallback;
+				}
+			}
+		}
+		return fallback;
+	}
+
+	private static String generateToken() {
+		byte[] bytes = new byte[24];
+		RANDOM.nextBytes(bytes);
+		StringBuilder token = new StringBuilder(bytes.length * 2);
+		for (byte current : bytes) {
+			token.append(String.format("%02x", current));
+		}
+		return token.toString();
+	}
+
+	private static List<String> dashboardUrls(int port, String token) {
+		List<InetAddress> addresses = new ArrayList<>();
+		try {
+			Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+			while (interfaces.hasMoreElements()) {
+				NetworkInterface networkInterface = interfaces.nextElement();
+				if (!networkInterface.isUp() || networkInterface.isLoopback()) {
+					continue;
+				}
+				Enumeration<InetAddress> interfaceAddresses = networkInterface.getInetAddresses();
+				while (interfaceAddresses.hasMoreElements()) {
+					InetAddress address = interfaceAddresses.nextElement();
+					if (address instanceof Inet4Address && !address.isLoopbackAddress()) {
+						addresses.add(address);
+					}
+				}
+			}
+		}
+		catch (IOException ignored) {
+		}
+		addresses.sort(Comparator
+			.comparing((InetAddress address) -> !address.isSiteLocalAddress())
+			.thenComparing(InetAddress::getHostAddress));
+		List<String> urls = new ArrayList<>();
+		for (InetAddress address : addresses) {
+			urls.add("http://" + address.getHostAddress() + ':' + port + "/#token=" + token);
+		}
+		urls.add("http://127.0.0.1:" + port + "/#token=" + token);
+		return List.copyOf(urls);
+	}
+
+	private static java.util.concurrent.ThreadFactory daemonThreadFactory(String prefix) {
+		AtomicInteger sequence = new AtomicInteger();
+		return runnable -> {
+			Thread thread = new Thread(runnable, prefix + '-' + sequence.incrementAndGet());
+			thread.setDaemon(true);
+			return thread;
+		};
+	}
+
+	public record Status(
+		boolean enabled,
+		boolean running,
+		int port,
+		long startedAtMs,
+		List<String> urls,
+		String error
+	) {
+		public Status {
+			urls = urls == null ? List.of() : List.copyOf(urls);
+			error = error == null ? "" : error;
+		}
+
+		public String primaryUrl() {
+			return urls.isEmpty() ? "" : urls.getFirst();
+		}
+
+		private static Status disabled() {
+			return new Status(false, false, -1, 0L, List.of(), "");
+		}
+
+		private static Status stopped() {
+			return new Status(true, false, -1, 0L, List.of(), "");
+		}
+
+		private static Status failed(String error) {
+			return new Status(true, false, -1, 0L, List.of(), error);
+		}
+	}
+}

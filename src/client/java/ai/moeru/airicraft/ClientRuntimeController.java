@@ -24,13 +24,20 @@ import ai.moeru.airicraft.agent.tasks.SmeltingProcessManager;
 import ai.moeru.airicraft.agent.tasks.SmeltingTaskExecutor;
 import ai.moeru.airicraft.agent.tasks.WorldTaskExecutor;
 import ai.moeru.airicraft.agent.session.SessionSnapshot;
+import ai.moeru.airicraft.dashboard.DashboardObservationCollector;
+import ai.moeru.airicraft.dashboard.DashboardObservationStore;
+import ai.moeru.airicraft.dashboard.DebugDashboardServer;
 import ai.moeru.airicraft.debug.ClientTickDebugRuntime;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.text.ClickEvent;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -45,6 +52,11 @@ public final class ClientRuntimeController {
 	private final CameraController cameraController;
 	private volatile EmbodiedAgentRuntime agentRuntime;
 	private final ModBridgeServer bridgeServer;
+	private final DashboardObservationStore dashboardObservationStore;
+	private final DashboardObservationCollector dashboardObservationCollector;
+	private final DebugDashboardServer debugDashboardServer;
+	private String announcedDashboardUrl = "";
+	private long lastDashboardCaptureFailureLogAtMs;
 	private final PlannerDebugOverlay plannerDebugOverlay = new PlannerDebugOverlay();
 	private final ClientTickIndicator clientTickIndicator = new ClientTickIndicator();
 
@@ -53,6 +65,13 @@ public final class ClientRuntimeController {
 		this.cameraController = new CameraController(config.cameraLerpDefaultTicks());
 		this.agentRuntime = createRuntime(config, AgentConfigLoader.load());
 		this.agentRuntime.updateIdleIdeasConfig(IdleIdeasLoader.load());
+		this.dashboardObservationStore = new DashboardObservationStore(config.debugDashboard().historyByteBudget());
+		this.dashboardObservationCollector = new DashboardObservationCollector(
+			dashboardObservationStore,
+			screenshotService,
+			() -> config.debugDashboard()
+		);
+		this.debugDashboardServer = new DebugDashboardServer(dashboardObservationStore);
 		this.bridgeServer = new ModBridgeServer(
 			this::highlightManager,
 			this::agentRuntime,
@@ -60,7 +79,8 @@ public final class ClientRuntimeController {
 			this::clientTickDebugRuntime,
 			this::reload,
 			cameraController,
-			BridgeDiscoveryFile.createDefault()
+			BridgeDiscoveryFile.createDefault(),
+			debugDashboardServer::statusPayload
 		);
 	}
 
@@ -112,6 +132,14 @@ public final class ClientRuntimeController {
 
 	public void onClientStarted(MinecraftClient client) {
 		currentAgentRuntime().onClientStarted(client);
+		dashboardObservationCollector.startSession("client_started", currentAgentRuntime());
+		try {
+			debugDashboardServer.start(config.debugDashboard());
+		}
+		catch (RuntimeException exception) {
+			Airicraft.LOGGER.error("Failed to start Airicraft debug dashboard", exception);
+			debugDashboardServer.stop();
+		}
 		bridgeServer.start();
 	}
 
@@ -128,6 +156,30 @@ public final class ClientRuntimeController {
 		cameraController.tick(client);
 		highlightManager.tick();
 		clientTickDebugRuntime.onClientTickCompleted(client, currentAgentRuntime());
+		try {
+			dashboardObservationCollector.capture(client, currentAgentRuntime());
+		}
+		catch (RuntimeException exception) {
+			long now = System.currentTimeMillis();
+			if (now - lastDashboardCaptureFailureLogAtMs >= 10_000L) {
+				lastDashboardCaptureFailureLogAtMs = now;
+				Airicraft.LOGGER.warn("Debug dashboard observation failed; game execution is unaffected", exception);
+			}
+		}
+		announceDashboardUrl(client);
+	}
+
+	private void announceDashboardUrl(MinecraftClient client) {
+		String url = debugDashboardServer.status().primaryUrl();
+		if (client == null || client.player == null || url.isBlank() || url.equals(announcedDashboardUrl)) {
+			return;
+		}
+		announcedDashboardUrl = url;
+		Text link = Text.literal(url).styled(style -> style
+			.withColor(Formatting.AQUA)
+			.withUnderline(true)
+			.withClickEvent(new ClickEvent.OpenUrl(URI.create(url))));
+		client.player.sendMessage(Text.literal("Airicraft debug dashboard: ").append(link), false);
 	}
 
 	public boolean startClientTick() {
@@ -274,6 +326,15 @@ public final class ClientRuntimeController {
 		config = nextConfig;
 		agentRuntime = nextRuntime;
 		previousRuntime.shutdown();
+		dashboardObservationCollector.startSession("runtime_reloaded", nextRuntime);
+		try {
+			debugDashboardServer.reconfigure(nextConfig.debugDashboard());
+		}
+		catch (RuntimeException exception) {
+			Airicraft.LOGGER.error("Failed to reconfigure Airicraft debug dashboard", exception);
+			debugDashboardServer.stop();
+		}
+		announcedDashboardUrl = "";
 		return new ReloadResult(nextConfig, nextAgentConfig, nextIdleIdeasConfig, nextRuntime.sessionSnapshot());
 	}
 
@@ -285,6 +346,7 @@ public final class ClientRuntimeController {
 		cameraController.clear();
 		highlightManager.clear();
 		bridgeServer.stop();
+		debugDashboardServer.stop();
 	}
 
 	private EmbodiedAgentRuntime currentAgentRuntime() {
@@ -369,6 +431,14 @@ public final class ClientRuntimeController {
 			payload.put("suppressAutoPauseOnFocusLost", airicraftConfig.suppressAutoPauseOnFocusLost());
 			payload.put("blockInteractionDelayTicks", airicraftConfig.blockInteractionDelayTicks());
 			payload.put("cameraLerpDefaultTicks", airicraftConfig.cameraLerpDefaultTicks());
+			payload.put("debugDashboard", Map.of(
+				"enabled", airicraftConfig.debugDashboard().enabled(),
+				"basePort", airicraftConfig.debugDashboard().basePort(),
+				"portScanLimit", airicraftConfig.debugDashboard().portScanLimit(),
+				"historyByteBudget", airicraftConfig.debugDashboard().historyByteBudget(),
+				"visualCaptureEnabled", airicraftConfig.debugDashboard().visualCaptureEnabled(),
+				"visualCaptureIntervalTicks", airicraftConfig.debugDashboard().visualCaptureIntervalTicks()
+			));
 			return payload;
 		}
 

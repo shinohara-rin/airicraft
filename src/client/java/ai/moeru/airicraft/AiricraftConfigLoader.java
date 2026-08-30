@@ -1,5 +1,6 @@
 package ai.moeru.airicraft;
 
+import ai.moeru.airicraft.dashboard.DebugDashboardConfig;
 import net.fabricmc.loader.api.FabricLoader;
 import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
@@ -79,8 +80,40 @@ public final class AiricraftConfigLoader {
 			readBoolean(root, "enableProactiveSocialMode", defaults.enableProactiveSocialMode(), strict),
 			readBoolean(root, "suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost(), strict),
 			readInt(root, "blockInteractionDelayTicks", defaults.blockInteractionDelayTicks()),
-			readInt(root, "cameraLerpDefaultTicks", defaults.cameraLerpDefaultTicks())
+			readInt(root, "cameraLerpDefaultTicks", defaults.cameraLerpDefaultTicks()),
+			readDebugDashboardConfig(root, defaults.debugDashboard())
 		);
+	}
+
+	private static DebugDashboardConfig readDebugDashboardConfig(
+		Map<String, Object> root,
+		DebugDashboardConfig defaults
+	) {
+		Map<String, Object> dashboard = childMap(root, "debugDashboard");
+		int historyMegabytes = readInt(
+			dashboard,
+			"historyMegabytes",
+			(int) (defaults.historyByteBudget() / (1024L * 1024L))
+		);
+		return new DebugDashboardConfig(
+			readBoolean(dashboard, "enabled", defaults.enabled(), false),
+			readInt(dashboard, "basePort", defaults.basePort()),
+			readInt(dashboard, "portScanLimit", defaults.portScanLimit()),
+			Math.max(1L, historyMegabytes) * 1024L * 1024L,
+			readBoolean(dashboard, "visualCaptureEnabled", defaults.visualCaptureEnabled(), false),
+			readInt(dashboard, "visualCaptureIntervalTicks", defaults.visualCaptureIntervalTicks())
+		);
+	}
+
+	private static Map<String, Object> childMap(Map<String, Object> root, String fieldName) {
+		if (root == null || !(root.get(fieldName) instanceof Map<?, ?> raw)) {
+			return Map.of();
+		}
+		Map<String, Object> typed = new LinkedHashMap<>();
+		for (Map.Entry<?, ?> entry : raw.entrySet()) {
+			typed.put(String.valueOf(entry.getKey()), entry.getValue());
+		}
+		return typed;
 	}
 
 	private static void createInitialConfig(
@@ -103,6 +136,14 @@ public final class AiricraftConfigLoader {
 				migratedData.put("suppressAutoPauseOnFocusLost", defaults.suppressAutoPauseOnFocusLost());
 				migratedData.put("blockInteractionDelayTicks", defaults.blockInteractionDelayTicks());
 				migratedData.put("cameraLerpDefaultTicks", defaults.cameraLerpDefaultTicks());
+				migratedData.put("debugDashboard", Map.of(
+					"enabled", defaults.debugDashboard().enabled(),
+					"basePort", defaults.debugDashboard().basePort(),
+					"portScanLimit", defaults.debugDashboard().portScanLimit(),
+					"historyMegabytes", defaults.debugDashboard().historyByteBudget() / (1024L * 1024L),
+					"visualCaptureEnabled", defaults.debugDashboard().visualCaptureEnabled(),
+					"visualCaptureIntervalTicks", defaults.debugDashboard().visualCaptureIntervalTicks()
+				));
 			}
 			Files.writeString(configPath, dumpYaml(migratedData), StandardCharsets.UTF_8);
 			return;

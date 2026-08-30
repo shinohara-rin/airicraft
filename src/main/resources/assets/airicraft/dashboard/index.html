@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Airicraft Runtime Observatory</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">A</span>
+        <div><strong>Airicraft</strong><span>Runtime Observatory</span></div>
+      </div>
+      <div class="connection-strip">
+        <span id="connection-dot" class="dot pending"></span>
+        <span id="connection-label">Connecting</span>
+        <span class="divider"></span>
+        <span>tick <b id="tick">—</b></span>
+        <span>session <b id="session">—</b></span>
+        <span id="memory">—</span>
+      </div>
+      <div class="toolbar">
+        <label class="file-button">Open session<input id="session-file" type="file" accept=".jsonl,.ndjson,application/x-ndjson"></label>
+        <button id="export">Save session</button>
+      </div>
+    </header>
+
+    <section class="timebar">
+      <button id="return-live" class="live-button active"><span class="pulse"></span> LIVE</button>
+      <input id="time-cursor" type="range" min="0" max="0" value="0" aria-label="Global observation time cursor">
+      <div id="cursor-label">Following the latest observation</div>
+      <div class="search-wrap"><span>⌕</span><input id="search" type="search" placeholder="Filter events, prompts, tasks, logs…"></div>
+    </section>
+
+    <main class="workspace">
+      <aside class="rail">
+        <nav id="stream-nav">
+          <button data-view="overview" class="active"><span>◫</span>Overview</button>
+          <button data-view="transcript"><span>⌁</span>LLM transcript <b id="llm-count">0</b></button>
+          <button data-view="timeline"><span>↳</span>Causal timeline <b id="event-count">0</b></button>
+          <button data-view="runtime"><span>◇</span>Runtime state</button>
+          <button data-view="logs"><span>≡</span>Logs <b id="log-count">0</b></button>
+          <button data-view="raw"><span>{ }</span>Raw inspector</button>
+        </nav>
+        <div class="rail-footer">
+          <span>Read-only observer</span>
+          <small>No control routes exposed</small>
+        </div>
+      </aside>
+
+      <section id="content" class="content">
+        <div id="empty" class="empty-state">
+          <div class="loader"></div>
+          <h2>Waiting for the first runtime snapshot</h2>
+          <p>The dashboard is connected without affecting game execution.</p>
+        </div>
+      </section>
+
+      <aside id="inspector" class="inspector">
+        <div class="panel-title"><span>Observation detail</span><button id="close-inspector">×</button></div>
+        <div id="inspector-content" class="inspector-content"><p class="muted">Select an event, task, or LLM call to inspect its exact payload.</p></div>
+      </aside>
+    </main>
+  </div>
+  <div id="toast" role="status"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

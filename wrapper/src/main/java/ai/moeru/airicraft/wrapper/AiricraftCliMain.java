@@ -2294,6 +2294,12 @@ public final class AiricraftCliMain {
 		private static Map<String, Object> status(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
 			copy(view, payload, "available", "bridgeAvailable", "worldLoaded", "sessionState", "currentScreen", "canJoinWorldOrServer", "state", "message");
+			if (payload.containsKey("debugDashboard")) {
+				Map<String, Object> dashboard = map(payload.get("debugDashboard"));
+				LinkedHashMap<String, Object> dashboardView = new LinkedHashMap<>();
+				copy(dashboardView, dashboard, "enabled", "running", "port", "startedAtMs", "url", "error");
+				view.put("debugDashboard", dashboardView);
+			}
 			if (verbose) {
 				copy(view, payload, "dimension", "player", "focus");
 			}
