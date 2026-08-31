@@ -99,7 +99,7 @@ The dashboard provides:
 - bounded history with explicit eviction/gap reporting
 - JSONL session export and replay through **Open session**
 
-The dashboard is observation-only. It has a separate viewer token and does not expose the localhost bridge token or any bridge mutation route. Runtime state is sampled every five client ticks while discrete transitions are captured as they arrive. A slow or disconnected browser never backpressures the game.
+The dashboard is observation-only. It has a separate viewer token and does not expose the localhost bridge token or any bridge mutation route. Runtime state is sampled every five client ticks while discrete transitions are captured as they arrive. The browser keeps a recent memory-bounded window; **Save session** exports the full retained server history. A slow or disconnected browser never backpressures the game.
 
 Configure it in `config/airicraft/airicraft.yml`:
 

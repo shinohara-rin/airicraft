@@ -2,7 +2,10 @@ const state = {
   token: new URLSearchParams(location.hash.slice(1)).get('token') || '',
   observations: [],
   bySequence: new Map(),
+  observationCharacters: new Map(),
+  loadedCharacters: 0,
   metadata: null,
+  partialHistory: false,
   live: true,
   selectedSequence: 0,
   selectedObservation: null,
@@ -12,6 +15,8 @@ const state = {
   replay: false,
 };
 
+const CLIENT_HISTORY_CHARACTER_BUDGET = 4 * 1024 * 1024;
+const INITIAL_SEQUENCE_WINDOW = 500;
 const el = id => document.getElementById(id);
 const fmt = new Intl.NumberFormat();
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
@@ -42,23 +47,56 @@ function duration(ms) {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-function addObservations(items) {
+function addObservations(items, shouldRender = true) {
   let changed = false;
   for (const item of items || []) {
     if (state.bySequence.has(item.sequence)) continue;
+    const characters = JSON.stringify(item).length;
     state.bySequence.set(item.sequence, item);
+    state.observationCharacters.set(item.sequence, characters);
+    state.loadedCharacters += characters;
     state.observations.push(item);
     changed = true;
   }
   if (!changed) return;
   state.observations.sort((a, b) => a.sequence - b.sequence);
+  trimClientHistory();
   if (state.live) state.selectedSequence = state.observations.at(-1)?.sequence || 0;
+  if (!shouldRender) return;
   updateChrome();
   render();
 }
 
+function trimClientHistory() {
+  let dropCount = 0;
+  while (state.loadedCharacters > CLIENT_HISTORY_CHARACTER_BUDGET && dropCount < state.observations.length - 1) {
+    const item = state.observations[dropCount++];
+    state.loadedCharacters -= state.observationCharacters.get(item.sequence) || 0;
+    state.observationCharacters.delete(item.sequence);
+    state.bySequence.delete(item.sequence);
+  }
+  if (!dropCount) return;
+  state.partialHistory = true;
+  state.observations.splice(0, dropCount);
+  if (state.selectedObservation && !state.bySequence.has(state.selectedObservation.sequence)) {
+    state.selectedObservation = null;
+    el('inspector-content').innerHTML = '<p class="muted">The selected observation moved outside the recent browser window.</p>';
+  }
+}
+
+function resetObservations() {
+  state.observations = [];
+  state.bySequence.clear();
+  state.observationCharacters.clear();
+  state.loadedCharacters = 0;
+  state.selectedObservation = null;
+  state.selectedSequence = 0;
+}
+
 function updateMetadata(data) {
-  state.metadata = { ...(state.metadata || {}), ...data };
+  const metadata = { ...(data || {}) };
+  delete metadata.observations;
+  state.metadata = { ...(state.metadata || {}), ...metadata };
   updateChrome();
 }
 
@@ -67,7 +105,7 @@ function updateChrome() {
   const meta = state.metadata || {};
   el('tick').textContent = fmt.format(latest?.tick ?? meta.latestTick ?? 0);
   el('session').textContent = String(meta.sessionId || latest?.sessionId || '—').slice(0, 8);
-  el('memory').textContent = `${bytes(meta.retainedBytes)} / ${bytes(meta.maxBytes)}`;
+  el('memory').textContent = `${bytes(meta.retainedBytes)} retained · ~${bytes(state.loadedCharacters)} loaded`;
   el('llm-count').textContent = state.observations.filter(o => o.type === 'llm_call').length;
   el('event-count').textContent = state.observations.filter(o => o.type === 'semantic_event' || o.type === 'debug_timeline').length;
   el('log-count').textContent = state.observations.filter(o => o.type === 'log').length;
@@ -128,9 +166,13 @@ function renderOverview(snapshot) {
   const frame = state.observations.filter(o => o.sequence <= state.selectedSequence && o.type === 'visual_frame').at(-1);
   const dropped = state.metadata?.droppedByType || {};
   const hasDrops = Object.values(dropped).some(Number);
+  const warnings = [
+    hasDrops ? `Server history has evicted observations: ${escapeHtml(JSON.stringify(dropped))}` : '',
+    state.partialHistory ? 'Showing a recent browser window to stay responsive. Save session exports the full retained history.' : '',
+  ].filter(Boolean);
   el('content').innerHTML = `
-    ${hasDrops ? `<div class="warning">History has evicted observations: ${escapeHtml(JSON.stringify(dropped))}</div>` : ''}
-    <div class="grid summary-grid" style="margin-top:${hasDrops ? '12px' : '0'}">
+    ${warnings.map(warning => `<div class="warning">${warning}</div>`).join('')}
+    <div class="grid summary-grid" style="margin-top:${warnings.length ? '12px' : '0'}">
       ${statCard('Planner', safe(planner.phase || planner.sessionPhase || (p.degraded ? 'DEGRADED' : 'READY')), `enabled ${p.plannerEnabled}`, 'cyan')}
       ${statCard('Active task', safe(task.status || task.state || agent.task?.status, 'IDLE'), safe(task.mission?.summary || task.summary || task.mission?.goal, 'No active mission'), 'blue')}
       ${statCard('Action graph', `${safe(action.nonterminalCount, 0)} active`, safe(action.foregroundExecutionId, 'No foreground graph'), 'amber')}
@@ -261,15 +303,19 @@ async function loadInitial() {
   if (!state.token) throw new Error('Dashboard token is missing from the URL. Open the URL printed by Airicraft.');
   const bootstrap = await (await api('/api/bootstrap')).json();
   updateMetadata(bootstrap);
-  let cursor = Math.max(0, (bootstrap.oldestSequence || 1) - 1);
+  const oldestCursor = Math.max(0, (bootstrap.oldestSequence || 1) - 1);
+  let cursor = Math.max(oldestCursor, bootstrap.latestSequence - INITIAL_SEQUENCE_WINDOW);
+  state.partialHistory = cursor > oldestCursor;
   while (cursor < bootstrap.latestSequence) {
     const batch = await (await api(`/api/observations?since=${cursor}&limit=1000`)).json();
     updateMetadata(batch);
-    addObservations(batch.observations);
+    addObservations(batch.observations, false);
     const next = batch.observations?.at(-1)?.sequence;
     if (!next || next <= cursor) break;
     cursor = next;
   }
+  updateChrome();
+  render();
   connected(true);
   stream(cursor);
 }
@@ -325,13 +371,22 @@ async function exportSession() {
 }
 
 async function openSession(file) {
-  const lines = (await file.text()).split(/\r?\n/).filter(Boolean);
-  const records = lines.map(line => JSON.parse(line));
-  const manifest = records.find(r => r.recordType === 'manifest');
-  const observations = records.filter(r => r.recordType === 'observation').map(({recordType, ...rest}) => rest);
   state.streamAbort?.abort();
-  state.replay = true; state.observations = []; state.bySequence.clear(); state.live = true; state.metadata = manifest || {};
-  addObservations(observations); connected(true); toast(`Opened ${file.name}`);
+  state.replay = true; state.live = true; state.metadata = null; state.partialHistory = false;
+  resetObservations();
+  for (const line of (await file.text()).split(/\r?\n/)) {
+    if (!line) continue;
+    const record = JSON.parse(line);
+    if (record.recordType === 'manifest') {
+      updateMetadata(record);
+    }
+    else if (record.recordType === 'observation') {
+      const observation = { ...record };
+      delete observation.recordType;
+      addObservations([observation], false);
+    }
+  }
+  updateChrome(); render(); connected(true); toast(`Opened ${file.name}`);
 }
 
 function toast(message) {
