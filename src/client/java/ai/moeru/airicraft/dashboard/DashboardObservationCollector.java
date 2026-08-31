@@ -166,13 +166,7 @@ public final class DashboardObservationCollector {
 		payload.put("planner", runtime.plannerDebugSnapshot());
 		payload.put("dialogue", runtime.dialogueSnapshot());
 		payload.put("dialogueState", runtime.debugDialogueState());
-		payload.put("conversation", runtime.plannerConversationDebugSnapshot());
-		payload.put("canonicalConversation", runtime.plannerCanonicalConversationDebugSnapshot());
-		payload.put("projectedConversation", runtime.plannerProjectedConversationDebugSnapshot());
 		payload.put("conversationSources", runtime.debugConversationSources());
-		payload.put("plannerJournal", runtime.plannerShellJournal());
-		payload.put("plannerCalls", runtime.plannerCallRecords());
-		payload.put("plannerAttempts", runtime.debugPlannerAttempts());
 		payload.put("activeGoal", runtime.activeGoal().orElse(null));
 		payload.put("activeJob", runtime.activeJob());
 		payload.put("task", runtime.taskSnapshot());

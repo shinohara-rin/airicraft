@@ -30,6 +30,7 @@ class AiricraftConfigLoaderTest {
 		assertEquals(4, parsed.blockInteractionDelayTicks());
 		assertEquals(7, parsed.cameraLerpDefaultTicks());
 		assertEquals(8765, parsed.debugDashboard().basePort());
+		assertEquals(64L * 1024L * 1024L, parsed.debugDashboard().historyByteBudget());
 	}
 
 	@Test

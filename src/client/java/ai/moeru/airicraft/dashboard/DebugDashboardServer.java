@@ -3,15 +3,17 @@ package ai.moeru.airicraft.dashboard;
 import ai.moeru.airicraft.Airicraft;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.fabricmc.loader.api.FabricLoader;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -38,6 +40,7 @@ public final class DebugDashboardServer {
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final Duration STREAM_HEARTBEAT = Duration.ofSeconds(15);
 	private static final int QUERY_LIMIT = 1000;
+	private static final long QUERY_BYTE_LIMIT = 4L * 1024L * 1024L;
 
 	private final DashboardObservationStore store;
 	private final Path logPath;
@@ -208,7 +211,13 @@ public final class DebugDashboardServer {
 		}
 		long since = longQuery(exchange, "since", 0L);
 		int limit = (int) Math.min(QUERY_LIMIT, Math.max(1L, longQuery(exchange, "limit", QUERY_LIMIT)));
-		writeJson(exchange, 200, queryJson(store.queryAfter(since, limit)));
+		DashboardObservationStore.Query query = store.queryAfter(since, limit, QUERY_BYTE_LIMIT);
+		exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+		exchange.getResponseHeaders().set("Cache-Control", "no-store");
+		exchange.sendResponseHeaders(200, 0);
+		try (Writer writer = new BufferedWriter(new OutputStreamWriter(exchange.getResponseBody(), StandardCharsets.UTF_8))) {
+			writeQueryJson(writer, query);
+		}
 	}
 
 	private void handleStream(HttpExchange exchange) throws IOException {
@@ -220,13 +229,14 @@ public final class DebugDashboardServer {
 		exchange.getResponseHeaders().set("Connection", "keep-alive");
 		exchange.sendResponseHeaders(200, 0);
 		long cursor = longQuery(exchange, "since", 0L);
-		try (OutputStream output = exchange.getResponseBody()) {
+		try (Writer writer = new BufferedWriter(new OutputStreamWriter(exchange.getResponseBody(), StandardCharsets.UTF_8))) {
 			while (server != null) {
-				DashboardObservationStore.Query query = store.queryAfter(cursor, 500);
+				DashboardObservationStore.Query query = store.queryAfter(cursor, 500, QUERY_BYTE_LIMIT);
 				if (!query.observations().isEmpty()) {
-					String data = "event: observations\ndata: " + GSON.toJson(queryJson(query)) + "\n\n";
-					output.write(data.getBytes(StandardCharsets.UTF_8));
-					output.flush();
+					writer.write("event: observations\ndata: ");
+					writeQueryJson(writer, query);
+					writer.write("\n\n");
+					writer.flush();
 					cursor = query.observations().getLast().sequence();
 					continue;
 				}
@@ -237,8 +247,8 @@ public final class DebugDashboardServer {
 					Thread.currentThread().interrupt();
 					return;
 				}
-				output.write(": heartbeat\n\n".getBytes(StandardCharsets.UTF_8));
-				output.flush();
+				writer.write(": heartbeat\n\n");
+				writer.flush();
 			}
 		}
 		catch (IOException ignored) {
@@ -257,15 +267,15 @@ public final class DebugDashboardServer {
 		exchange.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
 		exchange.getResponseHeaders().set("Cache-Control", "no-store");
 		exchange.sendResponseHeaders(200, 0);
-		try (OutputStream output = exchange.getResponseBody()) {
+		try (Writer writer = new BufferedWriter(new OutputStreamWriter(exchange.getResponseBody(), StandardCharsets.UTF_8))) {
 			JsonObject manifest = queryMetadata(metadata);
 			manifest.addProperty("recordType", "manifest");
 			manifest.addProperty("schemaVersion", 1);
-			writeJsonLine(output, manifest);
+			writeJsonLine(writer, manifest);
 			for (DashboardObservation observation : retained) {
-				JsonObject line = observationJson(observation);
-				line.addProperty("recordType", "observation");
-				writeJsonLine(output, line);
+				writer.write("{\"recordType\":\"observation\",");
+				writeObservationFields(writer, observation);
+				writer.write("}\n");
 			}
 		}
 	}
@@ -294,16 +304,6 @@ public final class DebugDashboardServer {
 		return difference == 0;
 	}
 
-	private static JsonObject queryJson(DashboardObservationStore.Query query) {
-		JsonObject response = queryMetadata(query);
-		JsonArray observations = new JsonArray();
-		for (DashboardObservation observation : query.observations()) {
-			observations.add(observationJson(observation));
-		}
-		response.add("observations", observations);
-		return response;
-	}
-
 	private static JsonObject queryMetadata(DashboardObservationStore.Query query) {
 		JsonObject response = new JsonObject();
 		response.addProperty("schemaVersion", 1);
@@ -319,20 +319,49 @@ public final class DebugDashboardServer {
 		return response;
 	}
 
-	private static JsonObject observationJson(DashboardObservation observation) {
-		JsonObject json = new JsonObject();
-		json.addProperty("sequence", observation.sequence());
-		json.addProperty("sessionId", observation.sessionId());
-		json.addProperty("tick", observation.tick());
-		json.addProperty("capturedAtMs", observation.capturedAtMs());
-		json.addProperty("type", observation.type());
-		json.add("payload", observation.payload());
-		return json;
+	private static void writeQueryJson(Writer writer, DashboardObservationStore.Query query) throws IOException {
+		writer.write('{');
+		writer.write("\"schemaVersion\":1,");
+		writer.write("\"sessionId\":");
+		GSON.toJson(query.sessionId(), writer);
+		writer.write(",\"sessionStartedAtMs\":" + query.sessionStartedAtMs());
+		writer.write(",\"latestTick\":" + query.latestTick());
+		writer.write(",\"oldestSequence\":" + query.oldestSequence());
+		writer.write(",\"latestSequence\":" + query.latestSequence());
+		writer.write(",\"truncated\":" + query.truncated());
+		writer.write(",\"retainedBytes\":" + query.retainedBytes());
+		writer.write(",\"maxBytes\":" + query.maxBytes());
+		writer.write(",\"droppedByType\":");
+		GSON.toJson(query.droppedByType(), writer);
+		writer.write(",\"observations\":[");
+		boolean first = true;
+		for (DashboardObservation observation : query.observations()) {
+			if (!first) {
+				writer.write(',');
+			}
+			writer.write('{');
+			writeObservationFields(writer, observation);
+			writer.write('}');
+			first = false;
+		}
+		writer.write("]}");
 	}
 
-	private static void writeJsonLine(OutputStream output, JsonObject json) throws IOException {
-		output.write(GSON.toJson(json).getBytes(StandardCharsets.UTF_8));
-		output.write('\n');
+	private static void writeObservationFields(Writer writer, DashboardObservation observation) throws IOException {
+		writer.write("\"sequence\":" + observation.sequence());
+		writer.write(",\"sessionId\":");
+		GSON.toJson(observation.sessionId(), writer);
+		writer.write(",\"tick\":" + observation.tick());
+		writer.write(",\"capturedAtMs\":" + observation.capturedAtMs());
+		writer.write(",\"type\":");
+		GSON.toJson(observation.type(), writer);
+		writer.write(",\"payload\":");
+		writer.write(observation.payloadJson());
+	}
+
+	private static void writeJsonLine(Writer writer, Object json) throws IOException {
+		GSON.toJson(json, writer);
+		writer.write('\n');
 	}
 
 	private static void writeJson(HttpExchange exchange, int status, Object payload) throws IOException {

@@ -108,7 +108,7 @@ debugDashboard:
   enabled: true
   basePort: 8765
   portScanLimit: 100
-  historyMegabytes: 256
+  historyMegabytes: 64
   visualCaptureEnabled: false
   visualCaptureIntervalTicks: 20
 ```

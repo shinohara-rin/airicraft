@@ -1,9 +1,5 @@
 package ai.moeru.airicraft.dashboard;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
-
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 public record DashboardObservation(
@@ -20,11 +16,10 @@ public record DashboardObservation(
 		payloadJson = Objects.requireNonNull(payloadJson, "payloadJson");
 	}
 
-	public int retainedBytes() {
-		return payloadJson.getBytes(StandardCharsets.UTF_8).length + sessionId.length() + type.length() + 64;
-	}
-
-	public JsonElement payload() {
-		return JsonParser.parseString(payloadJson);
+	public long retainedBytes() {
+		return (long) payloadJson.length() * Character.BYTES
+			+ (long) sessionId.length() * Character.BYTES
+			+ (long) type.length() * Character.BYTES
+			+ 64L;
 	}
 }

@@ -10,7 +10,7 @@ public record DebugDashboardConfig(
 ) {
 	public static final int DEFAULT_BASE_PORT = 8765;
 	public static final int DEFAULT_PORT_SCAN_LIMIT = 100;
-	public static final long DEFAULT_HISTORY_BYTE_BUDGET = 256L * 1024L * 1024L;
+	public static final long DEFAULT_HISTORY_BYTE_BUDGET = 64L * 1024L * 1024L;
 
 	public DebugDashboardConfig {
 		basePort = Math.max(1, Math.min(65_535, basePort));

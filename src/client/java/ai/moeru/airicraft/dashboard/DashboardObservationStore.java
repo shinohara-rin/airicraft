@@ -103,13 +103,24 @@ public final class DashboardObservationStore {
 	}
 
 	public synchronized Query queryAfter(long sinceSequence, int limit) {
+		return queryAfter(sinceSequence, limit, Long.MAX_VALUE);
+	}
+
+	public synchronized Query queryAfter(long sinceSequence, int limit, long byteLimit) {
 		int safeLimit = Math.max(1, Math.min(5000, limit));
+		long safeByteLimit = Math.max(1L, byteLimit);
 		long oldestSequence = observations.isEmpty() ? nextSequence : observations.peekFirst().sequence();
 		long latestSequence = observations.isEmpty() ? nextSequence - 1L : observations.peekLast().sequence();
 		ArrayList<DashboardObservation> matches = new ArrayList<>();
+		long matchedBytes = 0L;
 		for (DashboardObservation observation : observations) {
 			if (observation.sequence() > sinceSequence) {
+				long observationBytes = observation.retainedBytes();
+				if (!matches.isEmpty() && observationBytes > safeByteLimit - matchedBytes) {
+					break;
+				}
 				matches.add(observation);
+				matchedBytes += observationBytes;
 				if (matches.size() >= safeLimit) {
 					break;
 				}

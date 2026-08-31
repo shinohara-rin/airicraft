@@ -67,6 +67,31 @@ class DebugDashboardServerTest {
 		}
 	}
 
+	@Test
+	void boundsObservationResponsesByBytesInsteadOfOnlyItemCount() throws Exception {
+		int port = freePort();
+		DashboardObservationStore store = new DashboardObservationStore(16L * 1024L * 1024L);
+		String largePayload = "x".repeat(1024 * 1024);
+		for (int index = 0; index < 8; index++) {
+			store.append("runtime_snapshot", index, index, Map.of("value", largePayload));
+		}
+		DebugDashboardServer server = new DebugDashboardServer(store, temporaryDirectory.resolve("latest.log"));
+		server.start(new DebugDashboardConfig(true, port, 1, 16L * 1024L * 1024L));
+		try {
+			String baseUrl = "http://127.0.0.1:" + server.status().port();
+			String token = server.status().primaryUrl().substring(server.status().primaryUrl().indexOf("#token=") + 7);
+
+			HttpResponse<String> response = send(baseUrl + "/api/observations?since=0&limit=1000", token);
+
+			assertEquals(200, response.statusCode());
+			assertTrue(response.body().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 5L * 1024L * 1024L);
+			assertTrue(JsonParser.parseString(response.body()).getAsJsonObject().getAsJsonArray("observations").size() < 8);
+		}
+		finally {
+			server.stop();
+		}
+	}
+
 	private static HttpResponse<String> send(String url, String token) throws Exception {
 		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).GET();
 		if (token != null) {
