@@ -901,6 +901,9 @@ class AiricraftCliMainTest {
 		TestTransport transport = new TestTransport();
 		transport.when("GET", "/v1/agent/tasks").payload = linkedMap(
 			"available", true,
+			"reflex", linkedMap("state", "IDLE", "health", 20.0D),
+			"taskExecution", linkedMap("state", "RUNNING", "taskId", "task-1", "fullPath", List.of("large", "payload")),
+			"missionExecution", linkedMap("evidence", linkedMap("knownCrafts", List.of("must-not-render"))),
 			"task", linkedMap(
 				"state", "RUNNING",
 				"spec", linkedMap(
@@ -917,6 +920,9 @@ class AiricraftCliMainTest {
 		assertTrue(result.output().contains("command: agent tasks\n"));
 		assertTrue(result.output().contains("state: RUNNING\n"));
 		assertTrue(result.output().contains("resourceKind: WOOD_LOGS\n"));
+		assertTrue(result.output().contains("taskId: task-1\n"));
+		assertFalse(result.output().contains("fullPath"));
+		assertFalse(result.output().contains("knownCrafts"));
 	}
 
 	@Test

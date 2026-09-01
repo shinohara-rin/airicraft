@@ -2391,7 +2391,24 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> agentTasks(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "cancelled", "resumed", "holdId", "reflex", "task", "taskExecution", "missionExecution");
+			copy(view, payload, "available", "cancelled", "resumed", "holdId");
+			if (verbose) {
+				copy(view, payload, "reflex", "task", "taskExecution", "missionExecution");
+			}
+			else {
+				Map<String, Object> reflex = map(payload.get("reflex"));
+				if (!reflex.isEmpty()) {
+					LinkedHashMap<String, Object> compactReflex = new LinkedHashMap<>();
+					copy(compactReflex, reflex, "state", "cause", "action", "safetyEpoch", "holdId");
+					view.put("reflex", compactReflex);
+				}
+				Map<String, Object> taskExecution = map(payload.get("taskExecution"));
+				if (!taskExecution.isEmpty()) {
+					LinkedHashMap<String, Object> compactExecution = new LinkedHashMap<>();
+					copy(compactExecution, taskExecution, "state", "taskId", "processName", "lastPathEvent");
+					view.put("taskExecution", compactExecution);
+				}
+			}
 			if (!verbose && payload.containsKey("task")) {
 				Map<String, Object> task = map(payload.get("task"));
 				LinkedHashMap<String, Object> compactTask = new LinkedHashMap<>();
