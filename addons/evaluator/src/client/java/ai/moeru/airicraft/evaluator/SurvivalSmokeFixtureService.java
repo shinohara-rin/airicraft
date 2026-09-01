@@ -127,6 +127,8 @@ final class SurvivalSmokeFixtureService {
 	private Map<String, Object> setupMob(ServerWorld world, ServerPlayerEntity player, boolean defend) {
 		prepareMobPlatform(world, player);
 		if (!defend) {
+			BlockPos center = fixtureCenter;
+			fill(world, center.add(-15, 0, -3), center.add(-1, 0, 3), Blocks.WATER.getDefaultState());
 			player.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
 			player.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
 			player.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);
