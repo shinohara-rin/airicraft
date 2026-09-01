@@ -11,6 +11,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -102,6 +103,11 @@ public final class BlockBreakTaskExecutor implements WorldTaskExecutor {
 		}
 		long tick = sessionSnapshot == null ? 0L : sessionSnapshot.tickCount();
 		if (!breakingActive) {
+			BaritoneTaskExecutor.MiningToolPreflight.Result toolSelection =
+				BaritoneTaskExecutor.MiningToolPreflight.ensureSelected(client, player, List.of(state));
+			if (!toolSelection.ok()) {
+				return fail(request, TaskFailure.of(TaskFailureCode.MISSING_ITEM, toolSelection.message()));
+			}
 			boolean accepted = client.interactionManager.attackBlock(pos, BREAK_FACE);
 			if (!accepted) {
 				return fail(request, TaskFailure.of(TaskFailureCode.MISSING_FACT, "break_start_failed targetPos=" + compactPos(pos) + " beforeBlockId=" + currentBlockId));
