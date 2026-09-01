@@ -114,6 +114,36 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
+	void fleeKnockbackRequiresVisibleMeleeContactAndAChargedAttack() {
+		assertTrue(SurvivalReflexRuntime.shouldKnockBackDuringFlee(3.0D, true, 0.92F));
+		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(3.01D, true, 1.0F));
+		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(2.0D, false, 1.0F));
+		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(2.0D, true, 0.91F));
+	}
+
+	@Test
+	void repeatedFailedEscapeLegsEventuallyEscalateToDefence() {
+		assertFalse(SurvivalReflexRuntime.shouldEscalateFleeToDefend(3, 2, 8.0D));
+		assertTrue(SurvivalReflexRuntime.shouldEscalateFleeToDefend(4, 2, 8.0D));
+		assertFalse(SurvivalReflexRuntime.shouldEscalateFleeToDefend(4, 2, 8.01D));
+		assertTrue(SurvivalReflexRuntime.shouldEscalateFleeToDefend(1, 3, 12.0D));
+	}
+
+	@Test
+	void escapeIsSecureOnlyWhenEveryTrackedThreatIsFarAndOutOfSight() {
+		var observed = new SurvivalReflexRuntime.ObservedThreat("zombie-1", "Zombie", "minecraft:zombie", 10L);
+		assertTrue(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
+			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 16.0D, false)
+		)));
+		assertFalse(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
+			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 15.99D, false)
+		)));
+		assertFalse(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
+			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 20.0D, true)
+		)));
+	}
+
+	@Test
 	void newDangerPreemptsSafetyHoldButDoesNotRestartActiveReflex() {
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.IDLE, true));
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.AWAITING_PLANNER, true));
