@@ -33,9 +33,9 @@ The static component view answers: **which responsibilities sense danger, own sa
 | Cause | Detection | Immediate action | Resolution |
 | --- | --- | --- | --- |
 | Drowning | Drowning damage, or submerged air at/below `lowAirTicks` (default `100`) | `SWIM_TO_AIR` when work was interrupted; otherwise `REACH_SAFE_LAND`. An exhausted safe-land search changes to `STAY_AFLOAT`. | Air recovery must remain stable for 12 ticks. Unsafe idle recovery can retain a safety hold until verified safe standing. |
-| Mob attack | A correlated non-player living attacker; or an alive, visible hostile within 8 blocks. Remembered threats remain relevant while alive within 12 blocks, plus the recent-damage cooldown (default `60` ticks). | `DEFEND` only for one visible threat within 4.5 blocks when health is above `defendMinHealthRatio` (default `0.5`); otherwise `FLEE`. | No relevant threats and no active recent-damage cooldown. |
+| Mob attack | A correlated non-player living attacker; or an alive, visible hostile within 8 blocks. Remembered threats remain relevant while alive within 12 blocks, plus the recent-damage cooldown (default `60` ticks). | `DEFEND` only when health, armor, equipped melee weapon, hunger, spare food, threat count/type, distance, line of sight, and terrain are favorable. Otherwise `FLEE` selects dry short-hop Baritone goals; a player already in water uses water-aware safe-standing recovery first. | No relevant threats and no active recent-damage cooldown. |
 
-The drowning path uses bounded world inspection, exact Baritone goals, and waypoint fallback. The current `FLEE` path instead sums direct away-vectors and presses movement/sprint/jump; it does not inspect terrain or score an escape route.
+The drowning and in-water mob-flee paths use bounded world inspection, exact Baritone goals, and waypoint fallback. Dry mob flee scans loaded terrain for dry, hazard-free standing positions with multiple exits, rejects targets that do not increase threat separation, and advances through short exact Baritone hops with an elevated water traversal cost. It no longer presses a raw away vector.
 
 ## Runtime stories
 
@@ -65,5 +65,6 @@ The planner-handback view answers: **how does a resolved reflex create one corre
 - This is a source-grounded current-state map, not a proposed design.
 - `SurvivalReflexRuntime` is a cohesive component inside the Fabric client mod, not a separate process or deployable.
 - State, threat memory, and queued events are in-memory and reset on runtime/world lifecycle boundaries; no reflex datastore exists.
-- Baritone participates only in underwater escape. Mob `DEFEND`/`FLEE` uses direct Minecraft client controls.
+- Baritone owns mob flee and underwater escape routes. Mob `DEFEND` still uses direct camera, movement, and attack controls after the readiness gate chooses combat.
+- Flee target search is bounded to loaded terrain. It avoids locally visible water and hazards but does not provide global shore discovery or guarantee escape from an indefinitely persistent pursuer in a finite enclosure.
 - The behavior-tree projection and debug/event history observe the reflex but do not own its decisions, so they are omitted from the focused topology.
