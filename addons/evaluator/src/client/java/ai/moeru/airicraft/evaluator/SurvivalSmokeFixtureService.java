@@ -11,6 +11,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.network.packet.s2c.play.PositionFlag;
 import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
@@ -53,7 +54,7 @@ final class SurvivalSmokeFixtureService {
 	Map<String, Object> apply(Request request) {
 		Mode mode = request == null ? null : Mode.parse(request.mode());
 		if (mode == null) {
-			throw new FixtureException("invalid_request", "mode must be underwater, mob_defend, mob_flee, or cleanup");
+			throw new FixtureException("invalid_request", "mode must be loadout, underwater, mob_defend, mob_flee, or cleanup");
 		}
 
 		MinecraftClient client = MinecraftClient.getInstance();
@@ -81,11 +82,30 @@ final class SurvivalSmokeFixtureService {
 		clearFixture(world);
 
 		return switch (mode) {
+			case LOADOUT -> setupLoadout(world, player);
 			case UNDERWATER -> setupUnderwater(world, player);
 			case MOB_DEFEND -> setupMob(world, player, true);
 			case MOB_FLEE -> setupMob(world, player, false);
 			case CLEANUP -> throw new IllegalStateException("cleanup handled above");
 		};
+	}
+
+	private Map<String, Object> setupLoadout(ServerWorld world, ServerPlayerEntity player) {
+		prepareMobPlatform(world, player);
+		player.getInventory().clear();
+		player.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.FEET, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+		player.getInventory().insertStack(new ItemStack(Items.IRON_CHESTPLATE));
+		player.getInventory().insertStack(new ItemStack(Items.IRON_LEGGINGS));
+		player.getInventory().insertStack(new ItemStack(Items.IRON_SWORD));
+		player.getInventory().insertStack(new ItemStack(Items.BREAD, 2));
+		player.getHungerManager().setFoodLevel(12);
+		player.getHungerManager().setSaturationLevel(0.0F);
+		player.setHealth(player.getMaxHealth());
+		return payload(Mode.LOADOUT, player, null);
 	}
 
 	private Map<String, Object> setupUnderwater(ServerWorld world, ServerPlayerEntity player) {
@@ -105,22 +125,17 @@ final class SurvivalSmokeFixtureService {
 	}
 
 	private Map<String, Object> setupMob(ServerWorld world, ServerPlayerEntity player, boolean defend) {
-		BlockPos center = fixtureCenter;
-		fill(
-			world,
-			center.add(-PLATFORM_RADIUS, -1, -PLATFORM_RADIUS),
-			center.add(PLATFORM_RADIUS, -1, PLATFORM_RADIUS),
-			Blocks.STONE.getDefaultState()
-		);
-		fill(world, center.add(-PLATFORM_RADIUS, 0, -PLATFORM_RADIUS), center.add(-PLATFORM_RADIUS, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
-		fill(world, center.add(PLATFORM_RADIUS, 0, -PLATFORM_RADIUS), center.add(PLATFORM_RADIUS, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
-		fill(world, center.add(-PLATFORM_RADIUS + 1, 0, -PLATFORM_RADIUS), center.add(PLATFORM_RADIUS - 1, 2, -PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
-		fill(world, center.add(-PLATFORM_RADIUS + 1, 0, PLATFORM_RADIUS), center.add(PLATFORM_RADIUS - 1, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
-		teleport(player, world, center.getX() + 0.5, center.getY(), center.getZ() + 0.5);
-		player.setVelocity(Vec3d.ZERO);
-		player.setAir(player.getMaxAir());
+		prepareMobPlatform(world, player);
+		if (!defend) {
+			player.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
+			player.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
+			player.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);
+			player.equipStack(EquipmentSlot.FEET, ItemStack.EMPTY);
+			player.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+		}
 		player.setHealth(defend ? player.getMaxHealth() : player.getMaxHealth() * 0.5F);
 
+		BlockPos center = fixtureCenter;
 		ZombieEntity zombie = new ZombieEntity(EntityType.ZOMBIE, world);
 		zombie.refreshPositionAndAngles(center.getX() + 2.5, center.getY(), center.getZ() + 0.5, 90.0F, 0.0F);
 		zombie.equipStack(EquipmentSlot.HEAD, new ItemStack(Items.IRON_HELMET));
@@ -135,6 +150,23 @@ final class SurvivalSmokeFixtureService {
 		}
 		threat = zombie;
 		return payload(defend ? Mode.MOB_DEFEND : Mode.MOB_FLEE, player, zombie.getUuid());
+	}
+
+	private void prepareMobPlatform(ServerWorld world, ServerPlayerEntity player) {
+		BlockPos center = fixtureCenter;
+		fill(
+			world,
+			center.add(-PLATFORM_RADIUS, -1, -PLATFORM_RADIUS),
+			center.add(PLATFORM_RADIUS, -1, PLATFORM_RADIUS),
+			Blocks.STONE.getDefaultState()
+		);
+		fill(world, center.add(-PLATFORM_RADIUS, 0, -PLATFORM_RADIUS), center.add(-PLATFORM_RADIUS, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
+		fill(world, center.add(PLATFORM_RADIUS, 0, -PLATFORM_RADIUS), center.add(PLATFORM_RADIUS, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
+		fill(world, center.add(-PLATFORM_RADIUS + 1, 0, -PLATFORM_RADIUS), center.add(PLATFORM_RADIUS - 1, 2, -PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
+		fill(world, center.add(-PLATFORM_RADIUS + 1, 0, PLATFORM_RADIUS), center.add(PLATFORM_RADIUS - 1, 2, PLATFORM_RADIUS), Blocks.BARRIER.getDefaultState());
+		teleport(player, world, center.getX() + 0.5, center.getY(), center.getZ() + 0.5);
+		player.setVelocity(Vec3d.ZERO);
+		player.setAir(player.getMaxAir());
 	}
 
 	private void cleanup(ServerWorld currentWorld, ServerPlayerEntity player) {
@@ -192,6 +224,9 @@ final class SurvivalSmokeFixtureService {
 		payload.put("difficulty", player.getWorld().getDifficulty().getName());
 		payload.put("health", player.getHealth());
 		payload.put("air", player.getAir());
+		payload.put("hunger", player.getHungerManager().getFoodLevel());
+		payload.put("armor", player.getArmor());
+		payload.put("mainHandItemId", Registries.ITEM.getId(player.getMainHandStack().getItem()).toString());
 		payload.put("player", position(player.getPos()));
 		payload.put("fixtureCenter", fixtureCenter == null ? Map.of() : position(Vec3d.ofCenter(fixtureCenter)));
 		payload.put("threatId", threatId == null ? "" : threatId.toString());
@@ -209,6 +244,7 @@ final class SurvivalSmokeFixtureService {
 	}
 
 	private enum Mode {
+		LOADOUT("loadout"),
 		UNDERWATER("underwater"),
 		MOB_DEFEND("mob_defend"),
 		MOB_FLEE("mob_flee"),
