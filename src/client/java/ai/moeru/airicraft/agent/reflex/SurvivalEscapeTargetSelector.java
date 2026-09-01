@@ -12,7 +12,7 @@ final class SurvivalEscapeTargetSelector {
 	private SurvivalEscapeTargetSelector() {
 	}
 
-	static Optional<Point> select(Point origin, List<Point> threats, List<Candidate> candidates) {
+	static Optional<Candidate> select(Point origin, List<Point> threats, List<Candidate> candidates) {
 		if (origin == null || threats == null || threats.isEmpty() || candidates == null) {
 			return Optional.empty();
 		}
@@ -25,14 +25,13 @@ final class SurvivalEscapeTargetSelector {
 			.filter(candidate -> Math.abs(candidate.y() - origin.y()) <= MAX_ESCAPE_HOP_HEIGHT)
 			.filter(candidate -> nearestHorizontalDistance(candidate.point(), threats)
 				>= currentSeparation + MIN_THREAT_SEPARATION_GAIN)
-			.max(Comparator.comparingDouble(candidate -> score(origin, threats, candidate)))
-			.map(Candidate::point);
+			.max(Comparator.comparingDouble(candidate -> score(origin, threats, candidate)));
 	}
 
 	private static double score(Point origin, List<Point> threats, Candidate candidate) {
 		double threatSeparation = nearestHorizontalDistance(candidate.point(), threats);
 		double travelDistance = horizontalDistance(origin, candidate.point());
-		return threatSeparation * 4.0D - travelDistance;
+		return threatSeparation * 4.0D - travelDistance + (candidate.sheltered() ? 1_000.0D : 0.0D);
 	}
 
 	private static double nearestHorizontalDistance(Point point, List<Point> threats) {
@@ -51,7 +50,7 @@ final class SurvivalEscapeTargetSelector {
 	record Point(int x, int y, int z) {
 	}
 
-	record Candidate(int x, int y, int z, boolean safeStanding, boolean water, boolean hazard) {
+	record Candidate(int x, int y, int z, boolean safeStanding, boolean water, boolean hazard, boolean sheltered) {
 		Point point() {
 			return new Point(x, y, z);
 		}
