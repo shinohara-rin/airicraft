@@ -10,7 +10,7 @@ import net.minecraft.util.math.Direction;
 import java.util.Optional;
 
 public final class SurfaceMemory {
-	private static final int NEAREST_SURFACE_RADIUS = 12;
+	private static final int NEAREST_SURFACE_RADIUS = 16;
 	private static final int NEAREST_SURFACE_UP = 48;
 	private static final int NEAREST_SURFACE_DOWN = 96;
 	private static final int MIN_SURFACE_ESCAPE_DIRECTIONS = 2;
