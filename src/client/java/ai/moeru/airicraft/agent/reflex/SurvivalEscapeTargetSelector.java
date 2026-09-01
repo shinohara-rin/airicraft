@@ -6,6 +6,8 @@ import java.util.Optional;
 
 final class SurvivalEscapeTargetSelector {
 	private static final double MIN_THREAT_SEPARATION_GAIN = 2.0D;
+	private static final double MAX_ESCAPE_HOP_DISTANCE = 8.0D;
+	private static final int MAX_ESCAPE_HOP_HEIGHT = 2;
 
 	private SurvivalEscapeTargetSelector() {
 	}
@@ -19,6 +21,8 @@ final class SurvivalEscapeTargetSelector {
 			.filter(Candidate::safeStanding)
 			.filter(candidate -> !candidate.water())
 			.filter(candidate -> !candidate.hazard())
+			.filter(candidate -> horizontalDistance(origin, candidate.point()) <= MAX_ESCAPE_HOP_DISTANCE)
+			.filter(candidate -> Math.abs(candidate.y() - origin.y()) <= MAX_ESCAPE_HOP_HEIGHT)
 			.filter(candidate -> nearestHorizontalDistance(candidate.point(), threats)
 				>= currentSeparation + MIN_THREAT_SEPARATION_GAIN)
 			.max(Comparator.comparingDouble(candidate -> score(origin, threats, candidate)))
