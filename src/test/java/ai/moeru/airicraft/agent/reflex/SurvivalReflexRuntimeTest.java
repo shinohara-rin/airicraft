@@ -8,7 +8,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SurvivalReflexRuntimeTest {
@@ -93,6 +92,12 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
+	void fleeRaisesButNeverLowersWaterTraversalPenalty() {
+		assertEquals(48.0D, SurvivalReflexRuntime.fleeWaterPenalty(3.0D));
+		assertEquals(64.0D, SurvivalReflexRuntime.fleeWaterPenalty(64.0D));
+	}
+
+	@Test
 	void newDangerPreemptsSafetyHoldButDoesNotRestartActiveReflex() {
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.IDLE, true));
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.AWAITING_PLANNER, true));
@@ -110,20 +115,6 @@ class SurvivalReflexRuntimeTest {
 			SurvivalReflexState.ACTIVE, SurvivalReflexCause.DROWNING, true));
 		assertFalse(SurvivalReflexRuntime.shouldMaintainDrowningSafetyHold(
 			SurvivalReflexState.AWAITING_PLANNER, SurvivalReflexCause.MOB_ATTACK, true));
-	}
-
-	@Test
-	void fleeRecoveryAlternatesStrafeAndBackstep() {
-		SurvivalReflexRuntime.EscapeKeys normal = SurvivalReflexRuntime.escapeKeys(false, 0);
-		SurvivalReflexRuntime.EscapeKeys left = SurvivalReflexRuntime.escapeKeys(true, 0);
-		SurvivalReflexRuntime.EscapeKeys right = SurvivalReflexRuntime.escapeKeys(true, 20);
-		SurvivalReflexRuntime.EscapeKeys backLeft = SurvivalReflexRuntime.escapeKeys(true, 40);
-
-		assertTrue(normal.forward() && normal.sprint() && normal.jump());
-		assertTrue(left.left());
-		assertTrue(right.right());
-		assertTrue(backLeft.back() && backLeft.left());
-		assertNotEquals(left, right);
 	}
 
 	@Test
