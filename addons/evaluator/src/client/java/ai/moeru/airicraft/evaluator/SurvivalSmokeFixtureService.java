@@ -31,23 +31,33 @@ final class SurvivalSmokeFixtureService {
 	private static final int CLEAR_RADIUS = PLATFORM_RADIUS + 1;
 	private static final int CLEAR_BOTTOM = FIXTURE_Y - 1;
 	private static final int CLEAR_TOP = FIXTURE_Y + 6;
+	private static final int FLEE_THREAT_SYNC_DELAY_TICKS = 20;
 
 	private Origin origin;
 	private BlockPos fixtureCenter;
 	private Entity threat;
 	private long underwaterExitAtWorldTime = -1L;
+	private long fleeThreatSpawnAtWorldTime = -1L;
 
 	void onClientTick(MinecraftClient client) {
-		if (underwaterExitAtWorldTime < 0L || client.player == null || client.world == null || client.getServer() == null) {
+		if (client.player == null || client.world == null || client.getServer() == null) {
 			return;
 		}
 		ServerWorld world = client.getServer().getWorld(client.world.getRegistryKey());
-		if (world == null || world.getTime() < underwaterExitAtWorldTime) {
+		if (world == null) {
 			return;
 		}
 		ServerPlayerEntity player = world.getServer().getPlayerManager().getPlayer(client.player.getUuid());
-		if (player != null) {
+		if (player == null) {
+			return;
+		}
+		if (underwaterExitAtWorldTime >= 0L && world.getTime() >= underwaterExitAtWorldTime) {
 			cleanup(world, player);
+			return;
+		}
+		if (fleeThreatSpawnAtWorldTime >= 0L && world.getTime() >= fleeThreatSpawnAtWorldTime) {
+			fleeThreatSpawnAtWorldTime = -1L;
+			threat = spawnZombie(world, player);
 		}
 	}
 
@@ -136,7 +146,16 @@ final class SurvivalSmokeFixtureService {
 			player.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
 		}
 		player.setHealth(defend ? player.getMaxHealth() : player.getMaxHealth() * 0.5F);
+		if (!defend) {
+			fleeThreatSpawnAtWorldTime = world.getTime() + FLEE_THREAT_SYNC_DELAY_TICKS;
+			return payload(Mode.MOB_FLEE, player, null);
+		}
+		ZombieEntity zombie = spawnZombie(world, player);
+		threat = zombie;
+		return payload(Mode.MOB_DEFEND, player, zombie.getUuid());
+	}
 
+	private ZombieEntity spawnZombie(ServerWorld world, ServerPlayerEntity player) {
 		BlockPos center = fixtureCenter;
 		ZombieEntity zombie = new ZombieEntity(EntityType.ZOMBIE, world);
 		zombie.refreshPositionAndAngles(center.getX() + 2.5, center.getY(), center.getZ() + 0.5, 90.0F, 0.0F);
@@ -150,8 +169,7 @@ final class SurvivalSmokeFixtureService {
 		if (!world.spawnEntity(zombie)) {
 			throw new FixtureException("fixture_setup_failed", "Failed to spawn the survival fixture zombie");
 		}
-		threat = zombie;
-		return payload(defend ? Mode.MOB_DEFEND : Mode.MOB_FLEE, player, zombie.getUuid());
+		return zombie;
 	}
 
 	private void prepareMobPlatform(ServerWorld world, ServerPlayerEntity player) {
@@ -177,6 +195,7 @@ final class SurvivalSmokeFixtureService {
 		}
 		threat = null;
 		underwaterExitAtWorldTime = -1L;
+		fleeThreatSpawnAtWorldTime = -1L;
 		Origin savedOrigin = origin;
 		if (savedOrigin != null) {
 			ServerWorld originWorld = currentWorld.getServer().getWorld(savedOrigin.world());
