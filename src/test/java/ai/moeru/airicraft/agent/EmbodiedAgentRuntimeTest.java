@@ -84,6 +84,7 @@ import net.minecraft.util.math.Vec3d;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -100,6 +101,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class EmbodiedAgentRuntimeTest {
+	@Test
+	void terminalSemanticTaskDoesNotRemainBusyFromStaleReflexExecution() throws Exception {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		setTaskSnapshot(runtime, new TaskSnapshot(
+			TaskState.CANCELLED,
+			null, null, null, null, null, null, "planner_tool", "cancelled", "navigate_to",
+			LedgerStepKind.NAVIGATE_TO_POSITION, null, 1L, "task-cancelled"
+		));
+		setTaskExecutionSnapshot(runtime, new TaskExecutionSnapshot(
+			TaskExecutionState.PAUSED_BY_REFLEX, "task-cancelled", null, "Custom Goal", "reflex", null, null
+		));
+
+		assertFalse(activeTaskInProgress(runtime));
+	}
+
 	@Test
 	void plannerResponseReplacesIdleAfloatSafetyHold() throws Exception {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
@@ -239,6 +255,12 @@ class EmbodiedAgentRuntimeTest {
 		Field field = EmbodiedAgentRuntime.class.getDeclaredField("taskSnapshot");
 		field.setAccessible(true);
 		field.set(runtime, snapshot);
+	}
+
+	private static boolean activeTaskInProgress(EmbodiedAgentRuntime runtime) throws Exception {
+		Method method = EmbodiedAgentRuntime.class.getDeclaredMethod("activeTaskInProgress");
+		method.setAccessible(true);
+		return (boolean) method.invoke(runtime);
 	}
 
 	private static SurvivalReflexSnapshot reflexSnapshot(

@@ -2491,14 +2491,21 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	}
 
 	private boolean activeTaskInProgress() {
+		ActiveJob activeJob = activeJobRuntime.current();
+		boolean activeJobTerminal = activeJob == null
+			|| activeJob.isIdle()
+			|| activeJob.status() == null
+			|| activeJob.status().terminal();
+		if (activeJobTerminal && taskSnapshot != null && isTerminalTaskState(taskSnapshot.state())) {
+			return false;
+		}
 		if (isActiveTaskExecutionState(taskExecutionSnapshot == null ? null : taskExecutionSnapshot.state())) {
 			return true;
 		}
 		if (isSemanticTaskSnapshot(taskSnapshot) && isActiveSemanticTaskState(taskSnapshot.state())) {
 			return true;
 		}
-		ActiveJob activeJob = activeJobRuntime.current();
-		if (activeJob == null || activeJob.isIdle() || activeJob.status() == null || activeJob.status().terminal()) {
+		if (activeJobTerminal) {
 			return false;
 		}
 		return activeJob.status() == ActiveJobStatus.QUEUED
