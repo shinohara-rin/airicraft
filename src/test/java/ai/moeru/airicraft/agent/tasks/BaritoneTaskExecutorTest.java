@@ -644,6 +644,30 @@ class BaritoneTaskExecutorTest {
 	}
 
 	@Test
+	void failedCalculationAtReachedNavigateGoalCountsAsCompleted() {
+		FakeBaritoneFacade facade = new FakeBaritoneFacade();
+		facade.navigationGoalReached = true;
+		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(facade);
+		GoalSnapshot goal = new GoalSnapshot(
+			GoalType.NAVIGATE_TO,
+			null,
+			new GoalPosition(-7, 68, -4, true),
+			null,
+			20L,
+			"verification"
+		);
+
+		executor.tick(multiplayer(), Optional.of(request("nav-task", goal)));
+		facade.pathEvents.add("CALC_FAILED");
+
+		Optional<TaskTerminalEvent> event = executor.tick(multiplayer(), Optional.of(request("nav-task", goal)));
+
+		assertTrue(event.isPresent());
+		assertEquals(TaskExecutionState.COMPLETED, event.orElseThrow().terminalState());
+		assertEquals(TaskTerminationCause.GOAL_REACHED, event.orElseThrow().terminationCause());
+	}
+
+	@Test
 	void repeatedTerminalPathEventsOnlyEmitOneTerminalCallbackPerGoal() {
 		FakeBaritoneFacade facade = new FakeBaritoneFacade();
 		BaritoneTaskExecutor executor = new BaritoneTaskExecutor(facade);

@@ -637,12 +637,22 @@ public final class BaritoneTaskExecutor implements WorldTaskExecutor {
 				: Optional.of(new TerminalOutcome(TaskExecutionState.COMPLETED, TaskTerminationCause.GOAL_REACHED, TaskFailureCode.NONE));
 			case "CALC_FAILED" -> mineProcessOwnsPathEvent(pathEvent, activeTask)
 				? Optional.empty()
-				: Optional.of(new TerminalOutcome(TaskExecutionState.FAILED, TaskTerminationCause.CALCULATION_FAILED, TaskFailureCode.TRANSIENT));
+				: Optional.of(navigateGoalReached(activeTask)
+					? new TerminalOutcome(TaskExecutionState.COMPLETED, TaskTerminationCause.GOAL_REACHED, TaskFailureCode.NONE)
+					: new TerminalOutcome(TaskExecutionState.FAILED, TaskTerminationCause.CALCULATION_FAILED, TaskFailureCode.TRANSIENT));
 			case "CANCELLED", "CANCELED" -> mineProcessOwnsPathEvent(pathEvent, activeTask)
 				? Optional.empty()
 				: Optional.of(cancelledOutcomeFor(activeTask));
 			default -> Optional.empty();
 		};
+	}
+
+	private boolean navigateGoalReached(WorldTaskRequest activeTask) {
+		return activeTask != null
+			&& activeTask.goal() != null
+			&& activeTask.goal().type() == GoalType.NAVIGATE_TO
+			&& activeTask.goal().position() != null
+			&& facade.navigationGoalReached(activeTask.goal().position());
 	}
 
 	private boolean continueFollow(Optional<String> pathEvent, WorldTaskRequest activeTask) {
