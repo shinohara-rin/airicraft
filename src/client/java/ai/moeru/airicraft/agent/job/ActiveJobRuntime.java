@@ -105,7 +105,7 @@ public final class ActiveJobRuntime {
 			return Optional.of(activeJob.directGoal());
 		}
 		if (activeJob.type() == ActiveJobType.COLLECT_RESOURCE && activeJob.taskSpec() != null) {
-			if (activeJob.status() == ActiveJobStatus.QUEUED) {
+			if (activeJob.status() != ActiveJobStatus.RUNNING) {
 				return Optional.empty();
 			}
 			int remaining = Math.max(1, activeJob.taskSpec().quantity() - activeJob.collectedCount());
@@ -469,19 +469,16 @@ public final class ActiveJobRuntime {
 			clearDesiredTaskState();
 			return;
 		}
+		if (activeJob.status() != ActiveJobStatus.RUNNING) {
+			clearDesiredTaskState();
+			return;
+		}
 		int remaining = Math.max(1, activeJob.taskSpec().quantity() - activeJob.collectedCount());
 		boolean collectTaskChanged = !Objects.equals(collectAttemptJobId, activeJob.jobId());
 		boolean collectTaskMissing = desiredPrimitiveTask == null || !Objects.equals(desiredPrimitiveTask.sourceJobId(), activeJob.jobId());
 		boolean primitiveCompleted = lastPrimitiveExecution.state() == TaskExecutionState.COMPLETED
 			&& desiredPrimitiveTask != null
 			&& Objects.equals(lastPrimitiveExecution.taskId(), desiredPrimitiveTask.taskId());
-		if ((collectTaskChanged || collectTaskMissing) && activeJob.status() != ActiveJobStatus.RUNNING) {
-			if (collectTaskChanged) {
-				clearCollectAttemptState();
-			}
-			desiredPrimitiveTask = null;
-			return;
-		}
 		if (collectTaskChanged || collectTaskMissing || primitiveCompleted) {
 			startCollectAttempt(remaining, tick);
 			return;

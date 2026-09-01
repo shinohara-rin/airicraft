@@ -2770,7 +2770,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(returnResult.contains("active_task_in_progress"));
 		assertEquals(TaskState.WAITING_FOR_PICKUP, runtime.taskSnapshot().state());
 		assertEquals(TaskType.COLLECT_RESOURCE, runtime.taskSnapshot().spec().type());
-		assertEquals(GoalType.MINE_BLOCKS, runtime.activeGoal().orElseThrow().type());
+		assertTrue(runtime.activeGoal().isEmpty());
 	}
 
 	@Test
