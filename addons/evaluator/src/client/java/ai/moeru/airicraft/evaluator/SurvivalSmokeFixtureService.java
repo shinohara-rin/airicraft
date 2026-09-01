@@ -182,7 +182,8 @@ final class SurvivalSmokeFixtureService {
 
 	private ZombieEntity spawnZombie(ServerWorld world, ServerPlayerEntity player, BlockPos center) {
 		ZombieEntity zombie = new ZombieEntity(EntityType.ZOMBIE, world);
-		zombie.refreshPositionAndAngles(center.getX() + 2.5, center.getY(), center.getZ() + 0.5, 90.0F, 0.0F);
+		double xOffset = fixtureCenter == null ? 0.5D : 2.5D;
+		zombie.refreshPositionAndAngles(center.getX() + xOffset, center.getY(), center.getZ() + 0.5, 90.0F, 0.0F);
 		zombie.equipStack(EquipmentSlot.HEAD, new ItemStack(Items.IRON_HELMET));
 		var attackDamage = zombie.getAttributeInstance(EntityAttributes.ATTACK_DAMAGE);
 		if (attackDamage != null) {
