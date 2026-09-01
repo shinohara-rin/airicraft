@@ -114,11 +114,11 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
-	void fleeKnockbackRequiresVisibleMeleeContactAndAChargedAttack() {
-		assertTrue(SurvivalReflexRuntime.shouldKnockBackDuringFlee(3.0D, true, 0.92F));
-		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(3.01D, true, 1.0F));
-		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(2.0D, false, 1.0F));
-		assertFalse(SurvivalReflexRuntime.shouldKnockBackDuringFlee(2.0D, true, 0.91F));
+	void closeQuarterAttackIgnoresMovementModeButRequiresRangeSightAndCooldown() {
+		assertTrue(SurvivalReflexRuntime.shouldAttackCloseThreat(3.0D, true, 0.92F));
+		assertFalse(SurvivalReflexRuntime.shouldAttackCloseThreat(3.01D, true, 1.0F));
+		assertFalse(SurvivalReflexRuntime.shouldAttackCloseThreat(2.0D, false, 1.0F));
+		assertFalse(SurvivalReflexRuntime.shouldAttackCloseThreat(2.0D, true, 0.91F));
 	}
 
 	@Test
@@ -140,6 +140,15 @@ class SurvivalReflexRuntimeTest {
 		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
 			SurvivalReflexRuntime.classifyThreatSecurity(
 				SurvivalReflexRuntime.RouteStatus.BLOCKED, -1, true, true));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.POTENTIAL_SHELTER,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.PARTIAL, 8, false, true));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.POTENTIAL_SHELTER,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.PARTIAL, 8, true, false));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.PARTIAL, 8, true, true));
 		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
 			SurvivalReflexRuntime.classifyThreatSecurity(
 				SurvivalReflexRuntime.RouteStatus.REACHABLE, 15, false, false));
