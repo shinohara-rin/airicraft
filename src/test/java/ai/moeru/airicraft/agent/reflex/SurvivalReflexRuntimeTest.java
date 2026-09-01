@@ -122,6 +122,15 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
+	void ranksCombatHotbarItemsAheadOfIncidentalBlocks() {
+		assertTrue(SurvivalReflexRuntime.combatHotbarRank("minecraft:stone_pickaxe")
+			< SurvivalReflexRuntime.combatHotbarRank("minecraft:leaf_litter"));
+		assertTrue(SurvivalReflexRuntime.combatHotbarRank("minecraft:iron_sword")
+			< SurvivalReflexRuntime.combatHotbarRank("minecraft:stone_pickaxe"));
+		assertEquals(Integer.MAX_VALUE, SurvivalReflexRuntime.combatHotbarRank("minecraft:dirt"));
+	}
+
+	@Test
 	void repeatedFailedEscapeLegsEventuallyEscalateToDefence() {
 		assertFalse(SurvivalReflexRuntime.shouldEscalateFleeToDefend(3, 2, 8.0D));
 		assertTrue(SurvivalReflexRuntime.shouldEscalateFleeToDefend(4, 2, 8.0D));

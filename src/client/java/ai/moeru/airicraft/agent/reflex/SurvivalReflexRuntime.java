@@ -383,6 +383,7 @@ public final class SurvivalReflexRuntime {
 			resolve(client, player, threats, tick, "threats_clear", false);
 			return;
 		}
+		equipBestCombatHotbarItem(player);
 		attemptCloseQuarterAttack(client, player, threats, tick);
 		MobSecurity security = assessMobSecurity(player, threats, tick);
 		if (snapshot.action() == SurvivalReflexAction.FLEE && security.kind() != SecurityKind.UNSAFE) {
@@ -588,6 +589,49 @@ public final class SurvivalReflexRuntime {
 			"closeContacts", fleeing ? fleeCloseContacts : null,
 			"tick", tick
 		)));
+	}
+
+	private static void equipBestCombatHotbarItem(ClientPlayerEntity player) {
+		if (player == null) {
+			return;
+		}
+		int bestSlot = -1;
+		int bestRank = Integer.MAX_VALUE;
+		for (int slot = 0; slot < 9; slot++) {
+			String itemId = Registries.ITEM.getId(player.getInventory().getStack(slot).getItem()).toString();
+			int rank = combatHotbarRank(itemId);
+			if (rank < bestRank) {
+				bestRank = rank;
+				bestSlot = slot;
+			}
+		}
+		if (bestSlot >= 0 && player.getInventory().getSelectedSlot() != bestSlot) {
+			player.getInventory().setSelectedSlot(bestSlot);
+		}
+	}
+
+	static int combatHotbarRank(String itemId) {
+		return switch (itemId == null ? "" : itemId) {
+			case "minecraft:netherite_sword" -> 0;
+			case "minecraft:diamond_sword" -> 1;
+			case "minecraft:iron_sword" -> 2;
+			case "minecraft:stone_sword" -> 3;
+			case "minecraft:golden_sword" -> 4;
+			case "minecraft:wooden_sword" -> 5;
+			case "minecraft:netherite_axe" -> 6;
+			case "minecraft:diamond_axe" -> 7;
+			case "minecraft:iron_axe" -> 8;
+			case "minecraft:stone_axe" -> 9;
+			case "minecraft:golden_axe" -> 10;
+			case "minecraft:wooden_axe" -> 11;
+			case "minecraft:netherite_pickaxe" -> 12;
+			case "minecraft:diamond_pickaxe" -> 13;
+			case "minecraft:iron_pickaxe" -> 14;
+			case "minecraft:stone_pickaxe" -> 15;
+			case "minecraft:golden_pickaxe" -> 16;
+			case "minecraft:wooden_pickaxe" -> 17;
+			default -> Integer.MAX_VALUE;
+		};
 	}
 
 	private void changeAction(SurvivalReflexCause cause, SurvivalReflexAction action, long tick) {
