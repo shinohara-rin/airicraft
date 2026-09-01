@@ -416,7 +416,15 @@ public final class SurvivalReflexRuntime {
 			fleeNavigationOwned = false;
 		}
 		Optional<String> pathEvent = baritone.pollPathEvent();
-		if (pathEvent.filter(SurvivalReflexRuntime::isTerminalPathFailure).isPresent()) {
+		if (shouldRejectFleeTarget(pathEvent, baritone.processActive())) {
+			pendingEvents.add(new SurvivalReflexEvent("reflex.flee_path_failed", mapOfNullable(
+				"event", pathEvent.orElse(null),
+				"processActive", baritone.processActive(),
+				"x", fleeTarget == null ? null : fleeTarget.x(),
+				"y", fleeTarget == null ? null : fleeTarget.y(),
+				"z", fleeTarget == null ? null : fleeTarget.z(),
+				"tick", tick
+			)));
 			if (fleeTarget != null) {
 				failedFleeTargets.add(fleeTarget);
 			}
@@ -800,6 +808,10 @@ public final class SurvivalReflexRuntime {
 		return "CALC_FAILED".equals(event)
 			|| "CANCELED".equals(event)
 			|| "DISCARDING".equals(event);
+	}
+
+	static boolean shouldRejectFleeTarget(Optional<String> pathEvent, boolean currentProcessActive) {
+		return !currentProcessActive && pathEvent.filter(SurvivalReflexRuntime::isTerminalPathFailure).isPresent();
 	}
 
 	private void stopFleeNavigation() {

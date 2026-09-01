@@ -5,6 +5,7 @@ import ai.moeru.airicraft.agent.tasks.UnderwaterEscapeNavigator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -95,6 +96,14 @@ class SurvivalReflexRuntimeTest {
 	void fleeRaisesButNeverLowersWaterTraversalPenalty() {
 		assertEquals(48.0D, SurvivalReflexRuntime.fleeWaterPenalty(3.0D));
 		assertEquals(64.0D, SurvivalReflexRuntime.fleeWaterPenalty(64.0D));
+	}
+
+	@Test
+	void staleTerminalPathEventCannotRejectAnActiveReplacementFleePath() {
+		assertFalse(SurvivalReflexRuntime.shouldRejectFleeTarget(Optional.of("CANCELED"), true));
+		assertFalse(SurvivalReflexRuntime.shouldRejectFleeTarget(Optional.of("CALC_FAILED"), true));
+		assertTrue(SurvivalReflexRuntime.shouldRejectFleeTarget(Optional.of("CALC_FAILED"), false));
+		assertFalse(SurvivalReflexRuntime.shouldRejectFleeTarget(Optional.of("CALC_FINISHED_NOW_EXECUTING"), false));
 	}
 
 	@Test
