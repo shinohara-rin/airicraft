@@ -13,23 +13,17 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.entity.ai.pathing.Path;
-import net.minecraft.entity.mob.AbstractSkeletonEntity;
 import net.minecraft.entity.mob.BlazeEntity;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.entity.mob.GhastEntity;
 import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.MaceItem;
-import net.minecraft.item.TridentItem;
 import net.minecraft.registry.Registries;
-import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
@@ -58,7 +52,7 @@ public final class SurvivalReflexRuntime {
 	private static final double FLEE_WATER_PENALTY = 48.0D;
 	private static final double FLEE_KNOCKBACK_DISTANCE = 3.0D;
 	private static final int SECURE_ESCAPE_PATH_DISTANCE = 16;
-	private static final int SEALED_SHELTER_TICKS = 12;
+	private static final int SHELTER_CONFIRM_TICKS = 200;
 	private static final int DISTANT_PATH_TICKS = 60;
 	private static final int MOB_ROUTE_REFRESH_TICKS = 10;
 	private static final int MAX_FLEE_LEGS_BEFORE_DEFEND = 4;
@@ -389,21 +383,22 @@ public final class SurvivalReflexRuntime {
 			resolve(client, player, threats, tick, "threats_clear", false);
 			return;
 		}
+		attemptCloseQuarterAttack(client, player, threats, tick);
 		MobSecurity security = assessMobSecurity(player, threats, tick);
 		if (snapshot.action() == SurvivalReflexAction.FLEE && security.kind() != SecurityKind.UNSAFE) {
 			secureEscapeTicks++;
 			stopFleeNavigation();
 			movementController.stop(client);
-			int requiredTicks = security.kind() == SecurityKind.SEALED
-				? SEALED_SHELTER_TICKS
-				: DISTANT_PATH_TICKS;
+			int requiredTicks = security.kind() == SecurityKind.DISTANT_PATH
+				? DISTANT_PATH_TICKS
+				: SHELTER_CONFIRM_TICKS;
 			if (secureEscapeTicks >= requiredTicks) {
 				resolve(
 					client,
 					player,
 					threats,
 					tick,
-					security.kind() == SecurityKind.SEALED ? "sealed_shelter" : "secure_path_separation",
+					security.kind() == SecurityKind.DISTANT_PATH ? "secure_path_separation" : "sealed_shelter",
 					false
 				);
 				return;
@@ -455,15 +450,10 @@ public final class SurvivalReflexRuntime {
 		else {
 			movementController.stop(client);
 		}
-		if (client.interactionManager != null && player.getAttackCooldownProgress(0.0F) >= ATTACK_READY_THRESHOLD) {
-			client.interactionManager.attackEntity(player, threat.entity());
-			player.swingHand(Hand.MAIN_HAND);
-		}
 	}
 
 	private void flee(MinecraftClient client, ClientPlayerEntity player, List<ResolvedThreat> threats, long tick) {
 		movementController.stop(client);
-		attemptFleeKnockback(client, player, threats, tick);
 		if (shouldUseWaterAwareFlee(player.isTouchingWater(), player.isSubmergedInWater())) {
 			stopFleeNavigation();
 			underwaterEscape.tick(
@@ -569,7 +559,7 @@ public final class SurvivalReflexRuntime {
 		resetFleeProgress();
 	}
 
-	private void attemptFleeKnockback(
+	private void attemptCloseQuarterAttack(
 		MinecraftClient client,
 		ClientPlayerEntity player,
 		List<ResolvedThreat> threats,
@@ -580,18 +570,22 @@ public final class SurvivalReflexRuntime {
 		}
 		ResolvedThreat threat = closestVisibleThreat(threats);
 		float cooldown = player.getAttackCooldownProgress(0.0F);
-		if (!shouldKnockBackDuringFlee(threat.distance(), threat.lineOfSight(), cooldown)) {
+		if (!shouldAttackCloseThreat(threat.distance(), threat.lineOfSight(), cooldown)) {
 			return;
 		}
 		cameraController.lookAtNow(client, threat.entity().getBoundingBox().getCenter());
 		client.interactionManager.attackEntity(player, threat.entity());
 		player.swingHand(Hand.MAIN_HAND);
-		fleeCloseContacts++;
-		pendingEvents.add(new SurvivalReflexEvent("reflex.flee_knockback", mapOfNullable(
+		boolean fleeing = snapshot.action() == SurvivalReflexAction.FLEE;
+		if (fleeing) {
+			fleeCloseContacts++;
+		}
+		pendingEvents.add(new SurvivalReflexEvent(fleeing ? "reflex.flee_knockback" : "reflex.close_quarter_attack", mapOfNullable(
 			"threatUuid", threat.observed().uuid(),
 			"entityTypeId", threat.observed().entityTypeId(),
 			"distance", threat.distance(),
-			"closeContacts", fleeCloseContacts,
+			"action", snapshot.action() == null ? null : snapshot.action().name(),
+			"closeContacts", fleeing ? fleeCloseContacts : null,
 			"tick", tick
 		)));
 	}
@@ -739,7 +733,7 @@ public final class SurvivalReflexRuntime {
 		return Math.max(FLEE_WATER_PENALTY, currentPenalty);
 	}
 
-	static boolean shouldKnockBackDuringFlee(double distance, boolean lineOfSight, float attackCooldown) {
+	static boolean shouldAttackCloseThreat(double distance, boolean lineOfSight, float attackCooldown) {
 		return distance <= FLEE_KNOCKBACK_DISTANCE
 			&& lineOfSight
 			&& attackCooldown >= ATTACK_READY_THRESHOLD;
@@ -761,6 +755,9 @@ public final class SurvivalReflexRuntime {
 		}
 		if (routeStatus == RouteStatus.BLOCKED) {
 			return ranged && lineOfSight ? SecurityKind.UNSAFE : SecurityKind.SEALED;
+		}
+		if (routeStatus == RouteStatus.PARTIAL) {
+			return ranged && lineOfSight ? SecurityKind.UNSAFE : SecurityKind.POTENTIAL_SHELTER;
 		}
 		return pathLength >= SECURE_ESCAPE_PATH_DISTANCE ? SecurityKind.DISTANT_PATH : SecurityKind.UNSAFE;
 	}
@@ -793,6 +790,9 @@ public final class SurvivalReflexRuntime {
 			if (threatSecurity == SecurityKind.UNSAFE) {
 				combined = SecurityKind.UNSAFE;
 			}
+			else if (threatSecurity == SecurityKind.POTENTIAL_SHELTER) {
+				combined = SecurityKind.POTENTIAL_SHELTER;
+			}
 			else if (threatSecurity == SecurityKind.DISTANT_PATH && combined == SecurityKind.SEALED) {
 				combined = SecurityKind.DISTANT_PATH;
 			}
@@ -809,8 +809,11 @@ public final class SurvivalReflexRuntime {
 		}
 		try {
 			Path path = mob.getNavigation().findPathTo(player.getBlockPos(), 0);
-			if (path == null || !path.reachesTarget()) {
+			if (path == null) {
 				return new MobRoute(RouteStatus.BLOCKED, -1);
+			}
+			if (!path.reachesTarget()) {
+				return new MobRoute(RouteStatus.PARTIAL, path.getLength());
 			}
 			return new MobRoute(RouteStatus.REACHABLE, path.getLength());
 		}
@@ -826,11 +829,6 @@ public final class SurvivalReflexRuntime {
 		ResolvedThreat closest = closestVisibleThreat(threats);
 		boolean safeThreatTypes = threats.stream().noneMatch(SurvivalReflexRuntime::unsafeCombatThreat);
 		SurvivalCombatReadiness.State readiness = new SurvivalCombatReadiness.State(
-			healthRatio(player),
-			player.getArmor(),
-			weaponEquipped(player),
-			player.getHungerManager().getFoodLevel(),
-			foodAvailable(player),
 			threats.size(),
 			closest.distance(),
 			closest.lineOfSight(),
@@ -971,33 +969,10 @@ public final class SurvivalReflexRuntime {
 			|| player.fallDistance > 3.0F;
 	}
 
-	private static boolean weaponEquipped(ClientPlayerEntity player) {
-		ItemStack stack = player == null ? ItemStack.EMPTY : player.getMainHandStack();
-		return stack.isIn(ItemTags.SWORDS)
-			|| stack.isIn(ItemTags.AXES)
-			|| stack.getItem() instanceof MaceItem
-			|| stack.getItem() instanceof TridentItem;
-	}
-
-	private static boolean foodAvailable(ClientPlayerEntity player) {
-		if (player == null) {
-			return false;
-		}
-		for (int slot = 0; slot < player.getInventory().size(); slot++) {
-			ItemStack stack = player.getInventory().getStack(slot);
-			if (!stack.isEmpty()
-				&& stack.get(DataComponentTypes.FOOD) != null
-				&& stack.get(DataComponentTypes.CONSUMABLE) != null) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	private static boolean unsafeCombatThreat(ResolvedThreat threat) {
 		LivingEntity entity = threat == null ? null : threat.entity();
 		return entity instanceof CreeperEntity
-			|| entity instanceof AbstractSkeletonEntity
+			|| entity instanceof RangedAttackMob
 			|| entity instanceof BlazeEntity
 			|| entity instanceof GhastEntity;
 	}
@@ -1227,12 +1202,14 @@ public final class SurvivalReflexRuntime {
 	enum RouteStatus {
 		REACHABLE,
 		BLOCKED,
+		PARTIAL,
 		UNKNOWN
 	}
 
 	enum SecurityKind {
 		UNSAFE,
 		SEALED,
+		POTENTIAL_SHELTER,
 		DISTANT_PATH
 	}
 
