@@ -138,7 +138,7 @@ workspace "Airicraft Survival Reflex" "Current architecture of the survival-refl
             airicraft.fabric.reflex -> minecraft "Resolves remembered attackers and visible hostiles within the threat horizon"
             airicraft.fabric.reflex -> airicraft.fabric.coordinator "Enters ACTIVE and requests normal actuator release"
             airicraft.fabric.coordinator -> airicraft.fabric.normalWork "Releases current effects and records PAUSED_BY_REFLEX"
-            airicraft.fabric.reflex -> airicraft.fabric.effectors "Chooses DEFEND for one close visible threat at sufficient health; otherwise FLEE"
+            airicraft.fabric.reflex -> airicraft.fabric.effectors "Auto-attacks in melee range; DEFENDs against one ordinary mob and FLEEs from overwhelming or special threats"
             airicraft.fabric.effectors -> minecraft "Attacks when ready or applies direct away-vector sprint/jump movement"
             airicraft.fabric.reflex -> minecraft "Rechecks live threats and the recent-damage cooldown"
             airicraft.fabric.reflex -> airicraft.fabric.coordinator "Resolves after no relevant threat remains and the cooldown expires"
