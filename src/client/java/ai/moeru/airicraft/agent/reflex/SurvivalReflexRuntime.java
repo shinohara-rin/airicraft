@@ -16,11 +16,14 @@ import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.ai.RangedAttackMob;
+import net.minecraft.entity.ai.pathing.Path;
 import net.minecraft.entity.mob.AbstractSkeletonEntity;
 import net.minecraft.entity.mob.BlazeEntity;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.entity.mob.GhastEntity;
 import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.MaceItem;
@@ -54,8 +57,10 @@ public final class SurvivalReflexRuntime {
 	private static final int MIN_ESCAPE_DIRECTIONS = 2;
 	private static final double FLEE_WATER_PENALTY = 48.0D;
 	private static final double FLEE_KNOCKBACK_DISTANCE = 3.0D;
-	private static final double SECURE_ESCAPE_DISTANCE = 16.0D;
-	private static final int SECURE_ESCAPE_TICKS = 60;
+	private static final int SECURE_ESCAPE_PATH_DISTANCE = 16;
+	private static final int SEALED_SHELTER_TICKS = 12;
+	private static final int DISTANT_PATH_TICKS = 60;
+	private static final int MOB_ROUTE_REFRESH_TICKS = 10;
 	private static final int MAX_FLEE_LEGS_BEFORE_DEFEND = 4;
 	private static final int MAX_FLEE_CLOSE_CONTACTS = 3;
 
@@ -79,6 +84,8 @@ public final class SurvivalReflexRuntime {
 	private int fleeCloseContacts;
 	private int secureEscapeTicks;
 	private boolean fleeEscalatedToDefend;
+	private long mobRoutesTick = Long.MIN_VALUE;
+	private Map<String, MobRoute> mobRoutes = Map.of();
 
 	public SurvivalReflexRuntime(AgentConfig.ReflexConfig config) {
 		this(config, new MovementController(), new CameraController(), null);
@@ -382,12 +389,23 @@ public final class SurvivalReflexRuntime {
 			resolve(client, player, threats, tick, "threats_clear", false);
 			return;
 		}
-		if (snapshot.action() == SurvivalReflexAction.FLEE && securelySeparatedFromThreats(threats)) {
+		MobSecurity security = assessMobSecurity(player, threats, tick);
+		if (snapshot.action() == SurvivalReflexAction.FLEE && security.kind() != SecurityKind.UNSAFE) {
 			secureEscapeTicks++;
 			stopFleeNavigation();
 			movementController.stop(client);
-			if (secureEscapeTicks >= SECURE_ESCAPE_TICKS) {
-				resolve(client, player, threats, tick, "secure_separation", false);
+			int requiredTicks = security.kind() == SecurityKind.SEALED
+				? SEALED_SHELTER_TICKS
+				: DISTANT_PATH_TICKS;
+			if (secureEscapeTicks >= requiredTicks) {
+				resolve(
+					client,
+					player,
+					threats,
+					tick,
+					security.kind() == SecurityKind.SEALED ? "sealed_shelter" : "secure_path_separation",
+					false
+				);
 				return;
 			}
 			refreshSnapshot(player, threats, lastMobDamageTick, 0, null);
@@ -395,7 +413,7 @@ public final class SurvivalReflexRuntime {
 		}
 		secureEscapeTicks = 0;
 		if (!fleeEscalatedToDefend && snapshot.action() == SurvivalReflexAction.FLEE && !threats.isEmpty()
-			&& shouldEscalateFleeToDefend(completedFleeLegs, fleeCloseContacts, closestVisibleThreat(threats).distance())) {
+			&& shouldEscalateFleeToDefend(completedFleeLegs, fleeCloseContacts, security.closestReachablePathLength())) {
 			fleeEscalatedToDefend = true;
 			pendingEvents.add(new SurvivalReflexEvent("reflex.flee_escalated", mapOfNullable(
 				"reason", fleeCloseContacts >= MAX_FLEE_CLOSE_CONTACTS ? "repeated_close_contact" : "no_secure_escape",
@@ -727,15 +745,78 @@ public final class SurvivalReflexRuntime {
 			&& attackCooldown >= ATTACK_READY_THRESHOLD;
 	}
 
-	static boolean shouldEscalateFleeToDefend(int completedLegs, int closeContacts, double closestDistance) {
+	static boolean shouldEscalateFleeToDefend(int completedLegs, int closeContacts, double closestPathDistance) {
 		return closeContacts >= MAX_FLEE_CLOSE_CONTACTS
-			|| (completedLegs >= MAX_FLEE_LEGS_BEFORE_DEFEND && closestDistance <= PROACTIVE_THREAT_DISTANCE);
+			|| (completedLegs >= MAX_FLEE_LEGS_BEFORE_DEFEND && closestPathDistance <= PROACTIVE_THREAT_DISTANCE);
 	}
 
-	static boolean securelySeparatedFromThreats(List<ResolvedThreat> threats) {
-		return threats != null
-			&& !threats.isEmpty()
-			&& threats.stream().allMatch(threat -> threat.distance() >= SECURE_ESCAPE_DISTANCE && !threat.lineOfSight());
+	static SecurityKind classifyThreatSecurity(
+		RouteStatus routeStatus,
+		int pathLength,
+		boolean ranged,
+		boolean lineOfSight
+	) {
+		if (routeStatus == RouteStatus.UNKNOWN) {
+			return SecurityKind.UNSAFE;
+		}
+		if (routeStatus == RouteStatus.BLOCKED) {
+			return ranged && lineOfSight ? SecurityKind.UNSAFE : SecurityKind.SEALED;
+		}
+		return pathLength >= SECURE_ESCAPE_PATH_DISTANCE ? SecurityKind.DISTANT_PATH : SecurityKind.UNSAFE;
+	}
+
+	private MobSecurity assessMobSecurity(ClientPlayerEntity player, List<ResolvedThreat> threats, long tick) {
+		if (player == null || threats == null || threats.isEmpty()) {
+			return new MobSecurity(SecurityKind.UNSAFE, Double.POSITIVE_INFINITY);
+		}
+		Set<String> threatIds = threats.stream().map(threat -> threat.observed().uuid()).collect(java.util.stream.Collectors.toSet());
+		if (mobRoutesTick == Long.MIN_VALUE
+			|| tick - mobRoutesTick >= MOB_ROUTE_REFRESH_TICKS
+			|| !mobRoutes.keySet().equals(threatIds)) {
+			LinkedHashMap<String, MobRoute> refreshed = new LinkedHashMap<>();
+			for (ResolvedThreat threat : threats) {
+				refreshed.put(threat.observed().uuid(), computeMobRoute(player, threat.entity()));
+			}
+			mobRoutes = Map.copyOf(refreshed);
+			mobRoutesTick = tick;
+		}
+		SecurityKind combined = SecurityKind.SEALED;
+		double closestReachable = Double.POSITIVE_INFINITY;
+		for (ResolvedThreat threat : threats) {
+			MobRoute route = mobRoutes.getOrDefault(threat.observed().uuid(), MobRoute.unknown());
+			SecurityKind threatSecurity = classifyThreatSecurity(
+				route.status(),
+				route.pathLength(),
+				threat.entity() instanceof RangedAttackMob,
+				threat.lineOfSight()
+			);
+			if (threatSecurity == SecurityKind.UNSAFE) {
+				combined = SecurityKind.UNSAFE;
+			}
+			else if (threatSecurity == SecurityKind.DISTANT_PATH && combined == SecurityKind.SEALED) {
+				combined = SecurityKind.DISTANT_PATH;
+			}
+			if (route.status() == RouteStatus.REACHABLE) {
+				closestReachable = Math.min(closestReachable, route.pathLength());
+			}
+		}
+		return new MobSecurity(combined, closestReachable);
+	}
+
+	private static MobRoute computeMobRoute(ClientPlayerEntity player, LivingEntity threat) {
+		if (!(threat instanceof MobEntity mob)) {
+			return MobRoute.unknown();
+		}
+		try {
+			Path path = mob.getNavigation().findPathTo(player.getBlockPos(), 0);
+			if (path == null || !path.reachesTarget()) {
+				return new MobRoute(RouteStatus.BLOCKED, -1);
+			}
+			return new MobRoute(RouteStatus.REACHABLE, path.getLength());
+		}
+		catch (RuntimeException exception) {
+			return MobRoute.unknown();
+		}
 	}
 
 	private SurvivalReflexAction chooseMobAction(ClientPlayerEntity player, List<ResolvedThreat> threats) {
@@ -963,6 +1044,8 @@ public final class SurvivalReflexRuntime {
 		fleeCloseContacts = 0;
 		secureEscapeTicks = 0;
 		fleeEscalatedToDefend = false;
+		mobRoutesTick = Long.MIN_VALUE;
+		mobRoutes = Map.of();
 	}
 
 	private static GoalPosition goal(BlockPos pos) {
@@ -1139,5 +1222,26 @@ public final class SurvivalReflexRuntime {
 	}
 
 	private record FleeSelection(GoalPosition goal, boolean sheltered) {
+	}
+
+	enum RouteStatus {
+		REACHABLE,
+		BLOCKED,
+		UNKNOWN
+	}
+
+	enum SecurityKind {
+		UNSAFE,
+		SEALED,
+		DISTANT_PATH
+	}
+
+	private record MobRoute(RouteStatus status, int pathLength) {
+		private static MobRoute unknown() {
+			return new MobRoute(RouteStatus.UNKNOWN, -1);
+		}
+	}
+
+	private record MobSecurity(SecurityKind kind, double closestReachablePathLength) {
 	}
 }

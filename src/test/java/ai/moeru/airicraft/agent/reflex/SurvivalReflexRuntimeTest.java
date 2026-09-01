@@ -130,17 +130,25 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
-	void escapeIsSecureOnlyWhenEveryTrackedThreatIsFarAndOutOfSight() {
-		var observed = new SurvivalReflexRuntime.ObservedThreat("zombie-1", "Zombie", "minecraft:zombie", 10L);
-		assertTrue(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
-			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 16.0D, false)
-		)));
-		assertFalse(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
-			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 15.99D, false)
-		)));
-		assertFalse(SurvivalReflexRuntime.securelySeparatedFromThreats(List.of(
-			new SurvivalReflexRuntime.ResolvedThreat(observed, null, 20.0D, true)
-		)));
+	void securityUsesMobRouteAndRangedLineOfSightRatherThanL2Distance() {
+		assertEquals(SurvivalReflexRuntime.SecurityKind.SEALED,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.BLOCKED, -1, false, true));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.SEALED,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.BLOCKED, -1, true, false));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.BLOCKED, -1, true, true));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.REACHABLE, 15, false, false));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.DISTANT_PATH,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.REACHABLE, 16, false, true));
+		assertEquals(SurvivalReflexRuntime.SecurityKind.UNSAFE,
+			SurvivalReflexRuntime.classifyThreatSecurity(
+				SurvivalReflexRuntime.RouteStatus.UNKNOWN, -1, false, false));
 	}
 
 	@Test
