@@ -256,6 +256,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final ActionGraphCoordinator actionGraphCoordinator;
 	private final SurvivalReflexRuntime survivalReflexRuntime;
 	private final LightingRuntime lightingRuntime = new LightingRuntime();
+	private final PlayerItemUseController playerItemUseController = new PlayerItemUseController();
 	private final EmbodiedPlannerActionToolExecutor plannerActionToolExecutor;
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
@@ -421,6 +422,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		playerItemUseController.reset(MinecraftClient.getInstance());
 		lightingRuntime.reset();
 		seenPlayerNames.clear();
 	}
@@ -458,6 +460,11 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		}
 		openLanIfSingleplayerLocal(client);
 		surfaceMemory.tick(client, tickCount);
+		playerItemUseController.tick(client, tickCount).ifPresent(result -> eventBuffer.append(
+			tickCount,
+			result.completed() ? "food.eaten" : "food.eat_failed",
+			Map.of("itemId", result.itemId(), "reason", result.reason())
+		));
 		tickSurvivalReflex(client);
 		drainEventPipeline();
 
@@ -600,6 +607,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		followState = FollowState.idle();
 		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=survival_reflex");
 		cancelPendingBlockModificationToolResult(PendingBlockModificationStopReason.SURVIVAL_REFLEX);
+		playerItemUseController.reset(client);
 	}
 
 	private void pauseNormalWorkForReflex(MinecraftClient client) {
@@ -796,6 +804,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		deathBoundaryApplied = false;
 		lastRespawnRequestTick = -1L;
 		survivalReflexRuntime.reset(MinecraftClient.getInstance());
+		playerItemUseController.reset(MinecraftClient.getInstance());
 		lightingRuntime.reset();
 		seenPlayerNames.clear();
 		sessionSnapshot = SessionSnapshot.initial();
@@ -2100,6 +2109,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return new EmbodiedPlannerActionToolExecutor.ExecutionState(
 			survivalReflexRuntime.snapshot().state(),
 			sessionSnapshot.requiresRespawn(),
+			playerItemUseController.eating(),
 			activeTaskInProgress(),
 			activeJob == null ? null : activeJob.type(),
 			actionGraphCoordinator.hasNonterminal(),
@@ -2352,6 +2362,14 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 				String processId = stringArg(args, "processId").orElseThrow(() -> new IllegalArgumentException("processId is required"));
 				boolean cancelled = smeltingProcessManager.cancel(processId);
 				yield "Tool result for cancel_smelting: accepted processId=" + processId + " tracked=" + cancelled;
+			}
+			case PlannerToolCatalog.EQUIP_ITEM -> {
+				String itemId = stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required"));
+				yield playerItemUseController.equip(MinecraftClient.getInstance(), itemId);
+			}
+			case PlannerToolCatalog.EAT_FOOD -> {
+				String itemId = stringArg(args, "itemId").orElseThrow(() -> new IllegalArgumentException("itemId is required"));
+				yield playerItemUseController.eat(MinecraftClient.getInstance(), itemId, tickCount);
 			}
 			case PlannerToolCatalog.DROP_ITEMS -> {
 				DropItemsStepArgs dropItems = new DropItemsStepArgs(

@@ -25,12 +25,31 @@ class PlannerToolCatalogTest {
 			""")));
 	}
 
+	@Test
+	void parsesEquipmentAndFoodToolsWithExactItemIds() {
+		PlannerToolCall equip = PlannerToolCatalog.parseToolCall(toolCall(
+			PlannerToolCatalog.EQUIP_ITEM,
+			"{\"itemId\":\"minecraft:iron_chestplate\"}"
+		));
+		PlannerToolCall eat = PlannerToolCatalog.parseToolCall(toolCall(
+			PlannerToolCatalog.EAT_FOOD,
+			"{\"itemId\":\"minecraft:bread\"}"
+		));
+
+		assertEquals("minecraft:iron_chestplate", equip.arguments().get("itemId").getAsString());
+		assertEquals("minecraft:bread", eat.arguments().get("itemId").getAsString());
+	}
+
 	private static JsonObject toolCall(String arguments) {
+		return toolCall(PlannerToolCatalog.DISCOVER_TOOLS, arguments);
+	}
+
+	private static JsonObject toolCall(String name, String arguments) {
 		JsonObject toolCall = new JsonObject();
 		toolCall.addProperty("id", "call_discover");
 		toolCall.addProperty("type", "function");
 		JsonObject function = new JsonObject();
-		function.addProperty("name", PlannerToolCatalog.DISCOVER_TOOLS);
+		function.addProperty("name", name);
 		function.addProperty("arguments", arguments);
 		toolCall.add("function", function);
 		return toolCall;

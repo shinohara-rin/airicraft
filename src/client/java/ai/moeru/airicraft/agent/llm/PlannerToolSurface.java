@@ -169,6 +169,8 @@ public final class PlannerToolSurface {
 				PlannerToolCatalog.CANCEL_SMELTING -> "smelting";
 			case PlannerToolCatalog.DROP_ITEMS,
 				PlannerToolCatalog.GIVE_PLAYER,
+				PlannerToolCatalog.EQUIP_ITEM,
+				PlannerToolCatalog.EAT_FOOD,
 				PlannerToolCatalog.ATTACK_ENTITY,
 				PlannerToolCatalog.USE_ENTITY,
 				PlannerToolCatalog.PLACE_BLOCK,
