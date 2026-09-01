@@ -4,25 +4,41 @@ import ai.moeru.airicraft.agent.AgentConfig;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.control.MovementController;
+import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.agent.tasks.MinecraftUnderwaterEscapeController;
 import ai.moeru.airicraft.agent.tasks.UnderwaterEscapeNavigator;
 import ai.moeru.airicraft.agent.tasks.UnderwaterEscapeSearch;
 import ai.moeru.airicraft.agent.tasks.UnderwaterHarvestPolicy;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.mob.AbstractSkeletonEntity;
+import net.minecraft.entity.mob.BlazeEntity;
+import net.minecraft.entity.mob.CreeperEntity;
+import net.minecraft.entity.mob.GhastEntity;
 import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.MaceItem;
+import net.minecraft.item.TridentItem;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.util.Hand;
-import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashSet;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public final class SurvivalReflexRuntime {
@@ -31,11 +47,15 @@ public final class SurvivalReflexRuntime {
 	static final double DEFEND_DISTANCE = 4.5D;
 	static final double PROACTIVE_THREAT_DISTANCE = 8.0D;
 	private static final float ATTACK_READY_THRESHOLD = 0.92F;
-	private static final int ESCAPE_PHASE_TICKS = 20;
+	private static final int FLEE_SCAN_RADIUS = 16;
+	private static final int FLEE_SCAN_VERTICAL_RADIUS = 4;
+	private static final int MIN_ESCAPE_DIRECTIONS = 2;
+	private static final double FLEE_WATER_PENALTY = 48.0D;
 
 	private final AgentConfig.ReflexConfig config;
 	private final MovementController movementController;
 	private final CameraController cameraController;
+	private final BaritoneFacade baritone;
 	private final MinecraftUnderwaterEscapeController underwaterEscape;
 	private final Map<String, ObservedThreat> observedThreats = new LinkedHashMap<>();
 	private final List<SurvivalReflexEvent> pendingEvents = new ArrayList<>();
@@ -43,8 +63,11 @@ public final class SurvivalReflexRuntime {
 	private SurvivalReflexSnapshot snapshot = SurvivalReflexSnapshot.idle();
 	private boolean drowningDamageObserved;
 	private long lastMobDamageTick = Long.MIN_VALUE;
-	private int stuckTicks;
 	private boolean safetyHoldActuating;
+	private GoalPosition fleeTarget;
+	private boolean fleeNavigationOwned;
+	private Double fleeWaterPenaltyBase;
+	private final Set<GoalPosition> failedFleeTargets = new LinkedHashSet<>();
 
 	public SurvivalReflexRuntime(AgentConfig.ReflexConfig config) {
 		this(config, new MovementController(), new CameraController(), null);
@@ -71,6 +94,7 @@ public final class SurvivalReflexRuntime {
 		this.config = Objects.requireNonNullElseGet(config, AgentConfig.ReflexConfig::defaults);
 		this.movementController = Objects.requireNonNull(movementController, "movementController");
 		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
+		this.baritone = baritone;
 		this.underwaterEscape = new MinecraftUnderwaterEscapeController(
 			baritone,
 			this.movementController,
@@ -123,7 +147,7 @@ public final class SurvivalReflexRuntime {
 			boolean hasInterruptedWork = interruptedWork != null && interruptedWork.hasInterruptedWork();
 			SurvivalReflexAction action = drowningDanger
 				? drowningAction(hasInterruptedWork)
-				: chooseMobAction(healthRatio(player), threats);
+				: chooseMobAction(player, threats);
 			begin(cause, action, interruptedWork, player, threats, tick, releaseNormalActuators);
 		}
 
@@ -197,8 +221,8 @@ public final class SurvivalReflexRuntime {
 		observedThreats.clear();
 		drowningDamageObserved = false;
 		lastMobDamageTick = Long.MIN_VALUE;
-		stuckTicks = 0;
 		safetyHoldActuating = false;
+		stopFleeNavigation();
 		underwaterEscape.reset(client);
 		long epoch = snapshot.safetyEpoch();
 		snapshot = new SurvivalReflexSnapshot(
@@ -226,6 +250,8 @@ public final class SurvivalReflexRuntime {
 		Runnable releaseNormalActuators
 	) {
 		long nextEpoch = snapshot.safetyEpoch() + 1L;
+		stopFleeNavigation();
+		failedFleeTargets.clear();
 		InterruptedWork work = interruptedWork == null ? InterruptedWork.none() : interruptedWork;
 		String holdId = work.hasInterruptedWork() ? UUID.randomUUID().toString() : null;
 		snapshot = new SurvivalReflexSnapshot(
@@ -283,7 +309,7 @@ public final class SurvivalReflexRuntime {
 		if (drowningResolved(stableTicks)) {
 			if (!mobThreatsResolved(threats.size(), tick, lastMobDamageTick, config.threatCooldownTicks())) {
 				underwaterEscape.reset(client);
-				changeAction(SurvivalReflexCause.MOB_ATTACK, chooseMobAction(healthRatio(player), threats), tick);
+				changeAction(SurvivalReflexCause.MOB_ATTACK, chooseMobAction(player, threats), tick);
 				refreshSnapshot(player, threats, lastMobDamageTick, 0, null);
 				return;
 			}
@@ -343,13 +369,13 @@ public final class SurvivalReflexRuntime {
 			resolve(client, player, threats, tick, "threats_clear", false);
 			return;
 		}
-		SurvivalReflexAction nextAction = chooseMobAction(healthRatio(player), threats);
+		SurvivalReflexAction nextAction = chooseMobAction(player, threats);
 		if (snapshot.action() != nextAction || snapshot.cause() != SurvivalReflexCause.MOB_ATTACK) {
 			changeAction(SurvivalReflexCause.MOB_ATTACK, nextAction, tick);
 		}
 		try {
-			if (nextAction == SurvivalReflexAction.DEFEND && threats.size() == 1) {
-				defend(client, player, threats.getFirst());
+			if (nextAction == SurvivalReflexAction.DEFEND && !threats.isEmpty()) {
+				defend(client, player, closestVisibleThreat(threats), tick);
 			}
 			else if (!threats.isEmpty()) {
 				flee(client, player, threats, tick);
@@ -365,9 +391,15 @@ public final class SurvivalReflexRuntime {
 		}
 	}
 
-	private void defend(MinecraftClient client, ClientPlayerEntity player, ResolvedThreat threat) {
-		movementController.stop(client);
+	private void defend(MinecraftClient client, ClientPlayerEntity player, ResolvedThreat threat, long tick) {
+		stopFleeNavigation();
 		cameraController.lookAtNow(client, threat.entity().getBoundingBox().getCenter());
+		if (threat.distance() > 3.0D) {
+			movementController.moveDirectional(client, true, false, false, false, true, false, tick);
+		}
+		else {
+			movementController.stop(client);
+		}
 		if (client.interactionManager != null && player.getAttackCooldownProgress(0.0F) >= ATTACK_READY_THRESHOLD) {
 			client.interactionManager.attackEntity(player, threat.entity());
 			player.swingHand(Hand.MAIN_HAND);
@@ -375,28 +407,43 @@ public final class SurvivalReflexRuntime {
 	}
 
 	private void flee(MinecraftClient client, ClientPlayerEntity player, List<ResolvedThreat> threats, long tick) {
-		Vec3d playerPos = player.getPos();
-		Vec3d away = Vec3d.ZERO;
-		for (ResolvedThreat threat : threats) {
-			Vec3d delta = playerPos.subtract(threat.entity().getPos());
-			if (delta.lengthSquared() > 1.0E-6D) {
-				away = away.add(delta.normalize());
+		movementController.stop(client);
+		if (baritone == null || !baritone.isLoaded()) {
+			throw new IllegalStateException("safe_flee_pathfinder_unavailable");
+		}
+		if (fleeTarget != null && baritone.navigationGoalReached(fleeTarget)) {
+			fleeTarget = null;
+			fleeNavigationOwned = false;
+		}
+		Optional<String> pathEvent = baritone.pollPathEvent();
+		if (pathEvent.filter(SurvivalReflexRuntime::isTerminalPathFailure).isPresent()) {
+			if (fleeTarget != null) {
+				failedFleeTargets.add(fleeTarget);
 			}
+			fleeTarget = null;
+			fleeNavigationOwned = false;
 		}
-		if (away.lengthSquared() <= 1.0E-6D) {
-			away = player.getRotationVec(1.0F).multiply(-1.0D);
+		if (fleeTarget != null) {
+			return;
 		}
-		Vec3d horizontalAway = new Vec3d(away.x, 0.0D, away.z);
-		if (horizontalAway.lengthSquared() > 1.0E-6D) {
-			horizontalAway = horizontalAway.normalize();
-			cameraController.lookAtNow(client, player.getEyePos().add(horizontalAway.multiply(8.0D)));
+		fleeTarget = selectFleeTarget(client, player, threats).orElse(null);
+		if (fleeTarget == null) {
+			throw new IllegalStateException("safe_flee_target_unavailable");
 		}
-		boolean stuck = movementController.snapshot().stuck();
-		stuckTicks = stuck ? stuckTicks + 1 : 0;
-		EscapeKeys keys = escapeKeys(stuck, stuckTicks);
-		movementController.moveDirectional(
-			client, keys.forward(), keys.back(), keys.left(), keys.right(), keys.sprint(), keys.jump(), tick
-		);
+		baritone.applySettings();
+		if (fleeWaterPenaltyBase == null) {
+			fleeWaterPenaltyBase = baritone.walkOnWaterPenalty();
+		}
+		baritone.setWalkOnWaterPenalty(fleeWaterPenalty(fleeWaterPenaltyBase));
+		baritone.startNavigate(fleeTarget);
+		fleeNavigationOwned = true;
+		pendingEvents.add(new SurvivalReflexEvent("reflex.flee_target_selected", mapOfNullable(
+			"x", fleeTarget.x(),
+			"y", fleeTarget.y(),
+			"z", fleeTarget.z(),
+			"pathfinder", "baritone",
+			"tick", tick
+		)));
 	}
 
 	private void resolve(
@@ -408,6 +455,7 @@ public final class SurvivalReflexRuntime {
 		boolean keepSafetyHold
 	) {
 		underwaterEscape.reset(client);
+		stopFleeNavigation();
 		movementController.stop(client);
 		SurvivalReflexState nextState = keepSafetyHold || snapshot.holdId() != null
 			? SurvivalReflexState.AWAITING_PLANNER
@@ -428,10 +476,13 @@ public final class SurvivalReflexRuntime {
 		);
 		observedThreats.clear();
 		lastMobDamageTick = Long.MIN_VALUE;
-		stuckTicks = 0;
+		failedFleeTargets.clear();
 	}
 
 	private void changeAction(SurvivalReflexCause cause, SurvivalReflexAction action, long tick) {
+		if (action != SurvivalReflexAction.FLEE) {
+			stopFleeNavigation();
+		}
 		pendingEvents.add(new SurvivalReflexEvent("reflex.action_changed", mapOfNullable(
 			"safetyEpoch", snapshot.safetyEpoch(),
 			"holdId", snapshot.holdId(),
@@ -567,27 +618,32 @@ public final class SurvivalReflexRuntime {
 		return lastDamageTick != Long.MIN_VALUE && tick - lastDamageTick < Math.max(0, cooldownTicks);
 	}
 
-	static EscapeKeys escapeKeys(boolean stuck, int stuckTicks) {
-		if (!stuck) {
-			return new EscapeKeys(true, false, false, false, true, true);
-		}
-		int phase = Math.floorDiv(Math.max(0, stuckTicks), ESCAPE_PHASE_TICKS) % 4;
-		return switch (phase) {
-			case 0 -> new EscapeKeys(true, false, true, false, true, true);
-			case 1 -> new EscapeKeys(true, false, false, true, true, true);
-			case 2 -> new EscapeKeys(false, true, true, false, false, true);
-			default -> new EscapeKeys(false, true, false, true, false, true);
-		};
+	static double fleeWaterPenalty(double currentPenalty) {
+		return Math.max(FLEE_WATER_PENALTY, currentPenalty);
 	}
 
-	private SurvivalReflexAction chooseMobAction(double healthRatio, List<ResolvedThreat> threats) {
-		if (threats != null && threats.size() == 1) {
-			ResolvedThreat threat = threats.getFirst();
-			if (shouldDefend(healthRatio, 1, threat.distance(), threat.lineOfSight(), config.defendMinHealthRatio())) {
-				return SurvivalReflexAction.DEFEND;
-			}
+	private SurvivalReflexAction chooseMobAction(ClientPlayerEntity player, List<ResolvedThreat> threats) {
+		if (player == null || threats == null || threats.isEmpty()) {
+			return SurvivalReflexAction.FLEE;
 		}
-		return SurvivalReflexAction.FLEE;
+		ResolvedThreat closest = closestVisibleThreat(threats);
+		boolean safeThreatTypes = threats.stream().noneMatch(SurvivalReflexRuntime::unsafeCombatThreat);
+		SurvivalCombatReadiness.State readiness = new SurvivalCombatReadiness.State(
+			healthRatio(player),
+			player.getArmor(),
+			weaponEquipped(player),
+			player.getHungerManager().getFoodLevel(),
+			foodAvailable(player),
+			threats.size(),
+			closest.distance(),
+			closest.lineOfSight(),
+			!safeThreatTypes
+				|| hazardousEnvironment(player)
+				|| healthRatio(player) <= config.defendMinHealthRatio()
+		);
+		return SurvivalCombatReadiness.shouldFight(readiness)
+			? SurvivalReflexAction.DEFEND
+			: SurvivalReflexAction.FLEE;
 	}
 
 	private static boolean isDrowningDamage(String damageTypeId) {
@@ -596,6 +652,174 @@ public final class SurvivalReflexRuntime {
 
 	private static double healthRatio(ClientPlayerEntity player) {
 		return player == null || player.getMaxHealth() <= 0.0F ? 0.0D : player.getHealth() / player.getMaxHealth();
+	}
+
+	private Optional<GoalPosition> selectFleeTarget(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		List<ResolvedThreat> threats
+	) {
+		if (client == null || client.world == null || player == null || threats == null || threats.isEmpty()) {
+			return Optional.empty();
+		}
+		BlockPos originPos = player.getBlockPos();
+		SurvivalEscapeTargetSelector.Point origin = point(originPos);
+		List<SurvivalEscapeTargetSelector.Point> threatPoints = threats.stream()
+			.map(threat -> point(threat.entity().getBlockPos()))
+			.toList();
+		List<SurvivalEscapeTargetSelector.Candidate> candidates = new ArrayList<>();
+		for (int dx = -FLEE_SCAN_RADIUS; dx <= FLEE_SCAN_RADIUS; dx++) {
+			for (int dz = -FLEE_SCAN_RADIUS; dz <= FLEE_SCAN_RADIUS; dz++) {
+				for (int dy = FLEE_SCAN_VERTICAL_RADIUS; dy >= -FLEE_SCAN_VERTICAL_RADIUS; dy--) {
+					BlockPos candidatePos = originPos.add(dx, dy, dz);
+					GoalPosition goal = goal(candidatePos);
+					if (failedFleeTargets.contains(goal) || !isSafeFleeStanding(client, candidatePos)) {
+						continue;
+					}
+					candidates.add(new SurvivalEscapeTargetSelector.Candidate(
+						candidatePos.getX(), candidatePos.getY(), candidatePos.getZ(), true, false, false
+					));
+					break;
+				}
+			}
+		}
+		return SurvivalEscapeTargetSelector.select(origin, threatPoints, candidates)
+			.map(selected -> new GoalPosition(selected.x(), selected.y(), selected.z(), true));
+	}
+
+	private static boolean isSafeFleeStanding(MinecraftClient client, BlockPos feetPos) {
+		if (client == null || client.world == null || feetPos == null
+			|| !client.world.isChunkLoaded(feetPos) || !client.world.isChunkLoaded(feetPos.down())) {
+			return false;
+		}
+		BlockState feet = client.world.getBlockState(feetPos);
+		BlockState head = client.world.getBlockState(feetPos.up());
+		BlockState support = client.world.getBlockState(feetPos.down());
+		if (!client.world.getFluidState(feetPos).isEmpty()
+			|| !client.world.getFluidState(feetPos.up()).isEmpty()
+			|| hazardousBlock(feet) || hazardousBlock(head) || hazardousBlock(support)) {
+			return false;
+		}
+		boolean standing = (feet.isAir() || feet.isReplaceable())
+			&& (head.isAir() || head.isReplaceable())
+			&& support.isSideSolidFullSquare(client.world, feetPos.down(), Direction.UP);
+		if (!standing) {
+			return false;
+		}
+		int escapes = 0;
+		for (Direction direction : Direction.Type.HORIZONTAL) {
+			BlockPos adjacent = feetPos.offset(direction);
+			if (basicSafeStanding(client, adjacent)) {
+				escapes++;
+			}
+		}
+		return escapes >= MIN_ESCAPE_DIRECTIONS;
+	}
+
+	private static boolean basicSafeStanding(MinecraftClient client, BlockPos feetPos) {
+		if (client == null || client.world == null || feetPos == null
+			|| !client.world.isChunkLoaded(feetPos) || !client.world.isChunkLoaded(feetPos.down())) {
+			return false;
+		}
+		BlockState feet = client.world.getBlockState(feetPos);
+		BlockState head = client.world.getBlockState(feetPos.up());
+		BlockState support = client.world.getBlockState(feetPos.down());
+		return client.world.getFluidState(feetPos).isEmpty()
+			&& client.world.getFluidState(feetPos.up()).isEmpty()
+			&& !hazardousBlock(feet)
+			&& !hazardousBlock(head)
+			&& !hazardousBlock(support)
+			&& (feet.isAir() || feet.isReplaceable())
+			&& (head.isAir() || head.isReplaceable())
+			&& support.isSideSolidFullSquare(client.world, feetPos.down(), Direction.UP);
+	}
+
+	private static boolean hazardousBlock(BlockState state) {
+		return state != null && (state.isOf(Blocks.FIRE)
+			|| state.isOf(Blocks.SOUL_FIRE)
+			|| state.isOf(Blocks.LAVA)
+			|| state.isOf(Blocks.MAGMA_BLOCK)
+			|| state.isOf(Blocks.CACTUS)
+			|| state.isOf(Blocks.CAMPFIRE)
+			|| state.isOf(Blocks.SOUL_CAMPFIRE)
+			|| state.isOf(Blocks.POWDER_SNOW));
+	}
+
+	private static boolean hazardousEnvironment(ClientPlayerEntity player) {
+		return player == null
+			|| player.isTouchingWater()
+			|| player.isSubmergedInWater()
+			|| player.isInLava()
+			|| player.isOnFire()
+			|| player.fallDistance > 3.0F;
+	}
+
+	private static boolean weaponEquipped(ClientPlayerEntity player) {
+		ItemStack stack = player == null ? ItemStack.EMPTY : player.getMainHandStack();
+		return stack.isIn(ItemTags.SWORDS)
+			|| stack.isIn(ItemTags.AXES)
+			|| stack.getItem() instanceof MaceItem
+			|| stack.getItem() instanceof TridentItem;
+	}
+
+	private static boolean foodAvailable(ClientPlayerEntity player) {
+		if (player == null) {
+			return false;
+		}
+		for (int slot = 0; slot < player.getInventory().size(); slot++) {
+			ItemStack stack = player.getInventory().getStack(slot);
+			if (!stack.isEmpty()
+				&& stack.get(DataComponentTypes.FOOD) != null
+				&& stack.get(DataComponentTypes.CONSUMABLE) != null) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean unsafeCombatThreat(ResolvedThreat threat) {
+		LivingEntity entity = threat == null ? null : threat.entity();
+		return entity instanceof CreeperEntity
+			|| entity instanceof AbstractSkeletonEntity
+			|| entity instanceof BlazeEntity
+			|| entity instanceof GhastEntity;
+	}
+
+	private static ResolvedThreat closestVisibleThreat(List<ResolvedThreat> threats) {
+		return threats.stream()
+			.min((left, right) -> {
+				if (left.lineOfSight() != right.lineOfSight()) {
+					return left.lineOfSight() ? -1 : 1;
+				}
+				return Double.compare(left.distance(), right.distance());
+			})
+			.orElseThrow();
+	}
+
+	private static boolean isTerminalPathFailure(String event) {
+		return "CALC_FAILED".equals(event)
+			|| "CANCELED".equals(event)
+			|| "DISCARDING".equals(event);
+	}
+
+	private void stopFleeNavigation() {
+		if (fleeNavigationOwned && baritone != null) {
+			baritone.cancel();
+		}
+		if (fleeWaterPenaltyBase != null && baritone != null) {
+			baritone.setWalkOnWaterPenalty(fleeWaterPenaltyBase);
+		}
+		fleeWaterPenaltyBase = null;
+		fleeNavigationOwned = false;
+		fleeTarget = null;
+	}
+
+	private static GoalPosition goal(BlockPos pos) {
+		return new GoalPosition(pos.getX(), pos.getY(), pos.getZ(), true);
+	}
+
+	private static SurvivalEscapeTargetSelector.Point point(BlockPos pos) {
+		return new SurvivalEscapeTargetSelector.Point(pos.getX(), pos.getY(), pos.getZ());
 	}
 
 	private void detectProactiveThreats(MinecraftClient client, ClientPlayerEntity player, long tick) {
@@ -757,9 +981,6 @@ public final class SurvivalReflexRuntime {
 		NO_SAFETY_HOLD,
 		REFLEX_ACTIVE,
 		STALE_SAFETY_HOLD
-	}
-
-	record EscapeKeys(boolean forward, boolean back, boolean left, boolean right, boolean sprint, boolean jump) {
 	}
 
 	record ObservedThreat(String uuid, String name, String entityTypeId, long lastDamageTick) {
