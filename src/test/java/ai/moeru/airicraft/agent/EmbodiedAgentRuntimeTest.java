@@ -124,7 +124,7 @@ class EmbodiedAgentRuntimeTest {
 			SurvivalReflexCause.DROWNING,
 			SurvivalReflexAction.STAY_AFLOAT,
 			1L,
-			null,
+			"safety-hold-1",
 			null,
 			null,
 			List.of(),

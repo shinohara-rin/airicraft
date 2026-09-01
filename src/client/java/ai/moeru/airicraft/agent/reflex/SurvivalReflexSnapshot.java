@@ -22,6 +22,9 @@ public record SurvivalReflexSnapshot(
 ) {
 	public SurvivalReflexSnapshot {
 		state = state == null ? SurvivalReflexState.IDLE : state;
+		if (state == SurvivalReflexState.AWAITING_PLANNER && (holdId == null || holdId.isBlank())) {
+			throw new IllegalArgumentException("AWAITING_PLANNER requires a holdId");
+		}
 		threats = threats == null ? List.of() : List.copyOf(threats);
 	}
 

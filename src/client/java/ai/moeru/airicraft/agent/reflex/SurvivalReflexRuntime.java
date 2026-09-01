@@ -540,16 +540,17 @@ public final class SurvivalReflexRuntime {
 		SurvivalReflexState nextState = keepSafetyHold || snapshot.holdId() != null
 			? SurvivalReflexState.AWAITING_PLANNER
 			: SurvivalReflexState.IDLE;
+		String nextHoldId = safetyHoldId(snapshot.holdId(), nextState == SurvivalReflexState.AWAITING_PLANNER);
 		pendingEvents.add(new SurvivalReflexEvent("reflex.resolved", mapOfNullable(
 			"safetyEpoch", snapshot.safetyEpoch(),
-			"holdId", snapshot.holdId(),
+			"holdId", nextHoldId,
 			"cause", snapshot.cause() == null ? null : snapshot.cause().name(),
 			"action", snapshot.action() == null ? null : snapshot.action().name(),
 			"reason", reason,
 			"nextState", nextState.name()
 		)));
 		snapshot = new SurvivalReflexSnapshot(
-			nextState, snapshot.cause(), snapshot.action(), snapshot.safetyEpoch(), snapshot.holdId(),
+			nextState, snapshot.cause(), snapshot.action(), snapshot.safetyEpoch(), nextHoldId,
 			snapshot.interruptedJobId(), snapshot.interruptedActionExecutionId(), threatSnapshots(threats),
 			player.getHealth(), player.getMaxHealth(), player.getAir(), player.getMaxAir(), snapshot.startedTick(),
 			tick, snapshot.breathableTicks(), null
@@ -558,6 +559,15 @@ public final class SurvivalReflexRuntime {
 		lastMobDamageTick = Long.MIN_VALUE;
 		failedFleeTargets.clear();
 		resetFleeProgress();
+	}
+
+	static String safetyHoldId(String existingHoldId, boolean holdRequired) {
+		if (!holdRequired) {
+			return null;
+		}
+		return existingHoldId == null || existingHoldId.isBlank()
+			? UUID.randomUUID().toString()
+			: existingHoldId;
 	}
 
 	private void attemptCloseQuarterAttack(

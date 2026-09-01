@@ -9,6 +9,9 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SurvivalReflexRuntimeTest {
@@ -213,6 +216,17 @@ class SurvivalReflexRuntimeTest {
 		assertTrue(active.holdsNormalTasks());
 		assertTrue(awaiting.ownsActuation());
 		assertTrue(awaiting.holdsNormalTasks());
+	}
+
+	@Test
+	void awaitingPlannerCannotExistWithoutAResumableHoldIdentity() {
+		assertThrows(IllegalArgumentException.class, () -> snapshot(
+			SurvivalReflexState.AWAITING_PLANNER,
+			null
+		));
+		assertNotNull(SurvivalReflexRuntime.safetyHoldId(null, true));
+		assertEquals("existing-hold", SurvivalReflexRuntime.safetyHoldId("existing-hold", true));
+		assertNull(SurvivalReflexRuntime.safetyHoldId(null, false));
 	}
 
 	private static SurvivalReflexSnapshot snapshot(SurvivalReflexState state, String holdId) {
