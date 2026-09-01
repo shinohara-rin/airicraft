@@ -138,7 +138,8 @@ final class SurvivalSmokeFixtureService {
 		prepareMobPlatform(world, player);
 		if (!defend) {
 			BlockPos center = fixtureCenter;
-			fill(world, center.add(-15, 0, -3), center.add(-1, 0, 3), Blocks.WATER.getDefaultState());
+			fill(world, center.add(-15, -2, -3), center.add(-1, -2, 3), Blocks.STONE.getDefaultState());
+			fill(world, center.add(-15, -1, -3), center.add(-1, -1, 3), Blocks.WATER.getDefaultState());
 			player.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
 			player.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
 			player.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);

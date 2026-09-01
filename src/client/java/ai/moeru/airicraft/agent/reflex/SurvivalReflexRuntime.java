@@ -408,6 +408,18 @@ public final class SurvivalReflexRuntime {
 
 	private void flee(MinecraftClient client, ClientPlayerEntity player, List<ResolvedThreat> threats, long tick) {
 		movementController.stop(client);
+		if (shouldUseWaterAwareFlee(player.isTouchingWater(), player.isSubmergedInWater())) {
+			stopFleeNavigation();
+			underwaterEscape.tick(
+				client,
+				UnderwaterEscapeSearch.SearchMode.SAFE_STANDING,
+				player.getAir(),
+				tick,
+				MinecraftUnderwaterEscapeController.isSafeStandingPosition(client, player.getBlockPos())
+			);
+			return;
+		}
+		underwaterEscape.reset(client);
 		if (baritone == null || !baritone.isLoaded()) {
 			throw new IllegalStateException("safe_flee_pathfinder_unavailable");
 		}
@@ -416,7 +428,7 @@ public final class SurvivalReflexRuntime {
 			fleeNavigationOwned = false;
 		}
 		Optional<String> pathEvent = baritone.pollPathEvent();
-		if (shouldRejectFleeTarget(pathEvent, baritone.processActive())) {
+		if (fleeTarget != null && shouldRejectFleeTarget(pathEvent, baritone.processActive())) {
 			pendingEvents.add(new SurvivalReflexEvent("reflex.flee_path_failed", mapOfNullable(
 				"event", pathEvent.orElse(null),
 				"processActive", baritone.processActive(),
@@ -812,6 +824,10 @@ public final class SurvivalReflexRuntime {
 
 	static boolean shouldRejectFleeTarget(Optional<String> pathEvent, boolean currentProcessActive) {
 		return !currentProcessActive && pathEvent.filter(SurvivalReflexRuntime::isTerminalPathFailure).isPresent();
+	}
+
+	static boolean shouldUseWaterAwareFlee(boolean touchingWater, boolean submergedInWater) {
+		return touchingWater || submergedInWater;
 	}
 
 	private void stopFleeNavigation() {

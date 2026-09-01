@@ -107,6 +107,13 @@ class SurvivalReflexRuntimeTest {
 	}
 
 	@Test
+	void mobFleeUsesWaterAwareRecoveryWheneverWaterIsAlreadyMovingThePlayer() {
+		assertTrue(SurvivalReflexRuntime.shouldUseWaterAwareFlee(true, false));
+		assertTrue(SurvivalReflexRuntime.shouldUseWaterAwareFlee(false, true));
+		assertFalse(SurvivalReflexRuntime.shouldUseWaterAwareFlee(false, false));
+	}
+
+	@Test
 	void newDangerPreemptsSafetyHoldButDoesNotRestartActiveReflex() {
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.IDLE, true));
 		assertTrue(SurvivalReflexRuntime.shouldBeginReflex(SurvivalReflexState.AWAITING_PLANNER, true));
