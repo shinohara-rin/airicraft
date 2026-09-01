@@ -37,4 +37,4 @@ Objective: progress from a fresh survival world to the Ender Dragon, using only 
 
 ## Genuine blockers
 
-_None yet._
+- **No coordinate-grounded block break after inspection.** At `(275,65,-133)`, `inspect_world` verified four loaded oak logs at `(284,68,-140)` through `(284,69,-138)`, each nine blocks away. `mine_blocks` for `minecraft:oak_log` did not mine any; it moved the player away and down to `(231,24,-95)` with an empty inventory, even after conservative path settings (`allowParkour=false`, `allowDiagonalDescend=false`, `maxFallHeightNoWater=2`, `allowWaterBucketFall=false`). Cancelling stopped the unsafe route. The only coordinate-shaped action goal, `start_action_goal(kind=block_modification, operation=break, x=284, y=68, z=-140)`, returned `unsupported_action_goal_kind`; executable graph kinds are limited to inventory/crafting/smelting/resource collection. Without an exact-block mining/interaction capability—or a fix that binds `mine_blocks` to inspected, reachable candidates—the API cannot obtain the first log reliably, so the survival playthrough cannot progress.
