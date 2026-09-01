@@ -15,6 +15,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.World;
@@ -64,7 +65,7 @@ final class SurvivalSmokeFixtureService {
 	Map<String, Object> apply(Request request) {
 		Mode mode = request == null ? null : Mode.parse(request.mode());
 		if (mode == null) {
-			throw new FixtureException("invalid_request", "mode must be loadout, underwater, mob_defend, mob_flee, or cleanup");
+			throw new FixtureException("invalid_request", "mode must be loadout, underwater, mob_defend, mob_flee, mob_flee_natural, or cleanup");
 		}
 
 		MinecraftClient client = MinecraftClient.getInstance();
@@ -87,8 +88,11 @@ final class SurvivalSmokeFixtureService {
 
 		cleanup(world, player);
 		origin = new Origin(world.getRegistryKey(), player.getPos(), player.getYaw(), player.getPitch());
-		fixtureCenter = new BlockPos(player.getBlockX(), FIXTURE_Y, player.getBlockZ());
 		world.getServer().setDifficulty(Difficulty.NORMAL, false);
+		if (mode == Mode.MOB_FLEE_NATURAL) {
+			return setupNaturalMobFlee(world, player);
+		}
+		fixtureCenter = new BlockPos(player.getBlockX(), FIXTURE_Y, player.getBlockZ());
 		clearFixture(world);
 
 		return switch (mode) {
@@ -96,8 +100,24 @@ final class SurvivalSmokeFixtureService {
 			case UNDERWATER -> setupUnderwater(world, player);
 			case MOB_DEFEND -> setupMob(world, player, true);
 			case MOB_FLEE -> setupMob(world, player, false);
+			case MOB_FLEE_NATURAL -> throw new IllegalStateException("natural flee handled above");
 			case CLEANUP -> throw new IllegalStateException("cleanup handled above");
 		};
+	}
+
+	private Map<String, Object> setupNaturalMobFlee(ServerWorld world, ServerPlayerEntity player) {
+		player.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.FEET, ItemStack.EMPTY);
+		player.equipStack(EquipmentSlot.MAINHAND, new ItemStack(Items.WOODEN_SWORD));
+		player.setVelocity(Vec3d.ZERO);
+		player.setAir(player.getMaxAir());
+		player.setHealth(player.getMaxHealth() * 0.5F);
+		BlockPos spawn = findNaturalThreatSpawn(world, player.getBlockPos());
+		ZombieEntity zombie = spawnZombie(world, player, spawn);
+		threat = zombie;
+		return payload(Mode.MOB_FLEE_NATURAL, player, zombie.getUuid());
 	}
 
 	private Map<String, Object> setupLoadout(ServerWorld world, ServerPlayerEntity player) {
@@ -157,7 +177,10 @@ final class SurvivalSmokeFixtureService {
 	}
 
 	private ZombieEntity spawnZombie(ServerWorld world, ServerPlayerEntity player) {
-		BlockPos center = fixtureCenter;
+		return spawnZombie(world, player, fixtureCenter);
+	}
+
+	private ZombieEntity spawnZombie(ServerWorld world, ServerPlayerEntity player, BlockPos center) {
 		ZombieEntity zombie = new ZombieEntity(EntityType.ZOMBIE, world);
 		zombie.refreshPositionAndAngles(center.getX() + 2.5, center.getY(), center.getZ() + 0.5, 90.0F, 0.0F);
 		zombie.equipStack(EquipmentSlot.HEAD, new ItemStack(Items.IRON_HELMET));
@@ -171,6 +194,31 @@ final class SurvivalSmokeFixtureService {
 			throw new FixtureException("fixture_setup_failed", "Failed to spawn the survival fixture zombie");
 		}
 		return zombie;
+	}
+
+	private static BlockPos findNaturalThreatSpawn(ServerWorld world, BlockPos playerPos) {
+		int[][] offsets = {
+			{2, 0}, {-2, 0}, {0, 2}, {0, -2},
+			{3, 0}, {-3, 0}, {0, 3}, {0, -3},
+			{2, 2}, {-2, 2}, {2, -2}, {-2, -2}
+		};
+		for (int[] offset : offsets) {
+			for (int dy = 2; dy >= -2; dy--) {
+				BlockPos feet = playerPos.add(offset[0], dy, offset[1]);
+				if (isNaturalStandingPosition(world, feet)) {
+					return feet;
+				}
+			}
+		}
+		throw new FixtureException("fixture_setup_failed", "No nearby natural standing position for the survival threat");
+	}
+
+	private static boolean isNaturalStandingPosition(ServerWorld world, BlockPos feet) {
+		return world.getFluidState(feet).isEmpty()
+			&& world.getFluidState(feet.up()).isEmpty()
+			&& (world.getBlockState(feet).isAir() || world.getBlockState(feet).isReplaceable())
+			&& (world.getBlockState(feet.up()).isAir() || world.getBlockState(feet.up()).isReplaceable())
+			&& world.getBlockState(feet.down()).isSideSolidFullSquare(world, feet.down(), Direction.UP);
 	}
 
 	private void prepareMobPlatform(ServerWorld world, ServerPlayerEntity player) {
@@ -270,6 +318,7 @@ final class SurvivalSmokeFixtureService {
 		UNDERWATER("underwater"),
 		MOB_DEFEND("mob_defend"),
 		MOB_FLEE("mob_flee"),
+		MOB_FLEE_NATURAL("mob_flee_natural"),
 		CLEANUP("cleanup");
 
 		private final String wireValue;
