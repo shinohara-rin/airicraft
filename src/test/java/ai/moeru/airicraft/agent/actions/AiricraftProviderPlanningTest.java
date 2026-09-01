@@ -106,6 +106,89 @@ class AiricraftProviderPlanningTest {
 	}
 
 	@Test
+	void unobservedCraftableStorageBlockIsNotMinedForRecipeInput() {
+		ActionFactStore facts = new ActionFactStore();
+		addSurvivalSmeltFacts(facts);
+		addCraftRecipeFact(
+			facts,
+			"iron_block_to_iron_ingot",
+			"minecraft:iron_ingot",
+			9,
+			Map.of("minecraft:iron_block", 1)
+		);
+		addCraftRecipeFact(
+			facts,
+			"iron_ingot_x9_to_iron_block",
+			"minecraft:iron_block",
+			1,
+			Map.of("minecraft:iron_ingot", 9)
+		);
+		for (Map.Entry<String, Integer> entry : Map.of(
+			"minecraft:stone_pickaxe", 1,
+			"minecraft:furnace", 1,
+			"minecraft:oak_log", 1
+		).entrySet()) {
+			facts.upsert(new ActionFact(
+				ActionFactIdentity.inventoryItem("world-a", "bot", entry.getKey()),
+				Map.of("count", entry.getValue()),
+				ActionFactProvenance.OBSERVED,
+				90,
+				ActionFact.NEVER_STALE
+			));
+		}
+		BlockAcquisitionIndex acquisitions = BlockAcquisitionIndex.of(
+			java.util.stream.Stream.concat(
+				TEST_BLOCK_ACQUISITIONS.rules().stream(),
+				java.util.stream.Stream.of(new BlockAcquisitionRule(
+					"minecraft:iron_block",
+					"minecraft:iron_block",
+					List.of("minecraft:stone_pickaxe"),
+					false,
+					false,
+					"minecraft:blocks/iron_block"
+				))
+			).toList()
+		);
+
+		ActionResolveResult result = resolve(
+			facts,
+			acquisitions,
+			NearbyBlockAvailability.observed(Map.of()),
+			ActionGoal.inventoryItem("minecraft:iron_ingot", 3)
+		);
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertTrue(result.route().steps().stream().noneMatch(step ->
+			List.of("minecraft:iron_block").equals(step.args().get("blockIds"))
+		));
+		assertTrue(result.route().steps().stream().anyMatch(step ->
+			"minecraft:raw_iron".equals(step.args().get("itemId"))
+		));
+	}
+
+	@Test
+	void toolRecipeCraftsSticksInsteadOfBreakingDozensOfLeaves() {
+		ActionFactStore facts = new ActionFactStore();
+		addSurvivalCraftFacts(facts);
+
+		ActionResolveResult result = resolve(
+			facts,
+			oakStickAcquisitions(),
+			NearbyBlockAvailability.observed(Map.of("minecraft:oak_leaves", 64)),
+			ActionGoal.inventoryItem("minecraft:wooden_pickaxe", 1)
+		);
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertTrue(result.route().steps().stream().noneMatch(step ->
+			List.of("minecraft:oak_leaves").equals(step.args().get("blockIds"))
+		));
+		assertTrue(result.route().steps().stream().anyMatch(step ->
+			"minecraft:stick".equals(step.args().get("itemId"))
+				&& "craft_item".equals(step.targetId())
+		));
+	}
+
+	@Test
 	void resolvesResourceCollectionThroughResourceProvider() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(

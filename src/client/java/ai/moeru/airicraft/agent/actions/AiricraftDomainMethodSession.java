@@ -318,6 +318,15 @@ final class AiricraftDomainMethodSession {
 		int requiredCount,
 		List<ActionTraceEvent> trace
 	) {
+		if ("minecraft:stick".equals(itemId)) {
+			Optional<ProviderCandidate> craftedSticks = resolveRecipeProviderGoal(
+				ActionGoal.inventoryItem(itemId, requiredCount),
+				trace
+			);
+			if (craftedSticks.isPresent()) {
+				return Optional.of(craftedSticks.get().route());
+			}
+		}
 		if (ActionGraphDomainKnowledge.plankItemIds().contains(itemId)) {
 			return resolveRecipePlankInputGoal(itemId, requiredCount, trace);
 		}
@@ -424,6 +433,16 @@ final class AiricraftDomainMethodSession {
 				.comparing(BlockAcquisitionRule::blockId)
 				.thenComparing(BlockAcquisitionRule::lootTableId))
 			.toList()) {
+			if (unobservedCraftableBlock(rule, itemId)) {
+				trace.add(event(
+					"route_candidate_rejected",
+					"mining_provider",
+					rule.blockId(),
+					"",
+					Map.of("goal", goal.normalizedKey(), "reason", "unobserved_craftable_block", "itemId", itemId)
+				));
+				continue;
+			}
 			if (!rule.dropEstimateKnown() || rule.expectedDropsPerBreak() <= 0.0) {
 				trace.add(event(
 					"route_candidate_rejected",
@@ -502,6 +521,12 @@ final class AiricraftDomainMethodSession {
 			"requiredToolItemIds", selected.args().get("requiredToolItemIds")
 		)));
 		return Optional.of(new ProviderCandidate(bestRoute, "mining_provider", bestOptionId));
+	}
+
+	private boolean unobservedCraftableBlock(BlockAcquisitionRule rule, String itemId) {
+		return rule.blockId().equals(itemId)
+			&& craftRecipesByOutput.containsKey(itemId)
+			&& nearbyBlockAvailability.count(rule.blockId()) <= 0;
 	}
 
 	private MiningToolPlan resolveMiningToolPlan(
