@@ -28,6 +28,10 @@ record EmbodiedPlannerActionToolExecutor(
 			String toolName = PlannerToolCatalog.normalizeName(toolCall.name());
 			ToolPolicy policy = policy(toolName);
 			ExecutionState state = stateSupplier.get();
+			if (state.itemUseActive() && policy.requiresLivingPlayer()) {
+				return CompletableFuture.completedFuture("TOOL_ERROR: " + toolName
+					+ " item_use_active. Wait for the current food consumption to finish.");
+			}
 			if (state.reflexState() == SurvivalReflexState.ACTIVE && !policy.allowedDuringActiveReflex()) {
 				return CompletableFuture.completedFuture("TOOL_ERROR: " + toolName
 					+ " reflex_active. Only read and cancel/clear controls are allowed during an active survival reflex.");
@@ -82,6 +86,7 @@ record EmbodiedPlannerActionToolExecutor(
 				PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY, PlannerToolCatalog.COLLECT_RESOURCE,
 				PlannerToolCatalog.SMELT_ITEMS, PlannerToolCatalog.COLLECT_SMELTED_ITEMS,
 				PlannerToolCatalog.DROP_ITEMS, PlannerToolCatalog.GIVE_PLAYER,
+				PlannerToolCatalog.EQUIP_ITEM, PlannerToolCatalog.EAT_FOOD,
 				PlannerToolCatalog.ATTACK_ENTITY, PlannerToolCatalog.USE_ENTITY -> ToolPolicy.TASK_AND_GRAPH_MUTATION;
 			case PlannerToolCatalog.CRAFT_RECIPE -> ToolPolicy.CRAFT;
 			case PlannerToolCatalog.PLACE_BLOCK, PlannerToolCatalog.USE_BLOCK,
@@ -113,6 +118,7 @@ record EmbodiedPlannerActionToolExecutor(
 	record ExecutionState(
 		SurvivalReflexState reflexState,
 		boolean requiresRespawn,
+		boolean itemUseActive,
 		boolean activeTaskInProgress,
 		ActiveJobType activeJobType,
 		boolean activeGraph,

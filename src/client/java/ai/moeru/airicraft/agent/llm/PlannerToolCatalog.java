@@ -45,6 +45,8 @@ public final class PlannerToolCatalog {
 	public static final String SMELT_ITEMS = "smelt_items";
 	public static final String COLLECT_SMELTED_ITEMS = "collect_smelted_items";
 	public static final String CANCEL_SMELTING = "cancel_smelting";
+	public static final String EQUIP_ITEM = "equip_item";
+	public static final String EAT_FOOD = "eat_food";
 	public static final String DROP_ITEMS = "drop_items";
 	public static final String GIVE_PLAYER = "give_player";
 	public static final String ATTACK_ENTITY = "attack_entity";
@@ -230,6 +232,14 @@ public final class PlannerToolCatalog {
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("processId", string("Airicraft-owned process id to stop tracking."))
 			), List.of("processId")), PlannerToolCatalog::validateCancelSmeltingArguments),
+		builtInTool(EQUIP_ITEM, false, tool(EQUIP_ITEM, "Equip an exact inventory item. Armor is worn through normal item use; weapons and tools become the selected main-hand item.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts."))
+			), List.of("itemId")), PlannerToolCatalog::validateInventoryItemArguments),
+		builtInTool(EAT_FOOD, false, tool(EAT_FOOD, "Eat one exact food item from inventory. The action holds item use until consumption is confirmed or times out.", properties(
+				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
+				prop("itemId", string("Exact namespaced food item id from inspect_inventory itemCounts."))
+			), List.of("itemId")), PlannerToolCatalog::validateInventoryItemArguments),
 		builtInTool(DROP_ITEMS, false, tool(DROP_ITEMS, "Drop exact items from current inventory at the current position.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
@@ -606,6 +616,10 @@ public final class PlannerToolCatalog {
 
 	private static void validateCancelSmeltingArguments(JsonObject arguments) {
 		requireString(arguments, "processId");
+	}
+
+	private static void validateInventoryItemArguments(JsonObject arguments) {
+		requireString(arguments, "itemId");
 	}
 
 	private static void validateDropItemsArguments(JsonObject arguments) {

@@ -2,10 +2,10 @@ package ai.moeru.airicraft.agent.tasks;
 
 import net.minecraft.client.option.KeyBinding;
 
-final class OwnedKeyPress {
+public final class OwnedKeyPress {
 	private boolean ownsKey;
 
-	void press(KeyBinding keyBinding) {
+	public void press(KeyBinding keyBinding) {
 		if (keyBinding == null) {
 			return;
 		}
@@ -13,7 +13,7 @@ final class OwnedKeyPress {
 		ownsKey = true;
 	}
 
-	void release(KeyBinding keyBinding) {
+	public void release(KeyBinding keyBinding) {
 		if (!ownsKey) {
 			return;
 		}
