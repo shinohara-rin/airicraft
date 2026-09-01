@@ -34,6 +34,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private static final int BREATHABLE_STABLE_TICKS = 12;
 	private static final int HEADROOM_BREAK_TIMEOUT_TICKS = 600;
 	private static final int TOWER_SUPPORT_SEARCH_DEPTH = 3;
+	private static final int TOWER_SUPPORT_UNAVAILABLE_TIMEOUT_TICKS = 100;
 	private static final int UNDERWATER_ESCAPE_PHASE_TICKS = 20;
 	private static final double TARGET_FORWARD_HORIZONTAL_DISTANCE_SQUARED = 4.0D;
 
@@ -54,6 +55,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 	private boolean underwaterRecoveryStarted;
 	private int breathableTicks;
 	private int underwaterStuckTicks;
+	private int towerSupportUnavailableTicks;
 	private TaskExecutionSnapshot snapshot = TaskExecutionSnapshot.idle();
 
 	public ReturnToSurfaceTaskExecutor(BaritoneFacade baritoneFacade) {
@@ -289,7 +291,17 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		jumpKeyControl.press(client.options.jumpKey);
 		PlacementAttempt placement = placeUnderFoot(client, player, hand);
 		if (placement.accepted()) {
+			towerSupportUnavailableTicks = 0;
 			player.swingHand(hand);
+		}
+		else if ("support_unavailable".equals(placement.reason())) {
+			towerSupportUnavailableTicks++;
+			if (towerSupportUnavailableTimedOut(towerSupportUnavailableTicks)) {
+				return fail(request, TaskFailure.of(TaskFailureCode.MISSING_FACT, "towering:support_unavailable_timeout"));
+			}
+		}
+		else {
+			towerSupportUnavailableTicks = 0;
 		}
 		snapshot = snapshot(TaskExecutionState.RUNNING, request, "towering:" + placement.reason());
 		return Optional.empty();
@@ -357,6 +369,10 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 
 	static boolean shouldSelectHeadroomTool(String itemId, String suffix) {
 		return itemId != null && suffix != null && itemId.endsWith(suffix);
+	}
+
+	static boolean towerSupportUnavailableTimedOut(int unavailableTicks) {
+		return unavailableTicks >= TOWER_SUPPORT_UNAVAILABLE_TIMEOUT_TICKS;
 	}
 
 	private static boolean selectHotbarItemSuffix(MinecraftClient client, ClientPlayerEntity player, String suffix) {
@@ -678,6 +694,7 @@ public final class ReturnToSurfaceTaskExecutor implements WorldTaskExecutor {
 		underwaterRecoveryStarted = false;
 		breathableTicks = 0;
 		underwaterStuckTicks = 0;
+		towerSupportUnavailableTicks = 0;
 		snapshot = TaskExecutionSnapshot.idle();
 	}
 

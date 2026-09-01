@@ -194,4 +194,10 @@ class ReturnToSurfaceTaskExecutorTest {
 		assertFalse(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool("minecraft:cobblestone", "_pickaxe"));
 		assertFalse(ReturnToSurfaceTaskExecutor.shouldSelectHeadroomTool(null, "_pickaxe"));
 	}
+
+	@Test
+	void toweringTerminatesAfterAStableSupportFailureWindow() {
+		assertFalse(ReturnToSurfaceTaskExecutor.towerSupportUnavailableTimedOut(99));
+		assertTrue(ReturnToSurfaceTaskExecutor.towerSupportUnavailableTimedOut(100));
+	}
 }

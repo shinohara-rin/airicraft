@@ -10,7 +10,19 @@ public record ReturnToSurfaceStepArgs(
 	boolean useTowering,
 	List<String> fillerBlockIds
 ) {
-	public static final List<String> DEFAULT_FILLER_BLOCK_IDS = List.of("minecraft:dirt", "minecraft:cobblestone");
+	public static final List<String> DEFAULT_FILLER_BLOCK_IDS = List.of(
+		"minecraft:dirt",
+		"minecraft:cobblestone",
+		"minecraft:oak_planks",
+		"minecraft:spruce_planks",
+		"minecraft:birch_planks",
+		"minecraft:jungle_planks",
+		"minecraft:acacia_planks",
+		"minecraft:dark_oak_planks",
+		"minecraft:mangrove_planks",
+		"minecraft:cherry_planks",
+		"minecraft:pale_oak_planks"
+	);
 
 	public ReturnToSurfaceStepArgs {
 		targetKind = targetKind == null || targetKind.isBlank() ? "unknown" : targetKind.trim();
