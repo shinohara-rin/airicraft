@@ -72,10 +72,14 @@ class MiningIlluminationPreflightTest {
 	}
 
 	@Test
-	void doesNotRequireTorchBeforeUnilluminatedMining() {
+	void requiresTorchBeforeUnilluminatedMiningUnlessExplicitlyOverridden() {
 		var prediction = new MiningIlluminationPreflight.Result(true, "target_type_likely_underground");
 
-		assertTrue(MiningIlluminationPreflight.admit(prediction, 0, false).allowed());
-		assertEquals("illumination_advisory", MiningIlluminationPreflight.admit(prediction, 0, false).reason());
+		assertFalse(MiningIlluminationPreflight.admit(prediction, 0, false).allowed());
+		assertEquals("torch_required", MiningIlluminationPreflight.admit(prediction, 0, false).reason());
+		assertTrue(MiningIlluminationPreflight.admit(prediction, 1, false).allowed());
+		assertEquals("torch_available", MiningIlluminationPreflight.admit(prediction, 1, false).reason());
+		assertTrue(MiningIlluminationPreflight.admit(prediction, 0, true).allowed());
+		assertEquals("unilluminated_explicitly_allowed", MiningIlluminationPreflight.admit(prediction, 0, true).reason());
 	}
 }
