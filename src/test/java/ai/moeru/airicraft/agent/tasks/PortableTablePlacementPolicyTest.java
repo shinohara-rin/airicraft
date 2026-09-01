@@ -24,6 +24,18 @@ class PortableTablePlacementPolicyTest {
 	}
 
 	@Test
+	void carriedTableWinsOverAWorkstationSeveralBlocksBelowThePlayer() {
+		assertEquals(
+			CraftingTaskExecutor.WorkbenchSetupAction.PLACE_PORTABLE_TABLE,
+			CraftingTaskExecutor.initialWorkbenchSetupAction(true, true, true)
+		);
+		assertEquals(
+			CraftingTaskExecutor.WorkbenchSetupAction.REUSE_NEARBY_TABLE,
+			CraftingTaskExecutor.initialWorkbenchSetupAction(true, false, true)
+		);
+	}
+
+	@Test
 	void adjacentSiteIsPreferredButPlayerSpaceSurvivesAttemptLimit() {
 		GoalPosition origin = position(0, 64, 0);
 		List<PortableTablePlacementPolicy.SiteObservation> observations = new ArrayList<>();

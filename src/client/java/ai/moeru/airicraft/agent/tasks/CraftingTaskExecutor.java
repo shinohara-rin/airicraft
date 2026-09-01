@@ -227,7 +227,13 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 		}
 		if (phase == CraftPhase.IDLE) {
 			tableTarget = findNearbyCraftingTable(client, player).orElse(null);
-			phase = switch (initialWorkbenchSetupAction(tableTarget != null, hasCraftingTableItem(player.currentScreenHandler))) {
+			boolean tableSubstantiallyBelowPlayer = tableTarget != null
+				&& tableTarget.tablePos().getY() < player.getBlockY() - 1;
+			phase = switch (initialWorkbenchSetupAction(
+				tableTarget != null,
+				tableSubstantiallyBelowPlayer,
+				hasCraftingTableItem(player.currentScreenHandler)
+			)) {
 				case REUSE_NEARBY_TABLE -> CraftPhase.NAVIGATING_TO_TABLE;
 				case PLACE_PORTABLE_TABLE -> CraftPhase.PLACING_TABLE;
 				case CRAFT_PORTABLE_TABLE -> CraftPhase.CRAFTING_TABLE_INPUTS;
@@ -1050,6 +1056,17 @@ public final class CraftingTaskExecutor implements WorldTaskExecutor {
 	}
 
 	static WorkbenchSetupAction initialWorkbenchSetupAction(boolean nearbyTableAvailable, boolean portableTableAvailable) {
+		return initialWorkbenchSetupAction(nearbyTableAvailable, false, portableTableAvailable);
+	}
+
+	static WorkbenchSetupAction initialWorkbenchSetupAction(
+		boolean nearbyTableAvailable,
+		boolean nearbyTableSubstantiallyBelowPlayer,
+		boolean portableTableAvailable
+	) {
+		if (portableTableAvailable && nearbyTableSubstantiallyBelowPlayer) {
+			return WorkbenchSetupAction.PLACE_PORTABLE_TABLE;
+		}
 		if (nearbyTableAvailable) {
 			return WorkbenchSetupAction.REUSE_NEARBY_TABLE;
 		}
