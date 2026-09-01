@@ -55,6 +55,57 @@ class AiricraftProviderPlanningTest {
 	}
 
 	@Test
+	void diamondResourceCollectionMinesOreInsteadOfMiningAStorageBlockRecipeInput() {
+		ActionFactStore facts = new ActionFactStore();
+		facts.upsert(new ActionFact(
+			ActionFactIdentity.inventoryItem("world-a", "bot", "minecraft:iron_pickaxe"),
+			Map.of("count", 1),
+			ActionFactProvenance.OBSERVED,
+			90,
+			ActionFact.NEVER_STALE
+		));
+		addCraftRecipeFact(
+			facts,
+			"diamond_block_to_diamond",
+			"minecraft:diamond",
+			9,
+			Map.of("minecraft:diamond_block", 1)
+		);
+		BlockAcquisitionIndex acquisitions = BlockAcquisitionIndex.of(
+			java.util.stream.Stream.concat(
+				TEST_BLOCK_ACQUISITIONS.rules().stream(),
+				java.util.stream.Stream.of(new BlockAcquisitionRule(
+					"minecraft:diamond_block",
+					"minecraft:diamond_block",
+					List.of("minecraft:iron_pickaxe"),
+					false,
+					false,
+					"minecraft:blocks/diamond_block"
+				))
+			).toList()
+		);
+
+		ActionResolveResult result = resolve(
+			facts,
+			acquisitions,
+			NearbyBlockAvailability.unknown(),
+			ActionGoal.resourceCollection("DIAMOND", 1)
+		);
+
+		assertTrue(result.resolved(), () -> result.trace().toString());
+		assertTrue(result.route().steps().stream().noneMatch(step ->
+			"diamond_block_to_diamond".equals(step.args().get("recipeId"))
+				|| List.of("minecraft:diamond_block").equals(step.args().get("blockIds"))
+		));
+		ActionPlanStep mining = result.route().steps().getLast();
+		assertEquals("mine_block", mining.targetId());
+		assertTrue(List.of(
+			List.of("minecraft:diamond_ore"),
+			List.of("minecraft:deepslate_diamond_ore")
+		).contains(mining.args().get("blockIds")));
+	}
+
+	@Test
 	void resolvesResourceCollectionThroughResourceProvider() {
 		ActionFactStore facts = new ActionFactStore();
 		facts.upsert(new ActionFact(

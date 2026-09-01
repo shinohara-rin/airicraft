@@ -142,18 +142,21 @@ final class AiricraftDomainMethodSession {
 				"",
 				Map.of("goal", goal.normalizedKey(), "cost", 35, "resourceKind", resourceKind, "itemId", itemId)
 			));
-			Optional<ActionRoute> itemRoute = resolveGoal(ActionGoal.inventoryItem(itemId, targetCount));
-			if (itemRoute.isEmpty()) {
+			Optional<ProviderCandidate> miningRoute = resolveMiningProviderGoal(
+				ActionGoal.inventoryItem(itemId, targetCount),
+				trace
+			);
+			if (miningRoute.isEmpty()) {
 				trace.add(event(
 					"route_candidate_rejected",
 					"resource_provider",
 					resourceKind,
 					"",
-					Map.of("goal", goal.normalizedKey(), "reason", "item_route_unavailable", "itemId", itemId)
+					Map.of("goal", goal.normalizedKey(), "reason", "mining_route_unavailable", "itemId", itemId)
 				));
 				return Optional.empty();
 			}
-			return Optional.of(new ProviderCandidate(itemRoute.get(), "resource_provider", resourceKind));
+			return Optional.of(new ProviderCandidate(miningRoute.get().route(), "resource_provider", resourceKind));
 		}
 		int resourceCost = estimateAggregateResourceCost(entry.get(), deficitCount);
 		trace.add(event(
