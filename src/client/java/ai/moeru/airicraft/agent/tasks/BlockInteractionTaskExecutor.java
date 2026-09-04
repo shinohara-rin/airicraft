@@ -827,22 +827,18 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			return Optional.empty();
 		}
 		BlockPos current = player.getBlockPos();
-		List<BlockPos> candidates = placement
-			? viablePlacementStandCandidates(
+		if (placement) {
+			return viablePlacementStandPosition(
+				client,
+				player,
 				target,
 				hitTarget.supportPos(),
-				current,
-				excludedPlacementStands,
-				candidate -> isStandable(client, candidate),
-				candidate -> withinInteractionRange(candidate, hitTarget.hitVec()),
-				candidate -> placementStandHasLineOfSight(client, player, candidate, hitTarget)
+				hitTarget.face(),
+				excludedPlacementStands
 			)
-			: interactionStandCandidates(target, hitTarget.supportPos());
-		if (placement) {
-			return candidates.stream()
-				.findFirst()
 				.map(candidate -> new GoalPosition(candidate.getX(), candidate.getY(), candidate.getZ(), true));
 		}
+		List<BlockPos> candidates = interactionStandCandidates(target, hitTarget.supportPos());
 		GoalPosition best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (BlockPos candidate : candidates) {
@@ -921,6 +917,42 @@ public final class BlockInteractionTaskExecutor implements WorldTaskExecutor {
 			.comparingInt((BlockPos candidate) -> Math.max(0, candidate.getY() - current.getY()))
 			.thenComparingDouble(current::getSquaredDistance));
 		return List.copyOf(viable);
+	}
+
+	/**
+	 * Returns a stance accepted by the placement executor before it starts navigation.
+	 */
+	public static Optional<BlockPos> viablePlacementStandPosition(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		BlockPos target,
+		BlockPos support,
+		Direction face
+	) {
+		return viablePlacementStandPosition(client, player, target, support, face, Set.of());
+	}
+
+	private static Optional<BlockPos> viablePlacementStandPosition(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		BlockPos target,
+		BlockPos support,
+		Direction face,
+		Set<BlockPos> excluded
+	) {
+		if (client == null || client.world == null || player == null || target == null || support == null || face == null || !client.world.isChunkLoaded(support)) {
+			return Optional.empty();
+		}
+		HitTarget hitTarget = hitOnBlock(support, client.world.getBlockState(support), face);
+		return viablePlacementStandCandidates(
+			target,
+			support,
+			player.getBlockPos(),
+			excluded,
+			candidate -> isStandable(client, candidate),
+			candidate -> withinInteractionRange(candidate, hitTarget.hitVec()),
+			candidate -> placementStandHasLineOfSight(client, player, candidate, hitTarget)
+		).stream().findFirst();
 	}
 
 	private static boolean placementStandHasLineOfSight(

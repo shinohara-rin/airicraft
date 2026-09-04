@@ -109,7 +109,7 @@ public final class PlannerToolCatalog {
 				prop("supportStateFilters", stringArray("Exact support block-state filters using key=value syntax.")),
 				prop("requireSolidTopSupport", bool("Whether the support block top face must be solid.")),
 				prop("requireAirAbove", bool("Whether the block above the target must be air or replaceable.")),
-				prop("requireStandableAdjacent", bool("Whether at least one adjacent standable player position is required. Default true.")),
+				prop("requireStandableAdjacent", bool("Whether a safe stance accepted by the placement executor is required. Default true.")),
 				prop("requireWithinInteractionRange", bool("Whether the target must be within current interaction range.")),
 				prop("nearbyRequiredBlockIds", stringArray("Optional nearby block ids required around each placement target.")),
 				prop("nearbyRequiredHorizontalRadius", integer("Horizontal radius for nearbyRequiredBlockIds. Default 4, maximum 16.")),

@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.llm;
 
+import ai.moeru.airicraft.agent.tasks.BlockInteractionTaskExecutor;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -70,7 +71,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		return switch (mode) {
 			case "inspect_area" -> inspectArea(client.world, client.player, bounds, arguments);
 			case "find_blocks" -> findBlocks(client.world, client.player, bounds, arguments);
-			case "find_placement_sites" -> findPlacementSites(client.world, client.player, bounds, arguments);
+			case "find_placement_sites" -> findPlacementSites(client, client.player, bounds, arguments);
 			default -> throw new WorldQueryException("unsupported_mode " + mode);
 		};
 	}
@@ -146,7 +147,8 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 			+ " blocks=" + formatRecords(limited, maxResults), limited.stream().map(record -> record.pos().toImmutable()).toList());
 	}
 
-	private static WorldQueryResult findPlacementSites(World world, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
+	private static WorldQueryResult findPlacementSites(MinecraftClient client, ClientPlayerEntity player, QueryBounds bounds, JsonObject arguments) {
+		World world = client.world;
 		PlacementConstraints constraints = PlacementConstraints.from(arguments);
 		int maxResults = boundedInt(arguments, "maxResults", DEFAULT_MAX_RESULTS, 1, MAX_RESULTS);
 		ArrayList<PlacementSite> matches = new ArrayList<>();
@@ -156,7 +158,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 			if (scanned > SEARCH_BLOCK_CAP) {
 				break;
 			}
-			Optional<PlacementSite> site = placementSite(world, player, pos, constraints);
+			Optional<PlacementSite> site = placementSite(client, player, pos, constraints);
 			site.ifPresent(matches::add);
 		}
 		matches.sort(PlacementSite.ORDERING);
@@ -171,11 +173,12 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 	}
 
 	private static Optional<PlacementSite> placementSite(
-		World world,
+		MinecraftClient client,
 		ClientPlayerEntity player,
 		BlockPos targetPos,
 		PlacementConstraints constraints
 	) {
+		World world = client.world;
 		if (!world.isChunkLoaded(targetPos) || !world.isChunkLoaded(targetPos.down())) {
 			return Optional.empty();
 		}
@@ -204,8 +207,8 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 				return Optional.empty();
 			}
 		}
-		Optional<BlockPos> standableAdjacent = standableAdjacentPosition(world, targetPos);
-		if (constraints.requireStandableAdjacent() && standableAdjacent.isEmpty()) {
+		Optional<BlockPos> placementStand = placementStandPosition(client, player, targetPos, supportPos);
+		if (constraints.requireStandableAdjacent() && placementStand.isEmpty()) {
 			return Optional.empty();
 		}
 		if (constraints.requireWithinInteractionRange() && !withinInteractionRange(player, targetPos)) {
@@ -227,7 +230,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 			blockId(support),
 			properties(support),
 			distance(player.getBlockPos(), targetPos),
-			standableAdjacent.orElse(null),
+			placementStand.orElse(null),
 			nearbyRequiredPos,
 			withinInteractionRange(player, targetPos)
 		));
@@ -258,8 +261,8 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		for (PlacementSite site : sites) {
 			positions.add(site.targetPos().toImmutable());
 			positions.add(site.supportPos().toImmutable());
-			if (site.standableAdjacent() != null) {
-				positions.add(site.standableAdjacent().toImmutable());
+			if (site.placementStand() != null) {
+				positions.add(site.placementStand().toImmutable());
 			}
 			if (site.nearbyRequiredPos() != null) {
 				positions.add(site.nearbyRequiredPos().toImmutable());
@@ -268,26 +271,19 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		return List.copyOf(positions);
 	}
 
-	private static Optional<BlockPos> standableAdjacentPosition(World world, BlockPos targetPos) {
-		for (Direction direction : Direction.Type.HORIZONTAL) {
-			BlockPos pos = targetPos.offset(direction);
-			if (isStandable(world, pos)) {
-				return Optional.of(pos);
-			}
-		}
-		return Optional.empty();
-	}
-
-	private static boolean isStandable(World world, BlockPos pos) {
-		if (!world.isChunkLoaded(pos) || !world.isChunkLoaded(pos.up()) || !world.isChunkLoaded(pos.down())) {
-			return false;
-		}
-		BlockState feet = world.getBlockState(pos);
-		BlockState head = world.getBlockState(pos.up());
-		BlockState floor = world.getBlockState(pos.down());
-		return (feet.isAir() || feet.isReplaceable())
-			&& (head.isAir() || head.isReplaceable())
-			&& floor.isSideSolidFullSquare(world, pos.down(), Direction.UP);
+	private static Optional<BlockPos> placementStandPosition(
+		MinecraftClient client,
+		ClientPlayerEntity player,
+		BlockPos targetPos,
+		BlockPos supportPos
+	) {
+		return BlockInteractionTaskExecutor.viablePlacementStandPosition(
+			client,
+			player,
+			targetPos,
+			supportPos,
+			Direction.UP
+		);
 	}
 
 	private static boolean withinInteractionRange(ClientPlayerEntity player, BlockPos pos) {
@@ -467,7 +463,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 		String supportBlockId,
 		Map<String, String> supportProperties,
 		int distance,
-		BlockPos standableAdjacent,
+		BlockPos placementStand,
 		BlockPos nearbyRequiredPos,
 		boolean withinInteractionRange
 	) {
@@ -485,7 +481,7 @@ public final class CurrentWorldQueryService implements CurrentWorldQueryTool {
 				+ ", supportBlockId=" + supportBlockId
 				+ (supportProperties.isEmpty() ? "" : ", supportState=" + supportProperties)
 				+ ", distance=" + distance
-				+ ", standableAdjacent=" + (standableAdjacent == null ? "none" : compactPos(standableAdjacent))
+				+ ", placementStand=" + (placementStand == null ? "none" : compactPos(placementStand))
 				+ ", nearbyRequiredPos=" + (nearbyRequiredPos == null ? "none" : compactPos(nearbyRequiredPos))
 				+ ", withinInteractionRange=" + withinInteractionRange
 				+ "}";
