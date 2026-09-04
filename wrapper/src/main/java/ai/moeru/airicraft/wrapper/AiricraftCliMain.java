@@ -2581,13 +2581,13 @@ public final class AiricraftCliMain {
 
 		private static Map<String, Object> clientTickDebugStatus(Map<String, Object> payload) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "phase", "paused", "debugSessionId", "pauseEpoch", "clientTickId", "snapshotId", "frameStatus");
+			copy(view, payload, "available", "phase", "paused", "debugSessionId", "pauseEpoch", "clientTickId", "snapshotId", "frameStatus", "serverPhase", "serverPaused", "serverTickId");
 			return view;
 		}
 
 		private static Map<String, Object> clientTickDebugCapture(Map<String, Object> payload, boolean verbose) {
 			LinkedHashMap<String, Object> view = new LinkedHashMap<>();
-			copy(view, payload, "available", "paused", "debugSessionId", "captureId", "snapshotId", "clientTickId", "pauseEpoch", "imageOutputPath", "imageOutputOmitted");
+			copy(view, payload, "available", "paused", "debugSessionId", "captureId", "snapshotId", "clientTickId", "pauseEpoch", "serverPhase", "serverPaused", "serverTickId", "imageOutputPath", "imageOutputOmitted");
 			Map<String, Object> snapshot = map(payload.get("snapshot"));
 			Map<String, Object> frame = map(payload.get("frame"));
 			if (verbose) {

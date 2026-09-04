@@ -53,7 +53,15 @@ public final class ClientTickDebugRuntime {
 			throw new BridgeUnavailableException("trace_active", "Stop the client tick trace before pausing client ticks");
 		}
 		ClientTickPlayerActionEvents.clear();
-		return controller.pause(capturePlayerActions);
+		CompletableFuture<ClientTickDebugController.ClientTickCapture> capture = controller.pause(capturePlayerActions);
+		try {
+			ServerTickDebugRuntime.controller().pause(controller.status().debugSessionId());
+			return capture;
+		}
+		catch (ServerTickDebugController.DebugStateException exception) {
+			controller.reset(exception.code(), exception.getMessage());
+			throw exception;
+		}
 	}
 
 	public CompletableFuture<ClientTickDebugController.ClientTickCapture> step(
@@ -62,10 +70,19 @@ public final class ClientTickDebugRuntime {
 		long pauseEpoch
 	) {
 		requireWorld(client);
-		return controller.step(debugSessionId, pauseEpoch);
+		CompletableFuture<ClientTickDebugController.ClientTickCapture> capture = controller.step(debugSessionId, pauseEpoch);
+		try {
+			ServerTickDebugRuntime.controller().step(debugSessionId, pauseEpoch);
+			return capture;
+		}
+		catch (ServerTickDebugController.DebugStateException exception) {
+			controller.reset(exception.code(), exception.getMessage());
+			throw exception;
+		}
 	}
 
 	public void continueRunning(String debugSessionId, long pauseEpoch) {
+		ServerTickDebugRuntime.controller().continueRunning(debugSessionId, pauseEpoch);
 		controller.continueRunning(debugSessionId, pauseEpoch);
 		ClientTickPlayerActionEvents.clear();
 	}
@@ -100,7 +117,15 @@ public final class ClientTickDebugRuntime {
 	}
 
 	public void beforeFirstPersonFrame(MinecraftClient client, EmbodiedAgentRuntime runtime) {
-		controller.onRenderedFrameBoundary().ifPresent(intent -> beginCapture(client, runtime, intent));
+		ServerTickDebugController.DebugStatus serverStatus = ServerTickDebugRuntime.controller().status();
+		ClientTickDebugController.DebugStatus clientStatus = controller.status();
+		if (
+			serverStatus.paused()
+				&& Objects.equals(serverStatus.debugSessionId(), clientStatus.debugSessionId())
+				&& serverStatus.pauseEpoch() == clientStatus.pauseEpoch() + 1L
+		) {
+			controller.onRenderedFrameBoundary().ifPresent(intent -> beginCapture(client, runtime, intent));
+		}
 	}
 
 	public ClientTickDebugController.DebugStatus status() {
@@ -143,6 +168,7 @@ public final class ClientTickDebugRuntime {
 	public void reset(String code, String message) {
 		boolean frameCaptureActive = controller.status().phase() == ClientTickDebugController.Phase.WAITING_FOR_FRAME;
 		controller.reset(code, message);
+		ServerTickDebugRuntime.reset();
 		traceRecorder.reset();
 		ClientTickPlayerActionEvents.clear();
 		if (frameCaptureActive) {

@@ -87,7 +87,7 @@ public final class ClientTickDebugController {
 	}
 
 	public synchronized Optional<CaptureIntent> onRenderedFrameBoundary() {
-		if (phase != Phase.PAUSE_REQUESTED) {
+		if (phase != Phase.PAUSE_REQUESTED && phase != Phase.STEP_ARMED) {
 			return Optional.empty();
 		}
 		return Optional.of(reserveCapture());

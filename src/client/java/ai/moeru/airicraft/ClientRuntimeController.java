@@ -182,18 +182,6 @@ public final class ClientRuntimeController {
 		client.player.sendMessage(Text.literal("Airicraft debug dashboard: ").append(link), false);
 	}
 
-	public boolean startClientTick() {
-		if (!clientTickDebugRuntime.allowVanillaTick(true)) {
-			return false;
-		}
-		clientTickDebugRuntime.onClientTickStarted();
-		return true;
-	}
-
-	public boolean allowRenderTickCounter(boolean vanillaAllowsTick) {
-		return clientTickDebugRuntime.allowVanillaTick(vanillaAllowsTick);
-	}
-
 	public void onChatReceived(String senderName, String plainTextMessage) {
 		currentAgentRuntime().onChatReceived(senderName, plainTextMessage);
 	}

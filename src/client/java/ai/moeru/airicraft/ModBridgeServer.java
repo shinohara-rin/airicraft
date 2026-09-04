@@ -35,6 +35,7 @@ import ai.moeru.airicraft.debug.ClientTickDebugController;
 import ai.moeru.airicraft.debug.ClientTickEntityQueryService;
 import ai.moeru.airicraft.debug.ClientTickTraceRecorder;
 import ai.moeru.airicraft.debug.ClientTickWorldQueryService;
+import ai.moeru.airicraft.debug.ServerTickDebugRuntime;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -1274,6 +1275,7 @@ public final class ModBridgeServer {
 	private static Map<String, Object> clientTickDebugStatusPayload(
 		ClientTickDebugController.DebugStatus status
 	) {
+		var serverStatus = ServerTickDebugRuntime.controller().status();
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
 		payload.put("phase", status.phase().name());
@@ -1283,6 +1285,9 @@ public final class ModBridgeServer {
 		payload.put("clientTickId", status.clientTickId());
 		payload.put("snapshotId", status.snapshotId());
 		payload.put("frameStatus", status.frameStatus());
+		payload.put("serverPhase", serverStatus.phase().name());
+		payload.put("serverPaused", serverStatus.paused());
+		payload.put("serverTickId", serverStatus.serverTickId());
 		return payload;
 	}
 
