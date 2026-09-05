@@ -80,7 +80,7 @@ record EmbodiedPlannerActionToolExecutor(
 			case PlannerToolCatalog.CANCEL_TASK, PlannerToolCatalog.CLEAR_GOAL -> ToolPolicy.GRAPH_CONTROL;
 			case PlannerToolCatalog.UPDATE_EVENT_POLICY, PlannerToolCatalog.CONFIGURE_PATHFIND,
 				PlannerToolCatalog.CONFIGURE_LIGHTING -> ToolPolicy.DEAD_SAFE;
-			case PlannerToolCatalog.START_ACTION_GOAL -> ToolPolicy.TASK_MUTATION;
+			case PlannerToolCatalog.START_ACTION_GOAL, PlannerToolCatalog.COMMIT_ACTION_PLAN -> ToolPolicy.TASK_MUTATION;
 			case PlannerToolCatalog.FOLLOW_PLAYER, PlannerToolCatalog.NAVIGATE_TO,
 				PlannerToolCatalog.RETURN_TO_SURFACE, PlannerToolCatalog.MINE_BLOCKS,
 				PlannerToolCatalog.ENSURE_BLOCKS_IN_INVENTORY, PlannerToolCatalog.COLLECT_RESOURCE,
@@ -112,7 +112,7 @@ record EmbodiedPlannerActionToolExecutor(
 			+ " graphState=" + graph.state().name()
 			+ " executionId=" + graph.executionId()
 			+ " activeTaskId=" + graph.activeTaskId()
-			+ ". A graph execution owns the mutation boundary. Use list_action_goals, inspect_action_goal, or inspect_action_trace to observe progress. Additional productive work must use start_action_goal; it is accepted only when the foreground lane is free. Cancel only if the user explicitly changes tasks.";
+			+ ". A committed execution owns foreground work. Use inspect_action_goal or inspect_action_trace to observe progress. Wait for completion or REPLAN_REQUIRED; cancel explicitly before replacing work.";
 	}
 
 	record ExecutionState(

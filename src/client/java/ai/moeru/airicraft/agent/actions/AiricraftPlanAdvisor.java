@@ -9,8 +9,25 @@ import ai.moeru.actionplan.PlanningProblem;
 
 import java.util.Objects;
 import java.util.Set;
+import java.util.Map;
 
 public final class AiricraftPlanAdvisor {
+	public Map<String, Object> recommend(AiricraftPlanningSnapshot snapshot, ActionGoal goal, String planContext) {
+		PlanAdvice advice = advise(snapshot, goal, Set.of());
+		return Map.of(
+			"planContext", planContext,
+			"advisory", true,
+			"goal", goal.normalizedKey(),
+			"failureCode", advice.failure().code(),
+			"message", advice.failure().message(),
+			"candidates", advice.candidates().stream().map(candidate -> Map.of(
+				"cost", candidate.cost(),
+				"recommended", advice.recommendation().filter(candidate::equals).isPresent(),
+				"steps", CommittedActionPlan.stepsPayload(AiricraftPlanConversions.toActionRoute(candidate, snapshot.context()))
+			)).toList()
+		);
+	}
+
 	private final PlanAdvisor advisor;
 
 	public AiricraftPlanAdvisor() {

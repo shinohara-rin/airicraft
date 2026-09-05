@@ -10,6 +10,7 @@ public enum ActionGraphExecutionState {
 	WATCHING,
 	REPLANNING,
 	BLOCKED,
+	REPLAN_REQUIRED,
 	SUCCEEDED,
 	FAILED,
 	CANCELLED

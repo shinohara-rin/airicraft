@@ -427,101 +427,63 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void startActionGoalPlannerToolStartsInventoryGraphGoal() {
+	void plannerCommitsExplicitStepsForSupportedGoalKinds() {
+		for (String goal : List.of(
+			"{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:bread\",\"quantity\":1}",
+			"{\"kind\":\"resource_collection\",\"resourceKind\":\"RAW_IRON\",\"quantity\":3}",
+			"{\"kind\":\"crafting_output\",\"itemId\":\"minecraft:crafting_table\",\"quantity\":1}",
+			"{\"kind\":\"smelting_output\",\"itemId\":\"minecraft:iron_ingot\",\"quantity\":3}"
+		)) {
+			EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+			String result = runtime.execute(commitCall(goal, currentPlanContext(runtime))).join();
+			assertTrue(result.startsWith("Tool result for commit_action_plan:"), result);
+			assertEquals(ActionGraphExecutionState.READY, runtime.actionGraphExecutionSnapshot().state());
+			assertEquals(0, runtime.actionGraphExecutionSnapshot().replanCount());
+		}
+	}
+
+	@Test
+	void plannerAutomaticGoalToolCannotStartHiddenExecution() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-
-		String result = runtime.execute(new PlannerToolCall(
-			"call_goal",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-				{"kind":"inventory_item","itemId":"minecraft:bread","quantity":1}
-				""").getAsJsonObject(),
-			null,
-			null
-		)).join();
-
-		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING"));
-		assertTrue(result.contains("executionId="));
-		assertTrue(result.contains("minecraft:bread"));
-		assertEquals(ActionGraphExecutionState.RESOLVING, runtime.actionGraphExecutionSnapshot().state());
+		String result = runtime.execute(new PlannerToolCall("old", PlannerToolCatalog.START_ACTION_GOAL,
+			JsonParser.parseString("{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:bread\",\"quantity\":1}").getAsJsonObject(), null, null)).join();
+		assertTrue(result.contains("debug-only"));
+		assertEquals(ActionGraphExecutionState.IDLE, runtime.actionGraphExecutionSnapshot().state());
 	}
 
 	@Test
-	void startActionGoalPlannerToolStartsResourceGraphGoal() {
+	void committedPlanRejectsStaleContextWithoutReplacingNewerWork() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-
-		String result = runtime.execute(new PlannerToolCall(
-			"call_goal",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-					{"kind":"resource_collection","resourceKind":"RAW_IRON","quantity":3}
-				""").getAsJsonObject(),
-			null,
-			null
-		)).join();
-
-		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING"));
-		assertTrue(result.contains("resourceKind=RAW_IRON"));
-		assertEquals(ActionGraphExecutionState.RESOLVING, runtime.actionGraphExecutionSnapshot().state());
+		String context = currentPlanContext(runtime);
+		String goal = "{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:bread\",\"quantity\":1}";
+		runtime.execute(commitCall(goal, context)).join();
+		String execution = runtime.actionGraphExecutionSnapshot().executionId();
+		String result = runtime.execute(commitCall(goal, context)).join();
+		assertTrue(result.contains("stale_plan_context"), result);
+		assertEquals(execution, runtime.actionGraphExecutionSnapshot().executionId());
 	}
 
 	@Test
-	void startActionGoalPlannerToolTreatsOutputKindsAsInventoryGraphGoals() {
-		EmbodiedAgentRuntime craftingRuntime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-
-		String craftingResult = craftingRuntime.execute(new PlannerToolCall(
-			"call_craft_goal",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-				{"kind":"crafting_output","itemId":"minecraft:crafting_table","quantity":1}
-				""").getAsJsonObject(),
-			null,
-			null
-		)).join();
-
-		assertTrue(craftingResult.contains("Tool result for start_action_goal: state=RESOLVING"));
-		assertTrue(craftingResult.contains("minecraft:crafting_table"));
-
-		EmbodiedAgentRuntime smeltingRuntime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
-		String smeltingResult = smeltingRuntime.execute(new PlannerToolCall(
-			"call_smelt_goal",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-				{"kind":"smelting_output","itemId":"minecraft:iron_ingot","quantity":3}
-				""").getAsJsonObject(),
-			null,
-			null
-		)).join();
-
-		assertTrue(smeltingResult.contains("Tool result for start_action_goal: state=RESOLVING"));
-		assertTrue(smeltingResult.contains("minecraft:iron_ingot"));
-		assertEquals(ActionGraphExecutionState.RESOLVING, smeltingRuntime.actionGraphExecutionSnapshot().state());
-	}
-
-	@Test
-	void startActionGoalPlannerToolRejectsDifferentGoalWhileForegroundBusy() {
+	void explicitCommitCannotPreemptDifferentForegroundGoal() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		ActionGraphExecutionSnapshot first = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:bread", 1), "test");
-
-		String result = runtime.execute(new PlannerToolCall(
-			"call_goal_again",
-			PlannerToolCatalog.START_ACTION_GOAL,
-			JsonParser.parseString("""
-				{"kind":"inventory_item","itemId":"minecraft:iron_pickaxe","quantity":1}
-				""").getAsJsonObject(),
-			null,
-			null
-		)).join();
-
-		assertTrue(result.contains("Tool result for start_action_goal: state=RESOLVING admission=busy"));
-		assertTrue(result.contains("executionId=" + first.executionId()));
-		assertTrue(result.contains("minecraft:bread"));
-		assertTrue(result.contains("failureCode=foreground_busy"));
+		String result = runtime.execute(commitCall(
+			"{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:iron_pickaxe\",\"quantity\":1}", currentPlanContext(runtime))).join();
+		assertTrue(result.contains("foreground_busy"), result);
 		assertEquals(first.executionId(), runtime.actionGraphExecutionSnapshot().executionId());
-		assertTrue(runtime.recentEvents(null).events().stream().anyMatch(event ->
-			"action_graph.goal_admission".equals(event.type())
-				&& "busy".equals(event.payload().get("admission"))
-		));
+	}
+
+	private static String currentPlanContext(EmbodiedAgentRuntime runtime) {
+		String inspected = runtime.execute(new PlannerToolCall("inspect", PlannerToolCatalog.INSPECT_ACTION_GOAL,
+			new com.google.gson.JsonObject(), null, null)).join();
+		return inspected.substring(inspected.lastIndexOf("\nplanContext: ") + "\nplanContext: ".length());
+	}
+
+	private static PlannerToolCall commitCall(String goalJson, String context) {
+		var args = JsonParser.parseString(goalJson).getAsJsonObject();
+		args.addProperty("planContext", context);
+		args.add("steps", JsonParser.parseString("[{\"primitive\":\"craft_item\",\"args\":{\"itemId\":\"minecraft:stick\",\"quantity\":4}}]"));
+		return new PlannerToolCall("commit", PlannerToolCatalog.COMMIT_ACTION_PLAN, args, null, null);
 	}
 
 	@Test
@@ -1290,8 +1252,8 @@ class EmbodiedAgentRuntimeTest {
 
 		assertEquals(PlannerTriggerType.SYSTEM, trigger.type());
 		assertEquals("action_graph", trigger.speaker());
-		assertTrue(trigger.text().contains("one short chat message"));
-		assertTrue(trigger.text().contains("start at most one useful new high-level goal"));
+		assertTrue(trigger.text().contains("explain the wait"));
+		assertTrue(trigger.text().contains("explicitly commit useful independent work"));
 		assertTrue(trigger.text().contains("simply acknowledge without taking action"));
 		assertTrue(trigger.text().contains("Do not invent filler work"));
 		assertEquals("action_graph_suspended:action-graph-wheat", trigger.coalescingKey());
@@ -1348,6 +1310,29 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(trigger.text().contains("failedTarget=minecraft:cobblestone"), trigger.text());
 		assertTrue(trigger.text().contains("failedArgs={itemId=minecraft:cobblestone, quantity=8")
 			|| trigger.text().contains("failedArgs={quantity=8, itemId=minecraft:cobblestone"), trigger.text());
+	}
+
+	@Test
+	void replanRequiredTriggerPreservesGoalAndRequestsExplicitRecovery() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		PlannerTrigger trigger = runtime.createPlannerTriggerForTests(new SemanticEvent(1L, 20L, 1000L,
+			"action_graph.goal_terminal", Map.of("executionId", "iron", "state", "REPLAN_REQUIRED",
+				"goal", "minecraft:iron_pickaxe", "failureCode", "missing_item", "message", "insufficient_illumination",
+				"failedPrimitive", "mine_block", "failedTarget", "minecraft:iron_ore")),
+			new EventRoutingProfile("action_graph.goal_terminal", true, PlannerTriggerType.SYSTEM, true));
+		assertTrue(trigger.text().startsWith("REPLAN_REQUIRED:"));
+		assertTrue(trigger.text().contains("minecraft:iron_pickaxe"));
+		assertTrue(trigger.text().contains("explicitly commit revised steps"));
+		assertTrue(trigger.text().contains("insufficient_illumination"));
+	}
+
+	@Test
+	void priorRuntimePlanContextCannotBeReusedAfterReload() {
+		EmbodiedAgentRuntime old = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		EmbodiedAgentRuntime current = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		String result = current.execute(commitCall("{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:bread\",\"quantity\":1}", currentPlanContext(old))).join();
+		assertTrue(result.contains("stale_plan_context"));
+		assertEquals(ActionGraphExecutionState.IDLE, current.actionGraphExecutionSnapshot().state());
 	}
 
 	@Test

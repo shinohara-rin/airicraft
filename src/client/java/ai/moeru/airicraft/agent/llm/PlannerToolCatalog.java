@@ -30,6 +30,8 @@ public final class PlannerToolCatalog {
 	public static final String INSPECT_SMELTING = "inspect_smelting";
 	public static final String INSPECT_NEARBY_ENTITIES = "inspect_nearby_entities";
 	public static final String START_ACTION_GOAL = "start_action_goal";
+	public static final String RECOMMEND_ACTIONS = "recommend_actions";
+	public static final String COMMIT_ACTION_PLAN = "commit_action_plan";
 	public static final String LIST_ACTION_GOALS = "list_action_goals";
 	public static final String INSPECT_ACTION_GOAL = "inspect_action_goal";
 	public static final String CANCEL_ACTION_GOAL = "cancel_action_goal";
@@ -135,7 +137,15 @@ public final class PlannerToolCatalog {
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 				prop("prompt", string("Optional nearby-entity question."))
 			), List.of()), NO_ARGUMENT_VALIDATION),
-		builtInTool(START_ACTION_GOAL, false, tool(START_ACTION_GOAL, "Start one runtime-owned action graph goal from a high-level typed intent. Prefer this over low-level action tools for execution.", properties(
+		builtInTool(RECOMMEND_ACTIONS, true, tool(RECOMMEND_ACTIONS, "Read-only route advice for a final item or resource goal. Returns candidate steps and planContext; starts no work. You choose the steps and explicitly commit them, or use direct tools.", planGoalProperties(), List.of("kind", "quantity")), PlannerToolCatalog::validateStartActionGoalArguments),
+		builtInTool(COMMIT_ACTION_PLAN, false, tool(COMMIT_ACTION_PLAN, "Execute exactly your selected ordered steps. Does not solve or replan. Copy primitive/args steps from advice or build them using list_action_capabilities. REPLAN_REQUIRED stops execution for your next decision. Use a fresh planContext from recommend_actions or inspect_action_goal. Cancel existing work explicitly before replacement.", commitPlanProperties(), List.of("kind", "quantity", "planContext", "steps")), arguments -> {
+			validateStartActionGoalArguments(arguments);
+			requireString(arguments, "planContext");
+			if (!arguments.has("steps") || !arguments.get("steps").isJsonArray() || arguments.getAsJsonArray("steps").size() > 64) {
+				throw new JsonParseException("steps must be an array of at most 64 entries");
+			}
+		}),
+		builtInTool(START_ACTION_GOAL, false, tool(START_ACTION_GOAL, "Legacy debug-only automatic goal execution. Planner tools must use recommend_actions and commit_action_plan instead.", properties(
 				prop("narration", optionalString("Optional visible narration before using the tool. Omit this field when no narration is needed.")),
 					prop("kind", enumString("Typed action goal kind. inventory_item, crafting_output, smelting_output, and catalog resource_collection are executable in v1; other kinds are reserved graph goal surfaces during migration.", List.of(
 					"inventory_item",
@@ -1052,6 +1062,26 @@ public final class PlannerToolCatalog {
 		catch (RuntimeException exception) {
 			return Optional.empty();
 		}
+	}
+
+	private static Map<String, Object> planGoalProperties() {
+		return properties(
+			prop("narration", optionalString("Optional short visible narration.")),
+			prop("kind", enumString("Final goal kind.", List.of("inventory_item", "resource_collection", "crafting_output", "smelting_output"))),
+			prop("itemId", optionalString("Final desired namespaced item id.")),
+			prop("resourceKind", optionalString("Catalog resource kind for resource_collection.")),
+			prop("quantity", integer("Desired minimum quantity, positive."))
+		);
+	}
+
+	private static Map<String, Object> commitPlanProperties() {
+		Map<String, Object> properties = new LinkedHashMap<>(planGoalProperties());
+		properties.put("planContext", string("Copy exactly from fresh advice or inspect_action_goal; stale contexts are rejected."));
+		properties.put("steps", array("Ordered steps, at most 64. Empty only when the goal is already satisfied.", Map.of(
+			"type", "object", "properties", Map.of("primitive", string("Executable primitive id, or watch for a smelting process."),
+				"args", Map.of("type", "object", "additionalProperties", true)), "required", List.of("primitive", "args"), "additionalProperties", false
+		)));
+		return properties;
 	}
 
 	private static Map<String, Object> tool(String name, String description, Map<String, Object> properties, List<String> required) {

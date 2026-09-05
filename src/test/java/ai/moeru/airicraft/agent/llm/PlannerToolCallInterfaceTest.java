@@ -59,7 +59,7 @@ class PlannerToolCallInterfaceTest {
 			assertEquals("auto", body.get("tool_choice").getAsString());
 			JsonArray tools = body.getAsJsonArray("tools");
 			assertNotNull(tools);
-			assertEquals(5, tools.size());
+			assertEquals(6, tools.size());
 			assertEquals(PlannerToolCatalog.DISCOVER_TOOLS, tools.get(0).getAsJsonObject()
 				.getAsJsonObject("function").get("name").getAsString());
 			JsonObject discoverySchema = tools.get(0).getAsJsonObject()

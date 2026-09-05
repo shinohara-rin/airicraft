@@ -197,6 +197,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.TreeMap;
 
 public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
+	private static final com.google.gson.Gson PLAN_JSON = new com.google.gson.Gson();
+	private final String planContextEpoch = java.util.UUID.randomUUID().toString();
 	static final long CHAT_ECHO_SUPPRESSION_TICKS = 40L;
 	static final int CRAFT_TOOL_RESULT_TIMEOUT_TICKS = 40;
 	static final int BLOCK_MODIFICATION_TOOL_RESULT_TIMEOUT_TICKS = 40;
@@ -2101,7 +2103,33 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 
 	@Override
 	public CompletableFuture<String> execute(PlannerToolCall toolCall) {
+		if (toolCall != null && PlannerToolCatalog.RECOMMEND_ACTIONS.equals(toolCall.name())) {
+			try {
+				MinecraftClient client = MinecraftClient.getInstance();
+				WorldEvidence evidence = currentWorldEvidence(client);
+				ActionResolverContext context = actionResolverContext(evidence);
+				ArrayList<ActionFact> observed = new ArrayList<>(FarmBootstrapFactProvider.fromWorldEvidence(context, evidence));
+				observed.addAll(observeSmeltingProcessFacts(context));
+				observed.addAll(observeCropGroupFacts(client, context, List.of(), true));
+				var snapshot = ai.moeru.airicraft.agent.actions.AiricraftPlanningSnapshot.capture(new ActionGraphExecutionInput(
+					context, evidence.itemCounts(), resourceCountsForGraph(evidence.inventoryCounts()), sessionSnapshot.worldLoaded(),
+					false, null, evidence.availableCrafts(), evidence.knownCrafts(), evidence.availableSmelts(), evidence.knownSmelts(),
+					observed, null, Map.of(), blockAcquisitions(), NearbyBlockAvailability.observed(evidence.nearbyBlocks())
+				));
+				return actionGraphCoordinator.recommend(snapshot, parseActionGoalArgs(toolCall.arguments()), actionPlanContext())
+					.thenApply(payload -> "Tool result for recommend_actions: " + PLAN_JSON.toJson(payload))
+					.exceptionally(error -> "TOOL_ERROR: recommend_actions advice_failed");
+			}
+			catch (RuntimeException exception) {
+				return CompletableFuture.completedFuture("TOOL_ERROR: recommend_actions " + exception.getMessage());
+			}
+		}
 		return plannerActionToolExecutor.execute(toolCall);
+	}
+
+	private String actionPlanContext() {
+		ActionResolverContext context = actionResolverContext(currentWorldEvidence(MinecraftClient.getInstance()));
+		return planContextEpoch + ":" + context.worldId() + ":" + actionGraphCoordinator.revision() + ":" + activeJobRuntime.current().jobId();
 	}
 
 	private EmbodiedPlannerActionToolExecutor.ExecutionState plannerActionToolExecutionState() {
@@ -2160,8 +2188,23 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 					+ " taskState=" + taskSnapshot.state().name();
 			}
 			case PlannerToolCatalog.START_ACTION_GOAL -> {
-				ActionGraphStartResult result = startActionGoalDetailed(parseActionGoalArgs(args), "planner_tool");
-				yield actionGraphStartToolResult(result);
+				yield "TOOL_ERROR: start_action_goal is debug-only. Use recommend_actions for advice, then commit_action_plan with your selected steps.";
+			}
+			case PlannerToolCatalog.COMMIT_ACTION_PLAN -> {
+				if (!actionPlanContext().equals(stringArg(args, "planContext").orElse(""))) {
+					yield "TOOL_ERROR: commit_action_plan stale_plan_context. Inspect the current execution before making a new plan.";
+				}
+				WorldEvidence evidence = currentWorldEvidence(MinecraftClient.getInstance());
+				ActionResolverContext context = actionResolverContext(evidence);
+				var route = ai.moeru.airicraft.agent.actions.CommittedActionPlan.parse(args.getAsJsonArray("steps"), context);
+				ActionGraphStartResult result = actionGraphCoordinator.commit(parseActionGoalArgs(args), route, evidence.itemCounts(), context, tickCount);
+				if (result.admission() == ActionGraphAdmission.STARTED) {
+					releaseSafetyHoldForActionGraphStart("action_plan_committed");
+					dialogueRuntime.invalidateIdleThinkTriggers();
+				}
+				eventBuffer.append(tickCount, "action_graph.plan_admission", result.toPayload(false));
+				drainActionGraphCoordinatorEvents();
+				yield "Tool result for commit_action_plan: " + PLAN_JSON.toJson(result.toPayload(false));
 			}
 			case PlannerToolCatalog.LIST_ACTION_GOALS -> {
 				yield actionGraphListToolResult(actionGraphExecutions(), false);
@@ -2169,7 +2212,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 			case PlannerToolCatalog.INSPECT_ACTION_GOAL -> {
 				String executionId = stringArg(args, "executionId").orElse(null);
 				ActionGraphExecutionView view = actionGraphCoordinator.inspect(executionId);
-				yield actionGraphViewToolResult("inspect_action_goal", view, false);
+				yield actionGraphViewToolResult("inspect_action_goal", view, false) + "\nplanContext: " + actionPlanContext();
 			}
 			case PlannerToolCatalog.CANCEL_ACTION_GOAL -> {
 				String executionId = stringArg(args, "executionId").orElse(null);
@@ -3795,7 +3838,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		String message = "ACTION GRAPH SUSPENDED: executionId=" + executionId
 			+ " pendingWatch=" + (pendingWatch == null ? "" : pendingWatch)
 			+ ". The goal released foreground actuation while it waits for a world condition. "
-			+ "You may send one short chat message explaining the wait, start at most one useful new high-level goal with start_action_goal, or simply acknowledge without taking action. "
+			+ "You may explain the wait, explicitly commit useful independent work while the lane is free, or simply acknowledge without taking action. "
 			+ "Do not invent filler work. The suspended goal will resume automatically after its condition is fulfilled and current foreground work finishes.";
 		return PlannerTrigger.autonomous(
 			PlannerTriggerType.SYSTEM,
@@ -3810,7 +3853,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private ai.moeru.airicraft.agent.llm.PlannerTrigger createActionGraphTerminalTrigger(SemanticEvent event) {
 		String executionId = stringPayloadValue(event.payload(), "executionId");
 		String state = stringPayloadValue(event.payload(), "state");
-		if (executionId == null || !"FAILED".equals(state)) {
+		if (executionId == null || (!"FAILED".equals(state) && !"REPLAN_REQUIRED".equals(state))) {
 			return null;
 		}
 		String goal = stringPayloadValue(event.payload(), "goal");
@@ -3820,14 +3863,17 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		String failedTarget = stringPayloadValue(event.payload(), "failedTarget");
 		Object failedArgs = event.payload().get("failedArgs");
 		String normalizedCode = failureCode == null ? "failed" : failureCode;
-		String message = "ACTION GRAPH FAILED: executionId=" + executionId
+		String message = ("REPLAN_REQUIRED".equals(state) ? "REPLAN_REQUIRED: executionId=" : "ACTION GRAPH FAILED: executionId=") + executionId
 			+ " goal=" + (goal == null ? "" : goal)
 			+ " failedPrimitive=" + (failedPrimitive == null ? "" : failedPrimitive)
 			+ " failedTarget=" + (failedTarget == null ? "" : failedTarget)
 			+ " failedArgs=" + (failedArgs == null ? "{}" : failedArgs)
 			+ " failureCode=" + normalizedCode
 			+ " message=" + (failureMessage == null ? "" : failureMessage)
-			+ ". Explain the terminal failure accurately. ";
+			+ ". The execution has stopped; no automatic replanning will happen. ";
+		if ("REPLAN_REQUIRED".equals(state)) {
+			message += "Preserve the original goal. Inspect fresh evidence, optionally ask recommend_actions, and explicitly commit revised steps. Do not repeat the same blocked step unless its missing requirement has changed. Ask the user if recovery needs new permission. ";
+		}
 		if ("unknown_acquisition_method".equals(normalizedCode) || "unsupported_resource_kind".equals(normalizedCode)) {
 			message += "Airicraft has no registered acquisition method for this request. Do not substitute mine_blocks, ensure_blocks_in_inventory, collect_resource, or another legacy action; tell the user that this acquisition is unsupported.";
 		}

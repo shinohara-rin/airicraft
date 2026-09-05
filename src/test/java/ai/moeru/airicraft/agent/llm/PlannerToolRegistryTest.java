@@ -23,7 +23,8 @@ class PlannerToolRegistryTest {
 
 		assertEquals(List.of(
 			PlannerToolCatalog.DISCOVER_TOOLS,
-			PlannerToolCatalog.START_ACTION_GOAL,
+			PlannerToolCatalog.RECOMMEND_ACTIONS,
+			PlannerToolCatalog.COMMIT_ACTION_PLAN,
 			PlannerToolCatalog.INSPECT_ACTION_GOAL,
 			PlannerToolCatalog.CANCEL_ACTION_GOAL,
 			PlannerToolCatalog.CLEAR_GOAL
@@ -84,7 +85,7 @@ class PlannerToolRegistryTest {
 		registry.resetToolSurface();
 		assertFalse(registry.isActiveTool(PlannerToolCatalog.RESUME_TASK));
 		assertFalse(registry.isActiveTool(PlannerToolCatalog.NAVIGATE_TO));
-		assertEquals(5, registry.openAiTools().size());
+		assertEquals(6, registry.openAiTools().size());
 	}
 
 	@Test

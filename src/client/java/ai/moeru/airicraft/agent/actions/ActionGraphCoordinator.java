@@ -11,6 +11,7 @@ import java.util.PriorityQueue;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 public final class ActionGraphCoordinator {
@@ -26,6 +27,35 @@ public final class ActionGraphCoordinator {
 	private final List<ActionGraphCoordinatorEvent> events = new ArrayList<>();
 	private String foregroundExecutionId = "";
 	private long nextCreationOrder;
+	private long revision;
+
+	public synchronized long revision() {
+		return revision;
+	}
+
+	public CompletableFuture<Map<String, Object>> recommend(AiricraftPlanningSnapshot snapshot, ActionGoal goal, String planContext) {
+		return CompletableFuture.supplyAsync(() -> new AiricraftPlanAdvisor().recommend(snapshot, goal, planContext), resolutionExecutor);
+	}
+
+	public synchronized ActionGraphStartResult commit(
+		ActionGoal goal, ActionRoute route, Map<String, Integer> inventory, ActionResolverContext context, long tick
+	) {
+		Objects.requireNonNull(route, "route");
+		Optional<ManagedExecution> existing = executions.values().stream()
+			.filter(ManagedExecution::nonterminal)
+			.filter(managed -> goal.equals(managed.runtime.snapshot().goal()))
+			.findFirst();
+		if (existing.isPresent()) {
+			return startResult(ActionGraphAdmission.BUSY, existing.get(), "goal_already_active", "Cancel the existing plan explicitly before replacing its steps");
+		}
+		ActionGraphStartResult result = submit(goal, inventory, context, tick);
+		if (result.admission() != ActionGraphAdmission.STARTED) {
+			return result;
+		}
+		ManagedExecution managed = executions.get(result.execution().execution().executionId());
+		managed.runtime.commitRoute(route);
+		return startResult(ActionGraphAdmission.STARTED, managed, "", "");
+	}
 
 	public ActionGraphCoordinator(ActionGraphPrimitiveDispatcher dispatcher) {
 		this.resolutionExecutor = Executors.newSingleThreadExecutor(
@@ -78,6 +108,7 @@ public final class ActionGraphCoordinator {
 		ManagedExecution managed = new ManagedExecution(runtime, nextCreationOrder++, tick, tick, ActionGraphResidency.FOREGROUND);
 		executions.put(executionId, managed);
 		foregroundExecutionId = executionId;
+		revision++;
 		events.add(new ActionGraphCoordinatorEvent("action_graph.goal_started", executionId, Map.of("goal", goal.normalizedKey())));
 		return startResult(ActionGraphAdmission.STARTED, managed, "", "");
 	}
@@ -156,6 +187,7 @@ public final class ActionGraphCoordinator {
 			return;
 		}
 		if (terminal(snapshot.state())) {
+			revision++;
 			managed.residency = ActionGraphResidency.TERMINAL;
 			managed.updatedTick = tick;
 			foregroundExecutionId = "";
@@ -165,10 +197,11 @@ public final class ActionGraphCoordinator {
 			payload.put("failureCode", snapshot.failureCode());
 			payload.put("message", snapshot.message());
 			ActionPlanStep failedStep = snapshot.currentStep();
-			if (snapshot.state() == ActionGraphExecutionState.FAILED && failedStep != null) {
+			if ((snapshot.state() == ActionGraphExecutionState.FAILED || snapshot.state() == ActionGraphExecutionState.REPLAN_REQUIRED) && failedStep != null) {
 				payload.put("failedPrimitive", failedStep.targetId());
 				payload.put("failedTarget", failedTarget(failedStep));
 				payload.put("failedArgs", failedStep.args());
+				payload.put("dispatch", snapshot.dispatch());
 			}
 			events.add(new ActionGraphCoordinatorEvent("action_graph.goal_terminal", snapshot.executionId(), payload));
 		}
@@ -192,6 +225,7 @@ public final class ActionGraphCoordinator {
 			return view(managed);
 		}
 		String activeTaskId = managed.runtime.snapshot().activeTaskId();
+		revision++;
 		managed.runtime.cancel(reason, tick);
 		managed.residency = ActionGraphResidency.TERMINAL;
 		managed.updatedTick = tick;
@@ -220,6 +254,7 @@ public final class ActionGraphCoordinator {
 	}
 
 	public synchronized void cancelAll(String reason, long tick) {
+		revision++;
 		for (Map.Entry<String, ManagedExecution> entry : executions.entrySet()) {
 			ManagedExecution managed = entry.getValue();
 			if (!managed.nonterminal()) {
@@ -240,6 +275,7 @@ public final class ActionGraphCoordinator {
 	}
 
 	public synchronized void clear() {
+		revision++;
 		executions.values().forEach(managed -> managed.runtime.clear());
 		executions.clear();
 		foregroundExecutionId = "";
@@ -386,6 +422,7 @@ public final class ActionGraphCoordinator {
 
 	private static boolean terminal(ActionGraphExecutionState state) {
 		return state == ActionGraphExecutionState.SUCCEEDED
+			|| state == ActionGraphExecutionState.REPLAN_REQUIRED
 			|| state == ActionGraphExecutionState.FAILED
 			|| state == ActionGraphExecutionState.CANCELLED;
 	}

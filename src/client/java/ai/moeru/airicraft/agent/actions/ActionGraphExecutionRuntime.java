@@ -31,6 +31,8 @@ public final class ActionGraphExecutionRuntime {
 	private final ActionGraphPrimitiveDispatcher primitiveDispatcher;
 	private final Executor resolutionExecutor;
 	private final AutoCommittingRoutePlanner routePlanner;
+	private enum RouteAuthority { AUTOMATIC, PLANNER }
+	private RouteAuthority routeAuthority = RouteAuthority.AUTOMATIC;
 
 	private ActionGraphExecutionState state = ActionGraphExecutionState.IDLE;
 	private String executionId = "";
@@ -99,6 +101,7 @@ public final class ActionGraphExecutionRuntime {
 		String executionId
 	) {
 		cancelResolution();
+		this.routeAuthority = RouteAuthority.AUTOMATIC;
 		this.executionId = executionId == null || executionId.isBlank()
 			? "action-graph-" + UUID.randomUUID()
 			: executionId;
@@ -136,6 +139,17 @@ public final class ActionGraphExecutionRuntime {
 		return snapshot();
 	}
 
+	/** Accept already selected steps; never invoke the solver for this execution. */
+	synchronized void commitRoute(ActionRoute committedRoute) {
+		if (state != ActionGraphExecutionState.RESOLVING || resolutionTask != null) {
+			throw new IllegalStateException("A route must be committed before execution starts");
+		}
+		route = Objects.requireNonNull(committedRoute, "committedRoute");
+		routeAuthority = RouteAuthority.PLANNER;
+		state = ActionGraphExecutionState.READY;
+		trace("plan_committed", "", "", "", Map.of("stepCount", route.steps().size(), "authority", "planner"));
+	}
+
 	public synchronized ActionGraphExecutionSnapshot tick(ActionGraphExecutionInput input) {
 		return tickForeground(input);
 	}
@@ -144,10 +158,7 @@ public final class ActionGraphExecutionRuntime {
 		Objects.requireNonNull(input, "input");
 		lastContext = input.context();
 		ingestObservedFacts(input);
-		if (state == ActionGraphExecutionState.IDLE
-			|| state == ActionGraphExecutionState.SUCCEEDED
-			|| state == ActionGraphExecutionState.FAILED
-			|| state == ActionGraphExecutionState.CANCELLED) {
+		if (state == ActionGraphExecutionState.IDLE || terminal()) {
 			return snapshot();
 		}
 		if (!input.worldLoaded()) {
@@ -203,7 +214,7 @@ public final class ActionGraphExecutionRuntime {
 				case BLOCKED -> {
 					return snapshot();
 				}
-				case IDLE, SUCCEEDED, FAILED, CANCELLED -> {
+				case IDLE, SUCCEEDED, FAILED, CANCELLED, REPLAN_REQUIRED -> {
 					return snapshot();
 				}
 			}
@@ -429,6 +440,10 @@ public final class ActionGraphExecutionRuntime {
 			}
 		}
 		if (cursor >= route.steps().size()) {
+			if (routeAuthority == RouteAuthority.PLANNER) {
+				requireReplan("goal_not_satisfied", "Committed steps finished but the requested goal was not observed");
+				return;
+			}
 			if (replanCount < MAX_REPLANS) {
 				replanCount++;
 				state = ActionGraphExecutionState.REPLANNING;
@@ -463,6 +478,7 @@ public final class ActionGraphExecutionRuntime {
 		ActionPlanStep dispatchStep = bindPrimitiveStep(currentStep);
 		ActionGraphPrimitiveDispatchResult result = primitiveDispatcher.dispatch(dispatchStep);
 		if (!result.accepted()) {
+			dispatchPayload = result.payload();
 			stepAttempt++;
 			handleStepFailure(result.failureCode(), result.message(), false);
 			return;
@@ -509,7 +525,7 @@ public final class ActionGraphExecutionRuntime {
 			cursor++;
 			activeTaskId = "";
 			stepAttempt = 0;
-			refreshRouteAfterObservation = refreshAfterSuccessfulStep(currentStep);
+			refreshRouteAfterObservation = routeAuthority == RouteAuthority.AUTOMATIC && refreshAfterSuccessfulStep(currentStep);
 			observeNotBeforeTick = lastContext == null ? -1L : lastContext.currentTick() + 20L;
 			state = ActionGraphExecutionState.OBSERVING;
 			return;
@@ -561,6 +577,15 @@ public final class ActionGraphExecutionRuntime {
 				"decision", "retry_step",
 				"nextAttempt", stepAttempt + 1
 			));
+			return;
+		}
+		if (routeAuthority == RouteAuthority.PLANNER) {
+			if ("missing_fact".equals(classified) || "environment_changed".equals(classified) || "transient".equals(classified)) {
+				requireReplan(safeFailureCode.id(), nonEmpty(failureMessage, safeFailureCode.id()));
+			}
+			else {
+				fail(safeFailureCode.id(), nonEmpty(failureMessage, safeFailureCode.id()));
+			}
 			return;
 		}
 		if (fromTerminalEvent && "transient".equals(classified) && replanCount < MAX_REPLANS) {
@@ -827,8 +852,19 @@ public final class ActionGraphExecutionRuntime {
 		));
 	}
 
+	private void requireReplan(String code, String reason) {
+		activeTaskId = "";
+		state = ActionGraphExecutionState.REPLAN_REQUIRED;
+		failureCode = code;
+		message = reason;
+		trace("replan_required", actionId(currentStep), alternativeId(currentStep), stepId(currentStep), Map.of(
+			"failureCode", code, "message", reason, "dispatch", dispatchPayload
+		));
+	}
+
 	private boolean terminal() {
 		return state == ActionGraphExecutionState.SUCCEEDED
+			|| state == ActionGraphExecutionState.REPLAN_REQUIRED
 			|| state == ActionGraphExecutionState.FAILED
 			|| state == ActionGraphExecutionState.CANCELLED;
 	}

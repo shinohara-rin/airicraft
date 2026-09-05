@@ -66,10 +66,10 @@ class OpenAiCompatibleLlmBackendTest {
 			assertEquals("auto", body.get("tool_choice").getAsString());
 			JsonArray tools = body.getAsJsonArray("tools");
 			assertNotNull(tools);
-			assertEquals(5, tools.size());
+			assertEquals(6, tools.size());
 			assertEquals(PlannerToolCatalog.DISCOVER_TOOLS, tools.get(0).getAsJsonObject()
 				.getAsJsonObject("function").get("name").getAsString());
-			assertEquals(PlannerToolCatalog.START_ACTION_GOAL, tools.get(1).getAsJsonObject()
+			assertEquals(PlannerToolCatalog.RECOMMEND_ACTIONS, tools.get(1).getAsJsonObject()
 				.getAsJsonObject("function").get("name").getAsString());
 			JsonObject discoverSchema = tools.get(0).getAsJsonObject()
 				.getAsJsonObject("function")
@@ -121,7 +121,8 @@ class OpenAiCompatibleLlmBackendTest {
 			List<String> initialToolNames = toolNames(JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("tools"));
 			assertEquals(List.of(
 				PlannerToolCatalog.DISCOVER_TOOLS,
-				PlannerToolCatalog.START_ACTION_GOAL,
+				PlannerToolCatalog.RECOMMEND_ACTIONS,
+				PlannerToolCatalog.COMMIT_ACTION_PLAN,
 				PlannerToolCatalog.INSPECT_ACTION_GOAL,
 				PlannerToolCatalog.CANCEL_ACTION_GOAL,
 				PlannerToolCatalog.CLEAR_GOAL

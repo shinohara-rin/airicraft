@@ -11,7 +11,7 @@ class PlannerPromptPolicyTest {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 
 		assertTrue(prompt.startsWith("You are the planner for a Minecraft companion."));
-		assertTrue(prompt.contains("Available tools: discover_tools, start_action_goal, inspect_action_goal, cancel_action_goal, clear_goal."));
+		assertTrue(prompt.contains("Available tools: discover_tools, recommend_actions, commit_action_plan, inspect_action_goal, cancel_action_goal, clear_goal."));
 		assertTrue(prompt.contains("Tool discovery is gradual."));
 		assertTrue(prompt.contains("active tool schema is authoritative"));
 		assertFalse(prompt.contains("navigate_to"));
@@ -29,13 +29,13 @@ class PlannerPromptPolicyTest {
 		assertTrue(prompt.contains("terminal TASK UPDATE"));
 		assertTrue(prompt.contains("Terminal updates are authoritative"));
 		assertTrue(prompt.contains("same-client admin messages"));
-		assertTrue(prompt.contains("unknown_acquisition_method"));
+		assertTrue(prompt.contains("REPLAN_REQUIRED"));
 		assertTrue(prompt.contains("must not start exploration"));
 		assertTrue(prompt.contains("smelt a log into minecraft:charcoal"));
 		assertTrue(prompt.contains("craft minecraft:torch from charcoal and sticks"));
 		assertTrue(prompt.contains("allowUnilluminated"));
-		assertTrue(prompt.contains("executionPhase=PLANNING"));
-		assertTrue(prompt.contains("A smelting_output goal describes the desired output"));
+		assertTrue(prompt.contains("read-only advice"));
+		assertTrue(prompt.contains("Copy planContext"));
 	}
 
 	@Test

@@ -16,7 +16,8 @@ public final class PlannerToolSurface {
 	private static final int MAX_DISCOVERED_TOOL_COUNT = 8;
 	private static final List<String> CORE_TOOL_NAMES = List.of(
 		PlannerToolCatalog.DISCOVER_TOOLS,
-		PlannerToolCatalog.START_ACTION_GOAL,
+		PlannerToolCatalog.RECOMMEND_ACTIONS,
+		PlannerToolCatalog.COMMIT_ACTION_PLAN,
 		PlannerToolCatalog.INSPECT_ACTION_GOAL,
 		PlannerToolCatalog.CANCEL_ACTION_GOAL,
 		PlannerToolCatalog.CLEAR_GOAL
@@ -66,6 +67,7 @@ public final class PlannerToolSurface {
 		List<String> queryTerms = queryTerms(normalizedQuery);
 		List<ToolDescriptor> matches = (availableTools == null ? List.<ToolDescriptor>of() : availableTools).stream()
 			.filter(descriptor -> descriptor != null && !isCoreTool(descriptor.name()))
+			.filter(descriptor -> !PlannerToolCatalog.START_ACTION_GOAL.equals(descriptor.name()))
 			.map(descriptor -> new RankedTool(descriptor, matchScore(descriptor, queryTerms)))
 			.filter(ranked -> ranked.score() > 0)
 			.sorted(Comparator.comparingInt(RankedTool::score).reversed().thenComparing(ranked -> ranked.tool().name()))

@@ -82,6 +82,7 @@ public record ActionGraphExecutionSnapshot(
 		payload.put("available", available);
 		payload.put("executionId", executionId);
 		payload.put("state", state.name());
+		payload.put("replanRequired", state == ActionGraphExecutionState.REPLAN_REQUIRED);
 		payload.put("executionPhase", executionPhase());
 		payload.put("resolved", route != null && (!route.steps().isEmpty() || isTerminalSuccess()));
 		payload.put("accepted", isAccepted());
@@ -141,6 +142,7 @@ public record ActionGraphExecutionSnapshot(
 			case OBSERVING -> "OBSERVING";
 			case WATCHING -> "WAITING_WORLD";
 			case BLOCKED -> "BLOCKED";
+			case REPLAN_REQUIRED -> "WAITING_PLANNER";
 			case SUCCEEDED, FAILED, CANCELLED -> "TERMINAL";
 			case IDLE -> "IDLE";
 		};
