@@ -58,3 +58,20 @@ The next design seam is between observed facts, game-specific priors (recipes,
 fuel, tool requirements, likely resource locations), and generic execution
 lifecycle. Keep world-specific knowledge in the Minecraft implementation; prove
 cross-game portability with a second implementation before extracting a framework.
+
+## First sanity check: 2026-09-05
+
+The isolated `iron-pickaxe` run reached a stone pickaxe, then failed after 2,649
+elapsed ticks when iron mining was rejected for `insufficient_illumination`
+with zero torches. It made zero LLM calls; the planner journal and final LLM
+flight record were empty. The harness completed successfully and finalized a
+Recorder Play. The replay ZIP passed a CRC check; playback was not visually
+reviewed.
+
+The flight log identified the failed primitive, arguments, and lighting guard
+without adding instrumentation. This establishes one useful diagnosis. The
+remaining gameplay work is to express illumination as a Minecraft-specific
+planning prerequisite and maintain it during execution, while keeping resource
+location priors separate from observations of actual blocks.
+
+Local evidence: `eval-output/20260905-191236-909930-34467/01-iron-pickaxe/diagnosis.md`.
