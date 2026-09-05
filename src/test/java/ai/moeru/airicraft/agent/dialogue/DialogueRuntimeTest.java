@@ -83,12 +83,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DialogueRuntimeTest {
 	@Test
-	void noLlmSuppressesChatAndCannotBeEnabled() {
+	void noLlmSuppressesChatAcrossResetAndCannotBeEnabled() {
 		BlockingLlmBackend backend = new BlockingLlmBackend();
 		DialogueRuntime runtime = newDialogueRuntime(backend);
 		SemanticEventBuffer events = new SemanticEventBuffer(32);
 		try {
 			runtime.enableNoLlm();
+			runtime.resetLlmState(9L, events);
 			runtime.onPlayerChat("Alice", "@agent follow me", 10L, SessionSnapshot.initial(), "Alice", Optional.empty(), events);
 			assertFalse(runtime.plannerEnabled());
 			assertFalse(runtime.externalDriverActive());

@@ -44,7 +44,7 @@ import java.util.UUID;
 
 public final class ClientRuntimeController {
 	private volatile AiricraftConfig config;
-	private volatile boolean plannerEnabled = true;
+	private volatile boolean plannerEnabled = !Boolean.getBoolean("airicraft.noLlm");
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
 	private final ClientTickDebugRuntime clientTickDebugRuntime = new ClientTickDebugRuntime(screenshotService);
@@ -114,8 +114,8 @@ public final class ClientRuntimeController {
 	}
 
 	public void setPlannerEnabled(boolean enabled) {
-		plannerEnabled = enabled;
 		currentAgentRuntime().setPlannerEnabled(enabled);
+		plannerEnabled = enabled;
 	}
 
 	public void setPlannerDebugOverlayMode(PlannerDebugOverlayMode mode) {
