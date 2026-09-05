@@ -65,23 +65,25 @@ def atomicMove = { File source, File target ->
 }
 
 def hotswapJvmArgs = { Provider<RegularFile> propertiesFile ->
-	def agentOptions = [
-		"autoHotswap=false",
-		"propertiesFilePath=${propertiesFile.get().asFile.absolutePath}"
-	]
-	agentOptions.addAll(hotswapDisabledPlugins.collect { "disablePlugin=${it}" })
+	def hotswapAgentPath = configurations.hotswapAgent.elements.map { it.iterator().next().asFile.toPath() }
+	def mixinAgentPath = configurations.mixinAgent.elements.map { it.iterator().next().asFile.toPath() }
 
-	def hotswapAgentPath = configurations.hotswapAgent.files.first().toPath()
-	def mixinAgentPath = configurations.mixinAgent.files.first().toPath()
+	return hotswapAgentPath.zip(mixinAgentPath) { hotswapPath, mixinPath ->
+		def agentOptions = [
+			"autoHotswap=false",
+			"propertiesFilePath=${propertiesFile.get().asFile.absolutePath}"
+		]
+		agentOptions.addAll(hotswapDisabledPlugins.collect { "disablePlugin=${it}" })
 
-	return [
-        '-XX:+IgnoreUnrecognizedVMOptions',
-		"-XX:+AllowEnhancedClassRedefinition",
-		"-XX:HotswapAgent=external",
-		"-Xlog:redefine+class*=info",
-		"-javaagent:${hotswapAgentPath}=${agentOptions.join(',')}",
-		"-javaagent:${mixinAgentPath}"
-	]
+		return [
+			'-XX:+IgnoreUnrecognizedVMOptions',
+			"-XX:+AllowEnhancedClassRedefinition",
+			"-XX:HotswapAgent=external",
+			"-Xlog:redefine+class*=info",
+			"-javaagent:${hotswapPath}=${agentOptions.join(',')}",
+			"-javaagent:${mixinPath}"
+		]
+	}
 }
 
 base {
