@@ -262,6 +262,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final EmbodiedPlannerActionToolExecutor plannerActionToolExecutor;
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
+	private final boolean noLlmActive;
 
 	private boolean initialized;
 	private long tickCount;
@@ -303,6 +304,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		this.airicraftConfig = Objects.requireNonNull(airicraftConfig, "airicraftConfig");
 		this.config = Objects.requireNonNull(config, "config");
 		this.codexDriverActive = Boolean.getBoolean("airicraft.codexDriver");
+		this.noLlmActive = Boolean.getBoolean("airicraft.noLlm");
+		if (codexDriverActive && noLlmActive) {
+			throw new IllegalArgumentException("No-LLM mode cannot be combined with Codex-driver mode");
+		}
 		this.survivalReflexRuntime = new SurvivalReflexRuntime(this.config.reflex(), baritoneFacade);
 		this.worldTaskExecutor = Objects.requireNonNull(worldTaskExecutor, "worldTaskExecutor");
 		this.observability = new FlightRecordingObservability(Objects.requireNonNull(observability, "observability"), llmFlightRecorder);
@@ -336,6 +341,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		this.dialogueRuntime = plannerShell.dialogueRuntime();
 		if (codexDriverActive) {
 			this.dialogueRuntime.enableExternalDriver();
+		}
+		if (noLlmActive) {
+			this.dialogueRuntime.enableNoLlm();
+			this.eventPipeline.setPlannerEnabled(false);
 		}
 		this.plannerJournal = plannerShell.plannerJournal();
 		this.plannerCallJournal = plannerShell.plannerCallJournal();
@@ -1059,6 +1068,10 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return dialogueRuntime.llmAvailable();
 	}
 
+	public boolean noLlmActive() {
+		return noLlmActive;
+	}
+
 	public boolean codexDriverActive() {
 		return codexDriverActive;
 	}
@@ -1103,8 +1116,8 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	}
 
 	public void setPlannerEnabled(boolean enabled) {
-		eventPipeline.setPlannerEnabled(enabled);
 		dialogueRuntime.setPlannerEnabled(enabled);
+		eventPipeline.setPlannerEnabled(enabled);
 	}
 
 	public PlannerOrchestratorDebugSnapshot plannerDebugSnapshot() {

@@ -83,6 +83,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DialogueRuntimeTest {
 	@Test
+	void noLlmSuppressesChatAndCannotBeEnabled() {
+		BlockingLlmBackend backend = new BlockingLlmBackend();
+		DialogueRuntime runtime = newDialogueRuntime(backend);
+		SemanticEventBuffer events = new SemanticEventBuffer(32);
+		try {
+			runtime.enableNoLlm();
+			runtime.onPlayerChat("Alice", "@agent follow me", 10L, SessionSnapshot.initial(), "Alice", Optional.empty(), events);
+			assertFalse(runtime.plannerEnabled());
+			assertFalse(runtime.externalDriverActive());
+			org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> runtime.setPlannerEnabled(true));
+			assertEquals(0, backend.conversationCount());
+			assertFalse(runtime.plannerDebugSnapshot().inFlight());
+			assertEquals(null, runtime.poll(11L, events));
+		} finally {
+			runtime.shutdown();
+		}
+	}
+
+	@Test
 	void externalDriverSuppressesPlannerSubmission() throws Exception {
 		BlockingLlmBackend backend = new BlockingLlmBackend();
 		DialogueRuntime runtime = newDialogueRuntime(backend);

@@ -290,6 +290,78 @@ class ScenarioEvaluationRunnerTest {
 		assertTrue(report.evidenceReviewRequired());
 	}
 
+	@Test
+	void noLlmSubmitsOneGoalAfterWorldLoadAndNeverTriggersPlanner() {
+		var runner = new ScenarioEvaluationRunner();
+		var context = new FakeContext();
+		context.noLlmActive = true;
+		context.plannerConfigured = false;
+		context.worldLoaded = false;
+		runner.start(noLlmScenario(), 0, 0);
+		runner.onTick(context);
+		assertEquals(0, context.goalStarts);
+		context.worldLoaded = true;
+		runner.onTick(context);
+		context.tick = 6;
+		runner.onTick(context);
+		assertEquals(1, context.goalStarts);
+		assertTrue(context.triggers.isEmpty());
+		assertEquals(0, runner.report(6).plannerTurns());
+		assertEquals("no_llm", runner.report(6).diagnostics().get("executionMode"));
+		context.inventoryCount = 1;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.PASSED, runner.report(6).status());
+	}
+
+	@Test
+	void noLlmFailsOnMissingGoalWithoutFallingBackToPrompt() {
+		var runner = new ScenarioEvaluationRunner();
+		var context = new FakeContext();
+		context.noLlmActive = true;
+		runner.start(scenario(List.of(), EvaluationBudget.defaults()), 0, 0);
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.FAILED, runner.report(0).status());
+		assertTrue(context.triggers.isEmpty());
+		assertEquals(0, context.goalStarts);
+	}
+
+	@Test
+	void noLlmReportsGoalFailureWithoutRetryingOrWaitingForBudget() {
+		var runner = new ScenarioEvaluationRunner();
+		var context = new FakeContext();
+		context.noLlmActive = true;
+		runner.start(noLlmScenario(), 0, 0);
+		runner.onTick(context);
+		context.goalFailure = Optional.of("No-LLM goal REPLAN_REQUIRED: no_route");
+		context.tick = 1;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.FAILED, runner.report(1).status());
+		assertEquals(context.goalFailure.get(), runner.report(1).message());
+		assertEquals("goal-1", runner.report(1).diagnostics().get("goalExecutionId"));
+		assertEquals(1, context.goalStarts);
+		assertTrue(context.triggers.isEmpty());
+	}
+
+	@Test
+	void noLlmStillEnforcesElapsedBudget() {
+		var runner = new ScenarioEvaluationRunner();
+		var context = new FakeContext();
+		context.noLlmActive = true;
+		runner.start(noLlmScenario(), 0, 0);
+		runner.onTick(context);
+		context.tick = 200;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.FAILED, runner.report(200).status());
+		assertTrue(runner.report(200).message().contains("budget exhausted"));
+	}
+
+	private static EvaluationScenario noLlmScenario() {
+		return new EvaluationScenario("iron", "Iron", "1.21.8", "dev", null, "world.zip", true,
+			"", new EvaluationBudget(1, 200, 0, 5),
+			List.of(new EvaluationCheck("inventory_contains", Map.of("itemId", "minecraft:iron_pickaxe", "count", 1))),
+			List.of(), EvaluationEvidenceSettings.defaults(), new EvaluationGoal("inventory_item", "minecraft:iron_pickaxe", 1));
+	}
+
 	private static EvaluationScenario scenario(List<EvaluationCheck> checks, EvaluationBudget budget) {
 		return new EvaluationScenario(
 			"smelting-basic",
@@ -303,7 +375,8 @@ class ScenarioEvaluationRunnerTest {
 			budget,
 			checks,
 			List.of(),
-			EvaluationEvidenceSettings.defaults()
+			EvaluationEvidenceSettings.defaults(),
+			null
 		);
 	}
 
@@ -313,6 +386,9 @@ class ScenarioEvaluationRunnerTest {
 		private boolean plannerInFlight;
 		private boolean plannerConfigured = true;
 		private boolean externalDriverActive;
+		private boolean noLlmActive;
+		private int goalStarts;
+		private Optional<String> goalFailure = Optional.empty();
 		private boolean worldLoaded = true;
 		private int playerBlockX;
 		private int playerBlockY;
@@ -356,6 +432,22 @@ class ScenarioEvaluationRunnerTest {
 		@Override
 		public boolean externalDriverActive() {
 			return externalDriverActive;
+		}
+
+		@Override
+		public boolean noLlmActive() { return noLlmActive; }
+
+		@Override
+		public String startGoal(EvaluationGoal goal) {
+			assertEquals("minecraft:iron_pickaxe", goal.itemId());
+			goalStarts++;
+			return "goal-1";
+		}
+
+		@Override
+		public Optional<String> goalFailure(String executionId) {
+			assertEquals("goal-1", executionId);
+			return goalFailure;
 		}
 
 		@Override

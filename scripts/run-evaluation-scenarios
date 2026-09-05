@@ -905,7 +905,7 @@ def copy_scenario_config(scenario_root: Path, scenario_id: str, destination: Pat
         shutil.copy2(source, destination)
 
 
-def selected_scenarios(scenarios: list[dict[str, Any]], filters: list[str] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def selected_scenarios(scenarios: list[dict[str, Any]], filters: list[str] | None, no_llm: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     requested = {item.strip() for item in filters or [] if item.strip()}
     unknown = sorted(requested - {str(scenario.get("id", "")) for scenario in scenarios})
     if unknown:
@@ -917,7 +917,12 @@ def selected_scenarios(scenarios: list[dict[str, Any]], filters: list[str] | Non
         scenario_id = str(scenario.get("id", ""))
         if requested and scenario_id not in requested:
             continue
-        if not scenario.get("promptConfigured", False):
+        if no_llm and not scenario.get("goalConfigured", False):
+            if requested:
+                raise RunnerError(f"No-LLM mode requires a structured scenario goal: {scenario_id}")
+            skipped.append({"id": scenario_id, "name": scenario.get("name"), "reason": "missing_goal"})
+            continue
+        if not no_llm and not scenario.get("promptConfigured", False):
             skipped.append({
                 "id": scenario_id,
                 "name": scenario.get("name"),
@@ -1065,6 +1070,10 @@ def run_scenario(
         )
         summary["minecraftProcessId"] = bridge.process_id
         write_json(scenario_dir / "initial-status.json", status)
+        if args.no_llm:
+            evaluation_status = bridge_json(bridge, "GET", "/v1/evaluation/status", timeout_seconds=10)
+            if not evaluation_status.get("noLlmActive", False):
+                raise RunnerError("Launched client did not activate no-LLM mode")
         run_request = {"scenario": scenario_id, "outputDir": str(scenario_dir)}
         run_response = bridge_json(
             bridge,
@@ -1282,6 +1291,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Disable integrated-server capture for this evaluation run.",
     )
+    parser.add_argument("--no-llm", action="store_true", help="Submit structured scenario goals directly; disable planner, compaction, and vision LLM calls.")
     parser.add_argument("--self-test", action="store_true", help="Run built-in unit checks and exit.")
     return parser.parse_args(argv)
 
@@ -1304,7 +1314,12 @@ def main(argv: list[str]) -> int:
         return 2
 
     repo_root = repo_root_from_script()
+    if args.no_llm and args.client_command:
+        print("error: --no-llm uses the default evaluator launcher; omit --client-command", file=sys.stderr)
+        return 2
     client_command = args.client_command or default_client_command(repo_root)
+    if args.no_llm:
+        client_command += " -Pairicraft.noLlm=true"
     output_root = Path(args.output_root)
     if not output_root.is_absolute():
         output_root = repo_root / output_root
@@ -1322,6 +1337,7 @@ def main(argv: list[str]) -> int:
         "gitCommit": git_value(repo_root, ["rev-parse", "HEAD"]),
         "gitDirty": bool(git_value(repo_root, ["status", "--short"])),
         "scenarioFilters": args.scenario_filters or [],
+        "executionMode": "no_llm" if args.no_llm else "planner",
         "jobs": args.jobs,
         "effectiveWorkers": 0,
         "workerRoot": str(worker_root),
@@ -1352,7 +1368,7 @@ def main(argv: list[str]) -> int:
         }
         scenario_root = Path(str(discovery.get("scenariosPayload", {}).get("scenarioRoot", repo_root / "scenarios")))
         write_json(run_dir / "scenario-index.json", scenarios)
-        runnable, skipped = selected_scenarios(scenarios, args.scenario_filters)
+        runnable, skipped = selected_scenarios(scenarios, args.scenario_filters, args.no_llm)
         manifest["skipped"] = skipped
         plans = worker_plans(run_dir, worker_root, seed_dir, runnable)
         shutil.rmtree(seed_dir, ignore_errors=True)

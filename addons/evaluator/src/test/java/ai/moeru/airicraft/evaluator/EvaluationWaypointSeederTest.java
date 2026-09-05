@@ -73,7 +73,8 @@ class EvaluationWaypointSeederTest {
 			EvaluationBudget.defaults(),
 			List.of(),
 			waypoints,
-			EvaluationEvidenceSettings.defaults()
+			EvaluationEvidenceSettings.defaults(),
+			null
 		);
 	}
 

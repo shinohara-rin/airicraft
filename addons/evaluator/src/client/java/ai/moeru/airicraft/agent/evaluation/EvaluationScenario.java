@@ -15,7 +15,8 @@ public record EvaluationScenario(
 	EvaluationBudget budget,
 	List<EvaluationCheck> checks,
 	List<EvaluationWaypoint> waypoints,
-	EvaluationEvidenceSettings evidence
+	EvaluationEvidenceSettings evidence,
+	EvaluationGoal goal
 ) {
 	public EvaluationScenario {
 		id = id == null ? "" : id.trim();

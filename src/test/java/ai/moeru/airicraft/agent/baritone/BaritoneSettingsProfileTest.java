@@ -29,6 +29,14 @@ class BaritoneSettingsProfileTest {
 		assertFalse(target.exploreForBlocks);
 	}
 
+	@Test
+	void noLlmDisablesOreXrayIncludingDiagonalVeinDiscovery() {
+		var target = new FakeSettingsTarget();
+		BaritoneSettingsProfile.apply(target, true);
+		assertTrue(target.legitMine);
+		assertFalse(target.legitMineIncludeDiagonals);
+	}
+
 	private static final class FakeSettingsTarget implements BaritoneSettingsProfile.SettingsTarget {
 		private boolean chatControl = true;
 		private boolean chatControlAnyway = true;
@@ -44,6 +52,14 @@ class BaritoneSettingsProfileTest {
 		private double randomLooking113 = 1.0D;
 		private boolean freeLook = true;
 		private boolean exploreForBlocks = true;
+		private boolean legitMine;
+		private boolean legitMineIncludeDiagonals = true;
+
+		@Override
+		public void legitMine(boolean value) { legitMine = value; }
+
+		@Override
+		public void legitMineIncludeDiagonals(boolean value) { legitMineIncludeDiagonals = value; }
 
 		@Override
 		public void chatControl(boolean value) {

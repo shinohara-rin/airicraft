@@ -59,7 +59,8 @@ class FrozenWorldLoadServiceTest {
 			scenario.budget(),
 			scenario.checks(),
 			scenario.waypoints(),
-			scenario.evidence()
+			scenario.evidence(),
+				scenario.goal()
 		));
 		FrozenWorldLoadService service = new FrozenWorldLoadService(gameDir, fixtureService);
 
@@ -104,7 +105,8 @@ class FrozenWorldLoadServiceTest {
 			EvaluationBudget.defaults(),
 			java.util.List.of(),
 			java.util.List.of(),
-			EvaluationEvidenceSettings.defaults()
+			EvaluationEvidenceSettings.defaults(),
+			null
 		));
 		EvaluationWorldFixtureService fixtureService = new EvaluationWorldFixtureService(gameDir, repository);
 		FrozenWorldLoadService service = new FrozenWorldLoadService(gameDir, fixtureService);

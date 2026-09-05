@@ -63,8 +63,17 @@ public final class EvaluationScenarioLoader {
 				bool(evidenceRoot, "includeRecentEvents", true),
 				bool(evidenceRoot, "includeTaskState", true),
 				bool(evidenceRoot, "includeWorldSnapshot", true)
-			)
+			),
+			goal(root)
 		);
+	}
+
+	private static EvaluationGoal goal(Map<String, Object> root) {
+		if (!root.containsKey("goal")) {
+			return null;
+		}
+		Map<String, Object> goal = object(root, "goal");
+		return new EvaluationGoal(string(goal, "kind", ""), string(goal, "itemId", ""), integer(goal, "quantity", 1));
 	}
 
 	public static Map<String, Object> toMap(EvaluationScenario scenario) {
@@ -78,6 +87,9 @@ public final class EvaluationScenarioLoader {
 		root.put("worldArchive", scenario.worldArchive());
 		root.put("frozen", scenario.frozen());
 		root.put("prompt", scenario.prompt());
+		if (scenario.goal() != null) {
+			root.put("goal", orderedMap("kind", scenario.goal().kind(), "itemId", scenario.goal().itemId(), "quantity", scenario.goal().quantity()));
+		}
 		root.put("budget", orderedMap(
 			"maxPlannerTurns", scenario.budget().maxPlannerTurns(),
 			"maxElapsedTicks", scenario.budget().maxElapsedTicks(),

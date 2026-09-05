@@ -85,10 +85,23 @@ public final class BaritoneSettingsProfile {
 			public void exploreForBlocks(boolean value) {
 				settings.exploreForBlocks.value = value;
 			}
-		});
+			@Override
+			public void legitMine(boolean value) {
+				settings.legitMine.value = value;
+			}
+
+			@Override
+			public void legitMineIncludeDiagonals(boolean value) {
+				settings.legitMineIncludeDiagonals.value = value;
+			}
+		}, Boolean.getBoolean("airicraft.noLlm"));
 	}
 
 	static void apply(SettingsTarget settings) {
+		apply(settings, false);
+	}
+
+	static void apply(SettingsTarget settings, boolean noLlm) {
 		Objects.requireNonNull(settings, "settings");
 
 		settings.chatControl(false);
@@ -106,6 +119,10 @@ public final class BaritoneSettingsProfile {
 		settings.randomLooking113(0.0D);
 		settings.freeLook(false);
 		settings.exploreForBlocks(false);
+		if (noLlm) {
+			settings.legitMine(true);
+			settings.legitMineIncludeDiagonals(false);
+		}
 	}
 
 	interface SettingsTarget {
@@ -136,5 +153,9 @@ public final class BaritoneSettingsProfile {
 		void freeLook(boolean value);
 
 		void exploreForBlocks(boolean value);
+
+		void legitMine(boolean value);
+
+		void legitMineIncludeDiagonals(boolean value);
 	}
 }

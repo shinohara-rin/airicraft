@@ -1639,6 +1639,7 @@ public final class ModBridgeServer {
 			response.put("reflex", snapshot.reflex());
 			response.put("activeJob", agentRuntime().activeJob());
 			response.put("codexDriverActive", agentRuntime().codexDriverActive());
+			response.put("noLlmActive", agentRuntime().noLlmActive());
 			response.put("llmAvailable", agentRuntime().llmAvailable());
 			response.put("visionAvailable", agentRuntime().visionAvailable());
 			response.put("plannerVisionMode", plannerSnapshot.plannerVisionMode());

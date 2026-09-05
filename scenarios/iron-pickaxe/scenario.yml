@@ -24,6 +24,10 @@ prompt: >-
   or preexisting items unless they were gathered or crafted during this
   scenario. Stop after a task update or inventory check confirms the iron
   pickaxe is in your inventory.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_pickaxe
+  quantity: 1
 budget:
   maxPlannerTurns: 40
   maxElapsedTicks: 72000

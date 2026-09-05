@@ -69,6 +69,19 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertEqual(["a"], [item["id"] for item in runnable])
         self.assertEqual([], skipped)
 
+    def test_no_llm_requires_explicit_goals_and_accepts_empty_prompt(self) -> None:
+        scenarios = [
+            {"id": "goal", "promptConfigured": False, "goalConfigured": True},
+            {"id": "prose", "promptConfigured": True, "goalConfigured": False},
+        ]
+        runnable, skipped = runner.selected_scenarios(scenarios, None, no_llm=True)
+        self.assertEqual(["goal"], [item["id"] for item in runnable])
+        self.assertEqual("missing_goal", skipped[0]["reason"])
+        with self.assertRaisesRegex(runner.RunnerError, "structured scenario goal"):
+            runner.selected_scenarios(scenarios, ["prose"], no_llm=True)
+        self.assertTrue(runner.parse_args(["--no-llm"]).no_llm)
+        self.assertFalse(runner.parse_args([]).no_llm)
+
     def test_rejects_an_unknown_scenario_filter(self) -> None:
         scenarios = [{"id": "a", "promptConfigured": True}]
 

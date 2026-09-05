@@ -14,6 +14,7 @@ import ai.moeru.airicraft.agent.llm.CurrentWorldQueryToolProvider;
 import ai.moeru.airicraft.agent.llm.CurrentViewVisionService;
 import ai.moeru.airicraft.agent.llm.CompositePlannerLifecycleListener;
 import ai.moeru.airicraft.agent.llm.LlmBackend;
+import ai.moeru.airicraft.agent.llm.NoLlmBackend;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleChatClient;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleLlmBackend;
 import ai.moeru.airicraft.agent.llm.OpenAiCompatibleVisionBackend;
@@ -167,7 +168,7 @@ public final class PlannerShellFactory {
 		PlannerShellJournal journal = new PlannerShellJournal(128, effectiveClock);
 		CurrentViewVisionService visionService = new CurrentViewVisionService(
 			screenshotService,
-			new OpenAiCompatibleVisionBackend(config.llm(), observability),
+			Boolean.getBoolean("airicraft.noLlm") ? new NoLlmBackend() : new OpenAiCompatibleVisionBackend(config.llm(), observability),
 			MinecraftClient::getInstance,
 			observability,
 			effectiveCameraController
@@ -188,7 +189,7 @@ public final class PlannerShellFactory {
 			plannerModelName(config.llm()),
 			toolRegistry::openAiTools
 		);
-		LlmBackend plannerBackend = switch (config.llm().plannerBackend()) {
+		LlmBackend plannerBackend = Boolean.getBoolean("airicraft.noLlm") ? new NoLlmBackend() : switch (config.llm().plannerBackend()) {
 			case OPENAI_COMPATIBLE -> new OpenAiCompatibleLlmBackend(config.llm(), observability, toolRegistry);
 			case CODEX_APP_SERVER -> new CodexAppServerLlmBackend(config.llm(), observability, toolRegistry);
 		};

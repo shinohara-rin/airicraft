@@ -182,6 +182,7 @@ public final class DashboardObservationCollector {
 		payload.put("plannerEnabled", runtime.plannerEnabled());
 		payload.put("degraded", runtime.isDegraded());
 		payload.put("llmAvailable", runtime.llmAvailable());
+		payload.put("noLlmActive", runtime.noLlmActive());
 		payload.put("visionAvailable", runtime.visionAvailable());
 		payload.put("world", worldSnapshot(client));
 		return payload;

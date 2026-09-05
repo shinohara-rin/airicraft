@@ -10,8 +10,30 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class EvaluationScenarioLoaderTest {
+	@Test
+	void goalRoundTripsWithoutPrompt(@TempDir Path tempDir) throws Exception {
+		var root = java.util.Map.<String, Object>of("id", "iron", "goal", java.util.Map.of(
+			"kind", "inventory_item", "itemId", "minecraft:iron_pickaxe", "quantity", 1));
+		var path = tempDir.resolve("scenario.yml");
+		var scenario = EvaluationScenarioLoader.fromMap(root, path);
+		EvaluationScenarioLoader.write(path, scenario);
+		var loaded = EvaluationScenarioLoader.load(path);
+		assertEquals(scenario.goal(), loaded.goal());
+		assertEquals("", loaded.prompt());
+		assertEquals("minecraft:iron_pickaxe", loaded.goal().toActionGoal().keys().get("itemId"));
+	}
+
+	@Test
+	void rejectsUnsupportedOrMalformedGoals() {
+		assertThrows(IllegalArgumentException.class, () -> EvaluationScenarioLoader.fromMap(
+			java.util.Map.of("goal", java.util.Map.of("kind", "beat_game")), null));
+		assertThrows(IllegalArgumentException.class, () -> new EvaluationGoal("inventory_item", "iron_pickaxe", 1));
+		assertThrows(IllegalArgumentException.class, () -> new EvaluationGoal("inventory_item", "minecraft:iron_pickaxe", 0));
+	}
+
 	@Test
 	void parsesScenarioConfig(@TempDir Path tempDir) throws Exception {
 		Path config = tempDir.resolve("scenarios").resolve("smelting-basic").resolve("scenario.yml");
@@ -93,7 +115,8 @@ class EvaluationScenarioLoaderTest {
 			new EvaluationBudget(2, 100, 0, 10),
 			java.util.List.of(new EvaluationCheck("event_contains", java.util.Map.of("eventType", "task.completed"))),
 			java.util.List.of(new EvaluationWaypoint("journeymap", "farm-here", "Farm here", "minecraft:overworld", -31, 63, -63)),
-			EvaluationEvidenceSettings.defaults()
+			EvaluationEvidenceSettings.defaults(),
+			null
 		);
 
 		EvaluationScenarioLoader.write(config, scenario);

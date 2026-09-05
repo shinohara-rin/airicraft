@@ -101,7 +101,8 @@ class EvaluationFlightRecorderTest {
 			EvaluationBudget.defaults(),
 			List.of(),
 			List.of(),
-			EvaluationEvidenceSettings.defaults()
+			EvaluationEvidenceSettings.defaults(),
+			null
 		);
 	}
 

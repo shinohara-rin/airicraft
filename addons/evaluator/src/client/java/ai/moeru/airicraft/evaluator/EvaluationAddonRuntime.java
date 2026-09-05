@@ -5,6 +5,8 @@ import ai.moeru.airicraft.BridgeUnavailableException;
 import ai.moeru.airicraft.SingleplayerWorldService;
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
+import ai.moeru.airicraft.agent.evaluation.EvaluationGoal;
+import ai.moeru.airicraft.agent.actions.ActionGraphAdmission;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenarioLoader;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenarioRepository;
 import ai.moeru.airicraft.agent.evaluation.EvaluationWorldFixtureService;
@@ -29,6 +31,7 @@ public final class EvaluationAddonRuntime {
 		"world_restore",
 		"current_config",
 		"planner_loop",
+		"no_llm_goal",
 		"results",
 		"evidence",
 		"in_mod_recording"
@@ -148,7 +151,12 @@ public final class EvaluationAddonRuntime {
 		boolean startReserved = false;
 		try {
 			EvaluationScenario nextScenario = fixtures.repository().require(request.scenario());
-			if (nextScenario.prompt() == null || nextScenario.prompt().isBlank()) {
+			if (context.onClientThread(() -> AiricraftClient.runtimeController().agentRuntime().noLlmActive())) {
+				if (nextScenario.goal() == null) {
+					throw new BridgeUnavailableException("invalid_scenario", "No-LLM mode requires a structured scenario goal: " + nextScenario.id());
+				}
+			}
+			else if (nextScenario.prompt() == null || nextScenario.prompt().isBlank()) {
 				throw new BridgeUnavailableException("invalid_scenario", "Scenario prompt is empty: " + nextScenario.id());
 			}
 			context.onClientThread(this::reserveRunStart);
@@ -307,6 +315,7 @@ public final class EvaluationAddonRuntime {
 		response.put("scenarioRoot", fixtures.repository().root().toString());
 		response.put("report", runner.report(runtime.tickCount()));
 		response.put("recording", recorder.statusPayload());
+		response.put("noLlmActive", AiricraftClient.runtimeController().agentRuntime().noLlmActive());
 		response.put("runState", runState.name());
 		response.put("postFinishCleanupPending", runState == RunState.CLEANUP);
 		return response;
@@ -393,6 +402,7 @@ public final class EvaluationAddonRuntime {
 		payload.put("worldArchive", value.worldArchive());
 		payload.put("frozen", value.frozen());
 		payload.put("promptConfigured", value.prompt() != null && !value.prompt().isBlank());
+		payload.put("goalConfigured", value.goal() != null);
 		payload.put("checkCount", value.checks().size());
 		payload.put("maxPlannerTurns", value.budget().maxPlannerTurns());
 		payload.put("maxElapsedTicks", value.budget().maxElapsedTicks());
@@ -446,13 +456,47 @@ public final class EvaluationAddonRuntime {
 		}
 
 		@Override
+		public boolean noLlmActive() {
+			return runtime.noLlmActive();
+		}
+
+		@Override
+		public String startGoal(EvaluationGoal goal) {
+			try {
+				var result = runtime.startActionGoalDetailed(goal.toActionGoal(), "evaluation_no_llm");
+				if (result.admission() != ActionGraphAdmission.STARTED || result.execution() == null) {
+					throw new IllegalStateException(result.admission() + ": " + result.failureCode() + " " + result.message());
+				}
+				return result.execution().execution().executionId();
+			}
+			catch (BridgeUnavailableException exception) {
+				throw new IllegalStateException(exception.getMessage(), exception);
+			}
+		}
+
+		@Override
+		public Optional<String> goalFailure(String executionId) {
+			var view = runtime.actionGraphExecution(executionId);
+			if (view == null) {
+				return Optional.of("No-LLM goal execution disappeared: " + executionId);
+			}
+			var execution = view.execution();
+			return switch (execution.state()) {
+				case FAILED, CANCELLED, REPLAN_REQUIRED -> Optional.of("No-LLM goal " + execution.state()
+					+ ": " + execution.failureCode() + " " + execution.message());
+				case SUCCEEDED -> Optional.of("No-LLM goal succeeded but scenario checks did not pass");
+				default -> Optional.empty();
+			};
+		}
+
+		@Override
 		public boolean plannerInFlight() {
 			return runtime.plannerDebugSnapshot().inFlight();
 		}
 
 		@Override
 		public Optional<String> declaredFailure() {
-			return runtime.codexDriverActive() || !runtime.isDegraded()
+			return runtime.noLlmActive() || runtime.codexDriverActive() || !runtime.isDegraded()
 				? Optional.empty()
 				: Optional.of("Planner entered degraded mode");
 		}

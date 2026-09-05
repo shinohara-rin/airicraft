@@ -18,6 +18,8 @@ public final class ScenarioEvaluationRunner {
 	private int plannerTurns;
 	private List<EvaluationCheckResult> latestCheckResults = List.of();
 	private boolean evidenceReviewRequired;
+	private String executionMode = "planner";
+	private String goalExecutionId;
 
 	public void start(EvaluationScenario scenario, long tick, long nowMs) {
 		this.scenario = scenario;
@@ -29,6 +31,8 @@ public final class ScenarioEvaluationRunner {
 		this.lastTriggerTick = Long.MIN_VALUE;
 		this.plannerTurns = 0;
 		this.latestCheckResults = List.of();
+		this.goalExecutionId = null;
+		this.executionMode = "planner";
 		this.evidenceReviewRequired = !scenario.hasDeterministicChecks();
 	}
 
@@ -36,6 +40,7 @@ public final class ScenarioEvaluationRunner {
 		if (scenario == null || terminal(status)) {
 			return;
 		}
+		executionMode = context.noLlmActive() ? "no_llm" : context.externalDriverActive() ? "external_driver" : "planner";
 		if (!context.worldLoaded()) {
 			status = EvaluationStatus.PENDING_WORLD;
 			message = "Waiting for evaluation world";
@@ -44,7 +49,7 @@ public final class ScenarioEvaluationRunner {
 			}
 			return;
 		}
-		if (!context.plannerConfigured() && !context.externalDriverActive()) {
+		if (!context.plannerConfigured() && !context.externalDriverActive() && !context.noLlmActive()) {
 			finish(EvaluationStatus.FAILED, "Planner LLM is not configured", true, context.tick());
 			return;
 		}
@@ -56,7 +61,21 @@ public final class ScenarioEvaluationRunner {
 
 		if (status == EvaluationStatus.PENDING_WORLD) {
 			status = EvaluationStatus.RUNNING;
-			if (context.externalDriverActive()) {
+			if (context.noLlmActive()) {
+				if (scenario.goal() == null) {
+					finish(EvaluationStatus.FAILED, "No-LLM mode requires a structured scenario goal", true, context.tick());
+					return;
+				}
+				try {
+					goalExecutionId = context.startGoal(scenario.goal());
+				}
+				catch (IllegalArgumentException | IllegalStateException exception) {
+					finish(EvaluationStatus.FAILED, "No-LLM goal submission failed: " + exception.getMessage(), true, context.tick());
+					return;
+				}
+				message = "Evaluation running without LLM";
+			}
+			else if (context.externalDriverActive()) {
 				message = "Evaluation running under external driver";
 			}
 			else {
@@ -71,6 +90,14 @@ public final class ScenarioEvaluationRunner {
 		if (checksPassed(latestCheckResults) && scenario.hasDeterministicChecks()) {
 			finish(EvaluationStatus.PASSED, "Expected outcome reached", false, context.tick());
 			return;
+		}
+
+		if (goalExecutionId != null) {
+			Optional<String> failure = context.goalFailure(goalExecutionId);
+			if (failure.isPresent()) {
+				finish(EvaluationStatus.FAILED, failure.get(), true, context.tick());
+				return;
+			}
 		}
 
 		if (budgetExhausted(context)) {
@@ -88,7 +115,7 @@ public final class ScenarioEvaluationRunner {
 			return;
 		}
 
-		if (!context.externalDriverActive()
+		if (!context.externalDriverActive() && !context.noLlmActive()
 			&& !context.plannerInFlight()
 			&& context.tick() - lastTriggerTick >= scenario.budget().heartbeatIntervalTicks()) {
 			context.emitHeartbeat(heartbeatMessage());
@@ -125,6 +152,8 @@ public final class ScenarioEvaluationRunner {
 		plannerTurns = 0;
 		latestCheckResults = List.of();
 		evidenceReviewRequired = false;
+		goalExecutionId = null;
+		executionMode = "planner";
 	}
 
 	public EvaluationScenario scenario() {
@@ -235,7 +264,7 @@ public final class ScenarioEvaluationRunner {
 	}
 
 	private boolean budgetExhausted(Context context) {
-		if (plannerTurns >= scenario.budget().maxPlannerTurns()) {
+		if ("planner".equals(executionMode) && plannerTurns >= scenario.budget().maxPlannerTurns()) {
 			return true;
 		}
 		if (context.tick() - startTick >= scenario.budget().maxElapsedTicks()) {
@@ -356,6 +385,10 @@ public final class ScenarioEvaluationRunner {
 
 	private Map<String, Object> diagnostics() {
 		LinkedHashMap<String, Object> diagnostics = new LinkedHashMap<>();
+		diagnostics.put("executionMode", executionMode);
+		if (goalExecutionId != null) {
+			diagnostics.put("goalExecutionId", goalExecutionId);
+		}
 		if (scenario != null) {
 			diagnostics.put("maxPlannerTurns", scenario.budget().maxPlannerTurns());
 			diagnostics.put("maxElapsedTicks", scenario.budget().maxElapsedTicks());
@@ -382,6 +415,12 @@ public final class ScenarioEvaluationRunner {
 		boolean plannerConfigured();
 
 		boolean externalDriverActive();
+
+		boolean noLlmActive();
+
+		String startGoal(EvaluationGoal goal);
+
+		Optional<String> goalFailure(String executionId);
 
 		boolean plannerInFlight();
 

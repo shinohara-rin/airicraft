@@ -47,6 +47,7 @@ public final class DialogueRuntime {
 	private String safetyHoldId;
 	private boolean reflexActive;
 	private boolean externalDriverActive;
+	private boolean noLlmActive;
 	private long nextPendingReplyId = 1L;
 
 	public DialogueRuntime(PlannerOrchestrator plannerOrchestrator, int maxRecentTurns) {
@@ -114,6 +115,9 @@ public final class DialogueRuntime {
 	}
 
 	public void setPlannerEnabled(boolean enabled) {
+		if (enabled && noLlmActive) {
+			throw new IllegalStateException("Restart without no-LLM mode to enable the planner");
+		}
 		plannerOrchestrator.setEnabled(enabled);
 		if (enabled) {
 			return;
@@ -123,6 +127,15 @@ public final class DialogueRuntime {
 		pendingInternalTaskUpdates.clear();
 		pendingVisibleReplies.clear();
 		state = state.withPendingReply(false, null);
+	}
+
+	public void enableNoLlm() {
+		noLlmActive = true;
+		setPlannerEnabled(false);
+	}
+
+	private boolean plannerSuppressed() {
+		return externalDriverActive || noLlmActive;
 	}
 
 	public void enableExternalDriver() {
@@ -350,7 +363,7 @@ public final class DialogueRuntime {
 	) {
 		long timestampMs = clock.millis();
 		appendTurn(new DialogueTurn("system", updateMessage, tick, timestampMs));
-		if (externalDriverActive || (state.degraded() && plannerOrchestrator.isEnabled()) || !plannerOrchestrator.isConfigured()) {
+		if (plannerSuppressed() || (state.degraded() && plannerOrchestrator.isEnabled()) || !plannerOrchestrator.isConfigured()) {
 			return;
 		}
 		PendingInternalTaskUpdate pendingUpdate = new PendingInternalTaskUpdate(
@@ -391,7 +404,7 @@ public final class DialogueRuntime {
 		TaskSnapshot activeTask,
 		MissionExecutionSnapshot missionExecution
 	) {
-		if (externalDriverActive) {
+		if (plannerSuppressed()) {
 			return null;
 		}
 		if (queuedTimeoutInjections > 0 && !plannerOrchestrator.hasInFlight()) {
@@ -482,7 +495,7 @@ public final class DialogueRuntime {
 		long timestampMs,
 		boolean directUserGuidance
 	) {
-		if (externalDriverActive) {
+		if (plannerSuppressed()) {
 			return;
 		}
 		request = request.withSafetyContext(safetyEpoch, safetyHoldId);
@@ -519,7 +532,7 @@ public final class DialogueRuntime {
 		TaskSnapshot activeTask,
 		MissionExecutionSnapshot missionExecution
 	) {
-		if (externalDriverActive || pendingInternalTaskUpdates.isEmpty()) {
+		if (plannerSuppressed() || pendingInternalTaskUpdates.isEmpty()) {
 			return false;
 		}
 		if ((state.degraded() && plannerOrchestrator.isEnabled()) || !plannerOrchestrator.isConfigured()) {
@@ -616,7 +629,7 @@ public final class DialogueRuntime {
 
 	private boolean submitInternalTaskUpdate(PendingInternalTaskUpdate pendingUpdate, SemanticEventBuffer eventBuffer) {
 		if (
-			externalDriverActive
+			plannerSuppressed()
 				|| pendingUpdate == null
 				|| (state.degraded() && plannerOrchestrator.isEnabled())
 				|| plannerOrchestrator.hasInFlight()
