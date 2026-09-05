@@ -40,6 +40,9 @@ record EmbodiedPlannerActionToolExecutor(
 				return CompletableFuture.completedFuture("TOOL_ERROR: " + toolName
 					+ " player_dead. The controlled player died; the runtime cancelled all actions and is requesting respawn.");
 			}
+			if (state.activeGraph() && (policy.preemptsGraph() || policy == ToolPolicy.CRAFT || policy == ToolPolicy.BLOCK_MODIFICATION)) {
+				return CompletableFuture.completedFuture(activeGraphError(toolName, state.actionGraphSnapshot()));
+			}
 			if (policy == ToolPolicy.CRAFT) {
 				return state.activeTaskInProgress()
 					? CompletableFuture.completedFuture(activeTaskError(toolName, state))
@@ -49,9 +52,6 @@ record EmbodiedPlannerActionToolExecutor(
 				return state.reflexState() != SurvivalReflexState.AWAITING_PLANNER && state.activeTaskInProgress()
 					? CompletableFuture.completedFuture(activeTaskError(toolName, state))
 					: blockExecutor.apply(toolCall);
-			}
-			if (state.activeGraph() && policy.preemptsGraph()) {
-				return CompletableFuture.completedFuture(activeGraphError(toolName, state.actionGraphSnapshot()));
 			}
 			if (state.reflexState() != SurvivalReflexState.AWAITING_PLANNER
 				&& state.activeTaskInProgress()

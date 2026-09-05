@@ -464,6 +464,18 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void directCraftAndBlockToolsCannotPreemptCommittedStepsBetweenJobs() {
+		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		runtime.execute(commitCall("{\"kind\":\"inventory_item\",\"itemId\":\"minecraft:iron_pickaxe\",\"quantity\":1}", currentPlanContext(runtime))).join();
+		assertEquals(ActionGraphExecutionState.READY, runtime.actionGraphExecutionSnapshot().state());
+		for (String tool : List.of(PlannerToolCatalog.CRAFT_RECIPE, PlannerToolCatalog.PLACE_BLOCK, PlannerToolCatalog.USE_BLOCK, PlannerToolCatalog.BREAK_BLOCKS)) {
+			String result = runtime.execute(new PlannerToolCall("direct", tool, new com.google.gson.JsonObject(), null, null)).join();
+			assertTrue(result.contains("active_action_graph_in_progress"), result);
+			assertEquals(ActionGraphExecutionState.READY, runtime.actionGraphExecutionSnapshot().state());
+		}
+	}
+
+	@Test
 	void explicitCommitCannotPreemptDifferentForegroundGoal() {
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		ActionGraphExecutionSnapshot first = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:bread", 1), "test");
