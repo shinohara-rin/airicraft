@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron", "system-one-smelting", "system-one-underground", "system-one-lighting", "system-one-lighting-exhaustion").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron", "system-one-smelting", "system-one-underground", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -51,10 +51,11 @@ final class SystemOneStoneFixture {
 				if (scenario.equals("system-one-underground") || scenario.startsWith("system-one-lighting")) {
 					boolean exhaustion = scenario.equals("system-one-lighting-exhaustion");
 					int length = exhaustion ? 24 : 9;
+					int halfWidth = scenario.equals("system-one-lighting-stairs") ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
 					}
-					for (int dz = 1; dz <= length; dz++) for (int dx = -1; dx <= 1; dx++) {
+					for (int dz = 1; dz <= length; dz++) for (int dx = -halfWidth; dx <= halfWidth; dx++) {
 						int floor = 200 - Math.min(dz, 4);
 						for (int y = floor; y <= floor + 2; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
 					}

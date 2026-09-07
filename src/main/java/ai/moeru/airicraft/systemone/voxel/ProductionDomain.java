@@ -338,7 +338,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (task.last() instanceof Break broken) rejected.add(broken.target());
 			if (task.last() instanceof Navigate move) visited.add(move.stance());
 		}
-		else if (task.last() instanceof Break broken) {
+		else if (task.last() instanceof Break broken && task.rule().blocks().contains(broken.expectedBlock())) {
 			drops.add(broken.target());
 		}
 		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops);
@@ -353,6 +353,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return gatherAction(task, new Navigate(pickup.get(), 24, 200), 0, rejected, visited);
 		}
 		if (rejected.size() + visited.size() >= 24) return failure("harvest_search_exhausted:" + task.rule().item());
+		var prior = searches.get(task.rule().item());
+		if (prior != null) for (Pos drop : drops.stream().sorted(positionOrder(world.eye())).toList()) {
+			Pos ceiling = drop.offset(0, 1, 0);
+			Seen space = world.known().get(drop), head = world.known().get(ceiling);
+			if (space == null || !space.empty() || !StoneAcquisition.supportsStanding(world.known().get(drop.offset(0, -1, 0)))) continue;
+			if (head == null || !head.identified() || head.empty() || !prior.excavatable().contains(head.blockId())) continue;
+			if (rejected.contains(ceiling) || world.footholds().contains(ceiling) || !ObservedReach.visible(world.known(), world.eye(), ceiling, 4.3)) continue;
+			return gatherAction(task, new Break(ceiling, head.blockId()), 0, rejected, visited);
+		}
 		Gather current = task;
 		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
 			.filter(e -> !rejected.contains(e.getKey()) && !e.getKey().equals(world.feet().offset(0, -1, 0)))

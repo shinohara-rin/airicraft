@@ -149,6 +149,18 @@ class ProductionDomainTest {
 		var observation = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 30), new Pos(0, 1, 0), Map.of(), cells);
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty()), observation);
 		assertEquals(new Navigate(approach, 24, 200), assertInstanceOf(Execute.class, result).command());
+		var book = new ProductionKnowledge("pickup", List.of(), List.of(rule), List.of(), List.of(),
+			List.of(new SearchPrior("raw_iron", 0, 16, 16, List.of("minecraft:stone"))), new LightingPolicy.Parameters(7, 10, 8, 80, 4));
+		var domain = new ProductionDomain(book);
+		var arrived = new StoneAcquisition.World(new Pose(.5, 2.62, 1.5, 0, 30), approach, Map.of(), cells);
+		var pickup = ((Execute<Task, VoxelCommand>) result).continuation();
+		var clearance = (Execute<Task, VoxelCommand>) domain.decide(new View<>(1, pickup, false, 3, Optional.of(Outcome.success("arrived")), Optional.empty()), arrived);
+		assertEquals(new Break(target.offset(0, 1, 0), "minecraft:stone"), clearance.command());
+		cells.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, 12, 4));
+		var opened = new StoneAcquisition.World(arrived.eye(), approach, Map.of(), cells);
+		var collect = (Execute<Task, VoxelCommand>) domain.decide(new View<>(1, clearance.continuation(), false, 4, Optional.of(Outcome.success("cleared")), Optional.empty()), opened);
+		assertEquals(new Navigate(target, 24, 200), collect.command());
+		assertEquals(Set.of(target), ((Gather) collect.continuation()).drops(), "clearance debris is not mistaken for the requested ore drop");
 	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 
