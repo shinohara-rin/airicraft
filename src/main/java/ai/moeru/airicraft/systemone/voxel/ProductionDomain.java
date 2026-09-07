@@ -12,7 +12,9 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat {}
+	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
+	public record AfterAccess(Task saved) implements Task {}
 	public record Mission(String item, int count, long life, int deaths) implements Task {}
 	public record Abandon(String reason) implements Task {}
 	public record Escape(Pos origin, Set<Pos> rejected, Optional<Pos> last, long deadline) implements Task {
@@ -136,6 +138,16 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) yield new Keep<>();
 				yield decide(new View<>(view.id(), task.saved(), false, view.tick(), task.command(), task.child()), world);
 			}
+			case Access task -> {
+				if (view.acting()) yield new Keep<>();
+				var result = TerrainAccess.advance(task.state(), world, view.commandResult(), view.tick(), task.clearable(), p -> !survival.nearHazard(world, p));
+				if (result instanceof TerrainAccess.Arrived) yield success("access_stance_reached");
+				if (result instanceof TerrainAccess.Unavailable unavailable) yield failure(unavailable.reason());
+				var action = (TerrainAccess.Action) result;
+				yield new Execute<>(new Access(action.state(), task.clearable()), action.command());
+			}
+			case AfterAccess task -> decide(new View<>(view.id(), task.saved(), false, view.tick(),
+				Optional.of(failedChild(view) ? Outcome.failure("access_preparation_failed") : Outcome.success("access_prepared")), Optional.empty()), world);
 			case Acquire task -> acquire(view, task, world);
 			case Station task -> station(view, task, world);
 			case Gather task -> gather(view, task, world);
@@ -285,7 +297,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public static Set<Pos> retainedCells(List<Task> branch) {
 		var cells = new HashSet<Pos>();
 		for (Task task : branch) {
-			while (task instanceof AfterEscape after) task = after.saved();
+			while (task instanceof AfterEscape || task instanceof AfterAccess) task = task instanceof AfterEscape after ? after.saved() : ((AfterAccess) task).saved();
 			if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
 			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
 			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
@@ -297,6 +309,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return new Child<>(new AfterRetreat(reason), new Retreat(ReturnNavigation.State.begin(route)), "lighting_retreat");
 	}
 	private Decision<Task, VoxelCommand> resumeExplore(View<Task> view, ResumeExplore task, World world) {
+		if (needsAccess(view) && task.returning().last().isPresent()) return access(task, task.returning().last().get(), world, view.tick(), new HashSet<>(task.saved().search().prior().excavatable()));
 		Explore saved = task.saved();
 		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) saved = new Explore(saved.search(), saved.light().failed(task.repair()), saved.reserved(), saved.ancestors());
 		if (view.acting()) return new Keep<>();
@@ -308,6 +321,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	private Decision<Task, VoxelCommand> retreat(View<Task> view, Retreat task, World world) {
 		if (view.acting()) return new Keep<>();
+		if (needsAccess(view) && task.returning().last().isPresent()) return access(task, task.returning().last().get(), world, view.tick(), searches.values().stream().flatMap(p -> p.excavatable().stream()).collect(Collectors.toSet()));
 		var returning = ReturnNavigation.advance(task.returning(), world, view.commandResult());
 		if (returning instanceof ReturnNavigation.Arrived) return success("search_refuge_reached");
 		if (returning instanceof ReturnNavigation.Unavailable failed) return failure("search_refuge_unreachable:" + failed.reason());
@@ -425,6 +439,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> gather(View<Task> view, Gather task, World world) {
 		if (world.inventory().getOrDefault(task.rule().item(), 0) >= task.count()) return success("harvest_inventory_observed:" + task.rule().item());
 		if (view.acting()) return new Keep<>();
+		if (needsAccess(view) && task.last() instanceof Navigate move && !task.drops().isEmpty() && searches.containsKey(task.rule().item())) {
+			return access(task, move.stance(), world, view.tick(), new HashSet<>(searches.get(task.rule().item()).excavatable()));
+		}
 		var rejected = new HashSet<>(task.rejected()); var visited = new HashSet<>(task.visited());
 		var drops = new HashSet<>(task.drops());
 		if (failed(view)) {
@@ -478,6 +495,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	private Execute<Task, VoxelCommand> gatherAction(Gather task, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
 		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops()), action);
+	}
+	private static boolean needsAccess(View<Task> view) {
+		return !view.acting() && view.commandResult().filter(o -> o.kind() == ResultKind.FAILED && Set.of("observed_route_unavailable", "navigation_budget_exhausted").contains(o.evidence())).isPresent();
+	}
+	private static boolean failedChild(View<Task> view) { return view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent(); }
+	private Decision<Task, VoxelCommand> access(Task saved, Pos goal, World world, long tick, Set<String> clearable) {
+		return new Child<>(new AfterAccess(saved), new Access(TerrainAccess.State.begin(world.feet(), goal, tick), clearable), "prepare_observed_access");
 	}
 	private Optional<Pos> observedStation(World world, String block) {
 		return world.known().entrySet().stream().filter(e -> e.getValue().identified() && e.getValue().blockId().equals(block) && usableStation(world.known(), world.eye(), e.getKey()))

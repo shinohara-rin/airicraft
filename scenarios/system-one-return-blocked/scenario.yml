@@ -33,6 +33,14 @@ checks:
     eventType: system_one.task_resumed
     payload:
       detail: SUCCEEDED:inventory_observed:minecraft:torch:8
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: prepare_observed_access
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:access_stance_reached
 evidence:
   includePlannerJournal: true
   includeDebugTimeline: true
