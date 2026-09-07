@@ -27,7 +27,11 @@ public final class UndergroundSearch {
 		if (view.commandResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) task.destination().ifPresent(rejected::add);
 		int steps = task.steps();
 		Optional<Pos> destination = task.destination(), looked = task.lookedAt();
-		if (destination.filter(world.feet()::equals).isPresent()) { steps++; destination = Optional.empty(); looked = Optional.empty(); }
+		if (destination.filter(world.feet()::equals).isPresent()) {
+			steps++; destination = Optional.empty(); looked = Optional.empty();
+			// Reachability changed with our position. Past local failures must not exhaust a progressing search.
+			rejected.clear();
+		}
 		if (steps >= task.prior().maxSteps() || rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
 		if (destination.filter(rejected::contains).isPresent()) { destination = Optional.empty(); looked = Optional.empty(); }
 		// Retain a selected step across ceiling preparation and lighting interruptions.

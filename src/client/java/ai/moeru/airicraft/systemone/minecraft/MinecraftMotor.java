@@ -27,6 +27,7 @@ final class MinecraftMotor {
 	private long started;
 	private Vec3d lastPosition;
 	private double travelled;
+	private int navigationIdleTicks;
 	private Outcome finishing;
 	private boolean stopping;
 	private boolean breaking;
@@ -45,6 +46,7 @@ final class MinecraftMotor {
 		active = (Start<VoxelCommand>) effect;
 		started = tick;
 		lastPosition = client.player.getPos(); travelled = 0;
+		navigationIdleTicks = 0;
 		placed = false;
 		if (active.command() instanceof Craft craft) crafting = new MinecraftCrafting(craft, tick);
 		if (active.command() instanceof StartSmelt || active.command() instanceof CollectSmelt) smelting = new MinecraftSmelting(active.command(), tick);
@@ -93,7 +95,9 @@ final class MinecraftMotor {
 			else if (tick - started > move.maxTicks() || travelled > move.maxTravel()) {
 				finish(client, Outcome.failure("navigation_budget_exhausted"));
 			}
-			else if (tick - started > 10 && !pathing.processActive()) finish(client, Outcome.failure("observed_route_unavailable"));
+			else if (pathing.processActive()) navigationIdleTicks = 0;
+			// Baritone can finish its path as the player enters the goal cell, before landing.
+			else if (++navigationIdleTicks > 10) finish(client, Outcome.failure("observed_route_unavailable"));
 		}
 		else if (active.command() instanceof Break target) tickBreak(client, target, tick);
 		else if (active.command() instanceof Place target) tickPlace(client, target, tick);
