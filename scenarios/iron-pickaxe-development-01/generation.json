@@ -1,0 +1,16 @@
+{
+  "seed": -8922710515911108288,
+  "split": "development",
+  "protocolSha256": "93974187d1116d3b00b3d219518994d856b2616c386cb946d818e351b14e5981",
+  "templateSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe",
+  "worldSha256": "944ab433a68d99b5ca4f663353aab64c8e15819be188f53e7a136f840462e6d8",
+  "scenarioSha256": "51c61692026e4403bff0c2e3fed4f45321505daa978b5ddb86ed25c497aa8c25",
+  "preparerSha256": "302d6c9e2449fa8ff8b7f3ccca185e2a35bf19910abcb5aef452905e284bf644",
+  "minecraftJarSha256": "43dbae642299040ac448e64af0f0de1f0dd8e473fc05131a4c7f4b2dfe6f81a3",
+  "archiveEntries": [
+    "level.dat"
+  ],
+  "terrainGenerated": false,
+  "playerDataPresent": false,
+  "initialized": false
+}

@@ -1,0 +1,27 @@
+id: iron-pickaxe-development-03
+name: Independent development iron pickaxe 03
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: world.zip
+frozen: true
+prompt: Obtain one iron pickaxe from an empty inventory in this independently seeded world.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_pickaxe
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 72000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_pickaxe
+    count: 1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
