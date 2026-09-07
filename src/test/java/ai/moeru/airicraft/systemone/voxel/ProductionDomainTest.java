@@ -47,6 +47,25 @@ class ProductionDomainTest {
 		assertTrue(run.commands().isEmpty());
 		assertTrue(run.events().stream().anyMatch(event -> event.detail().contains("dependency_cycle")));
 	}
+	@Test void partialGoalStockCannotSeedAnUnproductiveConversionCycle() {
+		var pack = recipe("pack", "bar", 1, 2, "piece", "piece");
+		var unpack = recipe("unpack", "piece", 2, 2, "bar");
+		var fresh = recipe("fresh", "bar", 1, 2, "raw");
+		var goal = new Acquire("bar", 3, Map.of(), Set.of(), Set.of(), "pack");
+		var book = new ProductionKnowledge("conversion", List.of(pack, unpack, fresh), List.of());
+		var run = run(book, goal, Map.of("bar", 1, "raw", 2), false);
+		assertEquals(ResultKind.SUCCEEDED, run.outcome().kind());
+		assertEquals(3, run.inventory().get("bar"));
+		assertEquals(List.of("fresh", "fresh"), run.commands().stream().map(c -> ((Craft) c).recipe().id()).toList());
+		var impossible = run(new ProductionKnowledge("conversion", List.of(pack, unpack), List.of()), goal, Map.of("bar", 1), false);
+		assertEquals(ResultKind.FAILED, impossible.outcome().kind());
+		assertTrue(impossible.commands().isEmpty());
+		assertEquals(1, impossible.inventory().get("bar"));
+		var supplied = run(book, goal, Map.of("bar", 1, "piece", 4), false);
+		assertEquals(ResultKind.SUCCEEDED, supplied.outcome().kind());
+		assertEquals(3, supplied.inventory().get("bar"));
+		assertEquals(List.of("pack", "pack"), supplied.commands().stream().map(c -> ((Craft) c).recipe().id()).toList());
+	}
 	@Test void failedRecipeSelectsAnAlternativeWithoutLosingTheGoal() {
 		var book = new ProductionKnowledge("alternatives", List.of(recipe("a", "output", 1, 2, "a"), recipe("b", "output", 1, 2, "b")), List.of());
 		var run = run(book, Acquire.root("output", 1), Map.of("a", 1, "b", 1), true);

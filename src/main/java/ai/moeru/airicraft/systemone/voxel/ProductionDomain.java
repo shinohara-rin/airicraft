@@ -78,11 +78,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (!(ancestor.task() instanceof Acquire task)) continue;
 			Recipe current = recipesById.get(task.method());
 			if (current == null) continue;
-			double currentCost = recipeCost(current, task.reserved(), world, ancestry(task), new int[]{256});
+			double currentCost = recipeCost(current, productionReserve(task, world), world, ancestry(task), new int[]{256});
 			record Candidate(Recipe recipe, double cost) {}
 			var best = recipes.getOrDefault(task.item(), List.of()).stream()
 				.filter(recipe -> !task.failed().contains(recipe.id()) && !recipe.id().equals(current.id()))
-				.map(recipe -> new Candidate(recipe, recipeCost(recipe, task.reserved(), world, ancestry(task), new int[]{256})))
+				.map(recipe -> new Candidate(recipe, recipeCost(recipe, productionReserve(task, world), world, ancestry(task), new int[]{256})))
 				.filter(candidate -> Double.isFinite(candidate.cost()) && candidate.cost() * 1.5 + 2 < currentCost)
 				.min(Comparator.comparingDouble(Candidate::cost).thenComparing(candidate -> candidate.recipe().id()));
 			if (best.isPresent()) return Optional.of(new Revision<>(ancestor.id(), selected(task, best.get().recipe().id()), "better_observed_recipe:" + best.get().recipe().id()));
@@ -134,6 +134,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			task = new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), rejected, "");
 		}
 		if (task.failed().size() >= 32) return failure("production_alternatives_exhausted:" + task.item());
+		Map<String, Integer> productionReserve = productionReserve(task, world);
 		String harvestId = "harvest:" + task.item();
 		var search = searches.get(task.item());
 		if (search != null && !task.failed().contains(searchId)) {
@@ -145,9 +146,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 					Acquire current = task;
 					tool = rule.tools().stream().filter(id -> !current.failed().contains("tool:" + id) && !ancestry(current).contains(id)).findFirst().orElse(null);
 					if (tool == null) return failure("search_tool_alternatives_exhausted:" + task.item());
-					return new Child<>(selected(task, "tool:" + tool), dependency(task, tool, 1, task.reserved()), "search_tool_required:" + tool);
+					return new Child<>(selected(task, "tool:" + tool), dependency(task, tool, 1, productionReserve), "search_tool_required:" + tool);
 				}
-				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), LightingPolicy.State.begin(), task.reserved(), ancestry(task)), searchId);
+				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), LightingPolicy.State.begin(), productionReserve, ancestry(task)), searchId);
 			}
 		}
 		if (harvesting.containsKey(task.item()) && !task.failed().contains(harvestId)) {
@@ -156,7 +157,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (!rule.tools().isEmpty() && rule.tools().stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
 				String tool = rule.tools().stream().filter(id -> !next.failed().contains("tool:" + id) && !ancestry(next).contains(id)).findFirst().orElse(null);
 				if (tool == null) return failure("harvest_tool_alternatives_exhausted:" + task.item());
-				return new Child<>(selected(next, "tool:" + tool), dependency(next, tool, 1, next.reserved()), "tool_required:" + tool);
+				return new Child<>(selected(next, "tool:" + tool), dependency(next, tool, 1, productionReserve), "tool_required:" + tool);
 			}
 			int target = task.count() + task.reserved().getOrDefault(task.item(), 0);
 			Task child = rule.technique() == Technique.LOCAL_STONE ? new Excavate(StoneAcquisition.Task.begin(target, world.feet()))
@@ -169,27 +170,27 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			record Ranked(String id, double cost) {}
 			var options = new ArrayList<Ranked>();
 			for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
-				options.add(new Ranked(recipe.id(), recipeCost(recipe, current.reserved(), world, ancestry(current), new int[]{256})));
+				options.add(new Ranked(recipe.id(), recipeCost(recipe, productionReserve, world, ancestry(current), new int[]{256})));
 			}
 			for (var recipe : smelting.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
-				options.add(new Ranked(recipe.id(), smeltCost(recipe, current.reserved(), world, ancestry(current), new int[]{256})));
+				options.add(new Ranked(recipe.id(), smeltCost(recipe, productionReserve, world, ancestry(current), new int[]{256})));
 			}
 			method = options.stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
 		}
-		if (smeltsById.containsKey(method)) return new Child<>(selected(task, method), new SmeltBatch(smeltsById.get(method), task.reserved(), ancestry(task), Set.of(), ""), "smelting:" + task.item());
+		if (smeltsById.containsKey(method)) return new Child<>(selected(task, method), new SmeltBatch(smeltsById.get(method), productionReserve, ancestry(task), Set.of(), ""), "smelting:" + task.item());
 		Recipe recipe = recipesById.get(method);
 		if (recipe == null) return failure("no_production_method:" + task.item() + " rejected=" + new TreeSet<>(task.failed()));
 		Acquire next = selected(task, recipe.id());
 		Map<String, Integer> needed = recipe.ingredients();
 		for (var input : needed.entrySet()) {
 			if (free(world, task.reserved(), input.getKey()) < input.getValue()) {
-				return new Child<>(next, dependency(next, input.getKey(), input.getValue(), commitments(next.reserved(), needed, input.getKey(), world)), "ingredient:" + input.getKey());
+				return new Child<>(next, dependency(next, input.getKey(), input.getValue(), commitments(productionReserve, needed, input.getKey(), world)), "ingredient:" + input.getKey());
 			}
 		}
 		Pos station = null;
 		if (recipe.width() == 3) {
 			station = observedStation(world, "minecraft:crafting_table").orElse(null);
-			if (station == null) return new Child<>(next, new Station("minecraft:crafting_table", commitments(next.reserved(), needed, "", world), ancestry(next), 0, Set.of(), null), "workstation_required");
+			if (station == null) return new Child<>(next, new Station("minecraft:crafting_table", commitments(productionReserve, needed, "", world), ancestry(next), 0, Set.of(), null), "workstation_required");
 		}
 		return new Execute<>(next, new Craft(recipe, station));
 	}
@@ -418,6 +419,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static boolean intersectsPlayer(World world, Pos pos) {
 		return Math.abs(world.eye().x() - pos.x() - .5) < .8 && Math.abs(world.eye().z() - pos.z() - .5) < .8
 			&& pos.y() <= world.eye().y() && pos.y() + 1 > world.feet().y();
+	}
+	/** Existing progress belongs to this goal and cannot fund its nested prerequisites. */
+	private static Map<String, Integer> productionReserve(Acquire task, World world) {
+		var result = new TreeMap<>(task.reserved());
+		result.merge(task.item(), world.inventory().getOrDefault(task.item(), 0), Math::max);
+		return result;
 	}
 	private static Map<String, Integer> commitments(Map<String, Integer> reserved, Map<String, Integer> needed, String acquiring, World world) {
 		var result = new TreeMap<>(reserved);
