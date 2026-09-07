@@ -17,6 +17,9 @@ public sealed interface VoxelCommand {
 		public Place(String item, Pos support, String expectedSupport) { this(item, support, expectedSupport, Face.UP, item); }
 		public Pos destination() { return face.adjacent(support); }
 	}
+	record EdgePlace(Place placement) implements VoxelCommand {
+		public EdgePlace { if (placement.face().y != 0) throw new IllegalArgumentException("Horizontal edge placement required"); }
+	}
 	record StartSmelt(ProductionKnowledge.Smelt recipe, Pos station, String fuel, int fuelCount) implements VoxelCommand {
 		public StartSmelt { if (fuelCount < 1) throw new IllegalArgumentException("Fuel quantity required"); }
 	}

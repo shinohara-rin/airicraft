@@ -34,6 +34,7 @@ final class MinecraftMotor {
 	private boolean placed;
 	private MinecraftCrafting crafting;
 	private MinecraftSmelting smelting;
+	private MinecraftEdgePlacement edgePlacement;
 
 	void apply(Effect<VoxelCommand> effect, MinecraftClient client, long tick) {
 		if (effect instanceof Stop<VoxelCommand> stop) {
@@ -50,6 +51,7 @@ final class MinecraftMotor {
 		placed = false;
 		if (active.command() instanceof Craft craft) crafting = new MinecraftCrafting(craft, tick);
 		if (active.command() instanceof StartSmelt || active.command() instanceof CollectSmelt) smelting = new MinecraftSmelting(active.command(), tick);
+		if (active.command() instanceof EdgePlace edge) edgePlacement = new MinecraftEdgePlacement(edge.placement(), client.player, tick);
 		if (active.command() instanceof Navigate move) {
 			var settings = BaritoneAPI.getSettings();
 			set(settings.allowBreak, false); set(settings.allowBreakAnyway, java.util.List.of());
@@ -75,10 +77,11 @@ final class MinecraftMotor {
 			if (pathing.processActive() || pathing.cancellationPending()) return Optional.empty();
 			if (crafting != null && !crafting.release(client)) return Optional.empty();
 			if (smelting != null && !smelting.release(client)) return Optional.empty();
+			if (edgePlacement != null && !edgePlacement.release(client, tick)) return Optional.empty();
 			var result = stopping ? new Released(active.token()) : new Finished(active.token(), finishing);
 			BaritoneAPI.getProvider().getPrimaryBaritone().getInputOverrideHandler().clearAllKeys();
 			restoreSettings();
-			active = null; stopping = false; finishing = null; breaking = false; crafting = null; smelting = null;
+			active = null; stopping = false; finishing = null; breaking = false; crafting = null; smelting = null; edgePlacement = null;
 			return Optional.of(result);
 		}
 		if (active.command() instanceof Look look) {
@@ -101,6 +104,7 @@ final class MinecraftMotor {
 		}
 		else if (active.command() instanceof Break target) tickBreak(client, target, tick);
 		else if (active.command() instanceof Place target) tickPlace(client, target, tick);
+		else if (edgePlacement != null) edgePlacement.tick(client, tick).ifPresent(outcome -> finish(client, outcome));
 		else if (crafting != null) crafting.tick(client, tick).ifPresent(outcome -> finish(client, outcome));
 		else if (smelting != null) smelting.tick(client, tick).ifPresent(outcome -> finish(client, outcome));
 		return Optional.empty();
@@ -161,7 +165,7 @@ final class MinecraftMotor {
 	Map<String, Object> status() {
 		return Map.of("command", active == null ? "" : active.toString(), "stopping", stopping,
 			"finishing", finishing == null ? "" : finishing.toString(), "pathingActive", pathing.processActive(),
-			"releasePending", pathing.cancellationPending(), "crafting", crafting == null ? "" : crafting.status(), "smelting", smelting == null ? "" : smelting.status());
+			"releasePending", pathing.cancellationPending(), "crafting", crafting == null ? "" : crafting.status(), "smelting", smelting == null ? "" : smelting.status(), "edgePlacement", edgePlacement == null ? "" : edgePlacement.status());
 	}
 	private void requestRelease(MinecraftClient client) {
 		pathing.cancel();

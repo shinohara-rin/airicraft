@@ -1,0 +1,39 @@
+id: system-one-edge-bridge
+name: Crouch to expose an edge face and extend the cave floor
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain raw iron beyond a three-block gap without side-wall supports.
+  Use carried building material and observed footing to prepare a crossing.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: block_count
+    blockId: minecraft:cobblestone
+    count: 1
+    scope: self
+    horizontalRadius: 12
+    verticalRadius: 8
+  - type: event_contains
+    eventType: system_one.command_finished
+    payload:
+      detail: SUCCEEDED:edge_placed_block_observed
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

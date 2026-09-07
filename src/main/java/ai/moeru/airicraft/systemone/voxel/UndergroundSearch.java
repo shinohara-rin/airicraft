@@ -103,7 +103,7 @@ public final class UndergroundSearch {
 	private static List<Pos> entryColumn(World world, Pos next) {
 		return List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
 	}
-	private static Optional<Place> foothold(SearchPrior prior, World world, Pos next, Map<String, Integer> reserved) {
+	private static Optional<VoxelCommand> foothold(SearchPrior prior, World world, Pos next, Map<String, Integer> reserved) {
 		Pos footing = next.offset(0, -1, 0);
 		Seen gap = world.known().get(footing);
 		if (gap == null || !gap.identified() || !gap.empty() || !entryColumn(world, next).stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).traversable())) return Optional.empty();
@@ -114,6 +114,13 @@ public final class UndergroundSearch {
 				Seen surface = world.known().get(support);
 				if (StoneAcquisition.supportsStanding(surface) && ObservedReach.visibleFace(world.known(), world.eye(), support, face, 4.3)) {
 					return Optional.of(new Place(material.item(), support, surface.blockId(), face, material.block()));
+				}
+			}
+			Pos standingSupport = world.feet().offset(0, -1, 0);
+			Seen standing = world.known().get(standingSupport);
+			if (world.footholds().contains(standingSupport) && StoneAcquisition.supportsStanding(standing)) {
+				for (Face face : Face.values()) if (face.y == 0 && face.adjacent(standingSupport).equals(footing)) {
+					return Optional.of(new EdgePlace(new Place(material.item(), standingSupport, standing.blockId(), face, material.block())));
 				}
 			}
 		}
