@@ -1,0 +1,31 @@
+id: system-one-search-areas
+name: Continue prospecting after a bounded search area
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Find raw iron in a lit passage that extends beyond one local search budget.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      searchArea: '2'
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

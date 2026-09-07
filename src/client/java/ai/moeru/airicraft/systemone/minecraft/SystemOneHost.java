@@ -76,6 +76,11 @@ public final class SystemOneHost {
 			if (effect instanceof Start<VoxelCommand> start) {
 				payload.put("commandType", start.command().getClass().getSimpleName());
 				if (start.command() instanceof VoxelCommand.Break broken) payload.put("targetBlock", broken.expectedBlock());
+				if (state.stack().getLast().task() instanceof ProductionDomain.Explore explore) {
+					payload.put("searchArea", explore.search().areas().size());
+					payload.put("searchOrigin", explore.search().origin());
+					payload.put("searchSteps", explore.search().steps());
+				}
 			}
 			trace.accept("system_one.motor_effect", payload);
 			motor.apply(effect, client, tick);

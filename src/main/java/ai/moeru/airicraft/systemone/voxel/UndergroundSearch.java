@@ -11,8 +11,11 @@ import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
 public final class UndergroundSearch {
 	public enum Preparation { OBSERVING, EXCAVATING }
 	public record Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction,
-		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation) {
-		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); }
+		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation, List<Pos> areas) {
+		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); areas = List.copyOf(areas); }
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation) {
+			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, route, preparation, List.of(origin));
+		}
 		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
 			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, route, Preparation.OBSERVING);
 		}
@@ -46,7 +49,22 @@ public final class UndergroundSearch {
 			// Reachability changed with our position. Past local failures must not exhaust a progressing search.
 			rejected.clear();
 		}
-		if (steps >= task.prior().maxSteps() || rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
+		if (steps >= task.prior().maxSteps()) {
+			// A completed local search is one method attempt, not proof that the resource
+			// cannot be found. Continue only from real progress into a distinct observed area.
+			boolean arrived = task.last() instanceof Navigate && task.destination().filter(world.feet()::equals).isPresent()
+				&& view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent();
+			if (arrived && task.areas().size() < task.prior().maxAreas() && StoneAcquisition.standable(world.known(), world.feet())
+				&& eligible.test(world.feet()) && eligible.test(world.feet().offset(0,-1,0))
+				&& task.areas().stream().allMatch(center -> squared(center, world.feet()) >= Math.pow(task.prior().radius() / 2.0, 2))) {
+				var areas = new ArrayList<>(task.areas()); areas.add(world.feet());
+				return new Keep<>(new Task(task.prior(), task.targets(), world.feet(), world.feet(), task.direction(), 0,
+					Set.of(), task.ignoredTargets(), Optional.empty(), Optional.empty(), null,
+					RouteMemory.append(task.route(), world.feet()), Preparation.OBSERVING, areas));
+			}
+			return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
+		}
+		if (rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
 		if (destination.filter(rejected::contains).isPresent()) { destination = Optional.empty(); looked = Optional.empty(); }
 		// Retain a selected step across ceiling preparation and lighting interruptions.
 		List<Pos> candidates = new ArrayList<>();
@@ -131,7 +149,7 @@ public final class UndergroundSearch {
 		// A sidestep explores local space; it does not replace the search's chosen heading.
 		Preparation preparation = command instanceof Break ? Preparation.EXCAVATING
 			: task.destination().filter(destination::equals).isPresent() ? task.preparation() : Preparation.OBSERVING;
-		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command, RouteMemory.append(task.route(), world.feet()), preparation), command);
+		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command, RouteMemory.append(task.route(), world.feet()), preparation, task.areas()), command);
 	}
 	public static double squared(Pos a, Pos b) { return Math.pow(a.x() - b.x(), 2) + Math.pow(a.z() - b.z(), 2); }
 }

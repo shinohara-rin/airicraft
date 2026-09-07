@@ -15,8 +15,9 @@ public record ProductionKnowledge(String version, List<Recipe> recipes, List<Har
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) { this(version, recipes, harvesting, List.of(), List.of()); }
 	/** Domain-approved stable support materials; item and placed block need not have the same identity. */
 	public record SupportMaterial(String item, String block) {}
-	public record SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable, List<SupportMaterial> supports) {
-		public SearchPrior { excavatable = List.copyOf(excavatable); supports = List.copyOf(supports); if (radius < 1 || maxSteps < 1) throw new IllegalArgumentException("Positive search bounds required"); }
+	public record SearchPrior(String item, int preferredY, int radius, int maxSteps, int maxAreas, List<String> excavatable, List<SupportMaterial> supports) {
+		public SearchPrior { excavatable = List.copyOf(excavatable); supports = List.copyOf(supports); if (radius < 1 || maxSteps < 1 || maxAreas < 1) throw new IllegalArgumentException("Positive search bounds required"); }
+		public SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable, List<SupportMaterial> supports) { this(item, preferredY, radius, maxSteps, 1, excavatable, supports); }
 		public SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable) { this(item, preferredY, radius, maxSteps, excavatable, List.of()); }
 	}
 	public record Smelt(String id, String input, String output, int yield, String station, int ticks) {

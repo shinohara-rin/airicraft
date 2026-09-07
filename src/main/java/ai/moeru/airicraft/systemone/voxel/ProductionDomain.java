@@ -308,6 +308,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return new Execute<>(new Explore(action.continuation(), assessment.state(), task.reserved(), task.ancestors()), action.command());
 		}
 		if (decision instanceof Complete<UndergroundSearch.Task, VoxelCommand> completed) return new Complete<>(completed.outcome());
+		if (decision instanceof Keep<UndergroundSearch.Task, VoxelCommand> keep && keep.continuation().isPresent()) {
+			return new Keep<>(new Explore(keep.continuation().get(), assessment.state(), task.reserved(), task.ancestors()));
+		}
 		return new Keep<>(next);
 	}
 	public static Set<Pos> retainedCells(List<Task> branch) {
