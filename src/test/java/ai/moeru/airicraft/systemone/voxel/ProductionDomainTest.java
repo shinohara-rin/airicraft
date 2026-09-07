@@ -207,6 +207,17 @@ class ProductionDomainTest {
 		var discovered = assertInstanceOf(Complete.class, domain.decide(view(task), observed));
 		assertEquals("station_observed:minecraft:crafting_table", discovered.outcome().evidence());
 	}
+	@Test void stationReachDuringAnActiveApproachDoesNotCompleteTheTask() {
+		var base = world(Map.of());
+		var known = new HashMap<>(base.known());
+		known.put(new Pos(1,1,0), new Seen("minecraft:furnace", false, true, true, 15, 1));
+		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var task = new Station("minecraft:furnace", Map.of(), Set.of(), 0, Set.of(), new Navigate(new Pos(2,1,0),24,200));
+		var domain = new ProductionDomain(BOOK);
+		assertInstanceOf(Keep.class, domain.decide(new View<Task>(3,task,true,1,Optional.empty(),Optional.empty()), observed));
+		var arrived = assertInstanceOf(Complete.class, domain.decide(new View<Task>(3,task,false,2,Optional.of(Outcome.success("stance_reached")),Optional.empty()), observed));
+		assertEquals("station_observed:minecraft:furnace", arrived.outcome().evidence());
+	}
 	@Test void placementAvoidsBodyOverlapAcrossBlockBoundaries() {
 		var seen = new HashMap<Pos, Seen>();
 		for (var support : List.of(new Pos(0, 0, 0), new Pos(-1, 0, 1))) {

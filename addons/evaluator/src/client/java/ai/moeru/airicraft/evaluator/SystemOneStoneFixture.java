@@ -29,7 +29,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -142,6 +142,15 @@ final class SystemOneStoneFixture {
 						world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
 						world.setBlockState(new BlockPos(x - 1, 201, z), Blocks.AIR.getDefaultState(), 3);
 					}
+				}
+				else if (scenario.equals("system-one-station-stairs")) {
+					for (int dz = 1; dz <= 7; dz++) for (int dx = -1; dx <= 1; dx++) {
+						int floor = 199 + Math.min(dz, 4);
+						for (int y = 199; y <= floor; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
+					}
+					world.setBlockState(new BlockPos(x, 204, z + 6), Blocks.FURNACE.getDefaultState(), 3);
+					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
+					player.getInventory().setStack(1, new ItemStack(Items.COAL));
 				}
 				else if (scenario.equals("system-one-survival-wait")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));

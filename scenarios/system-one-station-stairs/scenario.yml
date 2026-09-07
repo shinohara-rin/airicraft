@@ -1,0 +1,34 @@
+id: system-one-station-stairs
+name: Finish a stair approach before opening the furnace
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one iron ingot from the furnace above the stairs. Raw iron and coal
+  are supplied. Finish the approach before opening the furnace; transient
+  reach while jumping is not a completed workstation approach.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+  - type: event_contains
+    eventType: system_one.command_finished
+    payload:
+      detail: SUCCEEDED:stance_reached
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

@@ -413,8 +413,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 
 	private Decision<Task, VoxelCommand> station(View<Task> view, Station task, World world) {
-		if (observedStation(world, task.item()).isPresent()) return success("station_observed:" + task.item());
 		if (view.acting()) return new Keep<>();
+		if (observedStation(world, task.item()).isPresent()) return success("station_observed:" + task.item());
 		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) return failure("station_supply_failed:" + task.item());
 		var rejected = new HashSet<>(task.rejected());
 		if (failed(view) && task.last() instanceof Place place) rejected.add(place.support());
