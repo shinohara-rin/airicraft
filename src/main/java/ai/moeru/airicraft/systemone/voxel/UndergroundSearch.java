@@ -45,6 +45,8 @@ public final class UndergroundSearch {
 		candidates.sort(Comparator.comparingInt(p -> retained.filter(p::equals).isPresent() ? 0 : StoneAcquisition.standable(world.known(), p) ? 1 : 2));
 		for (Pos next : candidates) {
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
+			int[] heading = DIRECTIONS[task.direction()];
+			if ((next.x() - world.feet().x()) * heading[0] + (next.z() - world.feet().z()) * heading[1] < 0) continue;
 			if (world.footholds().contains(next.offset(0, -1, 0)) && destination.isEmpty()) continue;
 			var column = List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
 			boolean obstructed = false;

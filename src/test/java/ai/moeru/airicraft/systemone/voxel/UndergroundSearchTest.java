@@ -29,6 +29,12 @@ class UndergroundSearchTest {
 		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
 		assertInstanceOf(Look.class, action.command());
 	}
+	@Test void cheapFloorBehindTheSearchDoesNotDisplaceForwardExcavation() {
+		var surface = FEET.offset(0, 0, 1);
+		var world = world(Map.of(surface, seen("minecraft:stone"), FEET.offset(0, -1, -1), seen("minecraft:stone")));
+		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
+		assertEquals(new Break(surface, "minecraft:stone"), action.command());
+	}
 	@Test void discoveredOreFinishesSearchEvenWhileMovementOwnsTheMotor() {
 		var world = world(Map.of(FEET.offset(1, 0, 0), seen("iron")));
 		var task = Task.begin(PRIOR, List.of("iron"), world, Set.of());
