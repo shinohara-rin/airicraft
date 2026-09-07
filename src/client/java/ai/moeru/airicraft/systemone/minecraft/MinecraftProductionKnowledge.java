@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.agent.tasks.CraftingOpportunityResolver;
+import ai.moeru.airicraft.agent.tasks.SmeltingPlannerService;
 import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.Items;
@@ -18,12 +19,23 @@ final class MinecraftProductionKnowledge {
 		var harvests = new ArrayList<Harvest>();
 		harvests.add(new Harvest("minecraft:cobblestone", List.of("minecraft:stone", "minecraft:cobblestone"),
 			List.of("minecraft:wooden_pickaxe", "minecraft:stone_pickaxe", "minecraft:iron_pickaxe", "minecraft:diamond_pickaxe", "minecraft:netherite_pickaxe"), Technique.LOCAL_STONE));
+		harvests.add(new Harvest("minecraft:raw_iron", List.of("minecraft:iron_ore", "minecraft:deepslate_iron_ore"),
+			List.of("minecraft:stone_pickaxe", "minecraft:iron_pickaxe", "minecraft:diamond_pickaxe", "minecraft:netherite_pickaxe"), Technique.EXPOSED));
+		harvests.add(new Harvest("minecraft:coal", List.of("minecraft:coal_ore", "minecraft:deepslate_coal_ore"),
+			List.of("minecraft:wooden_pickaxe", "minecraft:stone_pickaxe", "minecraft:iron_pickaxe", "minecraft:diamond_pickaxe", "minecraft:netherite_pickaxe"), Technique.EXPOSED));
 		for (var block : Registries.BLOCK) {
 			if (block.getDefaultState().isIn(BlockTags.LOGS) && block.asItem() != Items.AIR) {
 				harvests.add(new Harvest(Registries.ITEM.getId(block.asItem()).toString(), List.of(Registries.BLOCK.getId(block).toString()), List.of(), Technique.EXPOSED));
 			}
 		}
 		harvests.sort(Comparator.comparing(Harvest::item));
-		return new ProductionKnowledge("minecraft-recipe-display-v1", CraftingOpportunityResolver.productionRecipes(client.player), harvests);
+		var fuels = new ArrayList<Fuel>();
+		for (var item : Registries.ITEM) {
+			int ticks = client.world.getFuelRegistry().getFuelTicks(item.getDefaultStack());
+			if (ticks > 0) fuels.add(new Fuel(Registries.ITEM.getId(item).toString(), ticks));
+		}
+		fuels.sort(Comparator.comparing(Fuel::item));
+		return new ProductionKnowledge("minecraft-recipe-display-v2", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+			SmeltingPlannerService.productionSmelts(client), fuels);
 	}
 }

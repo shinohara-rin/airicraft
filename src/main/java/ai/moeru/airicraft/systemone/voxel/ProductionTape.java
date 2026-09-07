@@ -19,7 +19,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v4";
+	public static final String METHOD_VERSION = "reactive-production-v5";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits) {}
@@ -38,8 +38,8 @@ public final class ProductionTape {
 			switch (row.get("type").getAsString()) {
 				case "production_begin" -> {
 					if (rows != 0) throw new IllegalArgumentException("Repeated recording header");
+					if (row.get("version").getAsInt() != 1 || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
 					var header = GSON.fromJson(row, Header.class);
-					if (header.version() != 1 || !METHOD_VERSION.equals(header.methodVersion())) throw new IllegalArgumentException("Unsupported production version");
 					kernel = new TaskKernel<>(new ProductionDomain(header.knowledge()), header.limits());
 					state = kernel.begin(header.session(), header.run(), Acquire.root(header.item(), header.count()), header.tick());
 				}

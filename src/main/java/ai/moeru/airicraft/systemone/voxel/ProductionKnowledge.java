@@ -5,8 +5,18 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /** Recipe and harvesting priors, separate from all world coordinates and observations. */
-public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) {
-	public ProductionKnowledge { recipes = List.copyOf(recipes); harvesting = List.copyOf(harvesting); }
+public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels) {
+	public ProductionKnowledge {
+		recipes = List.copyOf(recipes); harvesting = List.copyOf(harvesting); smelting = List.copyOf(smelting); fuels = List.copyOf(fuels);
+	}
+	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) { this(version, recipes, harvesting, List.of(), List.of()); }
+	public record Smelt(String id, String input, String output, int yield, String station, int ticks) {
+		public Smelt { if (yield < 1 || ticks < 1) throw new IllegalArgumentException("Positive smelting yield and duration required"); }
+	}
+	public record Fuel(String item, int ticks) {
+		public Fuel { if (ticks < 1) throw new IllegalArgumentException("Positive fuel duration required"); }
+		public int quantity(int cookTicks) { return Math.ceilDiv(cookTicks, ticks); }
+	}
 	public record Cell(int slot, String item) {}
 	public record Recipe(String id, String output, int yield, int width, List<Cell> cells) {
 		public Recipe {

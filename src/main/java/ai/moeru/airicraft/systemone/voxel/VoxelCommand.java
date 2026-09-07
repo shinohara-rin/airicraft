@@ -8,6 +8,10 @@ public sealed interface VoxelCommand {
 	record Break(Pos target, String expectedBlock) implements VoxelCommand {}
 	record Navigate(Pos stance, int maxTravel, int maxTicks) implements VoxelCommand {}
 	record Place(String item, Pos support, String expectedSupport) implements VoxelCommand {}
+	record StartSmelt(ProductionKnowledge.Smelt recipe, Pos station, String fuel, int fuelCount) implements VoxelCommand {
+		public StartSmelt { if (fuelCount < 1) throw new IllegalArgumentException("Fuel quantity required"); }
+	}
+	record CollectSmelt(ProductionKnowledge.Smelt recipe, Pos station) implements VoxelCommand {}
 	/** A null station means the player's crafting grid, as declared by the recipe. */
 	record Craft(ProductionKnowledge.Recipe recipe, Pos station) implements VoxelCommand {
 		public Craft {

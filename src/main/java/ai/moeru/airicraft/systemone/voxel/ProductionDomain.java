@@ -12,7 +12,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Acquire, Excavate, Gather, Station {}
+	public sealed interface Task permits Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch {}
 	public record Acquire(String item, int count, Map<String, Integer> reserved, Set<String> ancestors, Set<String> failed, String method) implements Task {
 		public Acquire { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); failed = Set.copyOf(failed); if (count < 1) throw new IllegalArgumentException("Positive quantity required"); }
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
@@ -24,21 +24,45 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record Station(String item, Map<String, Integer> reserved, Set<String> ancestors, int scans, Set<Pos> rejected, VoxelCommand last) implements Task {
 		public Station { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejected = Set.copyOf(rejected); }
 	}
+	public record SmeltBatch(Smelt recipe, Map<String, Integer> reserved, Set<String> ancestors, Set<String> rejectedFuel, String fuel) implements Task {
+		public SmeltBatch { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejectedFuel = Set.copyOf(rejectedFuel); }
+	}
+	public record FinishSmeltStart(Smelt recipe, Pos station, int before) implements Task {}
+	public record CollectBatch(Smelt recipe, Pos station, int before, long deadline, int attempts) implements Task {}
 	private final Map<String, List<Recipe>> recipes;
 	private final Map<String, Recipe> recipesById;
 	private final Map<String, Harvest> harvesting;
+	private final Map<String, List<Smelt>> smelting;
+	private final Map<String, Smelt> smeltsById;
+	private final List<Fuel> fuels;
 	private final StoneAcquisition stone = new StoneAcquisition();
 
 	public ProductionDomain(ProductionKnowledge knowledge) {
 		recipes = knowledge.recipes().stream().collect(Collectors.groupingBy(Recipe::output));
 		recipesById = knowledge.recipes().stream().collect(Collectors.toMap(Recipe::id, r -> r));
 		harvesting = knowledge.harvesting().stream().collect(Collectors.toMap(Harvest::item, r -> r));
+		smelting = knowledge.smelting().stream().collect(Collectors.groupingBy(Smelt::output));
+		smeltsById = knowledge.smelting().stream().collect(Collectors.toMap(Smelt::id, r -> r));
+		fuels = knowledge.fuels();
 	}
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
 		return switch (view.task()) {
 			case Acquire task -> acquire(view, task, world);
 			case Station task -> station(view, task, world);
 			case Gather task -> gather(view, task, world);
+			case SmeltBatch task -> smelt(view, task, world);
+			case FinishSmeltStart task -> {
+				if (view.acting()) yield new Keep<>();
+				if (failed(view)) yield failure("smelt_start_failed:" + view.commandResult().orElseThrow().evidence());
+				yield new Sleep<>(new CollectBatch(task.recipe(), task.station(), task.before(), view.tick() + task.recipe().ticks() + 200, 0), view.tick() + task.recipe().ticks());
+			}
+			case CollectBatch task -> {
+				if (world.inventory().getOrDefault(task.recipe().output(), 0) >= task.before() + task.recipe().yield()) yield success("smelted_inventory_observed:" + task.recipe().output());
+				if (view.acting()) yield new Keep<>();
+				if (view.tick() >= task.deadline() || task.attempts() >= 4) yield failure("smelting_collection_exhausted");
+				if (failed(view)) yield new Sleep<>(task, view.tick() + 20);
+				yield new Execute<>(new CollectBatch(task.recipe(), task.station(), task.before(), task.deadline(), task.attempts() + 1), new CollectSmelt(task.recipe(), task.station()));
+			}
 			case Excavate task -> {
 				var result = stone.decide(new View<>(view.id(), task.state(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world);
 				if (result instanceof Execute<StoneAcquisition.Task, VoxelCommand> action) yield new Execute<>(new Excavate(action.continuation()), action.command());
@@ -69,14 +93,21 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				: new Gather(rule, target, world.feet(), 0, Set.of(), Set.of(), null);
 			return new Child<>(next, child, harvestId);
 		}
-		Recipe recipe = recipesById.get(task.method());
-		if (recipe == null) {
+		String method = task.method();
+		if (!recipesById.containsKey(method) && !smeltsById.containsKey(method)) {
 			Acquire current = task;
-			record Ranked(Recipe recipe, double cost) {}
-			recipe = recipes.getOrDefault(task.item(), List.of()).stream().filter(r -> !current.failed().contains(r.id()))
-				.map(r -> new Ranked(r, recipeCost(r, current.reserved(), world, ancestry(current), new int[]{256})))
-				.min(Comparator.comparingDouble(Ranked::cost).thenComparing(r -> r.recipe().id())).map(Ranked::recipe).orElse(null);
+			record Ranked(String id, double cost) {}
+			var options = new ArrayList<Ranked>();
+			for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
+				options.add(new Ranked(recipe.id(), recipeCost(recipe, current.reserved(), world, ancestry(current), new int[]{256})));
+			}
+			for (var recipe : smelting.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
+				options.add(new Ranked(recipe.id(), smeltCost(recipe, current.reserved(), world, ancestry(current), new int[]{256})));
+			}
+			method = options.stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
 		}
+		if (smeltsById.containsKey(method)) return new Child<>(selected(task, method), new SmeltBatch(smeltsById.get(method), task.reserved(), ancestry(task), Set.of(), ""), "smelting:" + task.item());
+		Recipe recipe = recipesById.get(method);
 		if (recipe == null) return failure("no_production_method:" + task.item() + " rejected=" + new TreeSet<>(task.failed()));
 		Acquire next = selected(task, recipe.id());
 		Map<String, Integer> needed = recipe.ingredients();
@@ -91,6 +122,31 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (station == null) return new Child<>(next, new Station("minecraft:crafting_table", commitments(next.reserved(), needed, "", world), ancestry(next), 0, Set.of(), null), "workstation_required");
 		}
 		return new Execute<>(next, new Craft(recipe, station));
+	}
+
+	private Decision<Task, VoxelCommand> smelt(View<Task> view, SmeltBatch task, World world) {
+		if (view.acting()) return new Keep<>();
+		if (failed(view)) {
+			if (task.fuel().isEmpty()) return failure("smelting_prerequisite_failed");
+			var rejected = new HashSet<>(task.rejectedFuel()); rejected.add(task.fuel());
+			task = new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), rejected, "");
+		}
+		if (free(world, task.reserved(), task.recipe().input()) < 1) return new Child<>(task,
+			new Acquire(task.recipe().input(), 1, task.reserved(), task.ancestors(), Set.of(), ""), "smelting_input");
+		var reserved = new TreeMap<>(task.reserved()); reserved.merge(task.recipe().input(), 1, Integer::sum);
+		Pos station = observedStation(world, task.recipe().station()).orElse(null);
+		if (station == null) return new Child<>(task, new Station(task.recipe().station(), reserved, task.ancestors(), 0, Set.of(), null), "smelting_station");
+		SmeltBatch current = task;
+		Fuel fuel = fuels.stream().filter(f -> !current.rejectedFuel().contains(f.item()))
+			.min(Comparator.<Fuel>comparingDouble(f -> {
+				int missing = Math.max(0, f.quantity(current.recipe().ticks()) - free(world, reserved, f.item()));
+				return missing * (1 + estimate(f.item(), reserved, world, current.ancestors(), new int[]{128})) + f.quantity(current.recipe().ticks()) * .01;
+			}).thenComparing(Fuel::item)).orElse(null);
+		if (fuel == null || task.rejectedFuel().size() >= 16) return failure("smelting_fuel_alternatives_exhausted");
+		int count = fuel.quantity(task.recipe().ticks());
+		if (free(world, reserved, fuel.item()) < count) return new Child<>(new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), task.rejectedFuel(), fuel.item()),
+			new Acquire(fuel.item(), count, reserved, task.ancestors(), Set.of(), ""), "smelting_fuel:" + fuel.item());
+		return new Execute<>(new FinishSmeltStart(task.recipe(), station, world.inventory().getOrDefault(task.recipe().output(), 0)), new StartSmelt(task.recipe(), station, fuel.item(), count));
 	}
 
 	private Decision<Task, VoxelCommand> station(View<Task> view, Station task, World world) {
@@ -198,7 +254,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			.filter(entry -> entry.getValue().identified() && harvest.blocks().contains(entry.getValue().blockId()))
 			.mapToDouble(entry -> 5 + Math.sqrt(distance(world.eye(), entry.getKey()))).min().orElse(30);
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = Math.min(best, recipeCost(recipe, reserved, world, next, budget) / recipe.yield());
+		for (var recipe : smelting.getOrDefault(item, List.of())) best = Math.min(best, smeltCost(recipe, reserved, world, next, budget) / recipe.yield());
 		return best;
+	}
+	private double smeltCost(Smelt recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
+		return 3 + estimate(recipe.input(), reserved, world, trail, budget);
 	}
 	private double recipeCost(Recipe recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
 		double cost = recipe.width() == 3 ? 2 : 1;

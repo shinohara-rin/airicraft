@@ -35,6 +35,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 public final class SmeltingPlannerService {
+	/** Catalog metadata only: this entry point never scans stations or block entities. */
+	public static List<ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Smelt> productionSmelts(MinecraftClient client) {
+		return extractKnownSmeltingRecipes(recipeEntries(client.player, ServerRecipeDisplayCatalog.current()), client.world).stream()
+			.map(recipe -> new ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Smelt(recipe.optionId(), recipe.inputItemId(),
+				recipe.outputItemId(), recipe.outputCount(), recipe.stationItemId(), recipe.cookTimeTicks())).toList();
+	}
 	private static final int STATION_SEARCH_RADIUS = 10;
 	private static final int STATION_SEARCH_VERTICAL_RADIUS = 4;
 	private static final int DEFAULT_COOK_TIME_TICKS = 200;

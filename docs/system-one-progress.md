@@ -14,7 +14,7 @@ Tracks the [implementation plan](superpowers/plans/2026-09-06-system-one-redesig
 
 - Production tasks load crafting patterns from the active recipe catalog, preserve parent ingredient reservations, account for recipe yields, and terminate prerequisite cycles. Observed resource sources affect recipe choice. Child tasks harvest logs, bootstrap tools, acquire/place tables, and return toward remembered workstations. Crafting, exact placement, and inventory selection stay under the motor owner; crafting release drains the cursor and input grid. Production recordings include the complete immutable recipe/prior catalog and support offline replay.
 
-The empty-inventory stone-pickaxe production fixture now passes live. Excavation protects visited footholds, clears a lower step before walking into it, and retains the destination while clearing overhead entry space. Evaluation cleanup preserves an already pending terminal outcome while waiting for physical release. Smelting, lighting repairs, survival control, and the original iron-pickaxe gate remain unimplemented or unverified.
+The empty-inventory stone-pickaxe production fixture now passes live. Excavation protects visited footholds, clears a lower step before walking into it, and retains the destination while clearing overhead entry space. Evaluation cleanup preserves an already pending terminal outcome while waiting for physical release. Smelting load/wait/collect tasks, catalog-derived fuel durations, and an exposed-resource iron fixture are implemented but not yet live-validated successfully. Lighting repairs, survival control, and the original iron-pickaxe gate remain unimplemented or unverified.
 
 ## Tests and live evidence
 
@@ -25,7 +25,7 @@ source .envrc
 ./gradlew :test --tests 'ai.moeru.airicraft.systemone.*'
 ```
 
-At 2026-09-07, 46 tests pass: 11 kernel, 6 geometric sensing, 11 acquisition, 9 production, 6 decision replay, and 3 recording tests. The 32 evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests). Four recording-inspector tests cover old-policy diagnosis and incomplete input detection.
+At 2026-09-07, 51 tests pass: 11 kernel, 6 geometric sensing, 11 acquisition, 9 production, 6 decision replay, 3 recording tests, and 5 smelting-production tests. The 32 evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests). Four recording-inspector tests cover old-policy diagnosis and incomplete input detection.
 
 Live fixture command:
 
@@ -56,6 +56,7 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 | `20260907-171921-268801-87086` | The corrected sequence descended two steps and preserved footholds. Later descent failed because the destination ceiling blocked entry despite two-block standing clearance. Recorded observations identified the obstructing grass block. All 967 turns replayed with policy v3 at checkpoint `dc70f25`. Added a retained step destination and overhead preparation. |
 | `20260907-172346-877489-88255` | Empty-inventory stone-pickaxe goal PASSED in 683 ticks, zero planner turns. Cleanup overwrote pending success with cancellation; all 618 turns reproduced that race offline. Corrected cleanup to preserve terminal decisions while waiting for release. |
 | `20260907-172709-641844-89225` | Final production verification PASSED in 690 elapsed ticks; harness OK, zero planner/LLM calls, runtime SUCCEEDED, motor fully released, client exited normally. All 628 decision turns replayed offline. There were 16 break commands, 7 crafts, 7 navigations, 1 placement, and zero survey turns; one occluded target recovered. |
+| `20260907-174348-876499-93376` | First exposed-iron attempt FAILED before motor actuation: resource cost estimation preferred an unavailable diamond tool. Cyclic block-compression recipes divided a finite unavailability penalty into an apparently cheaper cost. The 8 recorded decision turns replay exactly with production policy v5. |
 
 The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. The final production Recorder Play was rendered successfully to 676 frames and `recording-render/fpv.mp4`. Sampled first-person frames were visually inspected through log harvesting, excavation, cobblestone collection, and return toward the table. The renderer covers its available server ticks 28–703, versus requested 28–724, and reports 314 ignored unsupported packets (310 chunk unloads, 4 player positions). Its images are supporting evidence; they do not independently prove final inventory or exact runtime-tick alignment.
 
