@@ -12,8 +12,14 @@ public final class VoxelObservation {
 	}
 	public record Pose(double x, double y, double z, double yaw, double pitch) {}
 	/** fullSupport describes observed full-block collision geometry, not a hazard policy. */
-	public record Sample(String blockId, boolean empty, boolean fullSupport, int light) {}
-	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick) {}
+	public record Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody) {
+		public Sample(String blockId, boolean empty, boolean fullSupport, int light) { this(blockId, empty, fullSupport, light, empty); }
+	}
+	/** Body clearance is distinct from an empty voxel: a visible torch can be walked through. */
+	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody) {
+		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick) { this(blockId, empty, identified, fullSupport, light, tick, empty); }
+		public boolean traversable() { return empty || identified && clearForBody; }
+	}
 	public record Lens(double range, int yawDegrees, int pitchDegrees, int spacingDegrees, int identificationLight) {
 		public Lens {
 			if (!Double.isFinite(range) || range <= 0 || range > 64 || yawDegrees < 1 || yawDegrees > 180
@@ -39,6 +45,7 @@ public final class VoxelObservation {
 
 	static void ray(Scene scene, Pose eye, double dx, double dy, double dz, Lens lens, long tick, Map<Pos, Seen> visible) {
 		int x = (int) Math.floor(eye.x()), y = (int) Math.floor(eye.y()), z = (int) Math.floor(eye.z());
+		Pos origin = new Pos(x, y, z);
 		int sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1, sz = dz >= 0 ? 1 : -1;
 		double tx = boundary(eye.x(), x, dx), ty = boundary(eye.y(), y, dy), tz = boundary(eye.z(), z, dz);
 		double distance = 0;
@@ -50,9 +57,11 @@ public final class VoxelObservation {
 			Sample sample = scene.sample(pos);
 			int light = Math.max(sample.light(), previousLight);
 			boolean identified = sample.empty() || light >= lens.identificationLight();
-			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick);
+			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick, identified && sample.clearForBody());
 			visible.merge(pos, seen, (a, b) -> a.identified() && !b.identified() ? a : b);
-			if (!sample.empty()) return;
+			// A noncolliding fixture sharing the eye voxel must not seal every outgoing ray.
+			// All subsequently occupied voxels still occlude, including other torches.
+			if (!sample.empty() && !(pos.equals(origin) && identified && sample.clearForBody())) return;
 			previousLight = sample.light();
 			// Break ties one axis at a time: a zero-width corner must not reveal diagonal hidden blocks.
 			if (tx <= ty && tx <= tz) { distance = tx; tx += 1 / Math.abs(dx); x += sx; }

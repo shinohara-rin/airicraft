@@ -70,17 +70,17 @@ public final class UndergroundSearch {
 			boolean obstructed = false;
 			for (Pos cell : column) {
 				Seen seen = world.known().get(cell);
-				if (seen != null && seen.empty()) continue;
+				if (seen != null && seen.traversable()) continue;
 				if (seen != null && seen.identified() && (!task.prior().excavatable().contains(seen.blockId()) || world.footholds().contains(cell))) { obstructed = true; break; }
 			}
 			if (obstructed) { rejected.add(next); continue; }
 			for (Pos cell : column) {
 				Seen seen = world.known().get(cell);
-				if (seen != null && seen.identified() && !seen.empty() && ObservedReach.visible(world.known(), world.eye(), cell, 4.3)) {
+				if (seen != null && seen.identified() && !seen.traversable() && ObservedReach.visible(world.known(), world.eye(), cell, 4.3)) {
 					return action(task, world, steps, rejected, next, null, new Break(cell, seen.blockId()));
 				}
 			}
-			if (StoneAcquisition.standable(world.known(), next) && column.stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).empty())) {
+			if (StoneAcquisition.standable(world.known(), next) && column.stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).traversable())) {
 				return action(task, world, steps, rejected, next, null, new Navigate(next, 12, 200));
 			}
 			var footing = foothold(task.prior(), world, next, reserved);
@@ -100,7 +100,7 @@ public final class UndergroundSearch {
 	private static Optional<Place> foothold(SearchPrior prior, World world, Pos next, Map<String, Integer> reserved) {
 		Pos footing = next.offset(0, -1, 0);
 		Seen gap = world.known().get(footing);
-		if (gap == null || !gap.identified() || !gap.empty() || !entryColumn(world, next).stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).empty())) return Optional.empty();
+		if (gap == null || !gap.identified() || !gap.empty() || !entryColumn(world, next).stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).traversable())) return Optional.empty();
 		for (var material : prior.supports()) {
 			if (world.inventory().getOrDefault(material.item(), 0) <= reserved.getOrDefault(material.item(), 0)) continue;
 			for (Face face : Face.values()) {

@@ -32,6 +32,25 @@ class VoxelObservationTest {
 		assertTrue(seen.values().stream().noneMatch(Seen::empty));
 		assertTrue(seen.values().stream().noneMatch(Seen::fullSupport));
 	}
+	@Test void bodyClearanceDoesNotMakeAnOccupiedVoxelTransparent() {
+		var seen = new LinkedHashMap<Pos, Seen>();
+		ray(pos -> pos.z() < 2 ? AIR : new Sample("torch", false, false, 15, true), EYE, 0, 0, 1, LENS, 1, seen);
+		assertTrue(seen.get(new Pos(0, 2, 2)).traversable());
+		assertFalse(seen.get(new Pos(0, 2, 2)).empty());
+		assertFalse(seen.containsKey(new Pos(0, 2, 3)), "collision clearance does not extend sensing rays");
+		var dark = observe(pos -> new Sample("plant", false, false, 0, true), EYE, LENS, 1);
+		assertTrue(dark.values().stream().noneMatch(Seen::traversable), "unidentified material cannot grant clearance");
+	}
+	@Test void theCameraCanLookOutOfANoncollidingFixtureInItsOwnVoxel() {
+		var seen = new LinkedHashMap<Pos, Seen>();
+		ray(pos -> pos.z() == 0 ? new Sample("wall_torch", false, false, 14, true)
+			: pos.z() == 1 ? AIR : new Sample("stone", false, true, 14), EYE, 0, 0, 1, LENS, 1, seen);
+		assertTrue(seen.containsKey(new Pos(0, 2, 1)));
+		assertEquals("stone", seen.get(new Pos(0, 2, 2)).blockId());
+		assertFalse(seen.containsKey(new Pos(0, 2, 3)));
+		var solid = observe(pos -> new Sample("stone", false, true, 14), EYE, LENS, 1);
+		assertEquals(1, solid.size(), "origin exception cannot see out through solid terrain");
+	}
 
 	@Test void aLitFaceCanBeIdentifiedFromTheAdjacentAir() {
 		var seen = new LinkedHashMap<Pos, Seen>();

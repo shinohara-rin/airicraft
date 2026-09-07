@@ -333,7 +333,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			for (Face face : List.of(Face.NORTH, Face.SOUTH, Face.WEST, Face.EAST)) {
 				Pos target = face.adjacent(wall); Seen space = world.known().get(target);
 				if (space == null || !space.empty() || intersectsPlayer(world, target)) continue;
-				if (world.footholds().contains(target.offset(0, -1, 0)) || world.footholds().contains(target.offset(0, -2, 0))) continue;
+				// Wall torches have no body collision and preserve the observed walking route.
 				double facing = (world.eye().x() - wall.x() - .5) * face.x + (world.eye().z() - wall.z() - .5) * face.z;
 				if (facing <= .5 || !ObservedReach.visible(world.known(), world.eye(), wall, 4.3)) continue;
 				return new Execute<>(new PlaceLight(rejected, Optional.of(wall)), new Place("minecraft:torch", wall, seen.blockId(), face, "minecraft:wall_torch"));

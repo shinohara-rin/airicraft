@@ -39,7 +39,9 @@ final class MinecraftSensor {
 			BlockState state = client.world.getBlockState(p);
 			samples.put(pos, state);
 			// Static collision shapes are cached by Minecraft; this does not query hidden neighbors.
-			return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(), !state.getBlock().hasDynamicBounds() && state.isFullCube(EmptyBlockView.INSTANCE, p), client.world.getLightLevel(p));
+			boolean staticShape = !state.getBlock().hasDynamicBounds();
+			return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(), staticShape && state.isFullCube(EmptyBlockView.INSTANCE, p), client.world.getLightLevel(p),
+				staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty());
 		}, pose, LENS, tick);
 		seen.forEach((pos, value) -> {
 			// A dark re-observation cannot refresh a remembered block's identity.

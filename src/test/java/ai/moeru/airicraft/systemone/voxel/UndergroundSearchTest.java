@@ -25,6 +25,13 @@ class UndergroundSearchTest {
 		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
 		assertEquals(new Navigate(FEET.offset(0, 0, 1), 12, 200), action.command());
 	}
+	@Test void anObservedTorchIsTraversedWithoutBeingExcavated() {
+		var next = FEET.offset(0, 0, 1);
+		var world = world(Map.of(next.offset(0, -1, 0), seen("minecraft:stone"),
+			next, new Seen("minecraft:wall_torch", false, true, false, 14, 1, true)));
+		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
+		assertEquals(new Navigate(next, 12, 200), action.command());
+	}
 	@Test void unknownSupportMustBeObservedBeforeDescent() {
 		var world = world(Map.of());
 		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));

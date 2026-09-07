@@ -127,7 +127,7 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 	}
 	public static boolean standable(Map<Pos, Seen> known, Pos pos) {
 		Seen feet = known.get(pos), head = known.get(pos.offset(0, 1, 0)), floor = known.get(pos.offset(0, -1, 0));
-		return feet != null && feet.empty() && head != null && head.empty() && supportsStanding(floor);
+		return feet != null && feet.traversable() && head != null && head.traversable() && supportsStanding(floor);
 	}
 	public static boolean supportsStanding(Seen floor) { return floor != null && floor.identified() && !floor.empty() && floor.fullSupport(); }
 	private static boolean stone(String id) { return id.equals("minecraft:stone") || id.equals("minecraft:cobblestone"); }

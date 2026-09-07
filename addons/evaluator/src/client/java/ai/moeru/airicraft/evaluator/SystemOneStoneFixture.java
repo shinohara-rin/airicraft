@@ -27,7 +27,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-return-route", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-return-route", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-return-route")) depleteReturnSupplies(client, tick);
 			if (scenario.startsWith("system-one-survival-") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
@@ -59,13 +59,13 @@ final class SystemOneStoneFixture {
 					boolean gap = scenario.equals("system-one-cave-gap");
 					boolean returning = scenario.equals("system-one-return-route");
 					int length = returning ? 60 : exhaustion ? 24 : 9;
-					int halfWidth = scenario.equals("system-one-lighting-stairs") || gap || returning ? 0 : 1;
+					int halfWidth = scenario.equals("system-one-lighting-stairs") || scenario.equals("system-one-lighting-low-ceiling") || gap || returning ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
 					}
 					for (int dz = 1; dz <= length; dz++) for (int dx = -halfWidth; dx <= halfWidth; dx++) {
 						int floor = 200 - Math.min(dz, 4);
-						for (int y = floor; y <= floor + 2; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
+						for (int y = floor; y <= floor + (scenario.equals("system-one-lighting-low-ceiling") ? 1 : 2); y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
 						if (scenario.equals("system-one-lighting-stairs")) {
 							var support = dz % 2 == 0 ? Blocks.ANDESITE : Blocks.DEEPSLATE;
 							world.setBlockState(new BlockPos(x + dx, floor - 1, z + dz), support.getDefaultState(), 3);
