@@ -75,7 +75,10 @@ public final class SystemOneHost {
 			payload.put("run", state.run()); payload.put("effect", effect.toString());
 			if (effect instanceof Start<VoxelCommand> start) {
 				payload.put("commandType", start.command().getClass().getSimpleName());
-				if (start.command() instanceof VoxelCommand.Break broken) payload.put("targetBlock", broken.expectedBlock());
+				payload.put("commandToken", start.token());
+				if (start.command() instanceof VoxelCommand.Break broken) {
+					payload.put("targetBlock", broken.expectedBlock()); payload.put("targetPosition", broken.target());
+				}
 				if (state.stack().getLast().task() instanceof ProductionDomain.Explore explore) {
 					payload.put("searchArea", explore.search().areas().size());
 					payload.put("searchOrigin", explore.search().origin());
