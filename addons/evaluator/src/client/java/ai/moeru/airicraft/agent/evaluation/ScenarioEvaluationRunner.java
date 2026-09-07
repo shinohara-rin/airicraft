@@ -20,6 +20,7 @@ public final class ScenarioEvaluationRunner {
 	private boolean evidenceReviewRequired;
 	private String executionMode = "planner";
 	private String goalExecutionId;
+	private final Map<EvaluationCheck, Long> observedEventChecks = new LinkedHashMap<>();
 
 	public void start(EvaluationScenario scenario, long tick, long nowMs) {
 		this.scenario = scenario;
@@ -31,6 +32,7 @@ public final class ScenarioEvaluationRunner {
 		this.lastTriggerTick = Long.MIN_VALUE;
 		this.plannerTurns = 0;
 		this.latestCheckResults = List.of();
+		this.observedEventChecks.clear();
 		this.goalExecutionId = null;
 		this.executionMode = "planner";
 		this.evidenceReviewRequired = !scenario.hasDeterministicChecks();
@@ -225,8 +227,10 @@ public final class ScenarioEvaluationRunner {
 			}
 			case "event_contains" -> {
 				String eventType = check.string("eventType");
-				yield context.eventContains(eventType, check.stringMap("payload"))
-					? EvaluationCheckResult.passed(check, "event seen: " + eventType)
+				// Historical occurrence survives eviction from the runtime's bounded event window.
+				if (!observedEventChecks.containsKey(check) && context.eventContains(eventType, check.stringMap("payload"))) observedEventChecks.put(check, context.tick());
+				yield observedEventChecks.containsKey(check)
+					? EvaluationCheckResult.passed(check, "event seen: " + eventType + " (matched at tick " + observedEventChecks.get(check) + ")")
 					: EvaluationCheckResult.failed(check, "event not seen: " + eventType);
 			}
 			case "last_chat_contains" -> {

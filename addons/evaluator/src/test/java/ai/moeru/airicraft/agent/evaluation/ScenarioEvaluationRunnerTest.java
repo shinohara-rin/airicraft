@@ -24,6 +24,28 @@ class ScenarioEvaluationRunnerTest {
 		assertEquals(EvaluationStatus.PASSED, runner.report(context.tick).status());
 	}
 	@Test
+	void historicalEventChecksSurviveEvictionButResetForTheNextScenario() {
+		var runner = new ScenarioEvaluationRunner(); var context = new FakeContext();
+		var scenario = scenario(List.of(
+			new EvaluationCheck("event_contains", Map.of("eventType", "system_one.task_suspended", "payload", Map.of("detail", "lighting_supply"))),
+			new EvaluationCheck("inventory_contains", Map.of("itemId", "minecraft:iron_ingot", "count", 1))), new EvaluationBudget(4, 200, 0, 5));
+		runner.start(scenario, 0, 0);
+		context.observedEvents.put("system_one.task_suspended", Map.of("detail", "lighting_supply"));
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.RUNNING, runner.report(0).status());
+		context.observedEvents.clear(); context.tick = 1;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.RUNNING, runner.report(1).status());
+		assertTrue(runner.report(1).checks().getFirst().passed());
+		context.inventoryCount = 1; context.tick = 2;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.PASSED, runner.report(2).status());
+		runner.start(scenario, 3, 0); context.tick = 3;
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.RUNNING, runner.report(3).status());
+		assertTrue(!runner.report(3).checks().getFirst().passed());
+	}
+	@Test
 	void emitsInitialPromptAndHeartbeatUntilCheckPasses() {
 		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 		FakeContext context = new FakeContext();
