@@ -11,6 +11,8 @@ public final class TaskKernel<T, O, C> {
 	@FunctionalInterface
 	public interface Domain<T, O, C> {
 		Decision<T, C> decide(View<T> task, O observation);
+		/** Domain constraints may depend on suspended parents as well as the active leaf. */
+		default Decision<T, C> decide(List<View<T>> branch, O observation) { return decide(branch.getLast(), observation); }
 		/** Observe the root goal even while a prerequisite is acting or waiting. */
 		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
 		/** Urgent domain work is checked even during passive waits; the continuation revalidates interrupted work. */
@@ -168,8 +170,8 @@ public final class TaskKernel<T, O, C> {
 			if (frame.phase() instanceof Releasing<T>) break;
 			if (frame.phase() instanceof Sleeping<T> sleeping && tick < sleeping.wakeTick()) break;
 			boolean acting = frame.phase() instanceof Acting<T>;
-			Decision<T, C> decision = domain.decide(new View<>(frame.id(), frame.task(), acting, tick,
-				frame.commandResult(), frame.childResult()), observation);
+			var branch = turn.stack.stream().map(item -> new View<>(item.id(), item.task(), item.phase() instanceof Acting<T>, tick, item.commandResult(), item.childResult())).toList();
+			Decision<T, C> decision = domain.decide(branch, observation);
 			if (decision instanceof Keep<T, C> keep) {
 				keep.continuation().ifPresent(task -> turn.replace(new Frame<>(frame.id(), task, frame.phase(), frame.commandResult(), frame.childResult())));
 				break;

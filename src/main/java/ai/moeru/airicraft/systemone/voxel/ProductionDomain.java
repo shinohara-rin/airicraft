@@ -113,6 +113,16 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return Optional.of(new Revision<>(root.id(), new Abandon("survival_escape_failed"), "survival_escape_failed"));
 		}
 		var leaf = branch.getLast();
+		VoxelCommand pending = leaf.task() instanceof Gather gather ? gather.last()
+			: leaf.task() instanceof Explore explore ? explore.search().last()
+			: leaf.task() instanceof Access access ? access.state().last()
+			: leaf.task() instanceof Excavate excavation ? excavation.state().last().orElse(null) : null;
+		if (leaf.acting() && pending instanceof Break broken && world.known().get(broken.target()) != null && !world.known().get(broken.target()).empty()
+			&& SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList())).footholds().contains(broken.target())) {
+			Task saved = leaf.task();
+			if (saved instanceof Gather gather) saved = new Gather(gather.rule(),gather.count(),gather.origin(),gather.scans(),gather.rejected(),gather.visited(),null,gather.drops());
+			return Optional.of(new Revision<>(leaf.id(), saved, "support_reservation_changed"));
+		}
 		// Reconsider unavailable inputs at completed observation/travel boundaries, not mid-harvest.
 		if (world == null || leaf.acting() || !(leaf.task() instanceof Gather gather) || !gather.drops().isEmpty()
 			|| !(gather.last() instanceof Look || gather.last() instanceof Navigate)
@@ -132,6 +142,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return Optional.empty();
 	}
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
+		return decide(List.of(view), world);
+	}
+	@Override public Decision<Task, VoxelCommand> decide(List<View<Task>> branch, World world) {
+		var protectedWorld = SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList()));
+		var result = decidePrepared(branch.getLast(), protectedWorld);
+		if (result instanceof Execute<Task, VoxelCommand> action && action.command() instanceof Break broken && protectedWorld.footholds().contains(broken.target())) return failure("reserved_support");
+		return result;
+	}
+	private Decision<Task, VoxelCommand> decidePrepared(View<Task> view, World world) {
 		return switch (view.task()) {
 			case Mission task -> {
 				if (!world.vitals().alive()) yield new Sleep<>(task, view.tick() + 5);
@@ -143,7 +162,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case AfterEscape task -> {
 				// The next kernel reconsideration terminates the root after an exhausted escape.
 				if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) yield new Keep<>();
-				yield decide(new View<>(view.id(), task.saved(), false, view.tick(), task.command(), task.child()), world);
+				yield decidePrepared(new View<>(view.id(), task.saved(), false, view.tick(), task.command(), task.child()), world);
 			}
 			case Access task -> {
 				if (view.acting()) yield new Keep<>();
@@ -153,7 +172,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				var action = (TerrainAccess.Action) result;
 				yield new Execute<>(new Access(action.state(), task.clearable()), action.command());
 			}
-			case AfterAccess task -> decide(new View<>(view.id(), task.saved(), false, view.tick(),
+			case AfterAccess task -> decidePrepared(new View<>(view.id(), task.saved(), false, view.tick(),
 				Optional.of(failedChild(view) ? Outcome.failure("access_preparation_failed") : Outcome.success("access_prepared")), Optional.empty()), world);
 			case Acquire task -> acquire(view, task, world);
 			case Station task -> station(view, task, world);
@@ -330,6 +349,20 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
 		}
 		return Set.copyOf(cells);
+	}
+	private static Set<Pos> returnStances(List<Task> branch) {
+		var stances = new HashSet<Pos>();
+		for (Task task : branch) {
+			while (task instanceof AfterEscape || task instanceof AfterAccess) task = task instanceof AfterEscape after ? after.saved() : ((AfterAccess)task).saved();
+			if (task instanceof Explore explore) stances.addAll(explore.search().route());
+			else if (task instanceof ResumeExplore resume) stances.addAll(resume.returning().route());
+			else if (task instanceof Resupply supply) stances.addAll(supply.outward().route());
+			else if (task instanceof Retreat retreat) stances.addAll(retreat.returning().route());
+			else if (task instanceof Excavate excavation) stances.addAll(excavation.state().route());
+			else if (task instanceof Gather gather) stances.add(gather.origin());
+			else if (task instanceof Access access) stances.add(access.state().origin());
+		}
+		return Set.copyOf(stances);
 	}
 	private boolean craftableFromInventory(Acquire task, World world) {
 		int missing = task.count() - free(world, task.reserved(), task.item());
@@ -552,7 +585,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Gather current = task;
 		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
 			.filter(e -> !survival.nearHazard(world, e.getKey()))
-			.filter(e -> !rejected.contains(e.getKey()) && !e.getKey().equals(world.feet().offset(0, -1, 0)))
+			.filter(e -> !rejected.contains(e.getKey()) && !world.footholds().contains(e.getKey()))
 			.sorted(Map.Entry.comparingByKey(positionOrder(world.eye()))).toList();
 		for (var target : targets) {
 			if (ObservedReach.visible(world.known(), world.eye(), target.getKey(), 4.3)) return gatherAction(task, world, new Break(target.getKey(), target.getValue().blockId()), task.scans(), rejected, visited);

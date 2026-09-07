@@ -90,7 +90,7 @@ public final class UndergroundSearch {
 		for (Pos next : candidates) {
 			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
-			if (world.footholds().contains(next.offset(0, -1, 0)) && retained.filter(next::equals).isEmpty()) continue;
+			if (task.route().contains(next) && retained.filter(next::equals).isEmpty()) continue;
 			var column = entryColumn(world, next);
 			boolean obstructed = false;
 			for (Pos cell : column) {

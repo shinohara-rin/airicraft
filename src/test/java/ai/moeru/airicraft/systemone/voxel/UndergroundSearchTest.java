@@ -155,7 +155,7 @@ class UndergroundSearchTest {
 		var base = world(Map.of(visitedFloor, seen("minecraft:stone")));
 		var world = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), base.known(), Set.of(visitedFloor));
 		var forward = FEET.offset(0, 0, 1);
-		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(forward), Optional.of(forward.offset(0, -1, 0)), null);
+		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(forward), Optional.of(forward.offset(0, -1, 0)), null,List.of(visitedFloor.offset(0,1,0),FEET));
 		var action = search.decide(view(task), world);
 		assertFalse(action instanceof Execute<?, ?> execute && execute.command() instanceof Navigate move && move.stance().equals(visitedFloor.offset(0, 1, 0)));
 	}
@@ -166,7 +166,7 @@ class UndergroundSearchTest {
 		for (int x=-18;x<=-16;x++) for (int z=80;z<=82;z++) for (int y=15;y<=18;y++) known.put(new Pos(x,y,z),seen(y==15 ? "minecraft:stone" : "minecraft:air"));
 		known.put(inward,seen("minecraft:stone")); known.put(inward.offset(0,1,0),seen("minecraft:stone"));
 		var world = new StoneAcquisition.World(new Pose(-16.5,17.62,81.5,0,0),feet,Map.of("minecraft:stone_pickaxe",1),known,Set.of(feet.offset(1,-1,0),feet.offset(0,-1,0)));
-		var task = new Task(prior,List.of("iron"),origin,feet,0,73,Set.of(),Set.of(),Optional.empty(),Optional.empty(),null);
+		var task = new Task(prior,List.of("iron"),origin,feet,0,73,Set.of(),Set.of(),Optional.empty(),Optional.empty(),null,List.of(origin,feet.offset(1,0,0),feet));
 		var action = assertInstanceOf(Execute.class,search.decide(view(task),world));
 		var target = assertInstanceOf(Break.class,action.command()).target();
 		assertEquals(inward.x(),target.x()); assertEquals(inward.z(),target.z());
