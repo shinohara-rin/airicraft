@@ -71,6 +71,8 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 
 The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. The final production Recorder Play was rendered successfully to 676 frames and `recording-render/fpv.mp4`. Sampled first-person frames were visually inspected through log harvesting, excavation, cobblestone collection, and return toward the table. The renderer covers its available server ticks 28–703, versus requested 28–724, and reports 314 ignored unsupported packets (310 chunk unloads, 4 player positions). Its images are supporting evidence; they do not independently prove final inventory or exact runtime-tick alignment.
 
+The successful exposed-iron fixture's Recorder Play also rendered 2304 frames at 960×540 and 20 fps. Inspected frames 400, 900, 1350, 1600, 2200, and 2300 show stone/ore mining and furnace/table interactions. The final inventory is not shown in those frames; the evaluator and replayed inventory observation establish the iron-pickaxe result. Render coverage is global ticks 18–2321 versus requested 18–2341, with 238 skipped unsupported packets (234 chunk unloads, four player positions). These are explicit external playback limits, not proof of complete tick alignment.
+
 Replay the recorded live decision inputs (no Minecraft client required):
 
 ```bash
