@@ -50,7 +50,7 @@ class LightingRepairTest {
 		var entrance = FEET.offset(0, 0, -2);
 		var cave = world(4, Map.of("pick", 1), FEET);
 		var search = new UndergroundSearch.Task(PRIOR, List.of("ore_block"), entrance, FEET, 0, 2,
-			Set.of(), Set.of(), Optional.empty(), Optional.empty(), null, List.of(entrance, FEET));
+			Map.of(), Set.of(), Optional.empty(), Optional.empty(), null, List.of(entrance, FEET));
 		var explore = new Explore(search, LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
 		var repair = assertInstanceOf(Child.class, domain.decide(new View<Task>(2, explore, false, 10, Optional.empty(), Optional.empty()), cave));
 		var outbound = assertInstanceOf(Execute.class, domain.decide(new View<Task>(3, (Task)repair.child(), false, 11, Optional.empty(), Optional.empty()), cave));
@@ -98,7 +98,7 @@ class LightingRepairTest {
 		assertEquals(command, assertInstanceOf(Execute.class, preferred).command(), "an unused floor may still be the intended passage");
 		known.put(wall, new Seen("unknown", false, false, false, 0, 2));
 		var uncertain = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
-		var search = new UndergroundSearch.Task(PRIOR,List.of("ore_block"),FEET,FEET,0,0,Set.of(),Set.of(),Optional.empty(),Optional.empty(),null,route.stream().map(p->p.offset(0,1,0)).toList());
+		var search = new UndergroundSearch.Task(PRIOR,List.of("ore_block"),FEET,FEET,0,0,Map.of(),Set.of(),Optional.empty(),Optional.empty(),null,route.stream().map(p->p.offset(0,1,0)).toList());
 		Task parent = new Explore(search,LightingPolicy.State.begin(),Map.of(),Set.of("ore"));
 		var branch = List.of(new View<>(2,parent,false,2,Optional.<Outcome>empty(),Optional.<Outcome>empty()),new View<Task>(1,task,false,2,Optional.empty(),Optional.empty()));
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, domain.decide(branch, uncertain)).outcome().kind());

@@ -31,6 +31,16 @@ class RecordingInspectionTest(unittest.TestCase):
             {"type": "end", "rows": 2},
         ]
 
+    def test_search_rejection_evidence_distinguishes_missing_from_recorded_empty(self):
+        rows = self.rows()
+        self.assertEqual("unavailable", self.inspect(rows)["search_rejections"]["status"])
+        rows[1]["search"] = []
+        self.assertEqual("complete", self.inspect(rows)["search_rejections"]["status"])
+        rows[1]["search"] = [{"task": 2, "change": "rejected", "candidate": {"x": 0, "y": 2, "z": 1}, "reason": "UNRESOLVED_OBSERVATION", "observed": []}]
+        report = self.inspect(rows)["search_rejections"]
+        self.assertEqual({"rejected": 1}, report["counts"])
+        self.assertEqual(5, report["recent_changes"][0]["tick"])
+
     def test_old_policy_failure_is_inspectable_without_claiming_replay(self):
         report = self.inspect(self.rows())
         self.assertEqual("complete", report["coverage"])

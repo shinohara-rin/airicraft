@@ -10,21 +10,43 @@ import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
 /** Search opens observed surfaces. A geological prior never supplies an ore coordinate. */
 public final class UndergroundSearch {
 	public enum Preparation { OBSERVING, EXCAVATING }
+	/** Only decision-relevant terrain values participate; repeated timestamps/light samples do not. */
+	public record Geometry(String block, boolean identified, boolean empty, boolean fullSupport, boolean clearForBody) {
+		static Geometry of(Seen seen) {
+			return seen == null ? new Geometry("",false,false,false,false)
+				: new Geometry(seen.blockId(),seen.identified(),seen.empty(),seen.fullSupport(),seen.clearForBody());
+		}
+	}
+	public enum RejectionReason { COMMAND_FAILED, BLOCKED_CLEARANCE, UNRESOLVED_OBSERVATION }
+	public record Rejection(RejectionReason reason, Map<Pos, Geometry> observed) {
+		public Rejection { observed = Map.copyOf(observed); }
+		boolean changed(World world) { return observed.entrySet().stream().anyMatch(e -> !e.getValue().equals(Geometry.of(world.known().get(e.getKey())))); }
+	}
+	static Rejection rejection(World world, Pos next, RejectionReason reason) {
+		var observed = new HashMap<Pos, Geometry>();
+		var cells = new HashSet<>(entryColumn(world, next));
+		Pos floor = next.offset(0,-1,0); cells.add(floor);
+		// Adjacent supports can make an explicit footing placement newly possible.
+		for (Face face : Face.values()) cells.add(face.adjacent(floor));
+		for (Pos cell : cells) observed.put(cell, Geometry.of(world.known().get(cell)));
+		return new Rejection(reason, observed);
+	}
+
 	public record Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction,
-		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation, List<Pos> areas) {
-		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); areas = List.copyOf(areas); }
-		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation) {
+		int steps, Map<Pos, Rejection> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation, List<Pos> areas) {
+		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Map.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); areas = List.copyOf(areas); }
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Map<Pos, Rejection> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation) {
 			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, route, preparation, List.of(origin));
 		}
-		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Map<Pos, Rejection> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
 			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, route, Preparation.OBSERVING);
 		}
-		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Map<Pos, Rejection> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
 			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, List.of(origin));
 		}
 
 		public static Task begin(SearchPrior prior, List<String> targets, World world, Set<Pos> ignored) {
-			return new Task(prior, targets, world.feet(), world.feet(), Math.floorMod(Math.round((float) world.eye().yaw() / 90), 4), 0, Set.of(), ignored, Optional.empty(), Optional.empty(), null);
+			return new Task(prior, targets, world.feet(), world.feet(), Math.floorMod(Math.round((float) world.eye().yaw() / 90), 4), 0, Map.of(), ignored, Optional.empty(), Optional.empty(), null);
 		}
 	}
 	private static final int[][] DIRECTIONS = {{0, 1}, {-1, 0}, {0, -1}, {1, 0}};
@@ -40,8 +62,9 @@ public final class UndergroundSearch {
 			return new Complete<>(Outcome.success("resource_surface_observed:" + task.prior().item()));
 		}
 		if (view.acting()) return new Keep<>();
-		var rejected = new HashSet<>(task.rejected());
-		if (view.commandResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) task.destination().ifPresent(rejected::add);
+		var rejected = new HashMap<>(task.rejected());
+		rejected.entrySet().removeIf(entry -> entry.getValue().changed(world));
+		if (view.commandResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) task.destination().ifPresent(pos -> rejected.put(pos, rejection(world, pos, RejectionReason.COMMAND_FAILED)));
 		int steps = task.steps() + (world.feet().equals(task.position()) ? 0 : 1);
 		Optional<Pos> destination = task.destination(), looked = task.lookedAt();
 		if (destination.filter(world.feet()::equals).isPresent()) {
@@ -55,7 +78,7 @@ public final class UndergroundSearch {
 			return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
 		}
 		if (rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
-		if (destination.filter(rejected::contains).isPresent()) { destination = Optional.empty(); looked = Optional.empty(); }
+		if (destination.filter(rejected::containsKey).isPresent()) { destination = Optional.empty(); looked = Optional.empty(); }
 		// Retain a selected step across ceiling preparation and lighting interruptions.
 		List<Pos> candidates = new ArrayList<>();
 		destination.ifPresent(candidates::add);
@@ -80,7 +103,7 @@ public final class UndergroundSearch {
 		boolean radiusLimited = false;
 		for (Pos next : candidates) {
 			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
-			if (rejected.contains(next)) continue;
+			if (rejected.containsKey(next)) continue;
 			if (squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) { radiusLimited = true; continue; }
 			if (task.route().contains(next) && retained.filter(next::equals).isEmpty()) continue;
 			var column = entryColumn(world, next);
@@ -90,7 +113,7 @@ public final class UndergroundSearch {
 				if (seen != null && seen.traversable()) continue;
 				if (seen != null && seen.identified() && (!task.prior().excavatable().contains(seen.blockId()) || world.footholds().contains(cell))) { obstructed = true; break; }
 			}
-			if (obstructed) { rejected.add(next); continue; }
+			if (obstructed) { rejected.put(next, rejection(world, next, RejectionReason.BLOCKED_CLEARANCE)); continue; }
 			for (Pos cell : column) {
 				Seen seen = world.known().get(cell);
 				if (seen != null && seen.identified() && !seen.traversable() && ObservedReach.visible(world.known(), world.eye(), cell, 4.3)) {
@@ -107,7 +130,7 @@ public final class UndergroundSearch {
 			if (observation instanceof Break || looked.filter(inspect::equals).isEmpty()) {
 				return action(task, world, steps, rejected, next, observation instanceof Look ? inspect : null, observation);
 			}
-			rejected.add(next);
+			rejected.put(next, rejection(world, next, RejectionReason.UNRESOLVED_OBSERVATION));
 		}
 		if (radiusLimited) {
 			var next = nextArea(task, world, eligible);
@@ -124,7 +147,7 @@ public final class UndergroundSearch {
 			|| task.areas().stream().anyMatch(center -> squared(center, world.feet()) < Math.pow(task.prior().radius() / 2.0, 2))) return Optional.empty();
 		var areas = new ArrayList<>(task.areas()); areas.add(world.feet());
 		return Optional.of(new Task(task.prior(), task.targets(), world.feet(), world.feet(), task.direction(), 0,
-			Set.of(), task.ignoredTargets(), Optional.empty(), Optional.empty(), null,
+			Map.of(), task.ignoredTargets(), Optional.empty(), Optional.empty(), null,
 			RouteMemory.append(task.route(), world.feet()), Preparation.OBSERVING, areas));
 	}
 
@@ -154,7 +177,7 @@ public final class UndergroundSearch {
 		}
 		return Optional.empty();
 	}
-	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
+	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Map<Pos, Rejection> rejected, Pos destination, Pos looked, VoxelCommand command) {
 		// A sidestep explores local space; it does not replace the search's chosen heading.
 		Preparation preparation = command instanceof Break ? Preparation.EXCAVATING
 			: task.destination().filter(destination::equals).isPresent() ? task.preparation() : Preparation.OBSERVING;

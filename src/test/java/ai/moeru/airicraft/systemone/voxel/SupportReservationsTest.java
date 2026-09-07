@@ -35,7 +35,7 @@ class SupportReservationsTest {
 		var world = recorded("original-search"); var origin = new Pos(0,67,7);
 		var prior = new SearchPrior("ore",16,64,96,List.of("minecraft:grass_block","minecraft:dirt","minecraft:stone"));
 		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(new Harvest("ore",List.of("minecraft:iron_ore"),List.of("minecraft:stone_pickaxe"),Technique.EXPOSED)),List.of(),List.of(),List.of(prior),new LightingPolicy.Parameters(7,10,8,80,4)));
-		var search = new UndergroundSearch.Task(prior,List.of("minecraft:iron_ore"),origin,origin,2,0,Set.of(),Set.of(),Optional.of(world.feet()),Optional.empty(),new VoxelCommand.Navigate(world.feet(),12,200),List.of(origin));
+		var search = new UndergroundSearch.Task(prior,List.of("minecraft:iron_ore"),origin,origin,2,0,Map.of(),Set.of(),Optional.of(world.feet()),Optional.empty(),new VoxelCommand.Navigate(world.feet(),12,200),List.of(origin));
 		Task task = new Explore(search,LightingPolicy.State.begin(),Map.of(),Set.of("ore"));
 		var result = domain.decide(new View<>(1,task,false,1036,Optional.of(Outcome.success("stance_reached")),Optional.empty()),world);
 		var action = assertInstanceOf(Execute.class,result);

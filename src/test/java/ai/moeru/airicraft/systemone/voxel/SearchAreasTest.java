@@ -74,7 +74,7 @@ class SearchAreasTest {
 		for (int y=0;y<=1;y++) known.put(feet.offset(0,y,1),new Seen("minecraft:stone",false,true,true,15,1));
 		var world = new StoneAcquisition.World(new Pose(.5,17.62,64.5,0,0),feet,Map.of(),known);
 		for (var areas : List.of(List.of(origin),List.of(origin,origin.offset(128,0,0),origin.offset(256,0,0)))) {
-			var task = new UndergroundSearch.Task(PRIOR,List.of("minecraft:iron_ore"),origin,previous,0,67,Set.of(),Set.of(),Optional.of(feet),Optional.empty(),new VoxelCommand.Navigate(feet,12,200),List.of(origin,previous),UndergroundSearch.Preparation.EXCAVATING,areas);
+			var task = new UndergroundSearch.Task(PRIOR,List.of("minecraft:iron_ore"),origin,previous,0,67,Map.of(),Set.of(),Optional.of(feet),Optional.empty(),new VoxelCommand.Navigate(feet,12,200),List.of(origin,previous),UndergroundSearch.Preparation.EXCAVATING,areas);
 			var decision = search.decide(view(task),world);
 			if (areas.size()==3) { assertInstanceOf(Complete.class,decision); continue; }
 			var next = (UndergroundSearch.Task)assertInstanceOf(Keep.class,decision).continuation().orElseThrow();
@@ -82,13 +82,13 @@ class SearchAreasTest {
 			assertEquals(List.of(origin,previous,feet),next.route());
 			assertEquals(0,next.steps());
 			assertInstanceOf(Execute.class,search.decide(view(next),world));
-			var inspected = new UndergroundSearch.Task(task.prior(),task.targets(),task.origin(),feet,task.direction(),68,Set.of(),Set.of(),Optional.of(feet.offset(1,0,0)),Optional.of(feet.offset(1,-1,0)),new VoxelCommand.Look(90,30),List.of(origin,previous,feet),task.preparation(),areas);
+			var inspected = new UndergroundSearch.Task(task.prior(),task.targets(),task.origin(),feet,task.direction(),68,Map.of(),Set.of(),Optional.of(feet.offset(1,0,0)),Optional.of(feet.offset(1,-1,0)),new VoxelCommand.Look(90,30),List.of(origin,previous,feet),task.preparation(),areas);
 			assertInstanceOf(Keep.class,search.decide(view(inspected),world), "a survey at the boundary must not erase observed arrival");
 		}
 	}
 
 	private static UndergroundSearch.Task arrived(List<Pos> areas) {
-		return new UndergroundSearch.Task(PRIOR,List.of("minecraft:iron_ore"),ORIGIN,PREVIOUS,0,95,Set.of(),Set.of(),Optional.of(FEET),Optional.empty(),
+		return new UndergroundSearch.Task(PRIOR,List.of("minecraft:iron_ore"),ORIGIN,PREVIOUS,0,95,Map.of(),Set.of(),Optional.of(FEET),Optional.empty(),
 			new VoxelCommand.Navigate(FEET,12,200),List.of(ORIGIN,PREVIOUS),UndergroundSearch.Preparation.OBSERVING,areas);
 	}
 	private static View<UndergroundSearch.Task> view(UndergroundSearch.Task task) { return new View<>(1,task,false,2,Optional.of(Outcome.success("arrived")),Optional.empty()); }

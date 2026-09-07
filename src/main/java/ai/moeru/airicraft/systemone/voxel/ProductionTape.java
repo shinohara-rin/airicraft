@@ -21,7 +21,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v59";
+	public static final String METHOD_VERSION = "reactive-production-v60";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}
@@ -36,13 +36,44 @@ public final class ProductionTape {
 		boolean maintaining, List<LightingPolicy.Repair> failed, LightingPolicy.Allowance allowance) {}
 	public record LightingTrace(Integer policyLight, List<LightingFrame> before, List<LightingFrame> after) {}
 	public record Turn(String type, long sequence, long tick, StoneTape.Observation observation, List<StoneTape.Reply> feedback,
-		String cancellation, List<String> effects, List<Event> events, String outcome, LightingTrace lighting) {}
+		String cancellation, List<String> effects, List<Event> events, String outcome, LightingTrace lighting, List<SearchChange> search) {}
 	public static Turn turn(long sequence, World previous, World current, List<Feedback> feedback, String cancellation,
 		State<Task> before, Step<Task, VoxelCommand> step) {
 		var row = StoneTape.turn(sequence, previous, current, feedback, cancellation, step);
 		return new Turn(row.type(), row.sequence(), row.tick(), row.observation(), row.feedback(), row.cancellation(),
-			row.effects(), row.events(), row.outcome(), lightingTrace(before, step.state(), current));
+			row.effects(), row.events(), row.outcome(), lightingTrace(before, step.state(), current), searchChanges(before, step.state()));
 	}
+	public record RejectionCell(Pos pos, UndergroundSearch.Geometry geometry) {}
+	public record SearchChange(long task, String change, Pos candidate, UndergroundSearch.RejectionReason reason, List<RejectionCell> observed) {}
+	static List<SearchChange> searchChanges(State<Task> before, State<Task> after) {
+		var old = searchRejections(before); var current = searchRejections(after);
+		var ids = new java.util.TreeSet<>(old.keySet()); ids.addAll(current.keySet());
+		var order = java.util.Comparator.comparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z);
+		var changes = new ArrayList<SearchChange>();
+		for (long id : ids) {
+			var previous = old.getOrDefault(id, Map.of()); var next = current.getOrDefault(id, Map.of());
+			var positions = new java.util.TreeSet<>(order); positions.addAll(previous.keySet()); positions.addAll(next.keySet());
+			for (Pos pos : positions) {
+				var a = previous.get(pos); var b = next.get(pos);
+				if (java.util.Objects.equals(a,b)) continue;
+				var evidence = b == null ? a : b;
+				changes.add(new SearchChange(id,b == null ? "removed" : "rejected",pos,evidence.reason(),
+					evidence.observed().entrySet().stream().sorted(Map.Entry.comparingByKey(order)).map(e->new RejectionCell(e.getKey(),e.getValue())).toList()));
+			}
+		}
+		return List.copyOf(changes);
+	}
+	private static Map<Long,Map<Pos,UndergroundSearch.Rejection>> searchRejections(State<Task> state) {
+		var result = new HashMap<Long,Map<Pos,UndergroundSearch.Rejection>>();
+		for (var frame : state.stack()) {
+			Task task = frame.task();
+			while (task instanceof AfterEscape || task instanceof AfterAccess || task instanceof ResumeExplore)
+				task = task instanceof AfterEscape after ? after.saved() : task instanceof AfterAccess after ? after.saved() : ((ResumeExplore)task).saved();
+			if (task instanceof Explore explore) result.put(frame.id(),explore.search().rejected());
+		}
+		return result;
+	}
+
 	static LightingTrace lightingTrace(State<Task> before, State<Task> after, World world) {
 		return new LightingTrace(world == null ? null : ProductionDomain.light(world), lighting(before), lighting(after));
 	}
@@ -92,6 +123,7 @@ public final class ProductionTape {
 					}
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 					if (!GSON.toJsonTree(lightingTrace(state, step.state(), world)).equals(row.get("lighting"))) throw new IllegalArgumentException("Production lighting state mismatch at " + turn.tick());
+					if (!GSON.toJsonTree(searchChanges(state, step.state())).equals(row.get("search"))) throw new IllegalArgumentException("Production search evidence mismatch at " + turn.tick());
 					if (!turn.effects().equals(step.effects().stream().map(Object::toString).toList()) || !turn.events().equals(step.events())
 						|| !turn.outcome().equals(step.state().outcome().map(Outcome::toString).orElse(""))) throw new IllegalArgumentException("Production decision mismatch at " + turn.tick());
 					state = step.state();

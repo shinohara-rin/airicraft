@@ -93,15 +93,15 @@ class UndergroundSearchTest {
 	@Test void anInterruptedDestinationIsRevalidatedInsteadOfBlindlyResumed() {
 		var blocked = FEET.offset(0, -1, 1);
 		var world = world(Map.of(blocked, new Seen("lava", false, true, false, 15, 1), FEET.offset(-1, -1, 0), seen("minecraft:dirt")));
-		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(blocked), Optional.empty(), new Navigate(blocked, 12, 200));
+		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Map.of(), Set.of(), Optional.of(blocked), Optional.empty(), new Navigate(blocked, 12, 200));
 		var action = assertInstanceOf(Execute.class, search.decide(view(task), world));
 		assertEquals(new Navigate(FEET.offset(-1, 0, 0), 12, 200), action.command());
 		assertEquals(0, ((Task) action.continuation()).direction(), "local sidesteps preserve the exploration heading");
 	}
 	@Test void reachingANewPositionRetiresLocalFailuresWithoutResettingTheStepBudget() {
 		var world = world(Map.of(FEET.offset(0, 0, 1), seen("minecraft:dirt")));
-		var rejected = new HashSet<Pos>();
-		for (int x = 20; x < 36; x++) rejected.add(new Pos(x, 4, 0));
+		var rejected = new HashMap<Pos, UndergroundSearch.Rejection>();
+		for (int x = 20; x < 36; x++) rejected.put(new Pos(x,4,0), UndergroundSearch.rejection(world,new Pos(x,4,0),UndergroundSearch.RejectionReason.COMMAND_FAILED));
 		var task = new Task(PRIOR, List.of("iron"), FEET, FEET.offset(0, 0, -1), 0, 5, rejected, Set.of(), Optional.of(FEET), Optional.empty(), new Navigate(FEET, 12, 200));
 		var step = assertInstanceOf(Execute.class, search.decide(new View<>(1, task, false, 6, Optional.of(Outcome.success("arrived")), Optional.empty()), world));
 		assertEquals(new Break(FEET.offset(0, 0, 1), "minecraft:dirt"), step.command());
@@ -114,13 +114,13 @@ class UndergroundSearchTest {
 		var world = world(Map.of(FEET.offset(0, 0, 1), seen("minecraft:dirt")));
 		var origin = FEET.offset(0, 0, -1);
 		var unreached = FEET.offset(1, 0, 0);
-		var task = new Task(PRIOR, List.of("iron"), origin, origin, 0, 5, Set.of(), Set.of(), Optional.of(unreached), Optional.empty(), new Navigate(unreached, 12, 200));
+		var task = new Task(PRIOR, List.of("iron"), origin, origin, 0, 5, Map.of(), Set.of(), Optional.of(unreached), Optional.empty(), new Navigate(unreached, 12, 200));
 		var step = assertInstanceOf(Execute.class, search.decide(new View<>(1, task, false, 6, Optional.of(Outcome.failure("blocked")), Optional.empty()), world));
 		var next = (Task) step.continuation();
 		assertEquals(6, next.steps());
 		assertEquals(List.of(origin, FEET), next.route());
 		assertFalse(next.route().contains(unreached));
-		assertTrue(next.rejected().contains(unreached));
+		assertTrue(next.rejected().containsKey(unreached));
 		var unchanged = (Task) assertInstanceOf(Execute.class, search.decide(view(next), world)).continuation();
 		assertEquals(next.steps(), unchanged.steps());
 		assertEquals(next.route(), unchanged.route());
@@ -155,7 +155,7 @@ class UndergroundSearchTest {
 		var base = world(Map.of(visitedFloor, seen("minecraft:stone")));
 		var world = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), base.known(), Set.of(visitedFloor));
 		var forward = FEET.offset(0, 0, 1);
-		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(forward), Optional.of(forward.offset(0, -1, 0)), null,List.of(visitedFloor.offset(0,1,0),FEET));
+		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Map.of(), Set.of(), Optional.of(forward), Optional.of(forward.offset(0, -1, 0)), null,List.of(visitedFloor.offset(0,1,0),FEET));
 		var action = search.decide(view(task), world);
 		assertFalse(action instanceof Execute<?, ?> execute && execute.command() instanceof Navigate move && move.stance().equals(visitedFloor.offset(0, 1, 0)));
 	}
@@ -166,7 +166,7 @@ class UndergroundSearchTest {
 		for (int x=-18;x<=-16;x++) for (int z=80;z<=82;z++) for (int y=15;y<=18;y++) known.put(new Pos(x,y,z),seen(y==15 ? "minecraft:stone" : "minecraft:air"));
 		known.put(inward,seen("minecraft:stone")); known.put(inward.offset(0,1,0),seen("minecraft:stone"));
 		var world = new StoneAcquisition.World(new Pose(-16.5,17.62,81.5,0,0),feet,Map.of("minecraft:stone_pickaxe",1),known,Set.of(feet.offset(1,-1,0),feet.offset(0,-1,0)));
-		var task = new Task(prior,List.of("iron"),origin,feet,0,73,Set.of(),Set.of(),Optional.empty(),Optional.empty(),null,List.of(origin,feet.offset(1,0,0),feet));
+		var task = new Task(prior,List.of("iron"),origin,feet,0,73,Map.of(),Set.of(),Optional.empty(),Optional.empty(),null,List.of(origin,feet.offset(1,0,0),feet));
 		var action = assertInstanceOf(Execute.class,search.decide(view(task),world));
 		var target = assertInstanceOf(Break.class,action.command()).target();
 		assertEquals(inward.x(),target.x()); assertEquals(inward.z(),target.z());
@@ -190,6 +190,29 @@ class UndergroundSearchTest {
 		var enter = assertInstanceOf(Execute.class,search.decide(new View<>(1,(Task)inspect.continuation(),false,3,Optional.of(Outcome.success("looked")),Optional.empty()),world,Map.of(),p->p.x()==0&&p.z()>=0));
 		assertEquals(next,assertInstanceOf(Navigate.class,enter.command()).stance());
 	}
+	@Test void newSupportEvidenceReopensARejectedCandidateButRepeatedObservationsDoNot() {
+		var next = FEET.offset(0,0,1); var side = FEET.offset(-1,0,0);
+		var known = new HashMap<>(world(Map.of(side,seen("minecraft:stone"),FEET.offset(1,0,0),seen("minecraft:bedrock"),FEET.offset(0,0,-1),seen("minecraft:bedrock"))).known());
+		var base = world(Map.of());
+		var prior = new SearchPrior("ore",FEET.y(),16,20,List.of("minecraft:stone"));
+		var unknown = new StoneAcquisition.World(base.eye(),FEET,base.inventory(),known);
+		var look = assertInstanceOf(Execute.class,search.decide(view(Task.begin(prior,List.of("iron"),unknown,Set.of())),unknown));
+		assertInstanceOf(Look.class,look.command());
+		var alternative = assertInstanceOf(Execute.class,search.decide(new View<>(1,(Task)look.continuation(),false,2,Optional.of(Outcome.success("looked")),Optional.empty()),unknown));
+		assertInstanceOf(Break.class,alternative.command());
+		var rejected = (Task)alternative.continuation();
+		var retry = new View<>(1,rejected,false,3,Optional.of(Outcome.failure("target_changed")),Optional.<Outcome>empty());
+		known.replaceAll((p,v)->new Seen(v.blockId(),v.empty(),v.identified(),v.fullSupport(),14,3,v.clearForBody()));
+		var unchanged = new StoneAcquisition.World(base.eye(),FEET,base.inventory(),known);
+		assertInstanceOf(Complete.class,search.decide(retry,unchanged), "timestamps and light updates are not new geometry");
+		known.put(next.offset(0,-1,0),seen("minecraft:stone"));
+		var observed = new StoneAcquisition.World(base.eye(),FEET,base.inventory(),known);
+		var reopened = assertInstanceOf(Execute.class,search.decide(retry,observed));
+		assertEquals(new Navigate(next,12,200),reopened.command());
+		var failed = search.decide(new View<>(1,(Task)reopened.continuation(),false,4,Optional.of(Outcome.failure("blocked")),Optional.empty()),observed);
+		assertFalse(failed instanceof Execute<?,?> e && e.command().equals(reopened.command()), "unchanged failed navigation stays excluded");
+	}
+
 	private static final Pose EYE_FOR_LITTER = new Pose(.5,5.62,.5,0,45);
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, !id.equals("minecraft:air"), 15, 1); }

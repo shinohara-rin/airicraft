@@ -60,6 +60,31 @@ class ProductionTapeTest {
 		assertEquals(80,suspended.allowance().expiresAt());
 		assertEquals(List.of(LightingPolicy.Repair.SUPPLY,LightingPolicy.Repair.PLACEMENT),suspended.failed());
 	}
+	@Test void missingOrTamperedSearchEvidenceCannotReplay() {
+		for(boolean remove : List.of(false,true)) {
+			var rows=rows();var turn=rows.get(1).deepCopy();
+			if(remove)turn.remove("search");else turn.getAsJsonArray("search").add("invented rejection");
+			var replay=new ProductionTape.Replay();replay.accept(rows.getFirst());
+			assertThrows(IllegalArgumentException.class,()->replay.accept(turn));
+		}
+	}
+	@Test void searchEvidenceChangesAreSparseAndSurviveSuspension() {
+		var feet=new Pos(0,1,0);var target=new Pos(0,1,1);
+		var world=new StoneAcquisition.World(new Pose(.5,2.62,.5,0,0),feet,Map.of(),Map.of());
+		var prior=new ProductionKnowledge.SearchPrior("ore",1,4,20,List.of("stone"));
+		var empty=new Explore(UndergroundSearch.Task.begin(prior,List.of("ore"),world,Set.of()),LightingPolicy.State.begin(),Map.of(),Set.of());
+		var evidence=UndergroundSearch.rejection(world,target,UndergroundSearch.RejectionReason.UNRESOLVED_OBSERVATION);
+		var rejected=new Explore(new UndergroundSearch.Task(prior,List.of("ore"),feet,feet,0,0,Map.of(target,evidence),Set.of(),Optional.empty(),Optional.empty(),null),empty.light(),Map.of(),Set.of());
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>((view,observation)->new Keep<>(),StoneTape.LIMITS);
+		var before=kernel.begin("s","r",empty,0);var after=kernel.begin("s","r",rejected,0);
+		var changes=ProductionTape.searchChanges(before,after);
+		assertEquals(1,changes.size());assertEquals("rejected",changes.getFirst().change());
+		assertEquals(target,changes.getFirst().candidate());assertEquals(evidence.reason(),changes.getFirst().reason());
+		assertTrue(changes.getFirst().observed().stream().anyMatch(c->c.pos().equals(target.offset(0,-1,0))&&!c.geometry().identified()));
+		assertTrue(ProductionTape.searchChanges(after,kernel.begin("s","r",new AfterAccess(rejected),0)).isEmpty());
+		assertEquals("removed",ProductionTape.searchChanges(after,before).getFirst().change());
+	}
+
 	private static List<JsonObject> rows() {
 		var recipe = new ProductionKnowledge.Recipe("planks", "planks", 4, 2, List.of(new ProductionKnowledge.Cell(0, "log")));
 		var book = new ProductionKnowledge("fixture", List.of(recipe), List.of());
