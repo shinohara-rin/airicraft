@@ -86,7 +86,8 @@ final class MinecraftMotor {
 		else if (active.command() instanceof Navigate move) {
 			travelled += client.player.getPos().distanceTo(lastPosition);
 			lastPosition = client.player.getPos();
-			if (client.player.squaredDistanceTo(Vec3d.ofBottomCenter(new BlockPos(move.stance().x(), move.stance().y(), move.stance().z()))) < 0.5) {
+			var destination = new BlockPos(move.stance().x(), move.stance().y(), move.stance().z());
+			if (client.player.isOnGround() && client.player.getBlockPos().equals(destination) && client.player.squaredDistanceTo(Vec3d.ofBottomCenter(destination)) < 0.5) {
 				finish(client, Outcome.success("stance_reached"));
 			}
 			else if (tick - started > move.maxTicks() || travelled > move.maxTravel()) {

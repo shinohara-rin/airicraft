@@ -73,9 +73,8 @@ public final class UndergroundSearch {
 		return new Complete<>(Outcome.failure("no_observed_underground_step"));
 	}
 	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
-		int direction = task.direction();
-		for (int i = 0; i < DIRECTIONS.length; i++) if (destination.x() - world.feet().x() == DIRECTIONS[i][0] && destination.z() - world.feet().z() == DIRECTIONS[i][1]) direction = i;
-		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), direction, steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command), command);
+		// A sidestep explores local space; it does not replace the search's chosen heading.
+		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command), command);
 	}
 	public static double squared(Pos a, Pos b) { return Math.pow(a.x() - b.x(), 2) + Math.pow(a.z() - b.z(), 2); }
 }

@@ -41,6 +41,7 @@ class UndergroundSearchTest {
 		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(blocked), Optional.empty(), new Navigate(blocked, 12, 200));
 		var action = assertInstanceOf(Execute.class, search.decide(view(task), world));
 		assertEquals(new Navigate(FEET.offset(-1, 0, 0), 12, 200), action.command());
+		assertEquals(0, ((Task) action.continuation()).direction(), "local sidesteps preserve the exploration heading");
 	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, 15, 1); }
