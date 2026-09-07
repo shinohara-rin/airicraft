@@ -23,7 +23,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Versioned wire values for reproducing actual decision inputs, including negative motor feedback. */
 public final class StoneTape {
-	public static final String METHOD_VERSION = "local-stone-v3";
+	public static final String METHOD_VERSION = "local-stone-v4";
 	public static final Limits LIMITS = new Limits(16, 16, 72000, 2000);
 	private static final Gson GSON = new Gson();
 	private StoneTape() {}

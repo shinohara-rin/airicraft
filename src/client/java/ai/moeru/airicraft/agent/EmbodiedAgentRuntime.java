@@ -1238,7 +1238,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 
 	public void finishEvaluation() {
 		if (systemOneHost != null) {
-			systemOneHost.cancel("evaluation_finished");
+			systemOneHost.finishEvaluation();
 			dialogueRuntime.clear();
 			return;
 		}

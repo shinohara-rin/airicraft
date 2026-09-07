@@ -61,6 +61,10 @@ public final class SystemOneHost {
 		}
 	}
 	public void cancel(String reason) { cancellation = reason; }
+	public void finishEvaluation() {
+		// The evaluator can observe inventory success while crafting is still draining its grid.
+		if (state != null && !state.ending()) cancel("evaluation_finished");
+	}
 	public void recordDecisions(Consumer<Object> recorder) { decisionRecorder = java.util.Objects.requireNonNull(recorder); }
 	public boolean busy() { return state != null && state.outcome().isEmpty(); }
 	public Optional<String> failure(String id) {
@@ -72,6 +76,6 @@ public final class SystemOneHost {
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
 				"motor", motor.status(), "knowledgeVersion", knowledge.version(), "methodVersion", ProductionTape.METHOD_VERSION,
-				"policyVersion", "observed-excavation-v3", "motorVersion", "production-motor-v2");
+				"policyVersion", "observed-excavation-v4", "motorVersion", "production-motor-v2");
 	}
 }

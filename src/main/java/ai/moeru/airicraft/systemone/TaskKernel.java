@@ -70,6 +70,11 @@ public final class TaskKernel<T, O, C> {
 	/** A stack represents a single active branch of a task tree, root first. */
 	public record State<T>(String session, String run, List<Frame<T>> stack, long nextTask,
 		long nextAttempt, long deadline, long lastTick, Optional<Outcome> outcome) {
+		/** A terminal decision is already made; only release acknowledgement may remain. */
+		public boolean ending() {
+			return outcome.isPresent() || (stack.getLast().phase() instanceof Releasing<T> release
+				&& (release.next() instanceof EndRun<T> || (stack.size() == 1 && release.next() instanceof EndTask<T>)));
+		}
 		public State {
 			Objects.requireNonNull(session); Objects.requireNonNull(run); Objects.requireNonNull(outcome);
 			stack = List.copyOf(stack);

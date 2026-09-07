@@ -63,6 +63,24 @@ class TaskKernelTest {
 	}
 
 	@Test
+	void terminalReleaseIsDistinctFromAnInterruptionOrActiveWork() {
+		var kernel = new TaskKernel<>(COLLECTOR, LIMITS);
+		var active = kernel.advance(kernel.begin("s", "r", "collect_sample", 0), "healthy", List.of(), 1);
+		assertFalse(active.state().ending());
+		assertFalse(kernel.advance(active.state(), "low_battery", List.of(), 2).state().ending());
+		var finishing = kernel.advance(active.state(), "sample_collected", List.of(), 2);
+		assertTrue(finishing.state().ending());
+		assertTrue(finishing.state().outcome().isEmpty(), "success still waits for physical release");
+		var finished = kernel.advance(finishing.state(), "sample_collected", List.of(new Released(start(active).token())), 3);
+		assertEquals(Outcome.success("sample observed"), finished.state().outcome().orElseThrow());
+		assertTrue(finished.state().ending());
+		var interruption = kernel.advance(active.state(), "low_battery", List.of(), 2);
+		var child = kernel.advance(interruption.state(), "low_battery", List.of(new Released(start(active).token())), 3);
+		assertFalse(kernel.advance(child.state(), "charged", List.of(), 4).state().ending(), "finishing a child does not finish the run");
+		assertTrue(kernel.advance(child.state(), "charged", List.of(), 4, Optional.of("cancelled")).state().ending());
+	}
+
+	@Test
 	void cancellationDuringRepairReleaseCancelsTheRunWithoutStartingTheRepair() {
 		var kernel = new TaskKernel<>(COLLECTOR, LIMITS);
 		var first = kernel.advance(kernel.begin("s", "r", "collect_sample", 0), "healthy", List.of(), 1);

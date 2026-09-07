@@ -62,7 +62,7 @@ class StoneAcquisitionTest {
 		Task task = new Task(3, FEET, 4, 0, Set.of(), Optional.of(new Break(target, "minecraft:dirt")));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
 		var world = new World(EYE, FEET, TOOL, Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
-			target.offset(0, -1, 0), seen("minecraft:dirt")));
+			target.offset(0, -1, 0), seen("minecraft:dirt"), target.offset(0, 2, 0), seen("minecraft:air")));
 		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
 	}
 
@@ -92,6 +92,19 @@ class StoneAcquisitionTest {
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
 		var world = new World(EYE, FEET, TOOL, Map.of(head, seen("minecraft:air"), head.offset(0, 1, 0), seen("minecraft:air"), nextStep, seen("minecraft:dirt")));
 		assertEquals(new Break(nextStep, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
+	}
+
+	@Test void clearsOverheadEntryAndRetainsTheIntendedLowerStep() {
+		Pos target = FEET.offset(1, -1, 0), ceiling = target.offset(0, 2, 0);
+		Task task = new Task(3, FEET, 4, 0, Set.of(), Optional.of(new Break(target, "minecraft:dirt")));
+		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
+		var cells = new java.util.HashMap<Pos, Seen>(Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
+			target.offset(0, -1, 0), seen("minecraft:stone"), ceiling, seen("minecraft:dirt")));
+		var preparation = (Execute<Task, VoxelCommand>) domain.decide(view, new World(EYE, FEET, TOOL, cells));
+		assertEquals(new Break(ceiling, "minecraft:dirt"), preparation.command());
+		cells.put(ceiling, seen("minecraft:air"));
+		var resume = new View<>(1, preparation.continuation(), false, 3, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
+		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(resume, new World(EYE, FEET, TOOL, cells))).command());
 	}
 
 	private static View<Task> ready() {

@@ -15,10 +15,10 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** First Minecraft method: local, incremental stone excavation through observed surfaces. */
 public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisition.Task, StoneAcquisition.World, VoxelCommand> {
-	public record Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last, List<Pos> route) {
+	public record Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last, List<Pos> route, Optional<Pos> descent) {
 		public Task { rejected = Set.copyOf(rejected); route = List.copyOf(route); }
 		public Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last) {
-			this(count, origin, scans, failures, rejected, last, List.of(origin));
+			this(count, origin, scans, failures, rejected, last, List.of(origin), Optional.empty());
 		}
 		public static Task begin(int count, Pos origin) { return new Task(count, origin, 0, 0, Set.of(), Optional.empty()); }
 	}
@@ -36,7 +36,7 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 			var route = new java.util.ArrayList<>(task.route());
 			if (!route.contains(move.stance())) route.add(move.stance());
 			if (!route.contains(world.feet())) route.add(world.feet());
-			task = new Task(task.count(), task.origin(), task.scans(), task.failures(), task.rejected(), task.last(), route);
+			task = new Task(task.count(), task.origin(), task.scans(), task.failures(), task.rejected(), task.last(), route, Optional.empty());
 		}
 		if (task.failures() >= 12) return new Complete<>(Outcome.failure("local_acquisition_alternatives_exhausted"));
 		if (world.inventory().keySet().stream().noneMatch(id -> id.endsWith("_pickaxe"))) {
@@ -48,11 +48,28 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 				if (command instanceof Break broken) rejected.add(broken.target());
 				if (command instanceof Navigate move) rejected.add(move.stance());
 			});
-			task = new Task(task.count(), task.origin(), task.scans(), task.failures() + 1, rejected, Optional.empty(), task.route());
+			task.descent().ifPresent(rejected::add);
+			task = new Task(task.count(), task.origin(), task.scans(), task.failures() + 1, rejected, Optional.empty(), task.route(), Optional.empty());
 		}
-		else if (task.last().orElse(null) instanceof Break broken && standable(world.known(), broken.target())
+		else if (task.descent().isEmpty() && task.last().orElse(null) instanceof Break broken && standable(world.known(), broken.target())
 			&& (broken.target().y() < world.feet().y() || stone(broken.expectedBlock()))) {
-			return execute(task, new Navigate(broken.target(), 24, 200), 0);
+			task = new Task(task.count(), task.origin(), 0, task.failures(), task.rejected(), task.last(), task.route(), Optional.of(broken.target()));
+		}
+		if (task.descent().isPresent()) {
+			Pos destination = task.descent().get();
+			// Entering a lower step crosses the column at the departure height. Standing room alone is insufficient.
+			Pos clearance = new Pos(destination.x(), Math.max(destination.y() + 1, world.feet().y() + 1), destination.z());
+			Seen ceiling = world.known().get(clearance);
+			if (ceiling != null && ceiling.empty()) return execute(task, new Navigate(destination, 24, 200), 0);
+			if (ceiling != null && ceiling.identified() && (stone(ceiling.blockId()) || soil(ceiling.blockId()))) {
+				return execute(task, new Break(clearance, ceiling.blockId()), task.scans());
+			}
+			if (task.scans() == 0) {
+				double dx = clearance.x() + .5 - world.eye().x(), dy = clearance.y() + .5 - world.eye().y(), dz = clearance.z() + .5 - world.eye().z();
+				return execute(task, new Look((float) Math.toDegrees(Math.atan2(-dx, dz)), (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)))), 1);
+			}
+			var rejected = new HashSet<>(task.rejected()); rejected.add(destination);
+			task = new Task(task.count(), task.origin(), task.scans(), task.failures() + 1, rejected, Optional.empty(), task.route(), Optional.empty());
 		}
 		Task current = task;
 		List<Map.Entry<Pos, Seen>> targets = world.known().entrySet().stream()
@@ -90,7 +107,7 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 	}
 
 	private Execute<Task, VoxelCommand> execute(Task task, VoxelCommand command, int scans) {
-		return new Execute<>(new Task(task.count(), task.origin(), scans, task.failures(), task.rejected(), Optional.of(command), task.route()), command);
+		return new Execute<>(new Task(task.count(), task.origin(), scans, task.failures(), task.rejected(), Optional.of(command), task.route(), task.descent()), command);
 	}
 	public static boolean standable(Map<Pos, Seen> known, Pos pos) {
 		Seen feet = known.get(pos), head = known.get(pos.offset(0, 1, 0)), floor = known.get(pos.offset(0, -1, 0));
