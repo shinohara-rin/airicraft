@@ -61,6 +61,25 @@ class TaskKernelTest {
 		assertEquals(next.state().stack(), stale.state().stack());
 		assertEquals(2, stale.events().stream().filter(event -> event.type().equals("feedback_ignored")).count());
 	}
+	@Test
+	void keepingUpdatedDomainStatePreservesOwnershipFeedbackAndBudgets() {
+		Domain<String, String, String> domain = (view, observation) -> observation.equals("start")
+			? new Execute<>(view.task(), "move") : new Keep<>(observation);
+		var kernel = new TaskKernel<>(domain, LIMITS);
+		var started = kernel.advance(kernel.begin("s", "r", "initial", 0), "start", List.of(), 1);
+		var refreshed = kernel.advance(started.state(), "observed", List.of(), 2);
+		assertEquals("observed", refreshed.state().stack().getFirst().task());
+		assertEquals(started.state().stack().getFirst().phase(), refreshed.state().stack().getFirst().phase());
+		assertEquals(started.state().nextAttempt(), refreshed.state().nextAttempt());
+		assertEquals(started.state().deadline(), refreshed.state().deadline());
+		assertTrue(refreshed.effects().isEmpty());
+		var outcome = Outcome.success("arrived");
+		var finished = kernel.advance(refreshed.state(), "arrived_state", List.of(new Finished(start(started).token(), outcome)), 3);
+		assertEquals("arrived_state", finished.state().stack().getFirst().task());
+		assertInstanceOf(Ready.class, finished.state().stack().getFirst().phase());
+		assertEquals(Optional.of(outcome), finished.state().stack().getFirst().commandResult());
+		assertTrue(finished.effects().isEmpty());
+	}
 
 	@Test
 	void terminalReleaseIsDistinctFromAnInterruptionOrActiveWork() {

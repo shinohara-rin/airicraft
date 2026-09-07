@@ -45,6 +45,23 @@ class LightingRepairTest {
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(2, resume, false, 10, Optional.empty(), Optional.of(Outcome.success("supplied"))), world(15, Map.of("pick", 1, "minecraft:torch", 8), FEET.offset(2, 0, 0)));
 		assertEquals(new Navigate(FEET, 48, 400), assertInstanceOf(Execute.class, result).command());
 	}
+	@Test void firstDarkTickStartsOneAllowanceEvenWhileMotorFeedbackIsDelayed() {
+		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(BOOK), new Limits(16, 16, 1000, 50));
+		var bright = world(15, Map.of("pick", 1), FEET);
+		var task = new Explore(UndergroundSearch.Task.begin(PRIOR, List.of("ore_block"), bright, Set.of()),
+			LightingPolicy.State.begin(), Map.of(), Set.of("ore", "minecraft:torch"));
+		var first = kernel.advance(kernel.begin("s", "r", task, 0), bright, List.of(), 1);
+		var moving = start(first); assertInstanceOf(Navigate.class, moving.command());
+		var dark = world(4, Map.of("pick", 1), FEET);
+		var state = first.state();
+		for (int tick = 2; tick < 82; tick++) {
+			var waiting = kernel.advance(state, dark, List.of(), tick);
+			assertTrue(waiting.effects().isEmpty()); state = waiting.state();
+		}
+		var expired = kernel.advance(state, dark, List.of(), 82);
+		assertEquals(List.of(new Stop<VoxelCommand>(moving.token())), expired.effects(), "the pending movement cannot restart its darkness deadline every tick");
+		assertEquals(first.state().nextAttempt(), expired.state().nextAttempt());
+	}
 	@Test void aNarrowPassageUsesAnObservedWallAboveItsProtectedRoute() {
 		var base = world(4, Map.of("minecraft:torch", 8), FEET);
 		var known = new HashMap<>(base.known());

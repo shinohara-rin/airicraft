@@ -299,7 +299,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return new Execute<>(new Explore(action.continuation(), assessment.state(), task.reserved(), task.ancestors()), action.command());
 		}
 		if (decision instanceof Complete<UndergroundSearch.Task, VoxelCommand> completed) return new Complete<>(completed.outcome());
-		return new Keep<>();
+		return new Keep<>(next);
 	}
 	public static Set<Pos> retainedCells(List<Task> branch) {
 		var cells = new HashSet<Pos>();

@@ -48,7 +48,12 @@ public final class TaskKernel<T, O, C> {
 	public record Stop<C>(Token token) implements Effect<C> {}
 
 	public sealed interface Decision<T, C> permits Keep, Execute, Child, Sleep, Complete {}
-	public record Keep<T, C>() implements Decision<T, C> {}
+	/** Retain execution ownership while optionally recording updated domain state. */
+	public record Keep<T, C>(Optional<T> continuation) implements Decision<T, C> {
+		public Keep { Objects.requireNonNull(continuation); }
+		public Keep() { this(Optional.empty()); }
+		public Keep(T continuation) { this(Optional.of(continuation)); }
+	}
 	public record Execute<T, C>(T continuation, C command) implements Decision<T, C> {}
 	public record Child<T, C>(T continuation, T child, String reason) implements Decision<T, C> {}
 	public record Sleep<T, C>(T continuation, long wakeTick) implements Decision<T, C> {}
@@ -165,7 +170,10 @@ public final class TaskKernel<T, O, C> {
 			boolean acting = frame.phase() instanceof Acting<T>;
 			Decision<T, C> decision = domain.decide(new View<>(frame.id(), frame.task(), acting, tick,
 				frame.commandResult(), frame.childResult()), observation);
-			if (decision instanceof Keep<T, C>) break;
+			if (decision instanceof Keep<T, C> keep) {
+				keep.continuation().ifPresent(task -> turn.replace(new Frame<>(frame.id(), task, frame.phase(), frame.commandResult(), frame.childResult())));
+				break;
+			}
 			if (decision instanceof Execute<T, C> execute) {
 				if (acting) throw new IllegalStateException("Must release the current command before replacing it");
 				if (turn.nextAttempt > limits.maxCommands()) {
