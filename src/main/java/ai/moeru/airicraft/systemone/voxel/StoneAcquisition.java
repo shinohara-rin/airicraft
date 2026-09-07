@@ -22,8 +22,9 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 		}
 		public static Task begin(int count, Pos origin) { return new Task(count, origin, 0, 0, Set.of(), Optional.empty()); }
 	}
-	public record World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known) {
-		public World { inventory = Map.copyOf(inventory); known = Map.copyOf(known); }
+	public record World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known, Set<Pos> footholds) {
+		public World { inventory = Map.copyOf(inventory); known = Map.copyOf(known); footholds = Set.copyOf(footholds); }
+		public World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known) { this(eye, feet, inventory, known, Set.of()); }
 	}
 
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
@@ -77,16 +78,29 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 			.filter(entry -> !current.rejected().contains(entry.getKey()))
 			.filter(entry -> horizontalSquared(entry.getKey(), current.origin()) <= 12 * 12)
 			.filter(entry -> !entry.getKey().equals(world.feet().offset(0, -1, 0)))
+			.filter(entry -> !world.footholds().contains(entry.getKey()))
 			.filter(entry -> current.route().stream().noneMatch(stance -> entry.getKey().equals(stance.offset(0, -1, 0))))
-			.filter(entry -> entry.getKey().y() >= world.feet().y() - 1)
+			.filter(entry -> stone(entry.getValue().blockId()) || entry.getKey().y() >= world.feet().y() - 1)
 			.filter(entry -> stone(entry.getValue().blockId()) || soil(entry.getValue().blockId()))
 			.sorted(Comparator.<Map.Entry<Pos, Seen>>comparingInt(entry -> stone(entry.getValue().blockId()) ? 0 : 1)
 				.thenComparingInt(entry -> entry.getKey().y())
 				.thenComparingDouble(entry -> distanceSquared(world.eye(), entry.getKey()))
 				.thenComparingInt(entry -> entry.getKey().x()).thenComparingInt(entry -> entry.getKey().y()).thenComparingInt(entry -> entry.getKey().z()))
 			.toList();
+		// A short approach to known stone competes with excavation; Baritone does not acquire the target.
 		for (var entry : targets) {
-			if (distanceSquared(world.eye(), entry.getKey()) <= 4.3 * 4.3) {
+			if (!stone(entry.getValue().blockId())) continue;
+			if (ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) return execute(task, new Break(entry.getKey(), entry.getValue().blockId()), task.scans());
+			Optional<Pos> approach = world.known().keySet().stream()
+				.filter(pos -> !pos.equals(world.feet()) && !current.rejected().contains(pos) && standable(world.known(), pos))
+				.filter(pos -> horizontalSquared(pos, current.origin()) <= 12 * 12)
+				.filter(pos -> ObservedReach.visible(world.known(), new Pose(pos.x() + .5, pos.y() + 1.62, pos.z() + .5, 0, 0), entry.getKey(), 4.3))
+				.sorted(Comparator.<Pos>comparingDouble(pos -> horizontalSquared(pos, world.feet()) + Math.pow(pos.y() - world.feet().y(), 2))
+					.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z)).findFirst();
+			if (approach.isPresent()) return execute(task, new Navigate(approach.get(), 24, 200), 0);
+		}
+		for (var entry : targets) {
+			if (ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) {
 				return execute(task, new Break(entry.getKey(), entry.getValue().blockId()), task.scans());
 			}
 		}

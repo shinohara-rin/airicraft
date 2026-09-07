@@ -19,7 +19,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v6";
+	public static final String METHOD_VERSION = "reactive-production-v8";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits) {}
@@ -51,7 +51,7 @@ public final class ProductionTape {
 					if (turn.observation() != null) {
 						var observation = turn.observation();
 						observation.removed().forEach(known::remove); observation.changed().forEach(cell -> known.put(cell.pos(), cell.seen()));
-						world = new World(observation.eye(), observation.feet(), observation.inventory(), known);
+						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds());
 					}
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 					if (!turn.effects().equals(step.effects().stream().map(Object::toString).toList()) || !turn.events().equals(step.events())

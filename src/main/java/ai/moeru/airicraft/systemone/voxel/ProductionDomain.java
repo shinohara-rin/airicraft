@@ -226,13 +226,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			.map(Map.Entry::getKey).sorted(positionOrder(world.eye())).findFirst();
 	}
 	private static boolean usableStation(Map<Pos, Seen> known, Pose eye, Pos target) {
-		if (distance(eye, target) > 4.3 * 4.3) return false;
-		double dx = target.x() + .5 - eye.x(), dy = target.y() + .5 - eye.y(), dz = target.z() + .5 - eye.z();
-		var aimed = new Pose(eye.x(), eye.y(), eye.z(), Math.toDegrees(Math.atan2(-dx, dz)), -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))));
-		return VoxelObservation.observe(pos -> {
-			var seen = known.get(pos);
-			return seen == null ? new Sample("unknown", false, 0) : new Sample(seen.blockId(), seen.empty(), 15);
-		}, aimed, new Lens(4.5, 1, 1, 1, 0), 0).containsKey(target);
+		return ObservedReach.visible(known, eye, target, 4.3);
 	}
 	private static boolean intersectsPlayer(World world, Pos pos) {
 		return Math.abs(world.eye().x() - pos.x() - .5) < .8 && Math.abs(world.eye().z() - pos.z() - .5) < .8

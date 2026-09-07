@@ -21,7 +21,7 @@ class StoneAcquisitionTest {
 
 	@Test void geologicalPriorSelectsAnObservedSurfaceInsteadOfAnUnseenStoneCoordinate() {
 		Pos surface = FEET.offset(1, -1, 0);
-		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:grass_block")));
+		var world = world(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:grass_block")));
 		var result = domain.decide(ready(), world);
 		assertEquals(new Break(surface, "minecraft:grass_block"), ((Execute<Task, VoxelCommand>) result).command());
 	}
@@ -30,30 +30,30 @@ class StoneAcquisitionTest {
 		Pos surface = FEET.offset(1, -1, 0);
 		Task task = new Task(3, FEET, 0, 0, Set.of(), Optional.of(new Navigate(FEET, 24, 200)));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("stance_reached")), Optional.empty());
-		var result = domain.decide(view, new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"))));
+		var result = domain.decide(view, world(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"))));
 		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) result).command());
 	}
 
 	@Test void surveysOnlyWhenNoObservedLocalTargetIsAvailable() {
 		var view = new View<>(1, Task.begin(3, FEET), false, 1, Optional.<Outcome>empty(), Optional.<Outcome>empty());
-		assertInstanceOf(Look.class, ((Execute<Task, VoxelCommand>) domain.decide(view, new World(EYE, FEET, TOOL, Map.of()))).command());
+		assertInstanceOf(Look.class, ((Execute<Task, VoxelCommand>) domain.decide(view, world(EYE, FEET, TOOL, Map.of()))).command());
 	}
 
 	@Test void distantExposedStoneDoesNotOverrideAffordableLocalExcavation() {
 		Pos surface = FEET.offset(1, -1, 0);
-		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"), FEET.offset(100, -1, 0), seen("minecraft:stone")));
+		var world = world(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"), FEET.offset(100, -1, 0), seen("minecraft:stone")));
 		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(ready(), world)).command());
 	}
 
 	@Test void willNotBreakItsOwnFootingOrUnidentifiedDarkBlocks() {
-		var world = new World(EYE, FEET, TOOL, Map.of(FEET.offset(0, -1, 0), seen("minecraft:stone"),
+		var world = world(EYE, FEET, TOOL, Map.of(FEET.offset(0, -1, 0), seen("minecraft:stone"),
 			FEET.offset(1, -1, 0), new Seen("unknown", false, false, 0, 1)));
 		assertInstanceOf(Complete.class, domain.decide(ready(), world));
 	}
 
 	@Test void prefersDeepeningTheExcavationOverWideningItsSurface() {
 		Pos lower = FEET.offset(1, -1, 0), higher = FEET.offset(1, 0, 0);
-		var world = new World(EYE, FEET, TOOL, Map.of(lower, seen("minecraft:dirt"), higher, seen("minecraft:grass_block")));
+		var world = world(EYE, FEET, TOOL, Map.of(lower, seen("minecraft:dirt"), higher, seen("minecraft:grass_block")));
 		assertEquals(new Break(lower, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(ready(), world)).command());
 	}
 
@@ -61,22 +61,22 @@ class StoneAcquisitionTest {
 		Pos target = FEET.offset(1, -1, 0);
 		Task task = new Task(3, FEET, 4, 0, Set.of(), Optional.of(new Break(target, "minecraft:dirt")));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
-		var world = new World(EYE, FEET, TOOL, Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
+		var world = world(EYE, FEET, TOOL, Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
 			target.offset(0, -1, 0), seen("minecraft:dirt"), target.offset(0, 2, 0), seen("minecraft:air")));
 		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
 	}
 
 	@Test void pathCompletionAloneDoesNotSatisfyTheInventoryGoal() {
-		var world = new World(EYE, FEET, Map.of("minecraft:cobblestone", 3), Map.of());
+		var world = world(EYE, FEET, Map.of("minecraft:cobblestone", 3), Map.of());
 		assertEquals(new Complete<Task, VoxelCommand>(Outcome.success("cobblestone_inventory_observed")), domain.decide(ready(), world));
 		assertNotEquals(new Complete<Task, VoxelCommand>(Outcome.success("cobblestone_inventory_observed")),
-			domain.decide(ready(), new World(EYE, FEET, TOOL, Map.of())));
+			domain.decide(ready(), world(EYE, FEET, TOOL, Map.of())));
 	}
 	@Test void descentProtectsEarlierFootingSoTheReturnRouteIsNotMinedAway() {
 		var origin = new Pos(0, 64, 0); var feet = new Pos(1, 63, 0); var forward = new Pos(2, 62, 0);
 		var task = new Task(3, origin, 0, 0, Set.of(), Optional.of(new Navigate(feet, 24, 200)));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("stance_reached")), Optional.<Outcome>empty());
-		var observation = new World(new Pose(1.5, 64.62, .5, 0, 45), feet, TOOL,
+		var observation = world(new Pose(1.5, 64.62, .5, 0, 45), feet, TOOL,
 			Map.of(origin.offset(0, -1, 0), seen("minecraft:stone"), forward, seen("minecraft:dirt")));
 		var result = (Execute<Task, VoxelCommand>) domain.decide(view, observation);
 		assertEquals(new Break(forward, "minecraft:dirt"), result.command());
@@ -90,7 +90,7 @@ class StoneAcquisitionTest {
 		Pos head = FEET.offset(1, 0, 0), nextStep = head.offset(0, -1, 0);
 		var task = new Task(3, FEET, 0, 0, Set.of(), Optional.of(new Break(head, "minecraft:dirt")));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
-		var world = new World(EYE, FEET, TOOL, Map.of(head, seen("minecraft:air"), head.offset(0, 1, 0), seen("minecraft:air"), nextStep, seen("minecraft:dirt")));
+		var world = world(EYE, FEET, TOOL, Map.of(head, seen("minecraft:air"), head.offset(0, 1, 0), seen("minecraft:air"), nextStep, seen("minecraft:dirt")));
 		assertEquals(new Break(nextStep, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
 	}
 
@@ -100,11 +100,37 @@ class StoneAcquisitionTest {
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
 		var cells = new java.util.HashMap<Pos, Seen>(Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
 			target.offset(0, -1, 0), seen("minecraft:stone"), ceiling, seen("minecraft:dirt")));
-		var preparation = (Execute<Task, VoxelCommand>) domain.decide(view, new World(EYE, FEET, TOOL, cells));
+		var preparation = (Execute<Task, VoxelCommand>) domain.decide(view, world(EYE, FEET, TOOL, cells));
 		assertEquals(new Break(ceiling, "minecraft:dirt"), preparation.command());
 		cells.put(ceiling, seen("minecraft:air"));
 		var resume = new View<>(1, preparation.continuation(), false, 3, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
-		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(resume, new World(EYE, FEET, TOOL, cells))).command());
+		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(resume, world(EYE, FEET, TOOL, cells))).command());
+	}
+
+	@Test void approachesNearbyObservedStoneBeforeStartingAnotherExcavation() {
+		Pos target = FEET.offset(0, 0, 6), approach = FEET.offset(0, 0, 3);
+		var cells = new java.util.HashMap<Pos, Seen>();
+		for (int z = 0; z <= 6; z++) for (int y = 4; y <= 6; y++) cells.put(new Pos(0, y, z), seen("minecraft:air"));
+		cells.put(target, seen("minecraft:stone"));
+		cells.put(approach.offset(0, -1, 0), seen("minecraft:dirt"));
+		cells.put(FEET.offset(1, -1, 0), seen("minecraft:dirt"));
+		var action = (Execute<Task, VoxelCommand>) domain.decide(ready(), world(EYE, FEET, TOOL, cells));
+		assertEquals(new Navigate(approach, 24, 200), action.command());
+	}
+
+	@Test void anotherAcquisitionCannotMineAnEarlierTasksReturnFoothold() {
+		Pos oldStep = FEET.offset(1, -1, 0), alternative = FEET.offset(-1, -1, 0);
+		var base = world(EYE, FEET, TOOL, Map.of(oldStep, seen("minecraft:stone"), alternative, seen("minecraft:dirt")));
+		var observation = new World(base.eye(), base.feet(), base.inventory(), base.known(), Set.of(oldStep));
+		var action = (Execute<Task, VoxelCommand>) domain.decide(ready(), observation);
+		assertEquals(new Break(alternative, "minecraft:dirt"), action.command());
+	}
+
+	private static World world(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> blocks) {
+		var known = new java.util.HashMap<Pos, Seen>();
+		for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) for (int dy = -1; dy <= 3; dy++) known.put(feet.offset(dx, dy, dz), seen("minecraft:air"));
+		known.putAll(blocks);
+		return new World(eye, feet, inventory, known);
 	}
 
 	private static View<Task> ready() {

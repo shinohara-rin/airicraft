@@ -23,7 +23,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Versioned wire values for reproducing actual decision inputs, including negative motor feedback. */
 public final class StoneTape {
-	public static final String METHOD_VERSION = "local-stone-v4";
+	public static final String METHOD_VERSION = "local-stone-v6";
 	public static final Limits LIMITS = new Limits(16, 16, 72000, 2000);
 	private static final Gson GSON = new Gson();
 	private StoneTape() {}
@@ -31,8 +31,8 @@ public final class StoneTape {
 	public record Header(String type, int version, String methodVersion, String session, String run,
 		int count, Pos origin, long tick, Limits limits) {}
 	public record Cell(Pos pos, Seen seen) {}
-	public record Observation(Pose eye, Pos feet, Map<String, Integer> inventory, List<Cell> changed, List<Pos> removed) {
-		public Observation { inventory = Map.copyOf(inventory); changed = List.copyOf(changed); removed = List.copyOf(removed); }
+	public record Observation(Pose eye, Pos feet, Map<String, Integer> inventory, List<Cell> changed, List<Pos> removed, java.util.Set<Pos> footholds) {
+		public Observation { inventory = Map.copyOf(inventory); changed = List.copyOf(changed); removed = List.copyOf(removed); footholds = java.util.Set.copyOf(footholds); }
 	}
 	public record Reply(Token token, String kind, Outcome outcome) {
 		Feedback decode() {
@@ -57,7 +57,7 @@ public final class StoneTape {
 		Observation observation = current == null ? null : new Observation(current.eye(), current.feet(), current.inventory(),
 			current.known().entrySet().stream().filter(entry -> !entry.getValue().equals(before.get(entry.getKey())))
 				.map(entry -> new Cell(entry.getKey(), entry.getValue())).toList(),
-			before.keySet().stream().filter(pos -> !current.known().containsKey(pos)).toList());
+			before.keySet().stream().filter(pos -> !current.known().containsKey(pos)).toList(), current.footholds());
 		return new Turn("turn", sequence, step.state().lastTick(), observation,
 			feedback.stream().map(reply -> reply instanceof Finished finished ? new Reply(reply.token(), "finished", finished.outcome())
 				: new Reply(reply.token(), "released", null)).toList(), cancellation,
@@ -93,7 +93,7 @@ public final class StoneTape {
 					var observation = turn.observation();
 					observation.removed().forEach(known::remove);
 					observation.changed().forEach(cell -> known.put(cell.pos(), cell.seen()));
-					world = new World(observation.eye(), observation.feet(), observation.inventory(), known);
+					world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds());
 				}
 				var replay = kernel.advance(state, world, turn.feedback().stream().map(Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 				if (!turn.effects().equals(replay.effects().stream().map(Object::toString).toList()) || !turn.events().equals(replay.events())

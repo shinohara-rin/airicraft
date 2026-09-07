@@ -102,9 +102,6 @@ final class MinecraftMotor {
 	private void tickBreak(MinecraftClient client, Break target, long tick) {
 		BlockPos pos = new BlockPos(target.target().x(), target.target().y(), target.target().z());
 		if (tick - started > 200) { finish(client, Outcome.failure("break_budget_exhausted")); return; }
-		var eye = client.player.getEyePos();
-		var center = Vec3d.ofCenter(pos);
-		if (eye.squaredDistanceTo(center) > 4.5 * 4.5) { finish(client, Outcome.failure("target_out_of_reach")); return; }
 		var visible = MinecraftInteractions.hit(client, pos);
 		if (visible.isEmpty()) {
 			finish(client, breaking ? Outcome.success("target_no_longer_occludes_ray") : Outcome.failure("target_occluded"));

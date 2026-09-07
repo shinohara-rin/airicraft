@@ -16,10 +16,13 @@ final class MinecraftSensor {
 	private static final Lens LENS = new Lens(16, 100, 80, 2, 2);
 	private final Map<Pos, Seen> memory = new HashMap<>();
 	private final Map<BlockPos, BlockState> terrain = new HashMap<>();
+	private final java.util.Set<Pos> footholds = new java.util.HashSet<>();
 
 	StoneAcquisition.World observe(MinecraftClient client, long tick) {
 		var player = client.player;
 		var eye = player.getEyePos();
+		if (player.isOnGround()) footholds.add(new Pos(player.getBlockX(), player.getBlockY() - 1, player.getBlockZ()));
+		footholds.removeIf(pos -> Math.abs(pos.x() - player.getBlockX()) > 48 || Math.abs(pos.z() - player.getBlockZ()) > 48);
 		Pose pose = new Pose(eye.x, eye.y, eye.z, player.getYaw(), player.getPitch());
 		Map<Pos, BlockState> samples = new HashMap<>();
 		Map<Pos, Seen> seen = VoxelObservation.observe(pos -> {
@@ -45,7 +48,7 @@ final class MinecraftSensor {
 			var stack = player.getInventory().getStack(i);
 			if (!stack.isEmpty()) inventory.merge(Registries.ITEM.getId(stack.getItem()).toString(), stack.getCount(), Integer::sum);
 		}
-		return new StoneAcquisition.World(pose, new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ()), inventory, memory);
+		return new StoneAcquisition.World(pose, new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ()), inventory, memory, footholds);
 	}
-	void clear() { memory.clear(); terrain.clear(); ObservedTerrain.clear(); }
+	void clear() { memory.clear(); terrain.clear(); footholds.clear(); ObservedTerrain.clear(); }
 }

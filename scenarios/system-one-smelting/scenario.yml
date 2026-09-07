@@ -1,0 +1,30 @@
+id: system-one-smelting
+name: Single furnace load, passive wait, and collection
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one iron ingot. This interaction fixture supplies one raw iron,
+  one oak plank, and an exposed furnace. Verify loading, passive cooking,
+  collection, and released control. Full resource production is tested separately.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron", "system-one-smelting").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -48,7 +48,12 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-production") || scenario.equals("system-one-iron")) {
+				if (scenario.equals("system-one-smelting")) {
+					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
+					player.getInventory().setStack(1, new ItemStack(Items.OAK_PLANKS));
+					world.setBlockState(new BlockPos(x, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
+				}
+				else if (scenario.equals("system-one-production") || scenario.equals("system-one-iron")) {
 					for (int y = 200; y <= 204; y++) world.setBlockState(new BlockPos(x, y, z + 3), Blocks.OAK_LOG.getDefaultState(), 3);
 					if (scenario.equals("system-one-iron")) {
 						for (int y = 200; y <= 204; y++) world.setBlockState(new BlockPos(x - 1, y, z + 3), Blocks.OAK_LOG.getDefaultState(), 3);
