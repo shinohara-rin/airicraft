@@ -1,0 +1,32 @@
+id: system-one-production-discovery
+name: Discovery - Wood harvest to stone pickaxe through production tasks
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain a stone pickaxe from an empty inventory. The evaluator supplies
+  an exposed log column and a soil-covered stone platform. No tools,
+  ingredients, workstation coordinates, or action sequence are supplied.
+goal:
+  kind: inventory_item
+  itemId: minecraft:stone_pickaxe
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:stone_pickaxe
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_revised
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

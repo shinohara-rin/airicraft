@@ -225,6 +225,54 @@ class TaskKernelTest {
 	}
 
 	private record Input(String observation, List<Feedback> feedback, long tick) {}
+	private static final Domain<String, String, String> REVISABLE = new Domain<>() {
+		@Override public Decision<String, String> decide(View<String> view, String observation) {
+			if (view.task().equals("goal")) return new Child<>("goal", "dependency", "old method");
+			if (view.task().equals("dependency")) return new Child<>("dependency", "old_work", "old prerequisite");
+			if (view.acting()) return new Keep<>();
+			if (observation.equals("waiting")) return new Sleep<>(view.task(), view.tick() + 20);
+			return new Execute<>(view.task(), view.task());
+		}
+		@Override public Optional<Revision<String>> reconsider(List<View<String>> branch, String observation) {
+			return observation.equals("alternative") ? Optional.of(new Revision<>(branch.getFirst().id(), "new_work", "new evidence")) : Optional.empty();
+		}
+	};
+	@Test void ancestorRevisionWaitsForReleaseAndRetainsIdentityAndBudgets() {
+		var kernel = new TaskKernel<>(REVISABLE, LIMITS);
+		var first = kernel.advance(kernel.begin("s", "r", "goal", 0), "", List.of(), 1);
+		var old = start(first);
+		var revise = kernel.advance(first.state(), "alternative", List.of(), 2);
+		assertEquals(List.of(new Stop<String>(old.token())), revise.effects());
+		assertEquals(3, revise.state().stack().size());
+		assertTrue(kernel.advance(revise.state(), "alternative", List.of(), 3).effects().isEmpty());
+		var replaced = kernel.advance(revise.state(), "alternative", List.of(new Released(old.token())), 4);
+		assertEquals("new_work", start(replaced).command());
+		assertEquals(1, start(replaced).token().task());
+		assertEquals(first.state().nextAttempt(), start(replaced).token().attempt());
+		assertEquals(first.state().deadline(), replaced.state().deadline());
+		assertEquals(first.state().nextTask(), replaced.state().nextTask());
+		assertEquals(2, replaced.events().stream().filter(e -> e.type().equals("task_ended") && e.detail().startsWith("CANCELLED:")).count());
+		var stale = kernel.advance(replaced.state(), "", List.of(new Finished(old.token(), Outcome.success("late"))), 5);
+		assertEquals(replaced.state().stack(), stale.state().stack());
+		assertTrue(stale.effects().isEmpty());
+	}
+	@Test void cancellationOverridesAPendingAncestorRevision() {
+		var kernel = new TaskKernel<>(REVISABLE, LIMITS);
+		var first = kernel.advance(kernel.begin("s", "r", "goal", 0), "", List.of(), 1);
+		var revise = kernel.advance(first.state(), "alternative", List.of(), 2);
+		var cancelled = kernel.advance(revise.state(), "alternative", List.of(), 3, Optional.of("user stop"));
+		var ended = kernel.advance(cancelled.state(), "alternative", List.of(new Released(start(first).token())), 4);
+		assertEquals(Outcome.cancelled("user stop"), ended.state().outcome().orElseThrow());
+		assertTrue(ended.effects().isEmpty());
+	}
+	@Test void aSleepingPrerequisiteCanBeRevisedWithoutInventingARelease() {
+		var kernel = new TaskKernel<>(REVISABLE, LIMITS);
+		var waiting = kernel.advance(kernel.begin("s", "r", "goal", 0), "waiting", List.of(), 1);
+		assertInstanceOf(Sleeping.class, waiting.state().stack().getLast().phase());
+		var changed = kernel.advance(waiting.state(), "alternative", List.of(), 2);
+		assertEquals("new_work", start(changed).command());
+		assertEquals(1, changed.state().stack().size());
+	}
 	@SuppressWarnings("unchecked")
 	private static Start<String> start(Step<String, String> step) {
 		assertEquals(1, step.effects().size());

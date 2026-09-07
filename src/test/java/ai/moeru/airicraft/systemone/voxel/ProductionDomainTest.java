@@ -73,6 +73,23 @@ class ProductionDomainTest {
 		assertEquals("oak", ((Acquire) step.state().stack().getFirst().task()).method());
 		assertEquals("oak_log", ((Break) ((Start<VoxelCommand>) step.effects().getFirst()).command()).expectedBlock());
 	}
+	@Test void discoveringAnotherWoodRevisesTheUnfulfilledRecipeBranch() {
+		var book = new ProductionKnowledge("woods", List.of(recipe("acacia", "planks", 4, 2, "acacia_log"), recipe("oak", "planks", 4, 2, "oak_log")),
+			List.of(new Harvest("acacia_log", List.of("acacia_log"), List.of(), Technique.EXPOSED), new Harvest("oak_log", List.of("oak_log"), List.of(), Technique.EXPOSED)));
+		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book), new Limits(16, 16, 500, 100));
+		var base = world(Map.of());
+		var first = kernel.advance(kernel.begin("s", "r", Acquire.root("planks", 3), 0), base, List.of(), 1);
+		assertEquals("acacia", ((Acquire) first.state().stack().getFirst().task()).method());
+		var look = (Start<VoxelCommand>) first.effects().getFirst();
+		assertInstanceOf(Look.class, look.command());
+		var known = new HashMap<>(base.known()); known.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 2));
+		var discovered = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var next = kernel.advance(first.state(), discovered, List.of(new Finished(look.token(), Outcome.success("looked"))), 2);
+		assertEquals("oak", ((Acquire) next.state().stack().getFirst().task()).method());
+		assertEquals(1, next.state().stack().getFirst().id());
+		assertEquals("oak_log", assertInstanceOf(Break.class, ((Start<VoxelCommand>) next.effects().getFirst()).command()).expectedBlock());
+		assertTrue(next.events().stream().anyMatch(e -> e.type().equals("task_revised")));
+	}
 	@Test void rememberedOccludedStationRequiresReturningToAUsableStance() {
 		var domain = new ProductionDomain(BOOK);
 		var base = world(Map.of("planks", 3, "sticks", 2));

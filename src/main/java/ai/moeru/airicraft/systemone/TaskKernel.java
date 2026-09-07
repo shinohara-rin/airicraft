@@ -13,7 +13,10 @@ public final class TaskKernel<T, O, C> {
 		Decision<T, C> decide(View<T> task, O observation);
 		/** Observe the root goal even while a prerequisite is acting or waiting. */
 		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
+		/** New evidence may invalidate an ancestor's selected method. Never grants motor ownership. */
+		default Optional<Revision<T>> reconsider(List<View<T>> branch, O observation) { return Optional.empty(); }
 	}
+	public record Revision<T>(long task, T continuation, String reason) {}
 
 	public record Limits(int transitionsPerTick, int maxDepth, long maxTicks, long maxCommands) {
 		public Limits {
@@ -54,10 +57,11 @@ public final class TaskKernel<T, O, C> {
 	public record Releasing<T>(Token token, AfterRelease<T> next) implements Phase<T> {}
 	public record WaitingChild<T>(long childId, String reason) implements Phase<T> {}
 	public record Sleeping<T>(long wakeTick) implements Phase<T> {}
-	public sealed interface AfterRelease<T> permits PushChild, EndTask, EndRun {}
+	public sealed interface AfterRelease<T> permits PushChild, EndTask, EndRun, ReviseTask {}
 	public record PushChild<T>(T child, String reason) implements AfterRelease<T> {}
 	public record EndTask<T>(Outcome outcome) implements AfterRelease<T> {}
 	public record EndRun<T>(Outcome outcome) implements AfterRelease<T> {}
+	public record ReviseTask<T>(Revision<T> revision) implements AfterRelease<T> {}
 
 	public record Frame<T>(long id, T task, Phase<T> phase,
 		Optional<Outcome> commandResult, Optional<Outcome> childResult) {
@@ -131,6 +135,13 @@ public final class TaskKernel<T, O, C> {
 				turn.endRun(completion.get());
 				return turn.finish();
 			}
+		}
+		if (!(turn.leaf().phase() instanceof Releasing<T>) && turn.stack.size() > 1) {
+			var branch = turn.stack.stream().map(frame -> new View<>(frame.id(), frame.task(), frame.phase() instanceof Acting<T>, tick, frame.commandResult(), frame.childResult())).toList();
+			domain.reconsider(branch, observation).ifPresent(revision -> {
+				if (turn.stack.stream().limit(turn.stack.size() - 1).noneMatch(frame -> frame.id() == revision.task())) throw new IllegalArgumentException("Revision must target an active ancestor");
+				turn.afterRelease(new ReviseTask<>(revision));
+			});
 		}
 		for (int i = 0; i < limits.transitionsPerTick() && turn.done.isEmpty(); i++) {
 			Frame<T> frame = turn.leaf();
@@ -213,7 +224,7 @@ public final class TaskKernel<T, O, C> {
 			if (frame.phase() instanceof Acting<T> acting) {
 				replace(new Frame<>(frame.id(), frame.task(), new Releasing<>(acting.token(), next), Optional.empty(), Optional.empty()));
 				effects.add(new Stop<>(acting.token()));
-				event("release_requested", next instanceof PushChild<T> child ? child.reason() : "task_ending");
+				event("release_requested", next instanceof PushChild<T> child ? child.reason() : next instanceof ReviseTask<T> revise ? revise.revision().reason() : "task_ending");
 			}
 			else apply(next);
 		}
@@ -232,6 +243,14 @@ public final class TaskKernel<T, O, C> {
 				event("task_started", "parent=" + parent.id() + " reason=" + child.reason());
 			}
 			else if (next instanceof EndTask<T> end) completeTask(end.outcome());
+			else if (next instanceof ReviseTask<T> revise) {
+				var revision = revise.revision();
+				while (leaf().id() != revision.task()) {
+					event("task_ended", "CANCELLED:" + revision.reason()); stack.removeLast();
+				}
+				replace(ready(revision.task(), revision.continuation(), Optional.empty(), Optional.empty()));
+				event("task_revised", revision.reason());
+			}
 			else if (next instanceof EndRun<T> end) {
 				while (!stack.isEmpty()) { event("task_ended", end.outcome().kind() + ":" + end.outcome().evidence()); stack.removeLast(); }
 				done = Optional.of(end.outcome());

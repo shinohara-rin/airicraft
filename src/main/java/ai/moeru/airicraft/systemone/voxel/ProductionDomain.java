@@ -66,6 +66,29 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		return Optional.empty();
 	}
+	@Override public Optional<Revision<Task>> reconsider(List<View<Task>> branch, World world) {
+		var leaf = branch.getLast();
+		// Reconsider unavailable inputs at completed observation/travel boundaries, not mid-harvest.
+		if (world == null || leaf.acting() || !(leaf.task() instanceof Gather gather) || !gather.drops().isEmpty()
+			|| !(gather.last() instanceof Look || gather.last() instanceof Navigate)
+			|| world.inventory().getOrDefault(gather.rule().item(), 0) >= gather.count()
+			|| world.known().values().stream().anyMatch(seen -> seen.identified() && gather.rule().blocks().contains(seen.blockId()))) return Optional.empty();
+		for (int i = branch.size() - 2; i >= 0; i--) {
+			var ancestor = branch.get(i);
+			if (!(ancestor.task() instanceof Acquire task)) continue;
+			Recipe current = recipesById.get(task.method());
+			if (current == null) continue;
+			double currentCost = recipeCost(current, task.reserved(), world, ancestry(task), new int[]{256});
+			record Candidate(Recipe recipe, double cost) {}
+			var best = recipes.getOrDefault(task.item(), List.of()).stream()
+				.filter(recipe -> !task.failed().contains(recipe.id()) && !recipe.id().equals(current.id()))
+				.map(recipe -> new Candidate(recipe, recipeCost(recipe, task.reserved(), world, ancestry(task), new int[]{256})))
+				.filter(candidate -> Double.isFinite(candidate.cost()) && candidate.cost() * 1.5 + 2 < currentCost)
+				.min(Comparator.comparingDouble(Candidate::cost).thenComparing(candidate -> candidate.recipe().id()));
+			if (best.isPresent()) return Optional.of(new Revision<>(ancestor.id(), selected(task, best.get().recipe().id()), "better_observed_recipe:" + best.get().recipe().id()));
+		}
+		return Optional.empty();
+	}
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
 		return switch (view.task()) {
 			case Acquire task -> acquire(view, task, world);
