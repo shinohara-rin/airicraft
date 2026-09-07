@@ -72,6 +72,27 @@ class StoneAcquisitionTest {
 		assertNotEquals(new Complete<Task, VoxelCommand>(Outcome.success("cobblestone_inventory_observed")),
 			domain.decide(ready(), new World(EYE, FEET, TOOL, Map.of())));
 	}
+	@Test void descentProtectsEarlierFootingSoTheReturnRouteIsNotMinedAway() {
+		var origin = new Pos(0, 64, 0); var feet = new Pos(1, 63, 0); var forward = new Pos(2, 62, 0);
+		var task = new Task(3, origin, 0, 0, Set.of(), Optional.of(new Navigate(feet, 24, 200)));
+		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("stance_reached")), Optional.<Outcome>empty());
+		var observation = new World(new Pose(1.5, 64.62, .5, 0, 45), feet, TOOL,
+			Map.of(origin.offset(0, -1, 0), seen("minecraft:stone"), forward, seen("minecraft:dirt")));
+		var result = (Execute<Task, VoxelCommand>) domain.decide(view, observation);
+		assertEquals(new Break(forward, "minecraft:dirt"), result.command());
+		assertEquals(java.util.List.of(origin, feet), result.continuation().route());
+		var failed = new View<>(1, result.continuation(), false, 3, Optional.of(Outcome.failure("target_changed")), Optional.<Outcome>empty());
+		var next = domain.decide(failed, observation);
+		assertFalse(next instanceof Execute<Task, VoxelCommand> execute && execute.command() instanceof Break broken && broken.target().equals(origin.offset(0, -1, 0)));
+	}
+
+	@Test void clearsTheNextStepBeforeWalkingOntoItsFloor() {
+		Pos head = FEET.offset(1, 0, 0), nextStep = head.offset(0, -1, 0);
+		var task = new Task(3, FEET, 0, 0, Set.of(), Optional.of(new Break(head, "minecraft:dirt")));
+		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.<Outcome>empty());
+		var world = new World(EYE, FEET, TOOL, Map.of(head, seen("minecraft:air"), head.offset(0, 1, 0), seen("minecraft:air"), nextStep, seen("minecraft:dirt")));
+		assertEquals(new Break(nextStep, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
+	}
 
 	private static View<Task> ready() {
 		return new View<>(1, new Task(3, FEET, 4, 0, Set.of(), Optional.empty()), false, 1, Optional.empty(), Optional.empty());

@@ -14,7 +14,7 @@ Tracks the [implementation plan](superpowers/plans/2026-09-06-system-one-redesig
 
 - Production tasks load crafting patterns from the active recipe catalog, preserve parent ingredient reservations, account for recipe yields, and terminate prerequisite cycles. Observed resource sources affect recipe choice. Child tasks harvest logs, bootstrap tools, acquire/place tables, and return toward remembered workstations. Crafting, exact placement, and inventory selection stay under the motor owner; crafting release drains the cursor and input grid. Production recordings include the complete immutable recipe/prior catalog and support offline replay.
 
-The production chain is still being validated. It has made a wooden pickaxe and obtained stone live, but has not yet completed the stone-pickaxe fixture: excavation removed its return footholds. Smelting, lighting repairs, and survival control remain unimplemented.
+The production chain is still being validated. It has made a wooden pickaxe and obtained stone live, but has not yet completed the stone-pickaxe fixture: return footholds are now protected, but descending movement still needs explicit overhead clearance. Smelting, lighting repairs, and survival control remain unimplemented.
 
 ## Tests and live evidence
 
@@ -25,7 +25,7 @@ source .envrc
 ./gradlew :test --tests 'ai.moeru.airicraft.systemone.*'
 ```
 
-At 2026-09-07, 42 tests pass: 10 kernel, 6 geometric sensing, 8 acquisition, 9 production, 6 decision replay, and 3 recording tests. The evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests).
+At 2026-09-07, 44 tests pass: 10 kernel, 6 geometric sensing, 10 acquisition, 9 production, 6 decision replay, and 3 recording tests. The evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests).
 
 Live fixture command:
 
@@ -51,6 +51,8 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 | `20260907-162605-529498-73805` | Final probe also checks placement rejection and bucket-selection isolation. Paired route/cost checks passed; autonomous stone goal PASSED in 382 ticks, harness OK, zero planner calls, and motor fully released. All 312 decision turns replayed offline. |
 | `20260907-164921-022470-78966` | First production attempt chose acacia ingredients despite observed oak. Saved events identified the incorrect cost estimate; stopped the run and added an observed-resource preference regression. No terminal success claim. |
 | `20260907-165313-281422-80092` | Harvested logs, crafted the table and wooden pickaxe, and obtained three cobblestone. Failed because a nearby remembered table was occluded. Replay reproduced all 693 decision turns and the failure. Added station visibility/return logic and placement body-clearance checks. |
+| `20260907-171617-714595-86198` | Protecting visited footholds alone caused surface widening: walking onto each cleared cell immediately protected the floor that needed excavation. Stopped this repetitive run and corrected the step sequence. |
+| `20260907-171921-268801-87086` | The corrected sequence descended two steps and preserved footholds. Later descent failed because the destination ceiling blocked entry despite two-block standing clearance. Recorded observations identify the obstructing grass block; the next change adds a retained step destination and overhead preparation. |
 | `20260907-170343-610028-83181` | Return attempts failed: excavation had removed earlier footholds. The fallback created another table but could not place it from the shaft. Scenario FAILED in 824 elapsed ticks; zero planner turns. This exposes an acquisition defect that the stone-only fixture did not exercise. |
 
 The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. Recorder Play playback has not yet been visually reviewed.

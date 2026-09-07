@@ -15,10 +15,17 @@ import java.util.Optional;
 final class MinecraftInteractions {
 	static Optional<BlockHitResult> hit(MinecraftClient client, BlockPos pos) {
 		var eye = client.player.getEyePos(); var center = Vec3d.ofCenter(pos);
-		if (eye.squaredDistanceTo(center) > 4.5 * 4.5) return Optional.empty();
-		new CameraController().lookAtNow(client, center);
-		var hit = client.world.raycast(new RaycastContext(eye, center, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
-		return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos) ? Optional.of(hit) : Optional.empty();
+		var candidates = new java.util.ArrayList<Vec3d>(); candidates.add(center);
+		for (var face : net.minecraft.util.math.Direction.values()) candidates.add(center.add(face.getOffsetX() * .499, face.getOffsetY() * .499, face.getOffsetZ() * .499));
+		for (var point : candidates) {
+			if (eye.squaredDistanceTo(point) > 4.5 * 4.5) continue;
+			var hit = client.world.raycast(new RaycastContext(eye, point, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
+			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos)) {
+				new CameraController().lookAtNow(client, point);
+				return Optional.of(hit);
+			}
+		}
+		return Optional.empty();
 	}
 	static boolean selectItem(MinecraftClient client, String item) {
 		for (int slot = 0; slot < 36; slot++) {

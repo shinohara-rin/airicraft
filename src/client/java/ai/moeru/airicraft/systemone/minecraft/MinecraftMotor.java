@@ -1,33 +1,27 @@
 package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
-import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.systemone.TaskKernel;
 import ai.moeru.airicraft.systemone.voxel.VoxelCommand;
-import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import baritone.api.BaritoneAPI;
 import baritone.api.Settings;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.Hand;
-import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.RaycastContext;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
-import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 
 /** One owned command, with explicit stop acknowledgement after Baritone and interaction release. */
 final class MinecraftMotor {
 	private final LiveBaritoneFacade pathing = new LiveBaritoneFacade();
-	private final CameraController camera = new CameraController();
 	private final Map<Settings.Setting<?>, Object> savedSettings = new HashMap<>();
 	private Start<VoxelCommand> active;
 	private long started;
@@ -107,12 +101,12 @@ final class MinecraftMotor {
 		var eye = client.player.getEyePos();
 		var center = Vec3d.ofCenter(pos);
 		if (eye.squaredDistanceTo(center) > 4.5 * 4.5) { finish(client, Outcome.failure("target_out_of_reach")); return; }
-		camera.lookAtNow(client, center);
-		var hit = client.world.raycast(new RaycastContext(eye, center, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
-		if (hit.getType() == HitResult.Type.MISS || !hit.getBlockPos().equals(pos)) {
+		var visible = MinecraftInteractions.hit(client, pos);
+		if (visible.isEmpty()) {
 			finish(client, breaking ? Outcome.success("target_no_longer_occludes_ray") : Outcome.failure("target_occluded"));
 			return;
 		}
+		var hit = visible.get();
 		var state = client.world.getBlockState(pos); // First ray hit only; no hidden target-state lookup.
 		if (!Registries.BLOCK.getId(state.getBlock()).toString().equals(target.expectedBlock())) {
 			finish(client, Outcome.failure("observed_target_changed")); return;
