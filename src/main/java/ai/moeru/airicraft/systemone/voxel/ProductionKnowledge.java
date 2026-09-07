@@ -11,8 +11,11 @@ public record ProductionKnowledge(String version, List<Recipe> recipes, List<Har
 	}
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels) { this(version, recipes, harvesting, smelting, fuels, List.of(), new LightingPolicy.Parameters(7, 10, 8, 80, 4)); }
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) { this(version, recipes, harvesting, List.of(), List.of()); }
-	public record SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable) {
-		public SearchPrior { excavatable = List.copyOf(excavatable); if (radius < 1 || maxSteps < 1) throw new IllegalArgumentException("Positive search bounds required"); }
+	/** Domain-approved stable support materials; item and placed block need not have the same identity. */
+	public record SupportMaterial(String item, String block) {}
+	public record SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable, List<SupportMaterial> supports) {
+		public SearchPrior { excavatable = List.copyOf(excavatable); supports = List.copyOf(supports); if (radius < 1 || maxSteps < 1) throw new IllegalArgumentException("Positive search bounds required"); }
+		public SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable) { this(item, preferredY, radius, maxSteps, excavatable, List.of()); }
 	}
 	public record Smelt(String id, String input, String output, int yield, String station, int ticks) {
 		public Smelt { if (yield < 1 || ticks < 1) throw new IllegalArgumentException("Positive smelting yield and duration required"); }

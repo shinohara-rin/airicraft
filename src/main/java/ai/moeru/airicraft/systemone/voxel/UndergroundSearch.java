@@ -18,6 +18,9 @@ public final class UndergroundSearch {
 	}
 	private static final int[][] DIRECTIONS = {{0, 1}, {-1, 0}, {0, -1}, {1, 0}};
 	public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
+		return decide(view, world, Map.of());
+	}
+	public Decision<Task, VoxelCommand> decide(View<Task> view, World world, Map<String, Integer> reserved) {
 		Task task = view.task();
 		if (world.known().entrySet().stream().anyMatch(e -> e.getValue().identified() && task.targets().contains(e.getValue().blockId()) && !task.ignoredTargets().contains(e.getKey()))) {
 			return new Complete<>(Outcome.success("resource_surface_observed:" + task.prior().item()));
@@ -46,13 +49,14 @@ public final class UndergroundSearch {
 			}
 		}
 		Optional<Pos> retained = destination;
-		candidates.sort(Comparator.comparingInt(p -> retained.filter(p::equals).isPresent() ? 0 : StoneAcquisition.standable(world.known(), p) ? 1 : 2));
+		candidates.sort(Comparator.comparingInt(p -> retained.filter(p::equals).isPresent() ? 0 : StoneAcquisition.standable(world.known(), p) ? 1
+			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 2 : 3));
 		for (Pos next : candidates) {
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
 			int[] heading = DIRECTIONS[task.direction()];
 			if ((next.x() - world.feet().x()) * heading[0] + (next.z() - world.feet().z()) * heading[1] < 0) continue;
-			if (world.footholds().contains(next.offset(0, -1, 0)) && destination.isEmpty()) continue;
-			var column = List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
+			if (world.footholds().contains(next.offset(0, -1, 0)) && retained.filter(next::equals).isEmpty()) continue;
+			var column = entryColumn(world, next);
 			boolean obstructed = false;
 			for (Pos cell : column) {
 				Seen seen = world.known().get(cell);
@@ -69,6 +73,8 @@ public final class UndergroundSearch {
 			if (StoneAcquisition.standable(world.known(), next) && column.stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).empty())) {
 				return action(task, world, steps, rejected, next, null, new Navigate(next, 12, 200));
 			}
+			var footing = foothold(task.prior(), world, next, reserved);
+			if (footing.isPresent()) return action(task, world, steps, rejected, next, null, footing.get());
 			Pos inspect = column.stream().filter(p -> world.known().get(p) == null || !world.known().get(p).identified()).findFirst().orElse(next.offset(0, -1, 0));
 			if (looked.filter(inspect::equals).isEmpty()) {
 				double dx = inspect.x() + .5 - world.eye().x(), dy = inspect.y() + .5 - world.eye().y(), dz = inspect.z() + .5 - world.eye().z();
@@ -77,6 +83,25 @@ public final class UndergroundSearch {
 			rejected.add(next);
 		}
 		return new Complete<>(Outcome.failure("no_observed_underground_step"));
+	}
+	private static List<Pos> entryColumn(World world, Pos next) {
+		return List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
+	}
+	private static Optional<Place> foothold(SearchPrior prior, World world, Pos next, Map<String, Integer> reserved) {
+		Pos footing = next.offset(0, -1, 0);
+		Seen gap = world.known().get(footing);
+		if (gap == null || !gap.identified() || !gap.empty() || !entryColumn(world, next).stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).empty())) return Optional.empty();
+		for (var material : prior.supports()) {
+			if (world.inventory().getOrDefault(material.item(), 0) <= reserved.getOrDefault(material.item(), 0)) continue;
+			for (Face face : Face.values()) {
+				Pos support = footing.offset(-face.x, -face.y, -face.z);
+				Seen surface = world.known().get(support);
+				if (StoneAcquisition.supportsStanding(surface) && ObservedReach.visibleFace(world.known(), world.eye(), support, face, 4.3)) {
+					return Optional.of(new Place(material.item(), support, surface.blockId(), face, material.block()));
+				}
+			}
+		}
+		return Optional.empty();
 	}
 	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
 		// A sidestep explores local space; it does not replace the search's chosen heading.

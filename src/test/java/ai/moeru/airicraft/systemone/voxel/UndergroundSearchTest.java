@@ -7,6 +7,7 @@ import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
+import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SupportMaterial;
 import ai.moeru.airicraft.systemone.voxel.UndergroundSearch.Task;
 
 class UndergroundSearchTest {
@@ -70,6 +71,40 @@ class UndergroundSearchTest {
 		assertTrue(((Task) step.continuation()).rejected().isEmpty());
 		var exhausted = new Task(PRIOR, List.of("iron"), FEET, task.position(), 0, PRIOR.maxSteps() - 1, rejected, Set.of(), Optional.of(FEET), Optional.empty(), task.last());
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, search.decide(view(exhausted), world)).outcome().kind());
+	}
+	@Test void aVisibleSideSupportAllowsOneExplicitFootholdBeforeNavigation() {
+		var floor = FEET.offset(0, -2, 1);
+		var support = floor.offset(1, 0, 0);
+		var base = world(Map.of(floor, seen("minecraft:air"), support, seen("minecraft:stone")));
+		var world = new StoneAcquisition.World(base.eye(), base.feet(), Map.of("building_item", 2), base.known());
+		var prior = new SearchPrior(PRIOR.item(), PRIOR.preferredY(), PRIOR.radius(), PRIOR.maxSteps(), PRIOR.excavatable(),
+			List.of(new SupportMaterial("building_item", "placed_support")));
+		var task = Task.begin(prior, List.of("iron"), world, Set.of());
+		var placement = assertInstanceOf(Execute.class, search.decide(view(task), world));
+		assertEquals(new Place("building_item", support, "minecraft:stone", Face.WEST, "placed_support"), placement.command());
+		var known = new HashMap<>(world.known()); known.put(floor, new Seen("placed_support", false, true, true, 15, 2));
+		var placedWorld = new StoneAcquisition.World(world.eye(), world.feet(), Map.of("building_item", 1), known);
+		var placed = (Task) placement.continuation();
+		var move = assertInstanceOf(Execute.class, search.decide(new View<>(1, placed, false, 2, Optional.of(Outcome.success("placed")), Optional.empty()), placedWorld));
+		assertEquals(new Navigate(floor.offset(0, 1, 0), 12, 200), move.command());
+		var reserved = search.decide(view(task), world, Map.of("building_item", 2));
+		assertFalse(reserved instanceof Execute<?, ?> action && action.command() instanceof Place);
+		known.remove(floor);
+		var unknown = search.decide(view(task), new StoneAcquisition.World(world.eye(), world.feet(), world.inventory(), known));
+		assertFalse(unknown instanceof Execute<?, ?> action && action.command() instanceof Place);
+		known.put(floor, seen("minecraft:air"));
+		known.put(support.offset(0, 1, 0), seen("minecraft:stone"));
+		var flat = assertInstanceOf(Execute.class, search.decide(view(task), new StoneAcquisition.World(world.eye(), world.feet(), world.inventory(), known)));
+		assertEquals(floor.offset(0, 1, 0), assertInstanceOf(Place.class, flat.command()).destination(), "a fillable gap at the cave floor competes before creating a lower step");
+	}
+	@Test void anUnusableRetainedStepDoesNotPermitRevisitingOtherFootholds() {
+		var visitedFloor = FEET.offset(-1, -1, 0);
+		var base = world(Map.of(visitedFloor, seen("minecraft:stone")));
+		var world = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), base.known(), Set.of(visitedFloor));
+		var forward = FEET.offset(0, 0, 1);
+		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(forward), Optional.of(forward.offset(0, -1, 0)), null);
+		var action = search.decide(view(task), world);
+		assertFalse(action instanceof Execute<?, ?> execute && execute.command() instanceof Navigate move && move.stance().equals(visitedFloor.offset(0, 1, 0)));
 	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, !id.equals("minecraft:air"), 15, 1); }

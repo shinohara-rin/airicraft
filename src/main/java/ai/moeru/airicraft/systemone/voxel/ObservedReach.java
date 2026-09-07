@@ -12,13 +12,23 @@ public final class ObservedReach {
 		if (block == null || !block.identified() || block.empty()) return false;
 		for (var point : POINTS) {
 			double dx = target.x() + .5 + point[0] - eye.x(), dy = target.y() + .5 + point[1] - eye.y(), dz = target.z() + .5 + point[2] - eye.z();
-			if (dx * dx + dy * dy + dz * dz > range * range) continue;
-			var aimed = new Pose(eye.x(), eye.y(), eye.z(), Math.toDegrees(Math.atan2(-dx, dz)), -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))));
-			if (VoxelObservation.observe(pos -> {
-				var seen = known.get(pos);
-				return seen == null ? new Sample("unknown", false, false, 0) : new Sample(seen.blockId(), seen.empty(), seen.fullSupport(), 15);
-			}, aimed, new Lens(range, 1, 1, 1, 0), 0).containsKey(target)) return true;
+			if (rayHits(known, eye, target, dx, dy, dz, range)) return true;
 		}
 		return false;
+	}
+	public static boolean visibleFace(Map<Pos, Seen> known, Pose eye, Pos target, VoxelCommand.Face face, double range) {
+		Seen block = known.get(target);
+		if (block == null || !block.identified() || !block.fullSupport()) return false;
+		double x = eye.x() - target.x() - .5, y = eye.y() - target.y() - .5, z = eye.z() - target.z() - .5;
+		if (x * face.x + y * face.y + z * face.z <= .5) return false;
+		return rayHits(known, eye, target, face.x * .5 - x, face.y * .5 - y, face.z * .5 - z, range);
+	}
+	private static boolean rayHits(Map<Pos, Seen> known, Pose eye, Pos target, double dx, double dy, double dz, double range) {
+		if (dx * dx + dy * dy + dz * dz > range * range) return false;
+		var aimed = new Pose(eye.x(), eye.y(), eye.z(), Math.toDegrees(Math.atan2(-dx, dz)), -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))));
+		return VoxelObservation.observe(pos -> {
+			var seen = known.get(pos);
+			return seen == null ? new Sample("unknown", false, false, 0) : new Sample(seen.blockId(), seen.empty(), seen.fullSupport(), 15);
+		}, aimed, new Lens(range, 1, 1, 1, 0), 0).containsKey(target);
 	}
 }

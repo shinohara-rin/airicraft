@@ -1,0 +1,36 @@
+id: system-one-cave-gap
+name: Prepare observed footholds across a cave gap
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one raw iron beyond a gap in a narrow cave. The fixture supplies
+  a stone pickaxe, eight torches, and four cobblestone. Prepare support from
+  carried blocks using observed faces before navigating across the gap.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: block_count
+    blockId: minecraft:cobblestone
+    count: 1
+    scope: self
+    horizontalRadius: 12
+    verticalRadius: 8
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

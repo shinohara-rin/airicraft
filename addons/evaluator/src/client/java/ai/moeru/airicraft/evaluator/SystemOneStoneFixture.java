@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -48,10 +48,11 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-underground") || scenario.startsWith("system-one-lighting")) {
+				if (scenario.equals("system-one-underground") || scenario.equals("system-one-cave-gap") || scenario.startsWith("system-one-lighting")) {
 					boolean exhaustion = scenario.equals("system-one-lighting-exhaustion");
+					boolean gap = scenario.equals("system-one-cave-gap");
 					int length = exhaustion ? 24 : 9;
-					int halfWidth = scenario.equals("system-one-lighting-stairs") ? 0 : 1;
+					int halfWidth = scenario.equals("system-one-lighting-stairs") || gap ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
 					}
@@ -63,10 +64,16 @@ final class SystemOneStoneFixture {
 							world.setBlockState(new BlockPos(x + dx, floor - 1, z + dz), support.getDefaultState(), 3);
 						}
 					}
+					if (gap) for (int dz = 6; dz <= 7; dz++) for (int y = 192; y <= 195; y++) {
+						world.setBlockState(new BlockPos(x, y, z + dz), Blocks.AIR.getDefaultState(), 3);
+					}
 					world.setBlockState(new BlockPos(x, 196, z + length + 2), Blocks.IRON_ORE.getDefaultState(), 3);
 					world.setBlockState(new BlockPos(x + 1, 200, z), Blocks.TORCH.getDefaultState(), 3);
 					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
-					if (scenario.equals("system-one-underground")) player.getInventory().setStack(1, new ItemStack(Items.TORCH, 8));
+					if (scenario.equals("system-one-underground") || gap) {
+						player.getInventory().setStack(1, new ItemStack(Items.TORCH, 8));
+						if (gap) player.getInventory().setStack(2, new ItemStack(Items.COBBLESTONE, 4));
+					}
 					else {
 						player.getInventory().setStack(1, new ItemStack(Items.COAL, 2));
 						player.getInventory().setStack(2, new ItemStack(Items.STICK, 2));
