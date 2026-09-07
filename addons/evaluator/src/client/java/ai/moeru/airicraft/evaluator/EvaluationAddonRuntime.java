@@ -91,7 +91,7 @@ public final class EvaluationAddonRuntime {
 				return;
 			}
 		}
-		runner.onTick(new RuntimeEvaluationContext(runtime));
+		runner.onTick(new RuntimeEvaluationContext(runtime, activeScenario.id()));
 		var report = runner.report(runtime.tickCount());
 		recorder.recordTick(activeScenario, report, runtime, this::evidencePayload);
 		if (runner.terminal()) {
@@ -441,9 +441,11 @@ public final class EvaluationAddonRuntime {
 
 	private static final class RuntimeEvaluationContext implements ScenarioEvaluationRunner.Context {
 		private final EmbodiedAgentRuntime runtime;
+		private final String scenarioId;
 
-		private RuntimeEvaluationContext(EmbodiedAgentRuntime runtime) {
+		private RuntimeEvaluationContext(EmbodiedAgentRuntime runtime, String scenarioId) {
 			this.runtime = runtime;
+			this.scenarioId = scenarioId;
 		}
 
 		@Override
@@ -478,6 +480,9 @@ public final class EvaluationAddonRuntime {
 
 		@Override
 		public String startGoal(EvaluationGoal goal) {
+			if (runtime.systemOneActive() && scenarioId.equals("system-one-feedback-delivery")) {
+				return runtime.startSystemOneGoal(goal.itemId(), goal.quantity(), new SystemOneFeedbackFault());
+			}
 			if (runtime.systemOneActive()) return runtime.startSystemOneGoal(goal.itemId(), goal.quantity());
 			try {
 				var result = runtime.startActionGoalDetailed(goal.toActionGoal(), "evaluation_no_llm");

@@ -32,11 +32,18 @@ public final class SystemOneHost {
 	private List<ProductionDomain.Task> retentionTasks = List.of();
 	private java.util.Set<Pos> retained = java.util.Set.of();
 	private Consumer<Object> decisionRecorder = ignored -> {};
+	private java.util.function.BiFunction<Long, List<Feedback>, List<Feedback>> feedbackDelivery;
 
 	public String start(String item, int count, MinecraftClient client, long tick) {
+		return start(item, count, client, tick, (at, received) -> received);
+	}
+	/** The evaluator can fault delivery without altering motor execution or command identity. */
+	public String start(String item, int count, MinecraftClient client, long tick,
+		java.util.function.BiFunction<Long, List<Feedback>, List<Feedback>> delivery) {
 		if (state != null && state.outcome().isEmpty()) throw new IllegalStateException("A System 1 mission is already active");
 		if (count < 1) throw new IllegalArgumentException("Positive quantity required");
 		if (client.world == null || client.player == null) throw new IllegalStateException("World not loaded");
+		feedbackDelivery = java.util.Objects.requireNonNull(delivery);
 		sensor.clear(); cancellation = null; retentionTasks = List.of(); retained = java.util.Set.of();
 		recordingSequence = 0; recordedObservation = null;
 		knowledge = MinecraftProductionKnowledge.capture(client);
@@ -49,7 +56,11 @@ public final class SystemOneHost {
 
 	public void tick(MinecraftClient client, long tick, BiConsumer<String, Map<String, Object>> trace) {
 		if (state == null || state.outcome().isPresent()) return;
-		List<Feedback> feedback = motor.tick(client, tick).map(List::of).orElseGet(List::of);
+		List<Feedback> received = motor.tick(client, tick).map(List::of).orElseGet(List::of);
+		for (var reply : received) trace.accept("system_one.motor_feedback_received", Map.of(
+			"run", state.run(), "token", reply.token().toString(), "kind", reply.getClass().getSimpleName(),
+			"detail", reply instanceof Finished finished ? finished.outcome().toString() : "released"));
+		List<Feedback> feedback = List.copyOf(feedbackDelivery.apply(tick, received));
 		if (client.world == null || client.player == null) cancellation = "world_left";
 		var tasks = state.stack().stream().map(Frame::task).toList();
 		if (!tasks.equals(retentionTasks)) { retained = ProductionDomain.retainedCells(tasks); retentionTasks = tasks; }

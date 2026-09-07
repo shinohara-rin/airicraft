@@ -185,6 +185,8 @@ import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
+import ai.moeru.airicraft.systemone.TaskKernel.Feedback;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -1087,6 +1089,11 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	public String startSystemOneGoal(String item, int count) {
 		if (systemOneHost == null) throw new IllegalStateException("System 1 is not selected");
 		return systemOneHost.start(item, count, MinecraftClient.getInstance(), tickCount);
+	}
+	public String startSystemOneGoal(String item, int count,
+		BiFunction<Long, List<Feedback>, List<Feedback>> delivery) {
+		if (systemOneHost == null) throw new IllegalStateException("System 1 is not selected");
+		return systemOneHost.start(item, count, MinecraftClient.getInstance(), tickCount, delivery);
 	}
 	public Optional<String> systemOneGoalFailure(String id) { return systemOneHost.failure(id); }
 	public boolean systemOneGoalSucceeded(String id) { return systemOneHost.succeeded(id); }
