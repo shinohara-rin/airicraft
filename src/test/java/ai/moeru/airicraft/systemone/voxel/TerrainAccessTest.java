@@ -104,6 +104,24 @@ class TerrainAccessTest {
 		var exhausted = domain.decide(new View<Task>(3, (Task) repair.continuation(), false, 3, Optional.empty(), Optional.of(Outcome.failure("no_access"))), observed);
 		assertFalse(exhausted instanceof Child<?, ?> child && child.child() instanceof Access, "failed preparation returns to bounded search alternatives");
 	}
+	@Test void aFailedWorkstationApproachUsesLocalPreparationBeforeAbandoningItsStance() {
+		Pos start = new Pos(0,4,0), goal = new Pos(0,2,2), furnace = new Pos(0,2,5);
+		var known = solid();
+		for (int z=0;z<=6;z++) for (int y=2;y<=5;y++) known.put(new Pos(0,y,z),air());
+		known.put(furnace,new Seen("furnace",false,true,true,15,1));
+		var observed = world(known,start,Set.of());
+		var task = new Station("furnace",Map.of("input",1),Set.of("ingot"),0,Set.of(),new Navigate(goal,24,200));
+		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of()));
+		var failed = new View<Task>(3,task,false,1,Optional.of(Outcome.failure("observed_route_unavailable")),Optional.empty());
+		var repair = assertInstanceOf(Child.class,domain.decide(failed,observed));
+		assertEquals(goal,assertInstanceOf(Access.class,repair.child()).state().goal());
+		assertEquals(task,assertInstanceOf(AfterAccess.class,repair.continuation()).saved());
+		var exhausted = domain.decide(new View<Task>(3,(Task)repair.continuation(),false,2,Optional.empty(),Optional.of(Outcome.failure("no_access"))),observed);
+		assertFalse(exhausted instanceof Child<?,?> child && child.child() instanceof Access);
+		known.put(furnace,new Seen("unknown",false,false,true,0,2));
+		var unknown = domain.decide(failed,world(known,start,Set.of()));
+		assertFalse(unknown instanceof Child<?,?> child && child.child() instanceof Access);
+	}
 	@Test void aFailedDirectMoveCanStillClearAnObservedObstructionOnThatEdge() {
 		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 4, 1);
 		var known = solid(); known.put(start, air()); known.put(start.offset(0,1,0), air());
