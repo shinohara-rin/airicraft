@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Check one completed iron-pickaxe run against the frozen release requirements.
+
+A passing scenario is distinct from release eligibility. This does not replace the
+frozen-revision, targeted-suite, visual-review, or 8-of-10 release-attempt gates.
+"""
+import argparse
+import json
+import math
+from pathlib import Path
+import runpy
+import subprocess
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def assess(protocol, summary, harness, inspection, calls, final, recording, manifest, replay):
+    checks = []
+
+    def check(name, actual, expected, predicate=lambda a, e: type(a) is type(e) and a == e):
+        if isinstance(actual, float) and not math.isfinite(actual):
+            actual = repr(actual)
+        status = "unavailable" if actual is None else "passed" if predicate(actual, expected) else "failed"
+        checks.append({"name": name, "actual": actual, "expected": expected, "status": status})
+
+    def bounded(name, actual, maximum):
+        check(name, actual, {"minimum": 0, "maximum": maximum},
+              lambda a, e: type(a) in (int, float) and math.isfinite(a) and 0 <= a <= e["maximum"])
+
+    budget = protocol["budgets"]
+    acceptance = protocol["releaseAcceptance"]
+    allowed = {"iron-pickaxe", *(world["id"] for world in protocol["worlds"])}
+    check("scenario_identity", summary.get("id"), sorted(allowed), lambda a, e: a in e)
+    check("scenario_outcome", summary.get("reportStatus"), "PASSED")
+    goal = protocol["goal"]
+    check("recorded_goal", inspection.get("goal"), f"acquire {goal['quantity']} {goal['itemId']}")
+    check("inventory_goal", inspection.get("inventory", {}).get(goal["itemId"]), goal["quantity"],
+          lambda a, e: type(a) is int and a >= e)
+    check("harness_outcome", harness.get("harnessStatus"), acceptance["harness"])
+    check("client_exit", harness.get("clientExit", {}).get("finalReturnCode"), 0)
+    check("execution_mode", manifest.get("executionMode"), "no_llm")
+    check("runtime", final.get("runtime"), "system_one")
+    check("recording_finished", recording.get("finished"), True)
+    check("recording_complete", recording.get("complete"), True)
+    check("recording_failure", recording.get("failure"), "")
+    check("coverage", inspection.get("coverage"), acceptance["recordCoverage"])
+    check("exact_replay", replay, "verified")
+    bounded("elapsed_ticks", summary.get("elapsedTicks"), budget["maxElapsedTicks"])
+    bounded("planner_turns", summary.get("plannerTurns"), budget["maxPlannerTurns"])
+    metrics = inspection.get("metrics", {})
+    bounded("horizontal_travel", metrics.get("travel", {}).get("horizontal_observed_blocks"), budget["maxObservedHorizontalTravel"])
+    commands = inspection.get("commands")
+    count = sum(commands.values()) if isinstance(commands, dict) and all(type(n) is int and n >= 0 for n in commands.values()) else None
+    bounded("runtime_commands", count, budget["maxRuntimeCommands"])
+    check("llm_history_complete", calls.get("truncated"), False)
+    check("llm_calls", len(calls["records"]) if isinstance(calls.get("records"), list) else None, acceptance["llmCallsAllRuns"])
+    audit = metrics.get("perception_violations", {})
+    check("perception_audit", audit.get("status"), "complete")
+    check("perception_violations", audit.get("count"), acceptance["perceptionViolationsAllRuns"],
+          lambda a, e: type(a) is int and a == e)
+    motor = final.get("motor")
+    expected = {"command": "", "finishing": "", "releasePending": False, "smelting": "", "crafting": "", "pathingActive": False, "stopping": False, "edgePlacement": ""}
+    check("motor_released", motor, expected, lambda a, e: isinstance(a, dict) and all(k in a and type(a[k]) is type(v) and a[k] == v for k, v in e.items()))
+    return {
+        "scenario": summary.get("id"), "scenarioOutcome": summary.get("reportStatus"),
+        "eligibleRun": all(item["status"] == "passed" for item in checks),
+        "checks": checks,
+        "scope": "One run's measured outcomes only; world provenance, frozen revision, fixture-suite, visual-review, and aggregate held-out gates remain separate.",
+    }
+
+
+def read(path):
+    return json.loads(path.read_text())
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("evaluation", type=Path, help="One finalized scenario output directory")
+    parser.add_argument("--protocol", type=Path, default=ROOT / "docs/evaluations/system-one-seeded-v1.json")
+    parser.add_argument("--replay-classpath", help="Frozen matching runtime classes plus Gson; replay runs directly without rebuilding")
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    directory = args.evaluation.absolute()
+    protocol = read(args.protocol)
+    # Recompute measurements from the tape; a cached inspection is not evidence of current bytes.
+    inspect_recording = runpy.run_path(str(ROOT / "scripts/inspect-system-one-recording"))["inspect_recording"]
+    tape = directory / "system-one-decisions.jsonl.gz"
+    inspection = inspect_recording(tape)
+    replay = None
+    if args.replay_classpath:
+        result = subprocess.run(["java", "-cp", args.replay_classpath,
+                                 "ai.moeru.airicraft.systemone.voxel.ProductionTape", str(tape)], capture_output=True, text=True)
+        expected = f"Replay verified: {inspection.get('turns')} turns;"
+        replay = "verified" if result.returncode == 0 and result.stdout.startswith(expected) else "failed"
+    report = assess(protocol, read(directory / "summary.json"), read(directory / "harness-summary.json"),
+                    inspection, read(directory / "agent-debug-llm-calls-final.json"), read(directory / "system-one-final.json"),
+                    read(directory / "system-one-recording.json"), read(directory.parent / "manifest.json"), replay)
+    output = json.dumps(report, indent=2, allow_nan=False) + "\n"
+    if args.output:
+        args.output.write_text(output)
+    else:
+        print(output, end="")
+    return 0 if report["eligibleRun"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
