@@ -1,8 +1,12 @@
 package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.systemone.TaskKernel;
+import ai.moeru.airicraft.systemone.voxel.VoxelCommand;
 import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import ai.moeru.airicraft.systemone.voxel.StoneTape;
+import ai.moeru.airicraft.systemone.voxel.ProductionDomain;
+import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge;
+import ai.moeru.airicraft.systemone.voxel.ProductionTape;
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation.Pos;
 import net.minecraft.client.MinecraftClient;
 
@@ -16,11 +20,11 @@ import static ai.moeru.airicraft.systemone.TaskKernel.*;
 
 /** Temporary replacement entrance while callers migrate off the legacy execution runtime. */
 public final class SystemOneHost {
-	private final TaskKernel<StoneAcquisition.Task, StoneAcquisition.World, StoneAcquisition.Command> kernel =
-		new TaskKernel<>(new StoneAcquisition(), StoneTape.LIMITS);
+	private TaskKernel<ProductionDomain.Task, StoneAcquisition.World, VoxelCommand> kernel;
+	private ProductionKnowledge knowledge;
 	private final MinecraftSensor sensor = new MinecraftSensor();
 	private final MinecraftMotor motor = new MinecraftMotor();
-	private State<StoneAcquisition.Task> state;
+	private State<ProductionDomain.Task> state;
 	private String cancellation;
 	private long sequence;
 	private long recordingSequence;
@@ -29,14 +33,15 @@ public final class SystemOneHost {
 
 	public String start(String item, int count, MinecraftClient client, long tick) {
 		if (state != null && state.outcome().isEmpty()) throw new IllegalStateException("A System 1 mission is already active");
-		if (!item.equals("minecraft:cobblestone")) throw new IllegalArgumentException("System 1 method not yet implemented: " + item);
 		if (count < 1) throw new IllegalArgumentException("Positive quantity required");
 		if (client.world == null || client.player == null) throw new IllegalStateException("World not loaded");
 		sensor.clear(); cancellation = null;
 		recordingSequence = 0; recordedObservation = null;
+		knowledge = MinecraftProductionKnowledge.capture(client);
+		kernel = new TaskKernel<>(new ProductionDomain(knowledge), StoneTape.LIMITS);
 		state = kernel.begin(client.world.getRegistryKey().getValue() + ":" + tick, "system-one-" + (++sequence),
-			StoneAcquisition.Task.begin(count, new Pos(client.player.getBlockX(), client.player.getBlockY(), client.player.getBlockZ())), tick);
-		decisionRecorder.accept(StoneTape.header(state));
+			ProductionDomain.Acquire.root(item, count), tick);
+		decisionRecorder.accept(ProductionTape.header(state, knowledge));
 		return state.run();
 	}
 
@@ -66,6 +71,7 @@ public final class SystemOneHost {
 		return state == null ? Map.of("runtime", "system_one", "state", "IDLE")
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
-				"motor", motor.status(), "knowledgeVersion", StoneTape.METHOD_VERSION, "policyVersion", "observed-excavation-v1", "motorVersion", "observed-navigation-v2");
+				"motor", motor.status(), "knowledgeVersion", knowledge.version(), "methodVersion", ProductionTape.METHOD_VERSION,
+				"policyVersion", "observed-excavation-v1", "motorVersion", "production-motor-v1");
 	}
 }

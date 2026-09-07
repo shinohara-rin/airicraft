@@ -9,6 +9,7 @@ import java.util.Set;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,7 +23,7 @@ class StoneAcquisitionTest {
 		Pos surface = FEET.offset(1, -1, 0);
 		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:grass_block")));
 		var result = domain.decide(ready(), world);
-		assertEquals(new Break(surface, "minecraft:grass_block"), ((Execute<Task, Command>) result).command());
+		assertEquals(new Break(surface, "minecraft:grass_block"), ((Execute<Task, VoxelCommand>) result).command());
 	}
 
 	@Test void anObservedTargetAfterMovementDoesNotTriggerARoutinePanorama() {
@@ -30,18 +31,18 @@ class StoneAcquisitionTest {
 		Task task = new Task(3, FEET, 0, 0, Set.of(), Optional.of(new Navigate(FEET, 24, 200)));
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("stance_reached")), Optional.empty());
 		var result = domain.decide(view, new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"))));
-		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, Command>) result).command());
+		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) result).command());
 	}
 
 	@Test void surveysOnlyWhenNoObservedLocalTargetIsAvailable() {
 		var view = new View<>(1, Task.begin(3, FEET), false, 1, Optional.<Outcome>empty(), Optional.<Outcome>empty());
-		assertInstanceOf(Look.class, ((Execute<Task, Command>) domain.decide(view, new World(EYE, FEET, TOOL, Map.of()))).command());
+		assertInstanceOf(Look.class, ((Execute<Task, VoxelCommand>) domain.decide(view, new World(EYE, FEET, TOOL, Map.of()))).command());
 	}
 
 	@Test void distantExposedStoneDoesNotOverrideAffordableLocalExcavation() {
 		Pos surface = FEET.offset(1, -1, 0);
 		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"), FEET.offset(100, -1, 0), seen("minecraft:stone")));
-		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, Command>) domain.decide(ready(), world)).command());
+		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(ready(), world)).command());
 	}
 
 	@Test void willNotBreakItsOwnFootingOrUnidentifiedDarkBlocks() {
@@ -53,7 +54,7 @@ class StoneAcquisitionTest {
 	@Test void prefersDeepeningTheExcavationOverWideningItsSurface() {
 		Pos lower = FEET.offset(1, -1, 0), higher = FEET.offset(1, 0, 0);
 		var world = new World(EYE, FEET, TOOL, Map.of(lower, seen("minecraft:dirt"), higher, seen("minecraft:grass_block")));
-		assertEquals(new Break(lower, "minecraft:dirt"), ((Execute<Task, Command>) domain.decide(ready(), world)).command());
+		assertEquals(new Break(lower, "minecraft:dirt"), ((Execute<Task, VoxelCommand>) domain.decide(ready(), world)).command());
 	}
 
 	@Test void aSuccessfulBreakCanDescendIntoObservedSpaceWithKnownSupport() {
@@ -62,13 +63,13 @@ class StoneAcquisitionTest {
 		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
 		var world = new World(EYE, FEET, TOOL, Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
 			target.offset(0, -1, 0), seen("minecraft:dirt")));
-		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, Command>) domain.decide(view, world)).command());
+		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, VoxelCommand>) domain.decide(view, world)).command());
 	}
 
 	@Test void pathCompletionAloneDoesNotSatisfyTheInventoryGoal() {
 		var world = new World(EYE, FEET, Map.of("minecraft:cobblestone", 3), Map.of());
-		assertEquals(new Complete<Task, Command>(Outcome.success("cobblestone_inventory_observed")), domain.decide(ready(), world));
-		assertNotEquals(new Complete<Task, Command>(Outcome.success("cobblestone_inventory_observed")),
+		assertEquals(new Complete<Task, VoxelCommand>(Outcome.success("cobblestone_inventory_observed")), domain.decide(ready(), world));
+		assertNotEquals(new Complete<Task, VoxelCommand>(Outcome.success("cobblestone_inventory_observed")),
 			domain.decide(ready(), new World(EYE, FEET, TOOL, Map.of())));
 	}
 

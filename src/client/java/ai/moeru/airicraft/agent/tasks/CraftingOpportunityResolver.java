@@ -57,6 +57,27 @@ public final class CraftingOpportunityResolver {
 		);
 	}
 
+	/** Read-only patterns for the replacement runtime; no executor state or world targeting is reused. */
+	public static List<ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Recipe> productionRecipes(ClientPlayerEntity player) {
+		var collections = new ArrayList<>(integratedServerRecipeCatalog().collections());
+		collections.addAll(player.getRecipeBook().getOrderedResults());
+		var patterns = new TreeMap<String, ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Recipe>();
+		for (var collection : collections) for (var entry : collection.getAllRecipes()) {
+			var grid = gridKind(entry.display());
+			var result = resultStack(entry.display());
+			if (grid == null || result.isEmpty()) continue;
+			for (var variant : knowledgePlacements(ingredientPlacements(entry, grid))) {
+				if (variant.isEmpty()) continue;
+				int width = grid == CraftingGridKind.PLAYER_2X2 ? 2 : 3;
+				var cells = variant.stream().map(cell -> new ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Cell(cell.gridIndex(), cell.itemId())).toList();
+				String output = itemId(result.getItem());
+				String id = output + ":" + result.getCount() + ":" + width + ":" + cells;
+				patterns.putIfAbsent(id, new ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.Recipe(id, output, result.getCount(), width, cells));
+			}
+		}
+		return List.copyOf(patterns.values());
+	}
+
 	public static CraftingOpportunitySnapshot inspect(ClientPlayerEntity player) {
 		if (player == null) {
 			return CraftingOpportunitySnapshot.empty();

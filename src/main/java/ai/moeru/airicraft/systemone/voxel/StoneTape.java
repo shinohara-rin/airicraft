@@ -18,6 +18,7 @@ import java.util.zip.GZIPInputStream;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Versioned wire values for reproducing actual decision inputs, including negative motor feedback. */
@@ -51,7 +52,7 @@ public final class StoneTape {
 		Task task = state.stack().getFirst().task();
 		return new Header("begin", 1, METHOD_VERSION, state.session(), state.run(), task.count(), task.origin(), state.lastTick(), LIMITS);
 	}
-	public static Turn turn(long sequence, World previous, World current, List<Feedback> feedback, String cancellation, Step<Task, Command> step) {
+	public static Turn turn(long sequence, World previous, World current, List<Feedback> feedback, String cancellation, Step<?, VoxelCommand> step) {
 		Map<Pos, Seen> before = previous == null ? Map.of() : previous.known();
 		Observation observation = current == null ? null : new Observation(current.eye(), current.feet(), current.inventory(),
 			current.known().entrySet().stream().filter(entry -> !entry.getValue().equals(before.get(entry.getKey())))
@@ -65,7 +66,7 @@ public final class StoneTape {
 
 	/** Streaming replay checks complete input coverage and compares effects, events, and terminal outcome. */
 	public static final class Replay {
-		private TaskKernel<Task, World, Command> kernel;
+		private TaskKernel<Task, World, VoxelCommand> kernel;
 		private State<Task> state;
 		private final Map<Pos, Seen> known = new HashMap<>();
 		private long rows;

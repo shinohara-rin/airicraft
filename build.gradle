@@ -480,7 +480,7 @@ tasks.register("replaySystemOne", JavaExec) {
 	group = "airicraft evaluation"
 	description = "Replays recorded System 1 inputs without starting Minecraft."
 	classpath = sourceSets.main.runtimeClasspath
-	mainClass = "ai.moeru.airicraft.systemone.voxel.StoneTape"
+	mainClass = "ai.moeru.airicraft.systemone.voxel.ProductionTape"
 	doFirst {
 		args(providers.gradleProperty("airicraft.replayFile").get())
 	}

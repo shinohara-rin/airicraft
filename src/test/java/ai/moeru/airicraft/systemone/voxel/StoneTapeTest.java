@@ -11,6 +11,7 @@ import java.util.Map;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 import static org.junit.jupiter.api.Assertions.*;
 

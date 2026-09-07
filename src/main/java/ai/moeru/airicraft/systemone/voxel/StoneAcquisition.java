@@ -1,6 +1,7 @@
 package ai.moeru.airicraft.systemone.voxel;
 
 import ai.moeru.airicraft.systemone.TaskKernel;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 
 import java.util.Comparator;
 import java.util.List;
@@ -13,12 +14,8 @@ import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** First Minecraft method: local, incremental stone excavation through observed surfaces. */
-public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisition.Task, StoneAcquisition.World, StoneAcquisition.Command> {
-	public sealed interface Command permits Look, Break, Navigate {}
-	public record Look(float yaw, float pitch) implements Command {}
-	public record Break(Pos target, String expectedBlock) implements Command {}
-	public record Navigate(Pos stance, int maxTravel, int maxTicks) implements Command {}
-	public record Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<Command> last) {
+public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisition.Task, StoneAcquisition.World, VoxelCommand> {
+	public record Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last) {
 		public Task { rejected = Set.copyOf(rejected); }
 		public static Task begin(int count, Pos origin) { return new Task(count, origin, 0, 0, Set.of(), Optional.empty()); }
 	}
@@ -26,7 +23,7 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 		public World { inventory = Map.copyOf(inventory); known = Map.copyOf(known); }
 	}
 
-	@Override public Decision<Task, Command> decide(View<Task> view, World world) {
+	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
 		Task task = view.task();
 		if (world.inventory().getOrDefault("minecraft:cobblestone", 0) >= task.count()) {
 			return new Complete<>(Outcome.success("cobblestone_inventory_observed"));
@@ -77,11 +74,11 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 			.sorted(Comparator.<Pos>comparingDouble(pos -> horizontalSquared(pos, world.feet()))
 				.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z))
 			.findFirst();
-		return frontier.<Decision<Task, Command>>map(pos -> execute(current, new Navigate(pos, 24, 200), 0))
+		return frontier.<Decision<Task, VoxelCommand>>map(pos -> execute(current, new Navigate(pos, 24, 200), 0))
 			.orElseGet(() -> new Complete<>(Outcome.failure("no_observed_local_method")));
 	}
 
-	private Execute<Task, Command> execute(Task task, Command command, int scans) {
+	private Execute<Task, VoxelCommand> execute(Task task, VoxelCommand command, int scans) {
 		return new Execute<>(new Task(task.count(), task.origin(), scans, task.failures(), task.rejected(), Optional.of(command)), command);
 	}
 	public static boolean standable(Map<Pos, Seen> known, Pos pos) {

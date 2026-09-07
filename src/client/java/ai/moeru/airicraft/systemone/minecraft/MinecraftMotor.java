@@ -4,6 +4,7 @@ import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
 import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.goals.GoalPosition;
 import ai.moeru.airicraft.systemone.TaskKernel;
+import ai.moeru.airicraft.systemone.voxel.VoxelCommand;
 import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import baritone.api.BaritoneAPI;
 import baritone.api.Settings;
@@ -21,31 +22,36 @@ import java.util.Optional;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
 
 /** One owned command, with explicit stop acknowledgement after Baritone and interaction release. */
 final class MinecraftMotor {
 	private final LiveBaritoneFacade pathing = new LiveBaritoneFacade();
 	private final CameraController camera = new CameraController();
 	private final Map<Settings.Setting<?>, Object> savedSettings = new HashMap<>();
-	private Start<Command> active;
+	private Start<VoxelCommand> active;
 	private long started;
 	private Vec3d lastPosition;
 	private double travelled;
 	private Outcome finishing;
 	private boolean stopping;
 	private boolean breaking;
+	private boolean placed;
+	private MinecraftCrafting crafting;
 
-	void apply(Effect<Command> effect, MinecraftClient client, long tick) {
-		if (effect instanceof Stop<Command> stop) {
+	void apply(Effect<VoxelCommand> effect, MinecraftClient client, long tick) {
+		if (effect instanceof Stop<VoxelCommand> stop) {
 			if (active == null || !active.token().equals(stop.token())) throw new IllegalStateException("Stopping an unowned command");
 			stopping = true;
 			requestRelease(client);
 			return;
 		}
 		if (active != null || pathing.processActive()) throw new IllegalStateException("Motor already owned");
-		active = (Start<Command>) effect;
+		active = (Start<VoxelCommand>) effect;
 		started = tick;
 		lastPosition = client.player.getPos(); travelled = 0;
+		placed = false;
+		if (active.command() instanceof Craft craft) crafting = new MinecraftCrafting(craft, tick);
 		if (active.command() instanceof Navigate move) {
 			var settings = BaritoneAPI.getSettings();
 			set(settings.allowBreak, false); set(settings.allowBreakAnyway, java.util.List.of());
@@ -67,10 +73,11 @@ final class MinecraftMotor {
 		}
 		if (stopping || finishing != null) {
 			if (pathing.processActive() || pathing.cancellationPending()) return Optional.empty();
+			if (crafting != null && !crafting.release(client)) return Optional.empty();
 			var result = stopping ? new Released(active.token()) : new Finished(active.token(), finishing);
 			BaritoneAPI.getProvider().getPrimaryBaritone().getInputOverrideHandler().clearAllKeys();
 			restoreSettings();
-			active = null; stopping = false; finishing = null; breaking = false;
+			active = null; stopping = false; finishing = null; breaking = false; crafting = null;
 			return Optional.of(result);
 		}
 		if (active.command() instanceof Look look) {
@@ -89,6 +96,8 @@ final class MinecraftMotor {
 			else if (tick - started > 10 && !pathing.processActive()) finish(client, Outcome.failure("observed_route_unavailable"));
 		}
 		else if (active.command() instanceof Break target) tickBreak(client, target, tick);
+		else if (active.command() instanceof Place target) tickPlace(client, target, tick);
+		else if (crafting != null) crafting.tick(client, tick).ifPresent(outcome -> finish(client, outcome));
 		return Optional.empty();
 	}
 
@@ -112,26 +121,43 @@ final class MinecraftMotor {
 		if (!breaking) {
 			int bestSlot = -1;
 			float bestSpeed = -1;
-			for (int slot = 0; slot < 9; slot++) {
+			for (int slot = 0; slot < 36; slot++) {
 				var tool = client.player.getInventory().getStack(slot);
 				if (state.isToolRequired() && !tool.isSuitableFor(state)) continue;
 				float speed = tool.getMiningSpeedMultiplier(state);
-				if (speed > bestSpeed || (speed == bestSpeed && tool.isEmpty())) { bestSlot = slot; bestSpeed = speed; }
+				if (speed > bestSpeed || (speed == bestSpeed && tool.isEmpty() && !client.player.getInventory().getStack(bestSlot).isEmpty())) { bestSlot = slot; bestSpeed = speed; }
 			}
 			if (bestSlot < 0) { finish(client, Outcome.failure("suitable_hotbar_tool_missing")); return; }
-			client.player.getInventory().setSelectedSlot(bestSlot);
+			if (!MinecraftInteractions.selectSlot(client, bestSlot)) { finish(client, Outcome.failure("tool_selection_blocked")); return; }
 			breaking = client.interactionManager.attackBlock(pos, hit.getSide());
 			if (!breaking) { finish(client, Outcome.failure("break_rejected")); return; }
 		}
 		client.interactionManager.updateBlockBreakingProgress(pos, hit.getSide());
 		client.player.swingHand(Hand.MAIN_HAND);
 	}
+	private void tickPlace(MinecraftClient client, Place target, long tick) {
+		var support = new BlockPos(target.support().x(), target.support().y(), target.support().z());
+		if (tick - started > 60) { finish(client, Outcome.failure("placement_timeout")); return; }
+		if (placed) {
+			var hit = MinecraftInteractions.hit(client, support.up());
+			if (hit.isPresent() && Registries.BLOCK.getId(client.world.getBlockState(support.up()).getBlock()).toString().equals(target.item())) finish(client, Outcome.success("placed_block_observed"));
+			return;
+		}
+		var hit = MinecraftInteractions.hit(client, support);
+		if (hit.isEmpty() || hit.get().getSide() != net.minecraft.util.math.Direction.UP || client.player.getBoundingBox().intersects(new net.minecraft.util.math.Box(support.up()))
+			|| !Registries.BLOCK.getId(client.world.getBlockState(support).getBlock()).toString().equals(target.expectedSupport())) {
+			finish(client, Outcome.failure("placement_support_changed")); return;
+		}
+		if (!MinecraftInteractions.selectItem(client, target.item())) { finish(client, Outcome.failure("placement_item_unavailable")); return; }
+		client.interactionManager.interactBlock(client.player, Hand.MAIN_HAND, hit.get());
+		placed = true;
+	}
 
 	private void finish(MinecraftClient client, Outcome result) { finishing = result; requestRelease(client); }
 	Map<String, Object> status() {
 		return Map.of("command", active == null ? "" : active.toString(), "stopping", stopping,
 			"finishing", finishing == null ? "" : finishing.toString(), "pathingActive", pathing.processActive(),
-			"releasePending", pathing.cancellationPending());
+			"releasePending", pathing.cancellationPending(), "crafting", crafting == null ? "" : crafting.status());
 	}
 	private void requestRelease(MinecraftClient client) {
 		pathing.cancel();

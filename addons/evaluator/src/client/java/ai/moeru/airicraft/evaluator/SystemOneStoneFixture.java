@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!scenario.equals("system-one-stone") && !scenario.equals("system-one-terrain")) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -48,7 +48,10 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				player.getInventory().setStack(0, new ItemStack(Items.WOODEN_PICKAXE));
+				if (scenario.equals("system-one-production")) {
+					for (int y = 200; y <= 204; y++) world.setBlockState(new BlockPos(x, y, z + 3), Blocks.OAK_LOG.getDefaultState(), 3);
+				}
+				else player.getInventory().setStack(0, new ItemStack(Items.WOODEN_PICKAXE));
 				player.setHealth(player.getMaxHealth());
 				player.getHungerManager().setFoodLevel(20);
 				player.teleport(world, x + 0.5, 200, z + 0.5, Set.<PositionFlag>of(), 0, 45, true);
