@@ -50,18 +50,8 @@ public final class UndergroundSearch {
 			rejected.clear();
 		}
 		if (steps >= task.prior().maxSteps()) {
-			// A completed local search is one method attempt, not proof that the resource
-			// cannot be found. Continue only from real progress into a distinct observed area.
-			boolean arrived = task.last() instanceof Navigate && task.destination().filter(world.feet()::equals).isPresent()
-				&& view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent();
-			if (arrived && task.areas().size() < task.prior().maxAreas() && StoneAcquisition.standable(world.known(), world.feet())
-				&& eligible.test(world.feet()) && eligible.test(world.feet().offset(0,-1,0))
-				&& task.areas().stream().allMatch(center -> squared(center, world.feet()) >= Math.pow(task.prior().radius() / 2.0, 2))) {
-				var areas = new ArrayList<>(task.areas()); areas.add(world.feet());
-				return new Keep<>(new Task(task.prior(), task.targets(), world.feet(), world.feet(), task.direction(), 0,
-					Set.of(), task.ignoredTargets(), Optional.empty(), Optional.empty(), null,
-					RouteMemory.append(task.route(), world.feet()), Preparation.OBSERVING, areas));
-			}
+			var next = nextArea(task, world, eligible);
+			if (next.isPresent()) return new Keep<>(next.get());
 			return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
 		}
 		if (rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
@@ -87,9 +77,11 @@ public final class UndergroundSearch {
 			: StoneAcquisition.standable(world.known(), p) ? 1
 			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 2
 			: retained.filter(p::equals).isPresent() ? 3 : 4));
+		boolean radiusLimited = false;
 		for (Pos next : candidates) {
 			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
-			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
+			if (rejected.contains(next)) continue;
+			if (squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) { radiusLimited = true; continue; }
 			if (task.route().contains(next) && retained.filter(next::equals).isEmpty()) continue;
 			var column = entryColumn(world, next);
 			boolean obstructed = false;
@@ -117,8 +109,25 @@ public final class UndergroundSearch {
 			}
 			rejected.add(next);
 		}
+		if (radiusLimited) {
+			var next = nextArea(task, world, eligible);
+			if (next.isPresent()) return new Keep<>(next.get());
+		}
 		return new Complete<>(Outcome.failure("no_observed_underground_step"));
 	}
+	/** Area changes require observed progress; a repair may already have consumed the movement receipt. */
+	private static Optional<Task> nextArea(Task task, World world, java.util.function.Predicate<Pos> eligible) {
+		boolean arrived = task.route().contains(world.feet())
+			|| task.last() instanceof Navigate && task.destination().filter(world.feet()::equals).isPresent();
+		if (!arrived || task.areas().size() >= task.prior().maxAreas() || !StoneAcquisition.standable(world.known(), world.feet())
+			|| !eligible.test(world.feet()) || !eligible.test(world.feet().offset(0,-1,0))
+			|| task.areas().stream().anyMatch(center -> squared(center, world.feet()) < Math.pow(task.prior().radius() / 2.0, 2))) return Optional.empty();
+		var areas = new ArrayList<>(task.areas()); areas.add(world.feet());
+		return Optional.of(new Task(task.prior(), task.targets(), world.feet(), world.feet(), task.direction(), 0,
+			Set.of(), task.ignoredTargets(), Optional.empty(), Optional.empty(), null,
+			RouteMemory.append(task.route(), world.feet()), Preparation.OBSERVING, areas));
+	}
+
 	private static List<Pos> entryColumn(World world, Pos next) {
 		return List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
 	}
