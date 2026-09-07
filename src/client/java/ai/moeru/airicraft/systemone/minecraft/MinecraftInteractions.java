@@ -14,13 +14,16 @@ import java.util.Optional;
 /** Small interaction mechanics shared by commands under the motor's single owner. */
 final class MinecraftInteractions {
 	static Optional<BlockHitResult> hit(MinecraftClient client, BlockPos pos) {
+		return hit(client, pos, null);
+	}
+	static Optional<BlockHitResult> hit(MinecraftClient client, BlockPos pos, net.minecraft.util.math.Direction requiredFace) {
 		var eye = client.player.getEyePos(); var center = Vec3d.ofCenter(pos);
 		var candidates = new java.util.ArrayList<Vec3d>(); candidates.add(center);
 		for (var face : net.minecraft.util.math.Direction.values()) candidates.add(center.add(face.getOffsetX() * .499, face.getOffsetY() * .499, face.getOffsetZ() * .499));
 		for (var point : candidates) {
 			if (eye.squaredDistanceTo(point) > 4.5 * 4.5) continue;
 			var hit = client.world.raycast(new RaycastContext(eye, point, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, client.player));
-			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos)) {
+			if (hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos) && (requiredFace == null || hit.getSide() == requiredFace)) {
 				new CameraController().lookAtNow(client, point);
 				return Optional.of(hit);
 			}

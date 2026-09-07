@@ -140,7 +140,7 @@ final class MinecraftMotor {
 			if (hit.isPresent() && Registries.BLOCK.getId(client.world.getBlockState(support.up()).getBlock()).toString().equals(target.item())) finish(client, Outcome.success("placed_block_observed"));
 			return;
 		}
-		var hit = MinecraftInteractions.hit(client, support);
+		var hit = MinecraftInteractions.hit(client, support, net.minecraft.util.math.Direction.UP);
 		if (hit.isEmpty() || hit.get().getSide() != net.minecraft.util.math.Direction.UP || client.player.getBoundingBox().intersects(new net.minecraft.util.math.Box(support.up()))
 			|| !Registries.BLOCK.getId(client.world.getBlockState(support).getBlock()).toString().equals(target.expectedSupport())) {
 			finish(client, Outcome.failure("placement_support_changed")); return;

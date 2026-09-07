@@ -181,13 +181,26 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (free(world, task.reserved(), task.item()) < 1) {
 			return new Child<>(task, new Acquire(task.item(), 1, task.reserved(), task.ancestors(), Set.of(), ""), "station_item_required");
 		}
-		Optional<Pos> support = world.known().keySet().stream().filter(pos -> !rejected.contains(pos))
+		var supports = world.known().keySet().stream().filter(pos -> !rejected.contains(pos))
 			.filter(pos -> StoneAcquisition.standable(world.known(), pos.offset(0, 1, 0)))
-			.filter(pos -> !intersectsPlayer(world, pos.offset(0, 1, 0)) && distance(world.eye(), pos) <= 4.3 * 4.3)
-			.sorted(positionOrder(world.eye())).findFirst();
+			.filter(pos -> !world.footholds().contains(pos) && !world.footholds().contains(pos.offset(0, -1, 0)))
+			.sorted(positionOrder(world.eye())).limit(32).toList();
+		Optional<Pos> support = supports.stream()
+			.filter(pos -> world.eye().y() > pos.y() + 1 && !intersectsPlayer(world, pos.offset(0, 1, 0)) && distance(world.eye(), pos) <= 4.3 * 4.3)
+			.findFirst();
 		if (support.isPresent()) {
 			var command = new Place(task.item(), support.get(), world.known().get(support.get()).blockId());
 			return new Execute<>(new Station(task.item(), task.reserved(), task.ancestors(), task.scans(), rejected, command), command);
+		}
+		// A visible support may be above the player's eye. Reach a worksite before trying its top face.
+		Optional<Pos> worksite = world.known().keySet().stream()
+			.filter(pos -> !pos.equals(world.feet()) && !rejected.contains(pos) && StoneAcquisition.standable(world.known(), pos))
+			.filter(pos -> horizontal(world.feet(), pos) <= 12 * 12)
+			.filter(pos -> supports.stream().anyMatch(base -> pos.y() == base.y() + 1 && horizontal(pos, base) >= 1 && horizontal(pos, base) <= 4))
+			.sorted(positionOrder(world.eye())).findFirst();
+		if (worksite.isPresent()) {
+			var move = new Navigate(worksite.get(), 24, 200);
+			return new Execute<>(new Station(task.item(), task.reserved(), task.ancestors(), task.scans(), rejected, move), move);
 		}
 		if (task.scans() >= 4) return failure("no_observed_station_support");
 		var look = new Look((float) ((world.eye().yaw() + 90) % 360), 55);

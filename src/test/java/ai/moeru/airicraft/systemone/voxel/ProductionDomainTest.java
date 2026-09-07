@@ -100,6 +100,28 @@ class ProductionDomainTest {
 		var action = assertInstanceOf(Execute.class, new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), world));
 		assertEquals(new Pos(-1, 0, 1), assertInstanceOf(Place.class, action.command()).support());
 	}
+	@Test void stationPlacementLeavesEarlierReturnStepsClear() {
+		var base = world(Map.of("minecraft:crafting_table", 1));
+		var cells = new HashMap<>(base.known());
+		var alternative = new Pos(2, 0, 0);
+		cells.put(alternative, new Seen("minecraft:stone", false, true, 15, 1));
+		cells.put(alternative.offset(0, 1, 0), new Seen("minecraft:air", true, true, 15, 1));
+		cells.put(alternative.offset(0, 2, 0), new Seen("minecraft:air", true, true, 15, 1));
+		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), cells, Set.of(new Pos(1, 0, 0)));
+		var action = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), observation);
+		assertEquals(new Place("minecraft:crafting_table", alternative, "minecraft:stone"), action.command());
+	}
+	@Test void stationPlacementApproachesHighGroundToReachTheTopFace() {
+		var cells = new HashMap<Pos, Seen>();
+		for (int x = 1; x <= 2; x++) {
+			cells.put(new Pos(x, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
+			cells.put(new Pos(x, 3, 0), new Seen("minecraft:air", true, true, 15, 1));
+			cells.put(new Pos(x, 4, 0), new Seen("minecraft:air", true, true, 15, 1));
+		}
+		var observation = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 45), new Pos(0, 1, 0), Map.of("minecraft:crafting_table", 1), cells);
+		var action = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), observation);
+		assertEquals(new Navigate(new Pos(1, 3, 0), 24, 200), action.command());
+	}
 	@Test void collectsMinedOreOnItsObservedFloorAboveThePlayersFeet() {
 		var target = new Pos(3, 2, 0);
 		var rule = new Harvest("raw_iron", List.of("ore"), List.of(), Technique.EXPOSED);
