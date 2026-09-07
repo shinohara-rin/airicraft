@@ -67,7 +67,7 @@ class TerrainAccessTest {
 		assertInstanceOf(Access.class, repair.child());
 		assertEquals(ProductionDomain.retainedCells(List.of(retreat)), ProductionDomain.retainedCells(List.of((Task) repair.continuation())));
 	}
-	@Test void aFailedApproachToObservedUnminedOreCanPrepareAccessButAnUnknownTargetCannot() {
+	@Test void accessRepairRequiresAnObservedResourceOrSurveyStance() {
 		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 2, 2), ore = new Pos(0, 2, 5);
 		var harvest = new Harvest("ore", List.of("ore_block"), List.of(), Technique.EXPOSED);
 		var prior = new SearchPrior("ore", 2, 16, 20, List.of("stone"));
@@ -81,6 +81,9 @@ class TerrainAccessTest {
 		var repair = assertInstanceOf(Child.class, domain.decide(failed, world(known, start, Set.of())));
 		assertEquals(goal, assertInstanceOf(Access.class, repair.child()).state().goal());
 		known.put(ore, new Seen("unknown", false, false, true, 0, 2));
+		var survey = assertInstanceOf(Child.class,domain.decide(failed, world(known, start, Set.of())));
+		assertEquals(goal,assertInstanceOf(Access.class,survey.child()).state().goal(),"the observed stance remains a valid survey destination without a known resource");
+		known.remove(goal.offset(0,-1,0));
 		var unknown = domain.decide(failed, world(known, start, Set.of()));
 		assertFalse(unknown instanceof Child<?, ?> child && child.child() instanceof Access);
 	}

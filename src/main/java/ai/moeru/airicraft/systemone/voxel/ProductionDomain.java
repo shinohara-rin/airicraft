@@ -549,8 +549,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			&& survival.safeStance(world, move.stance()) && harvestApproach(task, move.stance(), world)) {
 			return gatherAction(task, world, move, task.scans(), task.rejected(), task.visited());
 		}
+		// Survey destinations need the same observed local preparation as resource approaches.
 		if (needsAccess(view) && task.last() instanceof Navigate move
-			&& (pickupApproach(task.drops(), move.stance()) || harvestApproach(task, move.stance(), world))) {
+			&& (survival.safeStance(world, move.stance()) || pickupApproach(task.drops(), move.stance()) || harvestApproach(task, move.stance(), world))) {
 			return access(task, move.stance(), world, view.tick(), accessMaterials);
 		}
 		var rejected = new HashSet<>(task.rejected()); var visited = new HashSet<>(task.visited());

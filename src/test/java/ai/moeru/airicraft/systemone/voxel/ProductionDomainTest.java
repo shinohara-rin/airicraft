@@ -310,6 +310,30 @@ class ProductionDomainTest {
 		assertInstanceOf(Look.class,assertInstanceOf(Execute.class,domain.decide(view(task),changed)).command());
 	}
 
+	@Test void failedResourceSurveyTravelPreparesLocalAccessWithoutAnObservedResource() {
+		var feet = new Pos(0,1,0); var frontier = new Pos(0,1,3);
+		var cells = new HashMap<Pos,Seen>();
+		for (int z=0;z<=3;z++) for (int y=0;y<=2;y++) {
+			boolean solid = y == 0;
+			cells.put(new Pos(0,y,z),new Seen(solid ? "minecraft:dirt" : "minecraft:air",!solid,true,solid,15,1));
+		}
+		var obstacle = new Pos(0,1,1);
+		cells.put(obstacle,new Seen("minecraft:dirt",false,true,true,15,1));
+		var rule = new Harvest("log",List.of("log"),List.of(),Technique.EXPOSED);
+		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(rule),List.of(),List.of(),List.of(),List.of("minecraft:dirt"),new LightingPolicy.Parameters(7,10,8,80,4),SurvivalPolicy.Parameters.minecraft()));
+		var task = new Gather(rule,1,feet,0,Set.of(),Set.of(frontier),new Navigate(frontier,24,200));
+		var observed = new StoneAcquisition.World(new Pose(.5,2.62,.5,0,15),feet,Map.of(),cells);
+		var repair = assertInstanceOf(Child.class,domain.decide(new View<Task>(1,task,false,2,Optional.of(Outcome.failure("observed_route_unavailable")),Optional.empty()),observed));
+		var access = assertInstanceOf(Access.class,repair.child());
+		assertEquals(frontier,access.state().goal());
+		var preparation = assertInstanceOf(Execute.class,domain.decide(view(access),observed));
+		assertEquals(new Break(obstacle,"minecraft:dirt"),preparation.command());
+		var resumed = domain.decide(new View<Task>(1,(Task)repair.continuation(),false,3,Optional.empty(),Optional.of(Outcome.failure("no_local_access_proposal"))),observed);
+		var action = assertInstanceOf(Execute.class,resumed);
+		assertInstanceOf(Look.class,action.command());
+		assertTrue(((Gather)action.continuation()).visited().contains(frontier),"a failed repair must not erase the failed destination");
+	}
+
 	@Test void approachesMinedDropBesideALowCeilingInsteadOfSurveying() {
 		var target = new Pos(0, 1, 2);
 		var approach = new Pos(0, 1, 1);
