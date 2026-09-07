@@ -331,8 +331,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops);
 		Optional<Pos> pickup = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && StoneAcquisition.standable(world.known(), pos))
-			.filter(pos -> drops.stream().anyMatch(drop -> pos.x() == drop.x() && pos.z() == drop.z() && pos.y() <= drop.y() && drop.y() - pos.y() <= 6))
-			.sorted(positionOrder(world.eye())).findFirst();
+			// A mined cavity can be only one block high. Pick up from its accessible edge.
+			.filter(pos -> drops.stream().anyMatch(drop -> horizontal(pos, drop) <= 1 && pos.y() <= drop.y() && drop.y() - pos.y() <= 6))
+			.sorted(Comparator.<Pos>comparingDouble(pos -> drops.stream().mapToDouble(drop -> horizontal(pos, drop) + Math.pow(pos.y() - drop.y(), 2)).min().orElseThrow())
+				.thenComparing(positionOrder(world.eye()))).findFirst();
 		if (pickup.isPresent()) {
 			visited.add(pickup.get());
 			return gatherAction(task, new Navigate(pickup.get(), 24, 200), 0, rejected, visited);
