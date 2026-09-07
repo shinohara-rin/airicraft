@@ -18,18 +18,21 @@ final class SystemOneStoneFixture {
 	private boolean setupComplete;
 	private int returnThresholdZ;
 	private CompletableFuture<Void> depletion;
+	private CompletableFuture<Void> routeChange;
+	private BlockPos returnBarrier;
 	private SystemOneTerrainProbe terrainProbe = new SystemOneTerrainProbe();
 	private java.nio.file.Path output;
 
 	void reset(java.nio.file.Path output) {
-		preparation = null; depletion = null; readyAfter = Long.MAX_VALUE; setupComplete = false;
+		preparation = null; depletion = null; routeChange = null; returnBarrier = null; readyAfter = Long.MAX_VALUE; setupComplete = false;
 		terrainProbe = new SystemOneTerrainProbe(); this.output = output;
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-return-route", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-cave-gap", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
-			if (scenario.equals("system-one-return-route")) depleteReturnSupplies(client, tick);
+			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
+			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
 			if (scenario.startsWith("system-one-survival-") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
 			return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		}
@@ -54,10 +57,10 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-underground") || scenario.equals("system-one-cave-gap") || scenario.equals("system-one-return-route") || scenario.startsWith("system-one-lighting")) {
+				if (scenario.equals("system-one-underground") || scenario.equals("system-one-cave-gap") || isReturnScenario(scenario) || scenario.startsWith("system-one-lighting")) {
 					boolean exhaustion = scenario.equals("system-one-lighting-exhaustion");
 					boolean gap = scenario.equals("system-one-cave-gap");
-					boolean returning = scenario.equals("system-one-return-route");
+					boolean returning = isReturnScenario(scenario);
 					int length = returning ? 60 : exhaustion ? 24 : 9;
 					int halfWidth = scenario.equals("system-one-lighting-stairs") || scenario.equals("system-one-lighting-low-ceiling") || gap || returning ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
@@ -88,9 +91,20 @@ final class SystemOneStoneFixture {
 					}
 					if (returning) {
 						returnThresholdZ = z + 52;
+						returnBarrier = new BlockPos(x, 196, z + 28);
 						world.setBlockState(new BlockPos(x + 1, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
 						for (int y = 199; y <= 203; y++) world.setBlockState(new BlockPos(x - 1, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
 					}
+				}
+				else if (scenario.equals("system-one-descent")) {
+					for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 12; dz++) for (int y = 193; y <= 204; y++) {
+						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
+					}
+					world.setBlockState(new BlockPos(x, 200, z), Blocks.TORCH.getDefaultState(), 3);
+					world.setBlockState(new BlockPos(x, 201, z), Blocks.AIR.getDefaultState(), 3);
+					world.setBlockState(new BlockPos(x, 195, z + 5), Blocks.IRON_ORE.getDefaultState(), 3);
+					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
+					player.getInventory().setStack(1, new ItemStack(Items.TORCH, 16));
 				}
 				else if (scenario.equals("system-one-survival-wait")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
@@ -163,6 +177,30 @@ final class SystemOneStoneFixture {
 			} catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
 		}, server);
 	}
+	private static boolean isReturnScenario(String scenario) {
+		return scenario.equals("system-one-return-route") || scenario.equals("system-one-return-blocked");
+	}
+	private void blockReturnRoute(MinecraftClient client, long tick) {
+		if (routeChange != null) { if (routeChange.isDone()) routeChange.join(); return; }
+		if (depletion == null || !depletion.isDone() || client.player == null || client.getServer() == null) return;
+		if (!ai.moeru.airicraft.AiricraftClient.runtimeController().agentRuntime().semanticEventContains("system_one.task_resumed",
+			java.util.Map.of("detail", "SUCCEEDED:inventory_observed:minecraft:torch:8"))) return;
+		var server = client.getServer(); var id = client.player.getUuid(); var barrier = returnBarrier;
+		routeChange = CompletableFuture.runAsync(() -> {
+			var player = server.getPlayerManager().getPlayer(id);
+			if (player == null) throw new IllegalStateException("Return fixture player unavailable");
+			var world = player.getWorld();
+			world.setBlockState(barrier, Blocks.STONE.getDefaultState(), 3);
+			world.setBlockState(barrier.up(), Blocks.STONE.getDefaultState(), 3);
+			try {
+				var evidence = java.util.Map.of("kind", "blocked_return_route", "requestedAtRuntimeTick", tick,
+					"barrierX", barrier.getX(), "barrierY", barrier.getY(), "barrierZ", barrier.getZ(),
+					"playerX", player.getBlockX(), "playerY", player.getBlockY(), "playerZ", player.getBlockZ());
+				java.nio.file.Files.writeString(output.resolve("fixture-route-change.json"), new com.google.gson.Gson().toJson(evidence));
+			} catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+		}, server);
+	}
+
 	private void depleteReturnSupplies(MinecraftClient client, long tick) {
 		if (depletion != null) { if (depletion.isDone()) depletion.join(); return; }
 		if (client.player == null || client.getServer() == null || client.player.getBlockZ() < returnThresholdZ) return;
