@@ -81,6 +81,37 @@ class TaskKernelTest {
 	}
 
 	@Test
+	void rootObservationCompletesThroughAnActingChildButStillWaitsForRelease() {
+		Domain<String, Boolean, String> domain = new Domain<>() {
+			@Override public Optional<Outcome> completion(String root, Boolean observed) {
+				assertEquals("mission", root);
+				return observed ? Optional.of(Outcome.success("goal observed")) : Optional.empty();
+			}
+			@Override public Decision<String, String> decide(View<String> task, Boolean observed) {
+				if (task.task().equals("mission")) return new Child<>("mission", "prerequisite", "prepare");
+				return task.acting() ? new Keep<>() : new Execute<>(task.task(), "collect");
+			}
+		};
+		var kernel = new TaskKernel<>(domain, LIMITS);
+		var child = kernel.advance(kernel.begin("s", "r", "mission", 0), false, List.of(), 1);
+		assertEquals(2, child.state().stack().size());
+		var token = start(child).token();
+		var ending = kernel.advance(child.state(), true, List.of(), 2);
+		assertTrue(ending.state().ending());
+		assertTrue(ending.state().outcome().isEmpty());
+		assertEquals(List.of(new Stop<String>(token)), ending.effects());
+		assertTrue(kernel.advance(ending.state(), true, List.of(), 3).effects().isEmpty());
+		var done = kernel.advance(ending.state(), true, List.of(new Released(token)), 4);
+		assertEquals(Outcome.success("goal observed"), done.state().outcome().orElseThrow());
+		assertEquals(2, done.events().stream().filter(event -> event.type().equals("task_ended")).count());
+		assertTrue(done.effects().isEmpty());
+		var cancelled = kernel.advance(child.state(), true, List.of(), 2, Optional.of("user_cancelled"));
+		var awaiting = kernel.advance(cancelled.state(), true, List.of(), 3);
+		assertEquals(Outcome.cancelled("user_cancelled"), kernel.advance(awaiting.state(), true,
+			List.of(new Released(token)), 4).state().outcome().orElseThrow());
+	}
+
+	@Test
 	void cancellationDuringRepairReleaseCancelsTheRunWithoutStartingTheRepair() {
 		var kernel = new TaskKernel<>(COLLECTOR, LIMITS);
 		var first = kernel.advance(kernel.begin("s", "r", "collect_sample", 0), "healthy", List.of(), 1);

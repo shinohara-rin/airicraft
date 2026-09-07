@@ -11,6 +11,8 @@ public final class TaskKernel<T, O, C> {
 	@FunctionalInterface
 	public interface Domain<T, O, C> {
 		Decision<T, C> decide(View<T> task, O observation);
+		/** Observe the root goal even while a prerequisite is acting or waiting. */
+		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
 	}
 
 	public record Limits(int transitionsPerTick, int maxDepth, long maxTicks, long maxCommands) {
@@ -122,6 +124,13 @@ public final class TaskKernel<T, O, C> {
 		if (cancellation.isPresent() || tick >= state.deadline()) {
 			turn.endRun(cancellation.map(Outcome::cancelled).orElseGet(() -> Outcome.failure("tick_budget_exhausted")));
 			return turn.finish();
+		}
+		if (!state.ending()) {
+			Optional<Outcome> completion = domain.completion(turn.stack.getFirst().task(), observation);
+			if (completion.isPresent()) {
+				turn.endRun(completion.get());
+				return turn.finish();
+			}
 		}
 		for (int i = 0; i < limits.transitionsPerTick() && turn.done.isEmpty(); i++) {
 			Frame<T> frame = turn.leaf();

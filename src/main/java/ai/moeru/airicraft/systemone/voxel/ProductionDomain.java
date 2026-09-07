@@ -46,6 +46,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		smeltsById = knowledge.smelting().stream().collect(Collectors.toMap(Smelt::id, r -> r));
 		fuels = knowledge.fuels();
 	}
+	@Override public Optional<Outcome> completion(Task root, World world) {
+		if (world != null && root instanceof Acquire goal && free(world, goal.reserved(), goal.item()) >= goal.count()) {
+			return Optional.of(Outcome.success("inventory_observed:" + goal.item() + ":" + goal.count()));
+		}
+		return Optional.empty();
+	}
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
 		return switch (view.task()) {
 			case Acquire task -> acquire(view, task, world);

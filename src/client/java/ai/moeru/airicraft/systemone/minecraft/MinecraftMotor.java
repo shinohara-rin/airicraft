@@ -54,6 +54,8 @@ final class MinecraftMotor {
 			set(settings.allowPlace, false); set(settings.allowInventory, false);
 			set(settings.allowParkour, false); set(settings.allowParkourPlace, false);
 			set(settings.allowWaterBucketFall, false); set(settings.avoidance, false);
+			// Keep unassisted descent within the height we can jump back up.
+			set(settings.maxFallHeightNoWater, 1);
 			set(settings.allowSprint, false);
 			set(settings.autoTool, false);
 			set(settings.simplifyUnloadedYCoord, false);

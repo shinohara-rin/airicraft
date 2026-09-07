@@ -118,6 +118,16 @@ class StoneAcquisitionTest {
 		assertEquals(new Navigate(approach, 24, 200), action.command());
 	}
 
+	@Test void approachesAnIntermediateStepBeforeMiningStoneTwoBlocksBelow() {
+		Pos target = FEET.offset(2, -2, 0), step = FEET.offset(1, -1, 0);
+		var cells = Map.of(target, seen("minecraft:stone"), step.offset(0, -1, 0), seen("minecraft:dirt"));
+		var action = (Execute<Task, VoxelCommand>) domain.decide(ready(), world(EYE, FEET, TOOL, cells));
+		assertEquals(new Navigate(step, 24, 200), action.command());
+		var arrived = new View<>(1, action.continuation(), false, 2, Optional.of(Outcome.success("stance_reached")), Optional.<Outcome>empty());
+		var next = (Execute<Task, VoxelCommand>) domain.decide(arrived, world(new Pose(1.5, 4.62, .5, 0, 55), step, TOOL, cells));
+		assertEquals(new Break(target, "minecraft:stone"), next.command());
+	}
+
 	@Test void anotherAcquisitionCannotMineAnEarlierTasksReturnFoothold() {
 		Pos oldStep = FEET.offset(1, -1, 0), alternative = FEET.offset(-1, -1, 0);
 		var base = world(EYE, FEET, TOOL, Map.of(oldStep, seen("minecraft:stone"), alternative, seen("minecraft:dirt")));

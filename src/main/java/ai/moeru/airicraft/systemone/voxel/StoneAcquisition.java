@@ -52,7 +52,7 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 			task.descent().ifPresent(rejected::add);
 			task = new Task(task.count(), task.origin(), task.scans(), task.failures() + 1, rejected, Optional.empty(), task.route(), Optional.empty());
 		}
-		else if (task.descent().isEmpty() && task.last().orElse(null) instanceof Break broken && standable(world.known(), broken.target())
+		else if (task.descent().isEmpty() && task.last().orElse(null) instanceof Break broken && broken.target().y() >= world.feet().y() - 1 && standable(world.known(), broken.target())
 			&& (broken.target().y() < world.feet().y() || stone(broken.expectedBlock()))) {
 			task = new Task(task.count(), task.origin(), 0, task.failures(), task.rejected(), task.last(), task.route(), Optional.of(broken.target()));
 		}
@@ -90,17 +90,18 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 		// A short approach to known stone competes with excavation; Baritone does not acquire the target.
 		for (var entry : targets) {
 			if (!stone(entry.getValue().blockId())) continue;
-			if (ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) return execute(task, new Break(entry.getKey(), entry.getValue().blockId()), task.scans());
+			if (entry.getKey().y() >= world.feet().y() - 1 && ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) return execute(task, new Break(entry.getKey(), entry.getValue().blockId()), task.scans());
 			Optional<Pos> approach = world.known().keySet().stream()
 				.filter(pos -> !pos.equals(world.feet()) && !current.rejected().contains(pos) && standable(world.known(), pos))
 				.filter(pos -> horizontalSquared(pos, current.origin()) <= 12 * 12)
+				.filter(pos -> entry.getKey().y() >= pos.y() - 1)
 				.filter(pos -> ObservedReach.visible(world.known(), new Pose(pos.x() + .5, pos.y() + 1.62, pos.z() + .5, 0, 0), entry.getKey(), 4.3))
 				.sorted(Comparator.<Pos>comparingDouble(pos -> horizontalSquared(pos, world.feet()) + Math.pow(pos.y() - world.feet().y(), 2))
 					.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z)).findFirst();
 			if (approach.isPresent()) return execute(task, new Navigate(approach.get(), 24, 200), 0);
 		}
 		for (var entry : targets) {
-			if (ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) {
+			if (entry.getKey().y() >= world.feet().y() - 1 && ObservedReach.visible(world.known(), world.eye(), entry.getKey(), 4.3)) {
 				return execute(task, new Break(entry.getKey(), entry.getValue().blockId()), task.scans());
 			}
 		}
