@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "suite": "airicraft-system-one-iron-release-v1",
+  "frozenAt": "2026-09-07T18:16:11.977026+00:00",
+  "seedDerivation": "First eight SHA-256 bytes of namespace:split:one-based-index, signed big-endian 64-bit. No layout-based selection.",
+  "minecraftVersion": "1.21.8",
+  "template": "scenarios/iron-pickaxe/world.zip",
+  "templateSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe",
+  "worldPreparation": "Copy only configuration into a level.dat-only archive; replace seed; initialized=false; no Player, chunks, entities, POI, caches, advancement or inventory data. Minecraft initializes natural spawn on load.",
+  "difficulty": "Peaceful, matching the original iron-pickaxe scenario; not general survival/game-completion evidence.",
+  "goal": {
+    "kind": "inventory_item",
+    "itemId": "minecraft:iron_pickaxe",
+    "quantity": 1
+  },
+  "budgets": {
+    "maxPlannerTurns": 0,
+    "maxElapsedTicks": 72000,
+    "maxElapsedMillis": 0,
+    "heartbeatIntervalTicks": 80,
+    "maxObservedHorizontalTravel": 2048,
+    "maxRuntimeCommands": 2000
+  },
+  "releaseAcceptance": {
+    "heldOutSuccesses": 8,
+    "heldOutRuns": 10,
+    "allTargetedFixturesPass": true,
+    "harness": "OK",
+    "recordCoverage": "complete",
+    "exactReplayAllRuns": true,
+    "llmCallsAllRuns": 0,
+    "perceptionViolationsAllRuns": 0,
+    "missingPerceptionEvidence": "does not pass",
+    "reportEveryFailure": true,
+    "visualRecorderPlayReview": true
+  },
+  "protocol": "Develop only against the development set and targeted fixtures. Freeze the tested runtime revision before opening the held-out set. Report all held-out outcomes; tuning after held-out inspection invalidates that release attempt.",
+  "worlds": [
+    {
+      "split": "development",
+      "id": "iron-pickaxe-development-01",
+      "seed": -8922710515911108288
+    },
+    {
+      "split": "development",
+      "id": "iron-pickaxe-development-02",
+      "seed": 3466559572591643578
+    },
+    {
+      "split": "development",
+      "id": "iron-pickaxe-development-03",
+      "seed": 2230008956619931010
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-01",
+      "seed": 6189723144442940935
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-02",
+      "seed": -1791784380536168022
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-03",
+      "seed": 7668958577511633087
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-04",
+      "seed": -9033185999768858557
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-05",
+      "seed": 7087525968686947249
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-06",
+      "seed": 798656724923131594
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-07",
+      "seed": -6084610997719903445
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-08",
+      "seed": 6468047820539817578
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-09",
+      "seed": 432830915159890502
+    },
+    {
+      "split": "held-out",
+      "id": "iron-pickaxe-held-out-10",
+      "seed": -2029922686771834049
+    }
+  ]
+}
