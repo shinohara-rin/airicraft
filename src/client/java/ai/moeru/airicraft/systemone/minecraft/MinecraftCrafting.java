@@ -14,13 +14,14 @@ import java.util.Optional;
 
 /** One recipe batch. This command never acquires ingredients or chooses a workstation. */
 final class MinecraftCrafting {
-	private enum Phase { OPEN, WAIT_FOR_STATION, FILL, WAIT_FOR_RESULT, WAIT_FOR_INVENTORY }
+	private enum Phase { OPEN, WAIT_FOR_STATION, FILL, WAIT_FOR_CELL, WAIT_FOR_RESULT, WAIT_FOR_INVENTORY }
 	private final Craft command;
 	private final long started;
 	private Phase phase = Phase.OPEN;
 	private int nextCell;
 	private int beforeCount;
 	private int syncId;
+	private int settledTicks;
 
 	MinecraftCrafting(Craft command, long started) { this.command = command; this.started = started; }
 	String status() { return phase.name(); }
@@ -59,7 +60,20 @@ final class MinecraftCrafting {
 			client.interactionManager.clickSlot(syncId, source, 0, SlotActionType.PICKUP, player);
 			client.interactionManager.clickSlot(syncId, 1 + cell.slot(), 1, SlotActionType.PICKUP, player);
 			client.interactionManager.clickSlot(syncId, source, 0, SlotActionType.PICKUP, player);
-			if (++nextCell == command.recipe().cells().size()) phase = Phase.WAIT_FOR_RESULT;
+			++nextCell;
+			settledTicks = 0; phase = Phase.WAIT_FOR_CELL;
+			return Optional.empty();
+		}
+		if (phase == Phase.WAIT_FOR_CELL) {
+			// Click prediction can be corrected by intermediate server slot/cursor updates.
+			// Observe a settled transfer before issuing another ingredient's clicks.
+			boolean settled = handler.getCursorStack().isEmpty();
+			for (int index = 0; index < nextCell && settled; index++) {
+				var cell = command.recipe().cells().get(index); var stack = handler.getSlot(1 + cell.slot()).getStack();
+				settled = stack.getCount() == 1 && Registries.ITEM.getId(stack.getItem()).toString().equals(cell.item());
+			}
+			settledTicks = settled ? settledTicks + 1 : 0;
+			if (settledTicks >= 2) phase = nextCell == command.recipe().cells().size() ? Phase.WAIT_FOR_RESULT : Phase.FILL;
 			return Optional.empty();
 		}
 		if (phase == Phase.WAIT_FOR_RESULT) {
