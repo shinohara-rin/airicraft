@@ -124,6 +124,7 @@ final class SystemOneStoneFixture {
 						player.getInventory().setStack(2, new ItemStack(Items.COBBLESTONE, 3));
 						player.getInventory().setStack(3, new ItemStack(Items.STICK, 2));
 						world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
+						world.setBlockState(new BlockPos(x - 1, 201, z), Blocks.AIR.getDefaultState(), 3);
 					}
 				}
 				else if (scenario.equals("system-one-survival-wait")) {

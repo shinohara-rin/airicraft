@@ -429,6 +429,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			}
 		}
 		if (free(world, task.reserved(), task.item()) < 1) {
+			// An unseen workstation is not yet evidence that manufacturing another is necessary.
+			if (task.scans() < 4) {
+				var look = new Look((float) ((world.eye().yaw() + 90) % 360), 55);
+				return new Execute<>(new Station(task.item(), task.reserved(), task.ancestors(), task.scans() + 1, rejected, look), look);
+			}
 			return new Child<>(task, new Acquire(task.item(), 1, task.reserved(), task.ancestors(), Set.of(), ""), "station_item_required");
 		}
 		var supports = world.known().keySet().stream().filter(pos -> !rejected.contains(pos))

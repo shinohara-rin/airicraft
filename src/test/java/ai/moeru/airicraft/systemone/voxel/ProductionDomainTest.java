@@ -177,6 +177,23 @@ class ProductionDomainTest {
 		var action = assertInstanceOf(Execute.class, domain.decide(view(station), observation));
 		assertEquals(new Pos(2, 1, 1), assertInstanceOf(Navigate.class, action.command()).stance());
 	}
+	@Test void stationSearchObservesBeforeManufacturingAndAcceptsANewlySeenTable() {
+		var domain = new ProductionDomain(BOOK);
+		var base = world(Map.of());
+		Task task = new Station("minecraft:crafting_table", Map.of("material", 2), Set.of("pick"), 0, Set.of(), null);
+		for (int scan = 0; scan < 4; scan++) {
+			var action = (Execute<Task, VoxelCommand>) domain.decide(view(task), base);
+			assertInstanceOf(Look.class, action.command());
+			task = action.continuation();
+		}
+		var supply = assertInstanceOf(Child.class, domain.decide(view(task), base));
+		assertEquals(Map.of("material", 2), ((Acquire) supply.child()).reserved());
+		var known = new HashMap<>(base.known());
+		known.put(new Pos(1, 1, 0), new Seen("minecraft:crafting_table", false, true, true, 15, 1));
+		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var discovered = assertInstanceOf(Complete.class, domain.decide(view(task), observed));
+		assertEquals("station_observed:minecraft:crafting_table", discovered.outcome().evidence());
+	}
 	@Test void placementAvoidsBodyOverlapAcrossBlockBoundaries() {
 		var seen = new HashMap<Pos, Seen>();
 		for (var support : List.of(new Pos(0, 0, 0), new Pos(-1, 0, 1))) {
