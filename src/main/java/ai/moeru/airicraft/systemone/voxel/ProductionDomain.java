@@ -61,7 +61,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private final LightingPolicy lighting;
 	private final SurvivalPolicy survival;
 	private final UndergroundSearch underground = new UndergroundSearch();
-	private final StoneAcquisition stone = new StoneAcquisition();
+	private final StoneAcquisition stone;
 
 	public ProductionDomain(ProductionKnowledge knowledge) {
 		recipes = knowledge.recipes().stream().collect(Collectors.groupingBy(Recipe::output));
@@ -72,6 +72,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		fuels = knowledge.fuels();
 		searches = knowledge.searches().stream().collect(Collectors.toMap(SearchPrior::item, p -> p));
 		accessMaterials = Set.copyOf(knowledge.accessMaterials());
+		stone = new StoneAcquisition(accessMaterials);
 		lighting = new LightingPolicy(knowledge.lighting());
 		survival = new SurvivalPolicy(knowledge.survival());
 	}

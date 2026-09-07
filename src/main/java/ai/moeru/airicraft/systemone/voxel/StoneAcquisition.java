@@ -15,6 +15,9 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** First Minecraft method: local, incremental stone excavation through observed surfaces. */
 public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisition.Task, StoneAcquisition.World, VoxelCommand> {
+	private final Set<String> additionalClearance;
+	public StoneAcquisition() { this(Set.of()); }
+	public StoneAcquisition(Set<String> additionalClearance) { this.additionalClearance = Set.copyOf(additionalClearance); }
 	public record Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last, List<Pos> route, Optional<Pos> descent) {
 		public Task { rejected = Set.copyOf(rejected); route = List.copyOf(route); }
 		public Task(int count, Pos origin, int scans, int failures, Set<Pos> rejected, Optional<VoxelCommand> last) {
@@ -63,7 +66,8 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 			Pos clearance = new Pos(destination.x(), Math.max(destination.y() + 1, world.feet().y() + 1), destination.z());
 			Seen ceiling = world.known().get(clearance);
 			if (ceiling != null && ceiling.empty()) return execute(task, new Navigate(destination, 24, 200), 0);
-			if (ceiling != null && ceiling.identified() && (stone(ceiling.blockId()) || soil(ceiling.blockId()))) {
+			if (ceiling != null && ceiling.identified() && (stone(ceiling.blockId()) || soil(ceiling.blockId()) || additionalClearance.contains(ceiling.blockId()))
+				&& !world.footholds().contains(clearance) && ObservedReach.visible(world.known(), world.eye(), clearance, 4.3)) {
 				return execute(task, new Break(clearance, ceiling.blockId()), task.scans());
 			}
 			if (task.scans() == 0) {

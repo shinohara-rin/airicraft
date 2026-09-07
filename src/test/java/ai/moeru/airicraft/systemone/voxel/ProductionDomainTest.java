@@ -265,6 +265,27 @@ class ProductionDomainTest {
 		assertEquals(new Navigate(target, 24, 200), result.command());
 		assertEquals(Set.of(target), ((Gather) result.continuation()).drops());
 	}
+	@Test void localStoneDescentUsesDomainApprovedHeadroomMaterials() {
+		var feet = new Pos(0,4,0); var target = new Pos(1,3,0); var ceiling = new Pos(1,5,0);
+		var cells = new HashMap<Pos,Seen>();
+		cells.put(feet,new Seen("minecraft:air",true,true,false,15,1));
+		cells.put(feet.offset(0,1,0),new Seen("minecraft:air",true,true,false,15,1));
+		cells.put(target,new Seen("minecraft:air",true,true,false,15,1));
+		cells.put(target.offset(0,1,0),new Seen("minecraft:air",true,true,false,15,1));
+		cells.put(target.offset(0,-1,0),new Seen("minecraft:dirt",false,true,true,15,1));
+		cells.put(ceiling,new Seen("minecraft:spruce_leaves",false,true,true,15,1));
+		var observed = new StoneAcquisition.World(new Pose(.5,5.62,.5,0,45),feet,Map.of("minecraft:wooden_pickaxe",1),cells);
+		var task = new Excavate(new StoneAcquisition.Task(3,feet,0,0,Set.of(),Optional.of(new Break(target,"minecraft:grass_block"))));
+		var knowledge = new ProductionKnowledge("test",List.of(),List.of(),List.of(),List.of(),List.of(),List.of("minecraft:spruce_leaves"),new LightingPolicy.Parameters(7,10,8,80,4),SurvivalPolicy.Parameters.minecraft());
+		var domain = new ProductionDomain(knowledge);
+		var action = assertInstanceOf(Execute.class,domain.decide(new View<Task>(1,task,false,2,Optional.of(Outcome.success("broken")),Optional.empty()),observed));
+		assertEquals(new Break(ceiling,"minecraft:spruce_leaves"),action.command());
+		cells.put(ceiling,new Seen("minecraft:air",true,true,false,15,3));
+		var cleared = new StoneAcquisition.World(observed.eye(),feet,observed.inventory(),cells);
+		var resumed = domain.decide(new View<Task>(1,(Task)action.continuation(),false,3,Optional.of(Outcome.success("broken")),Optional.empty()),cleared);
+		assertEquals(new Navigate(target,24,200),assertInstanceOf(Execute.class,resumed).command());
+	}
+
 	@Test void distantObservedOreUsesKnownIntermediateStancesBeforeGenericSurvey() {
 		var target = new Pos(0,1,16); var feet = new Pos(0,1,0);
 		var cells = new HashMap<Pos,Seen>();
