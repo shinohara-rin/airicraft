@@ -1,0 +1,210 @@
+{
+  "schema": 1,
+  "suite": "system-one-development-v48",
+  "purpose": "Fixed development regression; not a held-out release evaluation.",
+  "codeCommit": "5b9159e4fb99426f1b4a8a11e2ce9bf8cd785ab6",
+  "methodVersion": "reactive-production-v48",
+  "recordingFormat": 2,
+  "jobs": 2,
+  "acceptance": {
+    "allScenarios": "PASSED",
+    "harness": "OK",
+    "llmCalls": 0,
+    "motorReleased": true,
+    "recordingCoverage": "complete",
+    "exactReplay": true,
+    "perceptionAudit": "Required separately; unavailable is not zero."
+  },
+  "budgets": "Use each hashed scenario budget without overrides.",
+  "scenarios": [
+    {
+      "id": "iron-pickaxe",
+      "scenarioPath": "scenarios/iron-pickaxe/scenario.yml",
+      "scenarioSha256": "1ab8d4bd0248a7ef29670a08c3e68d7e3c1a4b99a364ba7aff1de7903ee9ba84",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-cave-gap",
+      "scenarioPath": "scenarios/system-one-cave-gap/scenario.yml",
+      "scenarioSha256": "247bf40f85cf41491ce6c62da6b9f9cbfaaba711c81ab004990275602433f0b0",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-charcoal",
+      "scenarioPath": "scenarios/system-one-charcoal/scenario.yml",
+      "scenarioSha256": "1d276273c853dbb8177b38d7a292e57eeb3efb79fd34ffe740ab77d3c6d040c8",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-death-recovery",
+      "scenarioPath": "scenarios/system-one-death-recovery/scenario.yml",
+      "scenarioSha256": "a4c26f33497b2fe1c75d22c664828dcb5e83a8ce0f22c5cd5c73327542a853c6",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-descent",
+      "scenarioPath": "scenarios/system-one-descent/scenario.yml",
+      "scenarioSha256": "b1a102edd01d7d7cc29ba4a48b5fe35417267e1c9395a9b2a63fe9861fbb9622",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-distant-approach",
+      "scenarioPath": "scenarios/system-one-distant-approach/scenario.yml",
+      "scenarioSha256": "e998ecaef3c5210e9591151985961b56dc98a10117d592e78fef0166ba728070",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-edge-bridge",
+      "scenarioPath": "scenarios/system-one-edge-bridge/scenario.yml",
+      "scenarioSha256": "d0733c35cb2e7712f4d82eb60393d5c644fd7f5d683d1fffee5464c34500ea1a",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-harvest-approach",
+      "scenarioPath": "scenarios/system-one-harvest-approach/scenario.yml",
+      "scenarioSha256": "42e21b3feadb4d7edc30fe3ca53d5486faaf86df3193b2b0275053f1b23bb9e6",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-iron",
+      "scenarioPath": "scenarios/system-one-iron/scenario.yml",
+      "scenarioSha256": "86c85f30ee12115091bd40154284e75043f4205610b8d33ace2044c20b432f12",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-lighting",
+      "scenarioPath": "scenarios/system-one-lighting/scenario.yml",
+      "scenarioSha256": "33ce4a36efdea6df120e446befcf284aecf1ef664fc25ffb389fbf340d4a3e93",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-lighting-exhaustion",
+      "scenarioPath": "scenarios/system-one-lighting-exhaustion/scenario.yml",
+      "scenarioSha256": "cc8d0f81463e4bb5ea931c1e8cc2eaeaa0c37dd98374fed10321642137679fd9",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-lighting-low-ceiling",
+      "scenarioPath": "scenarios/system-one-lighting-low-ceiling/scenario.yml",
+      "scenarioSha256": "15b326a6400bd382e1aade5ca35a0cc289e509430cb21c97bfabdcd656fcc8fa",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-lighting-stairs",
+      "scenarioPath": "scenarios/system-one-lighting-stairs/scenario.yml",
+      "scenarioSha256": "7d41655223550fbdbf45d428d41ea08f4649def2f53fc37329cb0cfc092f1aed",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-pickup-step",
+      "scenarioPath": "scenarios/system-one-pickup-step/scenario.yml",
+      "scenarioSha256": "d5e080c1f3ba7a8ca4619512b5f53c0de8cde14b2f776cf9fd379ffa75c01704",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-production",
+      "scenarioPath": "scenarios/system-one-production/scenario.yml",
+      "scenarioSha256": "df44699e676007b31a4527c9d8e25eb9dcb3f00d6c574133d49bf12b1a69efe2",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-production-discovery",
+      "scenarioPath": "scenarios/system-one-production-discovery/scenario.yml",
+      "scenarioSha256": "cd73ce6c5f2774d4d3bb0991b01ed979ed8c2c49ac0df1e91bd8802ee1d0caf7",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-remote-fuel",
+      "scenarioPath": "scenarios/system-one-remote-fuel/scenario.yml",
+      "scenarioSha256": "3d5ac7e46839d987d96c5cafb41a132691aa3c328544dbbfe852289be8132b16",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-return-blocked",
+      "scenarioPath": "scenarios/system-one-return-blocked/scenario.yml",
+      "scenarioSha256": "8b4829c39c8ca13954d3b8e9572aef3d4d05dcccb9c581f8094760cb818f9c8c",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-return-route",
+      "scenarioPath": "scenarios/system-one-return-route/scenario.yml",
+      "scenarioSha256": "f2444d08588e5fec7880857814c2718ae402196e3594b4ad0bfe030938b3afa0",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-smelting",
+      "scenarioPath": "scenarios/system-one-smelting/scenario.yml",
+      "scenarioSha256": "75ad64606ddf5397df7fdf84902dae972dcee5c91ee13ce558faddb528122106",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-station-stairs",
+      "scenarioPath": "scenarios/system-one-station-stairs/scenario.yml",
+      "scenarioSha256": "088f8d542b397c072fe919d6e7d0d075ae8c124fa208f21b8c2ab31a3c33f555",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-stone",
+      "scenarioPath": "scenarios/system-one-stone/scenario.yml",
+      "scenarioSha256": "6cfa89712f9da77f1342b2e5e38c15833a41a56f9aba42d18cadd3f43e84efdf",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-survival-mining",
+      "scenarioPath": "scenarios/system-one-survival-mining/scenario.yml",
+      "scenarioSha256": "bde85f4f242c0e1e6de9129f833bf32eadfcaf463493f446570ebda342a23123",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-survival-wait",
+      "scenarioPath": "scenarios/system-one-survival-wait/scenario.yml",
+      "scenarioSha256": "5784f74157d8a710adb1e28e27d08f8d810e13ec37dbbdd544119e988f308aa3",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-terrain",
+      "scenarioPath": "scenarios/system-one-terrain/scenario.yml",
+      "scenarioSha256": "4c71195129fe39a0086540ec3dd0c8cd79a1529f7e9a9f492a20edf22eaeefc2",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-tool-wear",
+      "scenarioPath": "scenarios/system-one-tool-wear/scenario.yml",
+      "scenarioSha256": "5f0e5341a3b64fd87e531a739abb40a105a14e5bc3c029da2b2b5fcc28d295b7",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    },
+    {
+      "id": "system-one-underground",
+      "scenarioPath": "scenarios/system-one-underground/scenario.yml",
+      "scenarioSha256": "3ff10ca5c861d7b954a7ec98792bcf85b9c7c1f74e968a9bef442ccc151c10f6",
+      "worldArchive": "scenarios/iron-pickaxe/world.zip",
+      "worldSha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe"
+    }
+  ]
+}
