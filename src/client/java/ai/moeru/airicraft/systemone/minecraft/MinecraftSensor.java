@@ -5,6 +5,7 @@ import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
 import ai.moeru.airicraft.systemone.voxel.FootingMemory;
 import ai.moeru.airicraft.systemone.voxel.RouteMemory;
 import ai.moeru.airicraft.systemone.voxel.SurvivalPolicy;
+import ai.moeru.airicraft.systemone.voxel.ItemObservation;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
@@ -55,7 +56,16 @@ final class MinecraftSensor {
 			var stack = player.getInventory().getStack(i);
 			if (!stack.isEmpty()) inventory.merge(Registries.ITEM.getId(stack.getItem()).toString(), stack.getCount(), Integer::sum);
 		}
-		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds, new SurvivalPolicy.Vitals(life, player.getHealth(), player.isInLava(), player.isOnFire()));
+		var drops = new java.util.ArrayList<ItemObservation.Drop>();
+		for (var entity : client.world.getEntitiesByClass(net.minecraft.entity.ItemEntity.class,player.getBoundingBox().expand(LENS.range()),item -> item.isAlive() && !item.isInvisible())) {
+			var center=entity.getBoundingBox().getCenter();
+			if (!ItemObservation.visible(seen,pose,LENS,new ItemObservation.Point(center.x,center.y,center.z))) continue;
+			// Candidate geometry is filtered before reading item identity/count. No hidden item reaches the value boundary.
+			var stack=entity.getStack();
+			if (!stack.isEmpty()) drops.add(new ItemObservation.Drop(entity.getUuidAsString(),Registries.ITEM.getId(stack.getItem()).toString(),stack.getCount(),new ItemObservation.Point(entity.getX(),entity.getY(),entity.getZ()),tick));
+		}
+		drops.sort(java.util.Comparator.comparing(ItemObservation.Drop::id));
+		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds, new SurvivalPolicy.Vitals(life, player.getHealth(), player.isInLava(), player.isOnFire()), drops);
 	}
 	void clear() { memory.clear(); terrain.clear(); footholds.clear(); previousPlayer = null; life = 0; ObservedTerrain.clear(); }
 }

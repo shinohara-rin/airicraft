@@ -48,7 +48,7 @@ public final class SupportReservations {
 			if (!required.contains(support) && bypass(graph, support.offset(0, 1, 0))) protectedCells.remove(support);
 		}
 		protectedCells.addAll(required);
-		return new World(world.eye(), world.feet(), world.inventory(), world.known(), protectedCells, world.vitals());
+		return new World(world.eye(), world.feet(), world.inventory(), world.known(), protectedCells, world.vitals(), world.drops());
 	}
 	private static boolean clear(Map<Pos, Seen> known, Pos from, Pos to) {
 		if (to.y() > from.y() && !traversable(known, from.offset(0,2,0))) return false;

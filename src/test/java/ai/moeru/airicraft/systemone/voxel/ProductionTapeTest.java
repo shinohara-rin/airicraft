@@ -21,6 +21,31 @@ class ProductionTapeTest {
 		assertEquals(ResultKind.SUCCEEDED, replay.finish().kind());
 		assertEquals(2, replay.turns());
 	}
+	@Test void observedItemsReplayAndDecisionRelevantItemTamperingIsRejected() {
+		var book=new ProductionKnowledge("pickup",List.of(),List.of());
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book),StoneTape.LIMITS);
+		var state=kernel.begin("session","run",Acquire.root("log",1),0);
+		var before=ItemPickupTest.world(Map.of(),List.of(ItemPickupTest.drop(.5,0)));
+		var first=kernel.advance(state,before,List.of(),1);
+		var start=assertInstanceOf(Start.class,first.effects().getFirst());
+		assertInstanceOf(VoxelCommand.Navigate.class,start.command());
+		var after=ItemPickupTest.world(Map.of("log",1),List.of());
+		List<Feedback> feedback=List.of(new Finished(start.token(),Outcome.success("arrived")));
+		var second=kernel.advance(first.state(),after,feedback,2);
+		var header=json(ProductionTape.header(state,book));
+		var turn=json(ProductionTape.turn(1,null,before,List.of(),null,state,first));
+		var replay=new ProductionTape.Replay();replay.accept(header);replay.accept(turn);
+		replay.accept(json(ProductionTape.turn(2,before,after,feedback,null,first.state(),second)));
+		replay.accept(json(Map.of("type","end","rows",3)));
+		assertEquals(ResultKind.SUCCEEDED,replay.finish().kind());
+		for(boolean remove:List.of(false,true)) {
+			var corrupt=turn.deepCopy();var observation=corrupt.getAsJsonObject("observation");
+			if(remove) observation.remove("drops");
+			else observation.getAsJsonArray("drops").get(0).getAsJsonObject().addProperty("item","unrelated");
+			var rejected=new ProductionTape.Replay();rejected.accept(header);
+			assertThrows(RuntimeException.class,()->rejected.accept(corrupt));
+		}
+	}
 	@Test void changedKnowledgeAndMissingInputsAreRejected() {
 		var rows = rows();
 		var corrupt = rows.getFirst().deepCopy();

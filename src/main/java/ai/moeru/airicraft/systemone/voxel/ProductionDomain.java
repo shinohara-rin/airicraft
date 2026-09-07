@@ -12,7 +12,9 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public record Pickup(ItemPickup.State state) implements Task {}
+	public record AfterPickup(Gather saved, String entity) implements Task {}
 	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
 	public record AfterAccess(Task saved) implements Task {}
 	public record Mission(String item, int count, long life, int deaths) implements Task {}
@@ -26,8 +28,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
 	}
 	public record Excavate(StoneAcquisition.Task state) implements Task {}
-	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin, int discoveryClears) implements Task {
-		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); drops = Set.copyOf(drops); }
+	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin, int discoveryClears, Set<String> rejectedDrops) implements Task {
+		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); drops = Set.copyOf(drops); rejectedDrops = Set.copyOf(rejectedDrops); }
+		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin, int discoveryClears) { this(rule,count,origin,scans,rejected,visited,last,drops,commandOrigin,discoveryClears,Set.of()); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin) { this(rule,count,origin,scans,rejected,visited,last,drops,commandOrigin,0); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last) { this(rule, count, origin, scans, rejected, visited, last, Set.of()); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops) { this(rule, count, origin, scans, rejected, visited, last, drops, Optional.empty()); }
@@ -93,7 +96,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Task saved = leaf.task();
 		if (leaf.acting() && saved instanceof Gather gather) {
 			// Preemption is not evidence that the resource target itself failed. Revalidate it after escape.
-			saved = new Gather(gather.rule(), gather.count(), gather.origin(), gather.scans(), gather.rejected(), gather.visited(), null, gather.drops(), Optional.empty(), gather.discoveryClears());
+			saved = new Gather(gather.rule(), gather.count(), gather.origin(), gather.scans(), gather.rejected(), gather.visited(), null, gather.drops(), Optional.empty(), gather.discoveryClears(), gather.rejectedDrops());
 			command = Optional.empty();
 		}
 		return Optional.of(new Interruption<>(new AfterEscape(saved, command, leaf.childResult()),
@@ -116,13 +119,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		var leaf = branch.getLast();
 		VoxelCommand pending = leaf.task() instanceof Gather gather ? gather.last()
+			: leaf.task() instanceof Pickup pickup ? ItemPickup.command(pickup.state())
 			: leaf.task() instanceof Explore explore ? explore.search().last()
 			: leaf.task() instanceof Access access ? access.state().last()
 			: leaf.task() instanceof Excavate excavation ? excavation.state().last().orElse(null) : null;
 		if (leaf.acting() && pending instanceof Break broken && world.known().get(broken.target()) != null && !world.known().get(broken.target()).empty()
 			&& SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList())).footholds().contains(broken.target())) {
 			Task saved = leaf.task();
-			if (saved instanceof Gather gather) saved = new Gather(gather.rule(),gather.count(),gather.origin(),gather.scans(),gather.rejected(),gather.visited(),null,gather.drops(),Optional.empty(),gather.discoveryClears());
+			if (saved instanceof Gather gather) saved = new Gather(gather.rule(),gather.count(),gather.origin(),gather.scans(),gather.rejected(),gather.visited(),null,gather.drops(),Optional.empty(),gather.discoveryClears(),gather.rejectedDrops());
 			return Optional.of(new Revision<>(leaf.id(), saved, "support_reservation_changed"));
 		}
 		// Reconsider unavailable inputs at completed observation/travel boundaries, not mid-harvest.
@@ -179,6 +183,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case Acquire task -> acquire(view, task, world);
 			case Station task -> station(view, task, world);
 			case Gather task -> gather(view, task, world);
+			case Pickup task -> pickup(view,task,world);
+			case AfterPickup task -> {
+				Gather saved=task.saved(); var rejected=new HashSet<>(saved.rejectedDrops());
+				if (failedChild(view)) rejected.add(task.entity());
+				var next=new Gather(saved.rule(),saved.count(),saved.origin(),saved.scans(),saved.rejected(),saved.visited(),null,saved.drops(),Optional.empty(),saved.discoveryClears(),rejected);
+				yield gather(new View<>(view.id(),next,false,view.tick(),Optional.empty(),Optional.empty()),next,world);
+			}
 			case SmeltBatch task -> smelt(view, task, world);
 			case Explore task -> explore(view, task, world);
 			case ResumeExplore task -> resumeExplore(view, task, world);
@@ -242,6 +253,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			task = new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), rejected, "");
 		}
 		if (task.failed().size() >= 32) return failure("production_alternatives_exhausted:" + task.item());
+		Acquire acquisition=task;
+		var loose=world.drops().stream().filter(d->d.item().equals(acquisition.item()) && !acquisition.failed().contains("pickup:"+d.id())).findFirst();
+		if (loose.isPresent()) {
+			var drop=loose.get(); int target=Math.min(task.count()+task.reserved().getOrDefault(task.item(),0),world.inventory().getOrDefault(task.item(),0)+drop.count());
+			return new Child<>(selected(task,"pickup:"+drop.id()),new Pickup(ItemPickup.State.begin(drop,target,view.tick())),"collect_observed_drop:"+task.item());
+		}
 		Map<String, Integer> productionReserve = productionReserve(task, world);
 		String harvestId = "harvest:" + task.item();
 		var search = searches.get(task.item());
@@ -545,6 +562,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> gather(View<Task> view, Gather task, World world) {
 		if (world.inventory().getOrDefault(task.rule().item(), 0) >= task.count()) return success("harvest_inventory_observed:" + task.rule().item());
 		if (view.acting()) return new Keep<>();
+		Gather gathering=task;
+		var loose=world.drops().stream().filter(d->d.item().equals(gathering.rule().item()) && !gathering.rejectedDrops().contains(d.id())).findFirst();
+		if (loose.isPresent()) {
+			var drop=loose.get(); int target=Math.min(task.count(),world.inventory().getOrDefault(task.rule().item(),0)+drop.count());
+			return new Child<>(new AfterPickup(task,drop.id()),new Pickup(ItemPickup.State.begin(drop,target,view.tick())),"collect_observed_drop:"+drop.item());
+		}
 		if (task.last() instanceof Navigate move && view.commandResult().filter(o -> o.kind() == ResultKind.FAILED && o.evidence().equals("navigation_budget_exhausted")).isPresent()
 			&& task.commandOrigin().filter(origin -> travelDistance(world.feet(), move.stance()) + .5 < travelDistance(origin, move.stance())).isPresent()
 			&& survival.safeStance(world, move.stance()) && harvestApproach(task, move.stance(), world)) {
@@ -564,7 +587,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		else if (task.last() instanceof Break broken && task.rule().blocks().contains(broken.expectedBlock())) {
 			drops.add(broken.target());
 		}
-		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops, task.commandOrigin(), task.discoveryClears());
+		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops, task.commandOrigin(), task.discoveryClears(), task.rejectedDrops());
 		Optional<Pos> pickup = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && survival.safeStance(world, pos))
 			// A mined cavity can be only one block high. Pick up from its accessible edge.
@@ -621,7 +644,17 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Execute<Task, VoxelCommand> gatherAction(Gather task, World world, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
 		int cleared = task.discoveryClears() + (action instanceof Break broken && !task.rule().blocks().contains(broken.expectedBlock())
 			&& task.rule().discovery().indicators().contains(broken.expectedBlock()) ? 1 : 0);
-		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet()), cleared), action);
+		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet()), cleared, task.rejectedDrops()), action);
+	}
+	private Decision<Task,VoxelCommand> pickup(View<Task> view,Pickup task,World world) {
+		if (view.acting()) return new Keep<>();
+		if (needsAccess(view) && task.state().progress() instanceof ItemPickup.Moving move && survival.safeStance(world,move.command().stance()))
+			return access(task,move.command().stance(),world,view.tick(),accessMaterials);
+		var decision=ItemPickup.advance(task.state(),world,view.commandResult(),view.tick(),accessMaterials,p->!survival.nearHazard(world,p));
+		if (decision instanceof ItemPickup.Done done) return new Complete<>(done.outcome());
+		if (decision instanceof ItemPickup.Wait wait) return new Sleep<>(new Pickup(wait.state()),wait.until());
+		var action=(ItemPickup.Action)decision;
+		return new Execute<>(new Pickup(action.state()),action.command());
 	}
 	private static double travelDistance(Pos a, Pos b) { return Math.sqrt(horizontal(a, b) + Math.pow(a.y() - b.y(), 2)); }
 	private static boolean pickupApproach(Set<Pos> drops, Pos stance) {
