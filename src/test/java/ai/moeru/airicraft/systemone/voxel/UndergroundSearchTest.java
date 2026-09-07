@@ -30,6 +30,17 @@ class UndergroundSearchTest {
 		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
 		assertInstanceOf(Look.class, action.command());
 	}
+	@Test void newlyObservedCaveFloorDisplacesAProposedDownwardExcavation() {
+		var floor = FEET.offset(0, -1, 1);
+		var unseen = world(Map.of());
+		var proposed = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), unseen, Set.of())), unseen));
+		assertInstanceOf(Look.class, proposed.command());
+		var task = (Task) proposed.continuation();
+		assertEquals(Optional.of(floor), task.destination());
+		var observed = world(Map.of(floor, seen("minecraft:stone")));
+		var next = assertInstanceOf(Execute.class, search.decide(new View<>(1, task, false, 2, Optional.of(Outcome.success("looked")), Optional.empty()), observed));
+		assertEquals(new Navigate(floor.offset(0, 1, 0), 12, 200), next.command());
+	}
 	@Test void observedSupportDoesNotDependOnTheExcavationMaterialList() {
 		for (String id : List.of("minecraft:andesite", "minecraft:deepslate", "another_game:floor")) {
 			var floor = FEET.offset(0, -1, 1);

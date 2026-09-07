@@ -53,8 +53,10 @@ public final class UndergroundSearch {
 			}
 		}
 		Optional<Pos> retained = destination;
-		candidates.sort(Comparator.comparingInt(p -> retained.filter(p::equals).isPresent() ? 0 : StoneAcquisition.standable(world.known(), p) ? 1
-			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 2 : 3));
+		// A look may reveal an existing floor after a downward step was proposed. Reconsider excavation then.
+		candidates.sort(Comparator.comparingInt(p -> StoneAcquisition.standable(world.known(), p) ? 0
+			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 1
+			: retained.filter(p::equals).isPresent() ? 2 : 3));
 		for (Pos next : candidates) {
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
 			int[] heading = DIRECTIONS[task.direction()];
