@@ -177,11 +177,23 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			}
 			method = options.stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
 		}
-		if (smeltsById.containsKey(method)) return new Child<>(selected(task, method), new SmeltBatch(smeltsById.get(method), productionReserve, ancestry(task), Set.of(), ""), "smelting:" + task.item());
+		int missing = task.count() - free(world, task.reserved(), task.item());
+		if (smeltsById.containsKey(method)) {
+			var recipe = smeltsById.get(method);
+			int inputs = Math.ceilDiv(missing, recipe.yield());
+			if (free(world, productionReserve, recipe.input()) < inputs) {
+				return new Child<>(selected(task, method), dependency(task, recipe.input(), inputs, productionReserve), "smelting_inputs:" + recipe.input());
+			}
+			var batchReserve = new TreeMap<>(productionReserve);
+			batchReserve.merge(recipe.input(), inputs - 1, Math::addExact);
+			return new Child<>(selected(task, method), new SmeltBatch(recipe, batchReserve, ancestry(task), Set.of(), ""), "smelting:" + task.item());
+		}
 		Recipe recipe = recipesById.get(method);
 		if (recipe == null) return failure("no_production_method:" + task.item() + " rejected=" + new TreeSet<>(task.failed()));
 		Acquire next = selected(task, recipe.id());
-		Map<String, Integer> needed = recipe.ingredients();
+		int batches = Math.ceilDiv(missing, recipe.yield());
+		Map<String, Integer> needed = new TreeMap<>();
+		recipe.ingredients().forEach((item, count) -> needed.put(item, Math.multiplyExact(count, batches)));
 		for (var input : needed.entrySet()) {
 			if (free(world, task.reserved(), input.getKey()) < input.getValue()) {
 				return new Child<>(next, dependency(next, input.getKey(), input.getValue(), commitments(productionReserve, needed, input.getKey(), world)), "ingredient:" + input.getKey());

@@ -40,6 +40,16 @@ class ProductionDomainTest {
 		assertTrue(run.commands().isEmpty());
 		assertEquals(2, run.inventory().get("planks"));
 	}
+	@Test void ingredientSupplyAccountsForAllRemainingBatchesAndRecipeYield() {
+		var book = new ProductionKnowledge("batches", List.of(recipe("make", "output", 2, 2, "raw", "raw")), List.of());
+		var goal = new Acquire("output", 5, Map.of("raw", 1), Set.of(), Set.of(), "make");
+		var child = assertInstanceOf(Child.class, new ProductionDomain(book).decide(new View<>(1, goal, false, 1, Optional.empty(), Optional.empty()), world(Map.of("output", 1, "raw", 2))));
+		var supply = assertInstanceOf(Acquire.class, child.child());
+		assertEquals("raw", supply.item());
+		assertEquals(4, supply.count());
+		assertEquals(1, supply.reserved().get("raw"));
+		assertEquals(1, supply.reserved().get("output"));
+	}
 	@Test void recipeCyclesTerminateWithoutIssuingCommands() {
 		var book = new ProductionKnowledge("cycle", List.of(recipe("a", "a", 1, 2, "b"), recipe("b", "b", 1, 2, "a")), List.of());
 		var run = run(book, Acquire.root("a", 1), Map.of(), false);

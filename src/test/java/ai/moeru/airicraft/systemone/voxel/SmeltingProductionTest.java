@@ -46,6 +46,29 @@ class SmeltingProductionTest {
 		var action = assertInstanceOf(Execute.class, domain.decide(view(task), world(Map.of("log", 2))));
 		assertEquals(new StartSmelt(recipe, FURNACE, "log", 1), action.command());
 	}
+	@Test void rawInputsCoverTheRemainingOutputQuantityBeforeReturningToTheFurnace() {
+		var domain = new ProductionDomain(book(IRON, List.of(new Fuel("coal", 1600))));
+		var goal = new Acquire("ingot", 3, Map.of("ingot", 1, "ore", 1), Set.of(), Set.of(), "smelt_iron");
+		var child = assertInstanceOf(Child.class, domain.decide(view(goal), world(Map.of("ingot", 2, "ore", 1))));
+		var supply = assertInstanceOf(Acquire.class, child.child());
+		assertEquals("ore", supply.item());
+		assertEquals(2, supply.count());
+		assertEquals(1, supply.reserved().get("ore"));
+		assertEquals(2, supply.reserved().get("ingot"));
+		var stocked = assertInstanceOf(Child.class, domain.decide(view(goal), world(Map.of("ingot", 2, "ore", 3))));
+		assertInstanceOf(SmeltBatch.class, stocked.child());
+	}
+	@Test void fuelAcquisitionCannotBurnTheInputsForLaterBatches() {
+		var charcoal = new Smelt("charcoal", "log", "charcoal", 1, "minecraft:furnace", 200);
+		var domain = new ProductionDomain(book(charcoal, List.of(new Fuel("log", 300))));
+		var inventory = world(Map.of("log", 2));
+		var batch = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("charcoal", 2)), inventory));
+		var fuel = assertInstanceOf(Child.class, domain.decide(view((Task) batch.child()), inventory));
+		var supply = assertInstanceOf(Acquire.class, fuel.child());
+		assertEquals("log", supply.item());
+		assertEquals(1, supply.count());
+		assertEquals(2, supply.reserved().get("log"));
+	}
 
 	@Test void failedFuelSupplySelectsAnAvailableAlternative() {
 		var domain = new ProductionDomain(book(IRON, List.of(new Fuel("coal", 1600), new Fuel("plank", 300))));

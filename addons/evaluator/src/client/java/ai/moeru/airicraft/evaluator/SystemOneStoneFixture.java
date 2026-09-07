@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-underground", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -72,6 +72,11 @@ final class SystemOneStoneFixture {
 						player.getInventory().setStack(2, new ItemStack(Items.STICK, 2));
 						if (exhaustion) player.getInventory().setStack(3, new ItemStack(Items.TORCH));
 					}
+				}
+				else if (scenario.equals("system-one-charcoal")) {
+					player.getInventory().setStack(0, new ItemStack(Items.OAK_LOG, 2));
+					world.setBlockState(new BlockPos(x, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
+					for (int y = 200; y <= 203; y++) world.setBlockState(new BlockPos(x - 2, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
 				}
 				else if (scenario.equals("system-one-smelting")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));

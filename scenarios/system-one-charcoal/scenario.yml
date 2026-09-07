@@ -1,0 +1,30 @@
+id: system-one-charcoal
+name: Preserve two charcoal inputs while acquiring fuel
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain two charcoal. The fixture supplies two oak logs, an exposed furnace,
+  and nearby harvestable wood. Obtain additional fuel without consuming the
+  logs committed to charcoal production or burning the first charcoal output.
+goal:
+  kind: inventory_item
+  itemId: minecraft:charcoal
+  quantity: 2
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:charcoal
+    count: 2
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
