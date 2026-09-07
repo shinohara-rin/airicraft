@@ -233,8 +233,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
 			.filter(p -> !world.footholds().contains(p) && world.eye().y() > p.y() + 1 && !intersectsPlayer(world, p.offset(0, 1, 0)))
 			.filter(p -> distance(world.eye(), p) <= 4.3 * 4.3).sorted(positionOrder(world.eye())).findFirst();
-		if (support.isPresent()) return new Execute<>(new PlaceLight(rejected, support), new Place("minecraft:torch", support.get(), world.known().get(support.get()).blockId()));
-		// Narrow stairs may have no unused floor. Attach light above the passage instead.
+		// Keep the passage floor available, including cells the player has not reached yet.
 		for (Pos wall : world.known().keySet().stream().sorted(positionOrder(world.eye())).toList()) {
 			Seen seen = world.known().get(wall);
 			if (rejected.contains(wall) || !seen.identified() || seen.empty()) continue;
@@ -247,6 +246,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				return new Execute<>(new PlaceLight(rejected, Optional.of(wall)), new Place("minecraft:torch", wall, seen.blockId(), face, "minecraft:wall_torch"));
 			}
 		}
+		if (support.isPresent()) return new Execute<>(new PlaceLight(rejected, support), new Place("minecraft:torch", support.get(), world.known().get(support.get()).blockId()));
 		return failure("no_observed_light_support");
 	}
 	static int light(World world) {

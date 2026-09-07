@@ -59,6 +59,9 @@ class LightingRepairTest {
 		var command = assertInstanceOf(Place.class, assertInstanceOf(Execute.class, result).command());
 		assertEquals(new Place("minecraft:torch", wall, "minecraft:stone", Face.WEST, "minecraft:wall_torch"), command);
 		assertEquals(new Pos(0, 3, 0), command.destination());
+		var unusedFloor = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, Set.of(FEET.offset(0, -1, 0)));
+		var preferred = domain.decide(new View<Task>(1, task, false, 1, Optional.empty(), Optional.empty()), unusedFloor);
+		assertEquals(command, assertInstanceOf(Execute.class, preferred).command(), "an unused floor may still be the intended passage");
 		known.put(wall, new Seen("unknown", false, false, 0, 2));
 		var uncertain = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, domain.decide(new View<Task>(1, task, false, 2, Optional.empty(), Optional.empty()), uncertain)).outcome().kind());
