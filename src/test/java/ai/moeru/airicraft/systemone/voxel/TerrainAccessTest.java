@@ -122,6 +122,25 @@ class TerrainAccessTest {
 		var unknown = domain.decide(failed,world(known,start,Set.of()));
 		assertFalse(unknown instanceof Child<?,?> child && child.child() instanceof Access);
 	}
+	@Test void surfaceHarvestAndPickupCanRepairAccessWithoutAnUndergroundSearchPrior() {
+		Pos start = new Pos(0,4,0), goal = new Pos(0,2,2), log = new Pos(0,2,5);
+		var harvest = new Harvest("log",List.of("log_block"),List.of(),Technique.EXPOSED);
+		var knowledge = new ProductionKnowledge("surface",List.of(),List.of(harvest),List.of(),List.of(),List.of(),List.of("stone"),
+			new LightingPolicy.Parameters(7,10,8,80,4),SurvivalPolicy.Parameters.minecraft());
+		var domain = new ProductionDomain(knowledge); var known = solid();
+		for (int z=0;z<=6;z++) for (int y=2;y<=5;y++) known.put(new Pos(0,y,z),air());
+		known.put(log,new Seen("log_block",false,true,true,15,1));
+		var gather = new Gather(harvest,1,start,0,Set.of(),Set.of(goal),new Navigate(goal,24,200));
+		var failed = new View<Task>(3,gather,false,1,Optional.of(Outcome.failure("observed_route_unavailable")),Optional.empty());
+		var child = assertInstanceOf(Child.class,domain.decide(failed,world(known,start,Set.of())));
+		assertEquals(Set.of("stone"),assertInstanceOf(Access.class,child.child()).clearable());
+		known.put(log,air());
+		Pos pickup = new Pos(0,2,4);
+		var collecting = new Gather(harvest,1,start,0,Set.of(),Set.of(pickup),new Navigate(pickup,24,200),Set.of(log));
+		var pickupFailed = new View<Task>(3,collecting,false,2,failed.commandResult(),Optional.empty());
+		var pickupChild = assertInstanceOf(Child.class,domain.decide(pickupFailed,world(known,start,Set.of())));
+		assertEquals(pickup,assertInstanceOf(Access.class,pickupChild.child()).state().goal());
+	}
 	@Test void aFailedDirectMoveCanStillClearAnObservedObstructionOnThatEdge() {
 		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 4, 1);
 		var known = solid(); known.put(start, air()); known.put(start.offset(0,1,0), air());

@@ -56,6 +56,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private final Map<String, Smelt> smeltsById;
 	private final List<Fuel> fuels;
 	private final Map<String, SearchPrior> searches;
+	private final Set<String> accessMaterials;
 	private final LightingPolicy lighting;
 	private final SurvivalPolicy survival;
 	private final UndergroundSearch underground = new UndergroundSearch();
@@ -69,6 +70,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		smeltsById = knowledge.smelting().stream().collect(Collectors.toMap(Smelt::id, r -> r));
 		fuels = knowledge.fuels();
 		searches = knowledge.searches().stream().collect(Collectors.toMap(SearchPrior::item, p -> p));
+		accessMaterials = Set.copyOf(knowledge.accessMaterials());
 		lighting = new LightingPolicy(knowledge.lighting());
 		survival = new SurvivalPolicy(knowledge.survival());
 	}
@@ -420,7 +422,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			var eye = new Pose(move.stance().x() + .5, move.stance().y() + 1.62, move.stance().z() + .5, 0, 0);
 			boolean stationReach = world.known().entrySet().stream().anyMatch(e -> e.getValue().identified()
 				&& e.getValue().blockId().equals(task.item()) && usableStation(world.known(), eye, e.getKey()));
-			if (stationReach) return access(task, move.stance(), world, view.tick(), searches.values().stream().flatMap(p -> p.excavatable().stream()).collect(Collectors.toSet()));
+			if (stationReach) return access(task, move.stance(), world, view.tick(), accessMaterials);
 		}
 		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) return failure("station_supply_failed:" + task.item());
 		var rejected = new HashSet<>(task.rejected());
@@ -482,9 +484,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			&& survival.safeStance(world, move.stance()) && harvestApproach(task, move.stance(), world)) {
 			return gatherAction(task, world, move, task.scans(), task.rejected(), task.visited());
 		}
-		if (needsAccess(view) && task.last() instanceof Navigate move && searches.containsKey(task.rule().item())
-			&& (!task.drops().isEmpty() || harvestApproach(task, move.stance(), world))) {
-			return access(task, move.stance(), world, view.tick(), new HashSet<>(searches.get(task.rule().item()).excavatable()));
+		if (needsAccess(view) && task.last() instanceof Navigate move
+			&& (pickupApproach(task.drops(), move.stance()) || harvestApproach(task, move.stance(), world))) {
+			return access(task, move.stance(), world, view.tick(), accessMaterials);
 		}
 		var rejected = new HashSet<>(task.rejected()); var visited = new HashSet<>(task.visited());
 		var drops = new HashSet<>(task.drops());
@@ -499,7 +501,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Optional<Pos> pickup = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && survival.safeStance(world, pos))
 			// A mined cavity can be only one block high. Pick up from its accessible edge.
-			.filter(pos -> drops.stream().anyMatch(drop -> horizontal(pos, drop) <= 1 && pos.y() <= drop.y() && drop.y() - pos.y() <= 6))
+			.filter(pos -> pickupApproach(drops, pos))
 			.sorted(Comparator.<Pos>comparingDouble(pos -> drops.stream().mapToDouble(drop -> horizontal(pos, drop) + Math.pow(pos.y() - drop.y(), 2)).min().orElseThrow())
 				.thenComparing(positionOrder(world.eye()))).findFirst();
 		if (pickup.isPresent()) {
@@ -541,6 +543,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet())), action);
 	}
 	private static double travelDistance(Pos a, Pos b) { return Math.sqrt(horizontal(a, b) + Math.pow(a.y() - b.y(), 2)); }
+	private static boolean pickupApproach(Set<Pos> drops, Pos stance) {
+		return drops.stream().anyMatch(drop -> horizontal(stance, drop) <= 1 && stance.y() <= drop.y() && drop.y() - stance.y() <= 6);
+	}
 
 	private boolean harvestApproach(Gather task, Pos stance, World world) {
 		var eye = new Pose(stance.x() + .5, stance.y() + 1.62, stance.z() + .5, 0, 0);

@@ -1,0 +1,38 @@
+id: system-one-log-pickup
+name: Collect a mined log below a dirt ledge
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain the visible dark oak log below the starting ledge with an empty
+  inventory. Prepare an observed approach to collect the mined drop,
+  preserving standing support and the one-block fall limit.
+goal:
+  kind: inventory_item
+  itemId: minecraft:dark_oak_log
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:dark_oak_log
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: prepare_observed_access
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:access_stance_reached
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
