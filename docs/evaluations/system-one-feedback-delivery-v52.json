@@ -17,5 +17,30 @@
   "motorReleased": true,
   "clientExitCode": 0,
   "recordingCoverage": "complete",
-  "visualPlayReview": "pending"
+  "visualPlayReview": "reviewed_no_gui_sampled_sequence",
+  "render": {
+    "path": "eval-output/20260908-041003-013917-73253/01-system-one-feedback-delivery/recording-render-no-gui/fpv.mp4",
+    "noGui": true,
+    "frameCount": 469,
+    "distinctPngHashes": 276,
+    "sampledFrameOrdinals": [
+      90,
+      180,
+      300,
+      450
+    ],
+    "lastChangingFrameOrdinal": 424,
+    "requestedCaptureTickRange": [
+      34,
+      522
+    ],
+    "renderedCaptureTickRange": [
+      34,
+      502
+    ],
+    "captureGoalInventoryTick": 450,
+    "tailLimitation": "Last 20 requested ticks omitted; capture pose and inventory are unchanged through that tail. This is not a complete-capture export.",
+    "observedSequence": "Surface opening, descent among dirt faces, then stone excavation. Final still frames agree with the captured stationary post-goal pose.",
+    "rendererSourceModified": false
+  }
 }
