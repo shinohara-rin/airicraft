@@ -25,6 +25,9 @@ public final class UndergroundSearch {
 		return decide(view, world, Map.of());
 	}
 	public Decision<Task, VoxelCommand> decide(View<Task> view, World world, Map<String, Integer> reserved) {
+		return decide(view, world, reserved, pos -> true);
+	}
+	public Decision<Task, VoxelCommand> decide(View<Task> view, World world, Map<String, Integer> reserved, java.util.function.Predicate<Pos> eligible) {
 		Task task = view.task();
 		if (world.known().entrySet().stream().anyMatch(e -> e.getValue().identified() && task.targets().contains(e.getValue().blockId()) && !task.ignoredTargets().contains(e.getKey()))) {
 			return new Complete<>(Outcome.success("resource_surface_observed:" + task.prior().item()));
@@ -58,6 +61,7 @@ public final class UndergroundSearch {
 			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 1
 			: retained.filter(p::equals).isPresent() ? 2 : 3));
 		for (Pos next : candidates) {
+			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
 			int[] heading = DIRECTIONS[task.direction()];
 			if ((next.x() - world.feet().x()) * heading[0] + (next.z() - world.feet().z()) * heading[1] < 0) continue;

@@ -1,0 +1,36 @@
+id: system-one-death-recovery
+name: Preserve the production goal and rebuild dependencies after death
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain eight oak planks from the exposed tree. The fixture kills the player
+  once after the first log is collected. Respawn at the prepared world spawn,
+  retain the planks goal, and rebuild its dependencies from current observations.
+goal:
+  kind: inventory_item
+  itemId: minecraft:oak_planks
+  quantity: 8
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:oak_planks
+    count: 8
+  - type: event_contains
+    eventType: player.died
+  - type: event_contains
+    eventType: system_one.task_revised
+    payload:
+      detail: life_changed:1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

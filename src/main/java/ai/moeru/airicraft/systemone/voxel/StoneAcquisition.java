@@ -22,8 +22,9 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 		}
 		public static Task begin(int count, Pos origin) { return new Task(count, origin, 0, 0, Set.of(), Optional.empty()); }
 	}
-	public record World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known, Set<Pos> footholds) {
-		public World { inventory = Map.copyOf(inventory); known = Map.copyOf(known); footholds = Set.copyOf(footholds); }
+	public record World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known, Set<Pos> footholds, SurvivalPolicy.Vitals vitals) {
+		public World { inventory = Map.copyOf(inventory); known = Map.copyOf(known); footholds = Set.copyOf(footholds); java.util.Objects.requireNonNull(vitals); }
+		public World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known, Set<Pos> footholds) { this(eye, feet, inventory, known, footholds, SurvivalPolicy.Vitals.healthy()); }
 		public World(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> known) { this(eye, feet, inventory, known, Set.of()); }
 	}
 

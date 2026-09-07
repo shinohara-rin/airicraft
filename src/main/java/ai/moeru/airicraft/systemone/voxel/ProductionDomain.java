@@ -12,7 +12,13 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat {}
+	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat {}
+	public record Mission(String item, int count, long life, int deaths) implements Task {}
+	public record Abandon(String reason) implements Task {}
+	public record Escape(Pos origin, Set<Pos> rejected, Optional<Pos> last, long deadline) implements Task {
+		public Escape { rejected = Set.copyOf(rejected); }
+	}
+	public record AfterEscape(Task saved, Optional<Outcome> command, Optional<Outcome> child) implements Task {}
 	public record Acquire(String item, int count, Map<String, Integer> reserved, Set<String> ancestors, Set<String> failed, String method) implements Task {
 		public Acquire { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); failed = Set.copyOf(failed); if (count < 1) throw new IllegalArgumentException("Positive quantity required"); }
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
@@ -45,6 +51,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private final List<Fuel> fuels;
 	private final Map<String, SearchPrior> searches;
 	private final LightingPolicy lighting;
+	private final SurvivalPolicy survival;
 	private final UndergroundSearch underground = new UndergroundSearch();
 	private final StoneAcquisition stone = new StoneAcquisition();
 
@@ -57,14 +64,37 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		fuels = knowledge.fuels();
 		searches = knowledge.searches().stream().collect(Collectors.toMap(SearchPrior::item, p -> p));
 		lighting = new LightingPolicy(knowledge.lighting());
+		survival = new SurvivalPolicy(knowledge.survival());
 	}
 	@Override public Optional<Outcome> completion(Task root, World world) {
+		if (world == null || !world.vitals().alive()) return Optional.empty();
+		if (root instanceof Mission mission) root = Acquire.root(mission.item(), mission.count());
 		if (world != null && root instanceof Acquire goal && free(world, goal.reserved(), goal.item()) >= goal.count()) {
 			return Optional.of(Outcome.success("inventory_observed:" + goal.item() + ":" + goal.count()));
 		}
 		return Optional.empty();
 	}
+	@Override public Optional<Interruption<Task>> interrupt(List<View<Task>> branch, World world) {
+		if (world == null || !survival.urgent(world) || branch.stream().anyMatch(v -> v.task() instanceof Escape || v.task() instanceof AfterEscape || v.task() instanceof Abandon)) return Optional.empty();
+		var leaf = branch.getLast();
+		var command = leaf.acting() ? Optional.of(Outcome.cancelled("survival_interruption")) : leaf.commandResult();
+		return Optional.of(new Interruption<>(new AfterEscape(leaf.task(), command, leaf.childResult()),
+			new Escape(world.feet(), Set.of(), Optional.empty(), leaf.tick() + survival.parameters().escapeTicks()), "survival_escape"));
+	}
 	@Override public Optional<Revision<Task>> reconsider(List<View<Task>> branch, World world) {
+		if (world == null) return Optional.empty();
+		var root = branch.getFirst();
+		if (root.task() instanceof Mission mission) {
+			if (world.vitals().life() != mission.life()) {
+				int deaths = mission.deaths() + 1;
+				Task next = deaths > survival.parameters().maxDeaths() ? new Abandon("death_recovery_budget_exhausted") : new Mission(mission.item(), mission.count(), world.vitals().life(), deaths);
+				return Optional.of(new Revision<>(root.id(), next, "life_changed:" + world.vitals().life()));
+			}
+			if (!world.vitals().alive() && branch.size() > 1) return Optional.of(new Revision<>(root.id(), mission, "player_died"));
+		}
+		if (branch.stream().anyMatch(view -> view.task() instanceof AfterEscape && view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent())) {
+			return Optional.of(new Revision<>(root.id(), new Abandon("survival_escape_failed"), "survival_escape_failed"));
+		}
 		var leaf = branch.getLast();
 		// Reconsider unavailable inputs at completed observation/travel boundaries, not mid-harvest.
 		if (world == null || leaf.acting() || !(leaf.task() instanceof Gather gather) || !gather.drops().isEmpty()
@@ -86,6 +116,18 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	@Override public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
 		return switch (view.task()) {
+			case Mission task -> {
+				if (!world.vitals().alive()) yield new Sleep<>(task, view.tick() + 5);
+				if (view.childResult().isPresent()) yield new Complete<>(view.childResult().get());
+				yield new Child<>(task, Acquire.root(task.item(), task.count()), "mission_inventory:" + task.item());
+			}
+			case Abandon task -> failure(task.reason());
+			case Escape task -> escape(view, task, world);
+			case AfterEscape task -> {
+				// The next kernel reconsideration terminates the root after an exhausted escape.
+				if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) yield new Keep<>();
+				yield decide(new View<>(view.id(), task.saved(), false, view.tick(), task.command(), task.child()), world);
+			}
 			case Acquire task -> acquire(view, task, world);
 			case Station task -> station(view, task, world);
 			case Gather task -> gather(view, task, world);
@@ -103,17 +145,36 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case CollectBatch task -> {
 				if (world.inventory().getOrDefault(task.recipe().output(), 0) >= task.before() + task.recipe().yield()) yield success("smelted_inventory_observed:" + task.recipe().output());
 				if (view.acting()) yield new Keep<>();
+				if (view.tick() < task.deadline() - 200) yield new Sleep<>(task, task.deadline() - 200);
 				if (view.tick() >= task.deadline() || task.attempts() >= 4) yield failure("smelting_collection_exhausted");
 				if (failed(view)) yield new Sleep<>(task, view.tick() + 20);
 				yield new Execute<>(new CollectBatch(task.recipe(), task.station(), task.before(), task.deadline(), task.attempts() + 1), new CollectSmelt(task.recipe(), task.station()));
 			}
 			case Excavate task -> {
 				var result = stone.decide(new View<>(view.id(), task.state(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world);
-				if (result instanceof Execute<StoneAcquisition.Task, VoxelCommand> action) yield new Execute<>(new Excavate(action.continuation()), action.command());
+				if (result instanceof Execute<StoneAcquisition.Task, VoxelCommand> action) {
+					if (action.command() instanceof Break broken && survival.nearHazard(world, broken.target())) yield failure("observed_excavation_hazard");
+					yield new Execute<>(new Excavate(action.continuation()), action.command());
+				}
 				if (result instanceof Complete<StoneAcquisition.Task, VoxelCommand> done) yield new Complete<>(done.outcome());
 				yield new Keep<>();
 			}
 		};
+	}
+	private Decision<Task, VoxelCommand> escape(View<Task> view, Escape task, World world) {
+		if (!world.vitals().alive()) return failure("player_died_during_escape");
+		if (!world.vitals().inLava() && survival.safeStance(world, world.feet())) {
+			if (!world.vitals().burning()) return success("survival_refuge_observed");
+			if (!view.acting() && view.tick() < task.deadline()) return new Sleep<>(task, view.tick() + 5);
+		}
+		if (view.tick() >= task.deadline()) return failure("survival_escape_deadline");
+		if (view.acting()) return new Keep<>();
+		var rejected = new HashSet<>(task.rejected());
+		if (view.commandResult().isPresent()) task.last().ifPresent(rejected::add);
+		if (rejected.size() >= survival.parameters().maxAttempts()) return failure("survival_escape_attempts_exhausted");
+		var refuge = survival.refuge(world, task.origin(), rejected);
+		if (refuge.isEmpty()) return failure("no_observed_survival_refuge");
+		return new Execute<>(new Escape(task.origin(), rejected, refuge, task.deadline()), new Navigate(refuge.get(), 16, 100));
 	}
 	private Decision<Task, VoxelCommand> acquire(View<Task> view, Acquire task, World world) {
 		if (free(world, task.reserved(), task.item()) >= task.count()) return success("inventory_observed:" + task.item() + ":" + task.count());
@@ -204,7 +265,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), repair), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
 		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
-		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved());
+		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved(), pos -> !survival.nearHazard(world, pos));
 		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
 			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : action.command() instanceof Place placed ? placed.destination() : world.feet();
 			if (assessment.state().allowance().filter(a -> !lighting.permits(a, affected, view.tick())).isPresent()) return leaveSearch(next, "lighting_region_exhausted", world);
@@ -216,6 +277,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public static Set<Pos> retainedCells(List<Task> branch) {
 		var cells = new HashSet<Pos>();
 		for (Task task : branch) {
+			while (task instanceof AfterEscape after) task = after.saved();
 			if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
 			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
 			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
@@ -366,7 +428,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops);
 		Optional<Pos> pickup = world.known().keySet().stream()
-			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && StoneAcquisition.standable(world.known(), pos))
+			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && survival.safeStance(world, pos))
 			// A mined cavity can be only one block high. Pick up from its accessible edge.
 			.filter(pos -> drops.stream().anyMatch(drop -> horizontal(pos, drop) <= 1 && pos.y() <= drop.y() && drop.y() - pos.y() <= 6))
 			.sorted(Comparator.<Pos>comparingDouble(pos -> drops.stream().mapToDouble(drop -> horizontal(pos, drop) + Math.pow(pos.y() - drop.y(), 2)).min().orElseThrow())
@@ -387,6 +449,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		Gather current = task;
 		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
+			.filter(e -> !survival.nearHazard(world, e.getKey()))
 			.filter(e -> !rejected.contains(e.getKey()) && !e.getKey().equals(world.feet().offset(0, -1, 0)))
 			.sorted(Map.Entry.comparingByKey(positionOrder(world.eye()))).toList();
 		for (var target : targets) {

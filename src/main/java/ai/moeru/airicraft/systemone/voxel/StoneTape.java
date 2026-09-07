@@ -31,7 +31,7 @@ public final class StoneTape {
 	public record Header(String type, int version, String methodVersion, String session, String run,
 		int count, Pos origin, long tick, Limits limits) {}
 	public record Cell(Pos pos, Seen seen) {}
-	public record Observation(Pose eye, Pos feet, Map<String, Integer> inventory, List<Cell> changed, List<Pos> removed, java.util.Set<Pos> footholds) {
+	public record Observation(Pose eye, Pos feet, Map<String, Integer> inventory, List<Cell> changed, List<Pos> removed, java.util.Set<Pos> footholds, SurvivalPolicy.Vitals vitals) {
 		public Observation { inventory = Map.copyOf(inventory); changed = List.copyOf(changed); removed = List.copyOf(removed); footholds = java.util.Set.copyOf(footholds); }
 	}
 	public record Reply(Token token, String kind, Outcome outcome) {
@@ -57,7 +57,7 @@ public final class StoneTape {
 		Observation observation = current == null ? null : new Observation(current.eye(), current.feet(), current.inventory(),
 			current.known().entrySet().stream().filter(entry -> !entry.getValue().equals(before.get(entry.getKey())))
 				.map(entry -> new Cell(entry.getKey(), entry.getValue())).toList(),
-			before.keySet().stream().filter(pos -> !current.known().containsKey(pos)).toList(), current.footholds());
+			before.keySet().stream().filter(pos -> !current.known().containsKey(pos)).toList(), current.footholds(), current.vitals());
 		return new Turn("turn", sequence, step.state().lastTick(), observation,
 			feedback.stream().map(reply -> reply instanceof Finished finished ? new Reply(reply.token(), "finished", finished.outcome())
 				: new Reply(reply.token(), "released", null)).toList(), cancellation,

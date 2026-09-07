@@ -151,10 +151,10 @@ public final class TaskKernel<T, O, C> {
 				interrupted = true;
 			}
 		}
-		if (!interrupted && !(turn.leaf().phase() instanceof Releasing<T>) && turn.stack.size() > 1) {
+		if (!interrupted && !(turn.leaf().phase() instanceof Releasing<T>)) {
 			var branch = turn.stack.stream().map(frame -> new View<>(frame.id(), frame.task(), frame.phase() instanceof Acting<T>, tick, frame.commandResult(), frame.childResult())).toList();
 			domain.reconsider(branch, observation).ifPresent(revision -> {
-				if (turn.stack.stream().limit(turn.stack.size() - 1).noneMatch(frame -> frame.id() == revision.task())) throw new IllegalArgumentException("Revision must target an active ancestor");
+				if (turn.stack.stream().noneMatch(frame -> frame.id() == revision.task())) throw new IllegalArgumentException("Revision must target an active task");
 				turn.afterRelease(new ReviseTask<>(revision));
 			});
 		}

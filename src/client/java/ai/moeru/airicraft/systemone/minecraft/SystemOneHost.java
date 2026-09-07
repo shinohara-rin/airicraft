@@ -42,7 +42,7 @@ public final class SystemOneHost {
 		knowledge = MinecraftProductionKnowledge.capture(client);
 		kernel = new TaskKernel<>(new ProductionDomain(knowledge), StoneTape.LIMITS);
 		state = kernel.begin(client.world.getRegistryKey().getValue() + ":" + tick, "system-one-" + (++sequence),
-			ProductionDomain.Acquire.root(item, count), tick);
+			new ProductionDomain.Mission(item, count, 0, 0), tick);
 		decisionRecorder.accept(ProductionTape.header(state, knowledge));
 		return state.run();
 	}
@@ -80,6 +80,6 @@ public final class SystemOneHost {
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
 				"motor", motor.status(), "knowledgeVersion", knowledge.version(), "methodVersion", ProductionTape.METHOD_VERSION,
-				"policyVersion", "observed-search-lighting-v4", "motorVersion", "production-motor-v11");
+				"policyVersion", "observed-survival-v1", "motorVersion", "production-motor-v11");
 	}
 }

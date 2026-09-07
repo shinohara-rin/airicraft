@@ -19,13 +19,15 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v30";
+	public static final String METHOD_VERSION = "reactive-production-v31";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
-		String session, String run, String item, int count, long tick, Limits limits) {}
+		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}
 	public static Header header(State<Task> state, ProductionKnowledge knowledge) {
-		var goal = (Acquire) state.stack().getFirst().task();
-		return new Header("production_begin", 1, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS);
+		Task root = state.stack().getFirst().task();
+		boolean mission = root instanceof Mission;
+		var goal = mission ? Acquire.root(((Mission) root).item(), ((Mission) root).count()) : (Acquire) root;
+		return new Header("production_begin", 1, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS, mission, mission ? ((Mission) root).life() : 0);
 	}
 	public static final class Replay {
 		private TaskKernel<Task, World, VoxelCommand> kernel;
@@ -41,7 +43,7 @@ public final class ProductionTape {
 					if (row.get("version").getAsInt() != 1 || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
 					var header = GSON.fromJson(row, Header.class);
 					kernel = new TaskKernel<>(new ProductionDomain(header.knowledge()), header.limits());
-					state = kernel.begin(header.session(), header.run(), Acquire.root(header.item(), header.count()), header.tick());
+					state = kernel.begin(header.session(), header.run(), header.mission() ? new Mission(header.item(), header.count(), header.life(), 0) : Acquire.root(header.item(), header.count()), header.tick());
 				}
 				case "turn" -> {
 					if (state == null) throw new IllegalArgumentException("Missing production header");
@@ -51,7 +53,7 @@ public final class ProductionTape {
 					if (turn.observation() != null) {
 						var observation = turn.observation();
 						observation.removed().forEach(known::remove); observation.changed().forEach(cell -> known.put(cell.pos(), cell.seen()));
-						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds());
+						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds(), observation.vitals());
 					}
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 					if (!turn.effects().equals(step.effects().stream().map(Object::toString).toList()) || !turn.events().equals(step.events())

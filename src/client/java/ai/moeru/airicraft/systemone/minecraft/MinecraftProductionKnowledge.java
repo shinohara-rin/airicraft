@@ -38,7 +38,7 @@ final class MinecraftProductionKnowledge {
 		var excavatable = List.of("minecraft:stone", "minecraft:deepslate", "minecraft:dirt", "minecraft:grass_block", "minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff");
 		var supports = List.of(new SupportMaterial("minecraft:cobblestone", "minecraft:cobblestone"), new SupportMaterial("minecraft:dirt", "minecraft:dirt"));
 		var searches = List.of(new SearchPrior("minecraft:raw_iron", 16, 64, 96, excavatable, supports), new SearchPrior("minecraft:coal", 48, 48, 64, excavatable, supports));
-		return new ProductionKnowledge("minecraft-recipe-display-v4", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+		return new ProductionKnowledge("minecraft-recipe-display-v5", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
 			SmeltingPlannerService.productionSmelts(client), fuels, searches, new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4));
 	}
 }

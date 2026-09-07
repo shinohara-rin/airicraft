@@ -5,10 +5,11 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /** Recipe and harvesting priors, separate from all world coordinates and observations. */
-public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels, List<SearchPrior> searches, LightingPolicy.Parameters lighting) {
+public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels, List<SearchPrior> searches, LightingPolicy.Parameters lighting, SurvivalPolicy.Parameters survival) {
 	public ProductionKnowledge {
 		recipes = List.copyOf(recipes); harvesting = List.copyOf(harvesting); smelting = List.copyOf(smelting); fuels = List.copyOf(fuels); searches = List.copyOf(searches);
 	}
+	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels, List<SearchPrior> searches, LightingPolicy.Parameters lighting) { this(version, recipes, harvesting, smelting, fuels, searches, lighting, SurvivalPolicy.Parameters.minecraft()); }
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels) { this(version, recipes, harvesting, smelting, fuels, List.of(), new LightingPolicy.Parameters(7, 10, 8, 80, 4)); }
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) { this(version, recipes, harvesting, List.of(), List.of()); }
 	/** Domain-approved stable support materials; item and placed block need not have the same identity. */

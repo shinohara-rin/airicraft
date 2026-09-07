@@ -4,6 +4,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
 import ai.moeru.airicraft.systemone.voxel.FootingMemory;
 import ai.moeru.airicraft.systemone.voxel.RouteMemory;
+import ai.moeru.airicraft.systemone.voxel.SurvivalPolicy;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
@@ -20,9 +21,13 @@ final class MinecraftSensor {
 	private final Map<Pos, Seen> memory = new HashMap<>();
 	private final Map<BlockPos, BlockState> terrain = new HashMap<>();
 	private final java.util.Set<Pos> footholds = new java.util.HashSet<>();
+	private net.minecraft.client.network.ClientPlayerEntity previousPlayer;
+	private long life;
 
 	StoneAcquisition.World observe(MinecraftClient client, long tick, java.util.Set<Pos> retained) {
 		var player = client.player;
+		if (previousPlayer != null && previousPlayer != player) { life++; footholds.clear(); }
+		previousPlayer = player;
 		var eye = player.getEyePos();
 		Pos feet = new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ());
 		footholds.removeIf(pos -> !RouteMemory.keep(pos, feet, retained));
@@ -58,7 +63,7 @@ final class MinecraftSensor {
 			var stack = player.getInventory().getStack(i);
 			if (!stack.isEmpty()) inventory.merge(Registries.ITEM.getId(stack.getItem()).toString(), stack.getCount(), Integer::sum);
 		}
-		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds);
+		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds, new SurvivalPolicy.Vitals(life, player.getHealth(), player.isInLava(), player.isOnFire()));
 	}
-	void clear() { memory.clear(); terrain.clear(); footholds.clear(); ObservedTerrain.clear(); }
+	void clear() { memory.clear(); terrain.clear(); footholds.clear(); previousPlayer = null; life = 0; ObservedTerrain.clear(); }
 }
