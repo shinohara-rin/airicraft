@@ -2,6 +2,7 @@ package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
+import ai.moeru.airicraft.systemone.voxel.FootingMemory;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
@@ -21,7 +22,6 @@ final class MinecraftSensor {
 	StoneAcquisition.World observe(MinecraftClient client, long tick) {
 		var player = client.player;
 		var eye = player.getEyePos();
-		if (player.isOnGround()) footholds.add(new Pos(player.getBlockX(), player.getBlockY() - 1, player.getBlockZ()));
 		footholds.removeIf(pos -> Math.abs(pos.x() - player.getBlockX()) > 48 || Math.abs(pos.z() - player.getBlockZ()) > 48);
 		Pose pose = new Pose(eye.x, eye.y, eye.z, player.getYaw(), player.getPitch());
 		Map<Pos, BlockState> samples = new HashMap<>();
@@ -40,6 +40,12 @@ final class MinecraftSensor {
 				if (state != null) terrain.put(new BlockPos(pos.x(), pos.y(), pos.z()), state);
 			}
 		});
+		var body = player.getBoundingBox();
+		var contact = player.isOnGround() ? java.util.Optional.of(new FootingMemory.Contact(
+			new Pos((int) Math.floor(body.minX + 1e-7), player.getBlockY() - 1, (int) Math.floor(body.minZ + 1e-7)),
+			new Pos((int) Math.floor(body.maxX - 1e-7), player.getBlockY() - 1, (int) Math.floor(body.maxZ - 1e-7)))) : java.util.Optional.<FootingMemory.Contact>empty();
+		var supports = FootingMemory.update(footholds, memory, contact);
+		footholds.clear(); footholds.addAll(supports);
 		memory.keySet().removeIf(pos -> Math.abs(pos.x() - player.getBlockX()) > 48 || Math.abs(pos.z() - player.getBlockZ()) > 48);
 		terrain.keySet().removeIf(pos -> !memory.containsKey(new Pos(pos.getX(), pos.getY(), pos.getZ())));
 		ObservedTerrain.publish(terrain);

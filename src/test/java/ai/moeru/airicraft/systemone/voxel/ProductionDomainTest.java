@@ -68,7 +68,9 @@ class ProductionDomainTest {
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book), new Limits(16, 16, 500, 100));
 		var state = kernel.begin("session", "run", Acquire.root("planks", 3), 0);
 		var base = world(Map.of());
-		var seen = new HashMap<>(base.known()); seen.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 0));
+		var seen = new HashMap<>(base.known());
+		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) seen.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, 15, 0));
+		seen.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 0));
 		var step = kernel.advance(state, new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), seen), List.of(), 1);
 		assertEquals("oak", ((Acquire) step.state().stack().getFirst().task()).method());
 		assertEquals("oak_log", ((Break) ((Start<VoxelCommand>) step.effects().getFirst()).command()).expectedBlock());
@@ -82,13 +84,32 @@ class ProductionDomainTest {
 		assertEquals("acacia", ((Acquire) first.state().stack().getFirst().task()).method());
 		var look = (Start<VoxelCommand>) first.effects().getFirst();
 		assertInstanceOf(Look.class, look.command());
-		var known = new HashMap<>(base.known()); known.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 2));
+		var known = new HashMap<>(base.known());
+		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) known.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, 15, 2));
+		known.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 2));
 		var discovered = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
 		var next = kernel.advance(first.state(), discovered, List.of(new Finished(look.token(), Outcome.success("looked"))), 2);
 		assertEquals("oak", ((Acquire) next.state().stack().getFirst().task()).method());
 		assertEquals(1, next.state().stack().getFirst().id());
 		assertEquals("oak_log", assertInstanceOf(Break.class, ((Start<VoxelCommand>) next.effects().getFirst()).command()).expectedBlock());
 		assertTrue(next.events().stream().anyMatch(e -> e.type().equals("task_revised")));
+	}
+	@Test void rememberedOreBehindAnExcavationRimRequiresAVisibleApproach() {
+		var known = new HashMap<Pos, Seen>();
+		for (int x = 0; x <= 4; x++) for (int y = 0; y <= 5; y++) known.put(new Pos(x, y, 0), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, 15, 1));
+		for (int y = 1; y <= 3; y++) known.put(new Pos(1, y, 0), new Seen("minecraft:stone", false, true, 15, 1));
+		known.put(new Pos(2, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
+		known.put(new Pos(3, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
+		var target = new Pos(3, 3, 0); known.put(target, new Seen("ore", false, true, 15, 1));
+		var world = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 0), new Pos(0, 1, 0), Map.of(), known);
+		var task = new Gather(new Harvest("iron", List.of("ore"), List.of(), Technique.EXPOSED), 1, world.feet(), 0, Set.of(), Set.of(), null);
+		var domain = new ProductionDomain(BOOK);
+		var approach = (Execute<Task, VoxelCommand>) domain.decide(view(task), world);
+		var stance = assertInstanceOf(Navigate.class, approach.command()).stance();
+		assertNotEquals(world.feet(), stance);
+		var arrived = new StoneAcquisition.World(new Pose(stance.x() + .5, stance.y() + 1.62, stance.z() + .5, 0, 0), stance, Map.of(), known);
+		var harvest = domain.decide(new View<>(1, approach.continuation(), false, 2, Optional.of(Outcome.success("arrived")), Optional.empty()), arrived);
+		assertEquals(new Break(target, "ore"), assertInstanceOf(Execute.class, harvest).command());
 	}
 	@Test void rememberedOccludedStationRequiresReturningToAUsableStance() {
 		var domain = new ProductionDomain(BOOK);
