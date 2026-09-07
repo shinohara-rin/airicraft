@@ -225,6 +225,63 @@ class TaskKernelTest {
 	}
 
 	private record Input(String observation, List<Feedback> feedback, long tick) {}
+	private static final Domain<String, String, String> URGENT = new Domain<>() {
+		@Override public Decision<String, String> decide(View<String> view, String observation) {
+			if (view.acting()) return new Keep<>();
+			if (view.task().equals("rescue") && view.commandResult().isPresent()) return new Complete<>(Outcome.success("safe"));
+			if (view.task().equals("goal")) return new Child<>("goal", "work", "prerequisite");
+			if (observation.equals("sleep")) return new Sleep<>(view.task(), 80);
+			return new Execute<>(view.task(), view.task());
+		}
+		@Override public Optional<Interruption<String>> interrupt(List<View<String>> branch, String observation) {
+			var leaf = branch.getLast();
+			return observation.equals("danger") && !leaf.task().equals("rescue")
+				? Optional.of(new Interruption<>("resume_" + leaf.task(), "rescue", "hazard observed")) : Optional.empty();
+		}
+		@Override public Optional<Revision<String>> reconsider(List<View<String>> branch, String observation) {
+			if (observation.equals("danger") && !branch.getLast().task().equals("rescue")) fail("urgent interruption precedes ordinary revision");
+			return Optional.empty();
+		}
+	};
+	@Test void urgentWorkInterruptsAPassiveWaitWithoutLosingTheParentBranch() {
+		var kernel = new TaskKernel<>(URGENT, LIMITS);
+		var sleeping = kernel.advance(kernel.begin("s", "r", "goal", 0), "sleep", List.of(), 1);
+		assertInstanceOf(Sleeping.class, sleeping.state().stack().getLast().phase());
+		var rescue = kernel.advance(sleeping.state(), "danger", List.of(), 2);
+		assertEquals("rescue", start(rescue).command());
+		assertEquals(3, rescue.state().stack().size());
+		assertEquals(sleeping.state().stack().getFirst(), rescue.state().stack().getFirst());
+		assertEquals("resume_work", rescue.state().stack().get(1).task());
+		var resumed = kernel.advance(rescue.state(), "safe", List.of(new Finished(start(rescue).token(), Outcome.success("safe"))), 3);
+		assertEquals("resume_work", start(resumed).command());
+		assertEquals(sleeping.state().stack().getLast().id(), start(resumed).token().task());
+		assertEquals(sleeping.state().deadline(), resumed.state().deadline());
+	}
+	@Test void urgentWorkWaitsForActiveReleaseAndIgnoresLateCompletion() {
+		var kernel = new TaskKernel<>(URGENT, LIMITS);
+		var working = kernel.advance(kernel.begin("s", "r", "goal", 0), "healthy", List.of(), 1);
+		var old = start(working);
+		var stopping = kernel.advance(working.state(), "danger", List.of(), 2);
+		assertEquals(List.of(new Stop<String>(old.token())), stopping.effects());
+		assertTrue(kernel.advance(stopping.state(), "danger", List.of(), 3).effects().isEmpty());
+		var rescue = kernel.advance(stopping.state(), "danger", List.of(new Released(old.token())), 4);
+		assertEquals("rescue", start(rescue).command());
+		var stale = kernel.advance(rescue.state(), "danger", List.of(new Finished(old.token(), Outcome.success("late"))), 5);
+		assertEquals(rescue.state().stack(), stale.state().stack());
+		assertTrue(stale.effects().isEmpty());
+		var cancelled = kernel.advance(stopping.state(), "danger", List.of(), 3, Optional.of("user stop"));
+		var ended = kernel.advance(cancelled.state(), "danger", List.of(new Released(old.token())), 4);
+		assertEquals(Outcome.cancelled("user stop"), ended.state().outcome().orElseThrow());
+		assertTrue(ended.effects().isEmpty());
+	}
+	@Test void urgentInsertionConsumesATransitionFromTheExistingBudget() {
+		var kernel = new TaskKernel<>(URGENT, new Limits(1, 8, 100, 20));
+		var sleeping = kernel.advance(kernel.begin("s", "r", "work", 0), "sleep", List.of(), 1);
+		var inserted = kernel.advance(sleeping.state(), "danger", List.of(), 2);
+		assertTrue(inserted.effects().isEmpty());
+		assertEquals(2, inserted.state().stack().size());
+		assertEquals("rescue", start(kernel.advance(inserted.state(), "danger", List.of(), 3)).command());
+	}
 	private static final Domain<String, String, String> REVISABLE = new Domain<>() {
 		@Override public Decision<String, String> decide(View<String> view, String observation) {
 			if (view.task().equals("goal")) return new Child<>("goal", "dependency", "old method");

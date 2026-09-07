@@ -13,10 +13,13 @@ public final class TaskKernel<T, O, C> {
 		Decision<T, C> decide(View<T> task, O observation);
 		/** Observe the root goal even while a prerequisite is acting or waiting. */
 		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
+		/** Urgent domain work is checked even during passive waits; the continuation revalidates interrupted work. */
+		default Optional<Interruption<T>> interrupt(List<View<T>> branch, O observation) { return Optional.empty(); }
 		/** New evidence may invalidate an ancestor's selected method. Never grants motor ownership. */
 		default Optional<Revision<T>> reconsider(List<View<T>> branch, O observation) { return Optional.empty(); }
 	}
 	public record Revision<T>(long task, T continuation, String reason) {}
+	public record Interruption<T>(T continuation, T child, String reason) {}
 
 	public record Limits(int transitionsPerTick, int maxDepth, long maxTicks, long maxCommands) {
 		public Limits {
@@ -136,14 +139,26 @@ public final class TaskKernel<T, O, C> {
 				return turn.finish();
 			}
 		}
-		if (!(turn.leaf().phase() instanceof Releasing<T>) && turn.stack.size() > 1) {
+		boolean interrupted = false;
+		if (!(turn.leaf().phase() instanceof Releasing<T>)) {
+			var branch = turn.stack.stream().map(frame -> new View<>(frame.id(), frame.task(), frame.phase() instanceof Acting<T>, tick, frame.commandResult(), frame.childResult())).toList();
+			var interruption = domain.interrupt(branch, observation);
+			if (interruption.isPresent()) {
+				var request = interruption.get();
+				var frame = turn.leaf();
+				turn.replace(new Frame<>(frame.id(), request.continuation(), frame.phase(), Optional.empty(), Optional.empty()));
+				turn.afterRelease(new PushChild<>(request.child(), request.reason()));
+				interrupted = true;
+			}
+		}
+		if (!interrupted && !(turn.leaf().phase() instanceof Releasing<T>) && turn.stack.size() > 1) {
 			var branch = turn.stack.stream().map(frame -> new View<>(frame.id(), frame.task(), frame.phase() instanceof Acting<T>, tick, frame.commandResult(), frame.childResult())).toList();
 			domain.reconsider(branch, observation).ifPresent(revision -> {
 				if (turn.stack.stream().limit(turn.stack.size() - 1).noneMatch(frame -> frame.id() == revision.task())) throw new IllegalArgumentException("Revision must target an active ancestor");
 				turn.afterRelease(new ReviseTask<>(revision));
 			});
 		}
-		for (int i = 0; i < limits.transitionsPerTick() && turn.done.isEmpty(); i++) {
+		for (int i = interrupted ? 1 : 0; i < limits.transitionsPerTick() && turn.done.isEmpty(); i++) {
 			Frame<T> frame = turn.leaf();
 			if (frame.phase() instanceof Releasing<T>) break;
 			if (frame.phase() instanceof Sleeping<T> sleeping && tick < sleeping.wakeTick()) break;
