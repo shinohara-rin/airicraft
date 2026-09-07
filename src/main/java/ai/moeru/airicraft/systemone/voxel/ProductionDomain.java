@@ -594,6 +594,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				.filter(pos -> ObservedReach.visible(world.known(), new Pose(pos.x() + .5, pos.y() + 1.62, pos.z() + .5, 0, 0), target.getKey(), 4.3))
 				.sorted(positionOrder(world.eye())).findFirst();
 			if (stance.isPresent()) { visited.add(stance.get()); return gatherAction(task, world, new Navigate(stance.get(), 24, 200), 0, rejected, visited); }
+			// Seeing a resource surface does not imply that its interaction stance is known yet.
+			// Advance through observed safe terrain to reveal that approach before surveying elsewhere.
+			Optional<Pos> intermediate = world.known().keySet().stream()
+				.filter(pos -> !visited.contains(pos) && survival.safeStance(world, pos))
+				.filter(pos -> travelDistance(world.feet(), pos) <= 12)
+				.filter(pos -> travelDistance(pos, target.getKey()) + 1 < travelDistance(world.feet(), target.getKey()))
+				.sorted(Comparator.<Pos>comparingDouble(pos -> travelDistance(pos, target.getKey())).thenComparing(positionOrder(world.eye())))
+				.findFirst();
+			if (intermediate.isPresent()) { visited.add(intermediate.get()); return gatherAction(task, world, new Navigate(intermediate.get(), 24, 200), 0, rejected, visited); }
 		}
 		if (task.scans() < 4) return gatherAction(task, world, new Look((float) ((world.eye().yaw() + 90) % 360), 15), task.scans() + 1, rejected, visited);
 		Optional<Pos> frontier = world.known().keySet().stream().filter(pos -> StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))

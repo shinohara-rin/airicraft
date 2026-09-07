@@ -265,6 +265,30 @@ class ProductionDomainTest {
 		assertEquals(new Navigate(target, 24, 200), result.command());
 		assertEquals(Set.of(target), ((Gather) result.continuation()).drops());
 	}
+	@Test void distantObservedOreUsesKnownIntermediateStancesBeforeGenericSurvey() {
+		var target = new Pos(0,1,16); var feet = new Pos(0,1,0);
+		var cells = new HashMap<Pos,Seen>();
+		for (int z=-3;z<=16;z++) {
+			cells.put(new Pos(0,1,z),new Seen("air",true,true,false,15,1));
+			cells.put(new Pos(0,2,z),new Seen("air",true,true,false,15,1));
+			if(z<=6) cells.put(new Pos(0,0,z),new Seen("stone",false,true,true,15,1));
+		}
+		cells.put(target,new Seen("ore",false,true,true,15,1));
+		var rule = new Harvest("raw",List.of("ore"),List.of(),Technique.EXPOSED);
+		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(rule)));
+		var task = new Gather(rule,1,feet,0,Set.of(),Set.of(),null);
+		var observed = new StoneAcquisition.World(new Pose(.5,2.62,.5,0,0),feet,Map.of(),cells);
+		var approach = assertInstanceOf(Execute.class,domain.decide(view(task),observed));
+		assertEquals(new Navigate(new Pos(0,1,6),24,200),approach.command());
+		assertFalse(cells.containsKey(new Pos(0,0,14)), "an interaction stance near the ore is still unknown");
+		var visited = new HashSet<Pos>();for(int z=1;z<=6;z++) visited.add(new Pos(0,1,z));
+		var exhausted = new Gather(rule,1,feet,0,Set.of(),visited,null);
+		assertInstanceOf(Look.class,assertInstanceOf(Execute.class,domain.decide(view(exhausted),observed)).command());
+		cells.put(target,new Seen("air",true,true,false,15,2));
+		var changed = new StoneAcquisition.World(observed.eye(),feet,Map.of(),cells);
+		assertInstanceOf(Look.class,assertInstanceOf(Execute.class,domain.decide(view(task),changed)).command());
+	}
+
 	@Test void approachesMinedDropBesideALowCeilingInsteadOfSurveying() {
 		var target = new Pos(0, 1, 2);
 		var approach = new Pos(0, 1, 1);

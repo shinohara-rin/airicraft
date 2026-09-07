@@ -147,11 +147,11 @@ final class SystemOneStoneFixture {
 					}
 				}
 				else if (scenario.equals("system-one-search-radius")) {
-					for (int dx=-2;dx<=2;dx++) for (int dz=-2;dz<=74;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
-					for (int dz=0;dz<=70;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					for (int dx=-2;dx<=2;dx++) for (int dz=-2;dz<=86;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
+					for (int dz=0;dz<=82;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
 					var light = Blocks.WALL_TORCH.getDefaultState().with(net.minecraft.state.property.Properties.HORIZONTAL_FACING,net.minecraft.util.math.Direction.WEST);
-					for (int dz=0;dz<=66;dz+=6) world.setBlockState(new BlockPos(x,202,z+dz),light,3);
-					world.setBlockState(new BlockPos(x,200,z+71),Blocks.IRON_ORE.getDefaultState(),3);
+					for (int dz=0;dz<=78;dz+=6) world.setBlockState(new BlockPos(x,202,z+dz),light,3);
+					world.setBlockState(new BlockPos(x,200,z+83),Blocks.IRON_ORE.getDefaultState(),3);
 					player.getInventory().setStack(0,new ItemStack(Items.STONE_PICKAXE));
 					player.getInventory().setStack(1,new ItemStack(Items.TORCH,8));
 				}
