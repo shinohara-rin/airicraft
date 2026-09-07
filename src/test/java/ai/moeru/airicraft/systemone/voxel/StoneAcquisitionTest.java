@@ -1,0 +1,79 @@
+package ai.moeru.airicraft.systemone.voxel;
+
+import ai.moeru.airicraft.systemone.TaskKernel;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static ai.moeru.airicraft.systemone.TaskKernel.*;
+import static ai.moeru.airicraft.systemone.voxel.StoneAcquisition.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
+import static org.junit.jupiter.api.Assertions.*;
+
+class StoneAcquisitionTest {
+	private static final Pos FEET = new Pos(0, 4, 0);
+	private static final Pose EYE = new Pose(0.5, 5.62, 0.5, 0, 55);
+	private static final Map<String, Integer> TOOL = Map.of("minecraft:wooden_pickaxe", 1);
+	private final StoneAcquisition domain = new StoneAcquisition();
+
+	@Test void geologicalPriorSelectsAnObservedSurfaceInsteadOfAnUnseenStoneCoordinate() {
+		Pos surface = FEET.offset(1, -1, 0);
+		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:grass_block")));
+		var result = domain.decide(ready(), world);
+		assertEquals(new Break(surface, "minecraft:grass_block"), ((Execute<Task, Command>) result).command());
+	}
+
+	@Test void anObservedTargetAfterMovementDoesNotTriggerARoutinePanorama() {
+		Pos surface = FEET.offset(1, -1, 0);
+		Task task = new Task(3, FEET, 0, 0, Set.of(), Optional.of(new Navigate(FEET, 24, 200)));
+		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("stance_reached")), Optional.empty());
+		var result = domain.decide(view, new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"))));
+		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, Command>) result).command());
+	}
+
+	@Test void surveysOnlyWhenNoObservedLocalTargetIsAvailable() {
+		var view = new View<>(1, Task.begin(3, FEET), false, 1, Optional.<Outcome>empty(), Optional.<Outcome>empty());
+		assertInstanceOf(Look.class, ((Execute<Task, Command>) domain.decide(view, new World(EYE, FEET, TOOL, Map.of()))).command());
+	}
+
+	@Test void distantExposedStoneDoesNotOverrideAffordableLocalExcavation() {
+		Pos surface = FEET.offset(1, -1, 0);
+		var world = new World(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:dirt"), FEET.offset(100, -1, 0), seen("minecraft:stone")));
+		assertEquals(new Break(surface, "minecraft:dirt"), ((Execute<Task, Command>) domain.decide(ready(), world)).command());
+	}
+
+	@Test void willNotBreakItsOwnFootingOrUnidentifiedDarkBlocks() {
+		var world = new World(EYE, FEET, TOOL, Map.of(FEET.offset(0, -1, 0), seen("minecraft:stone"),
+			FEET.offset(1, -1, 0), new Seen("unknown", false, false, 0, 1)));
+		assertInstanceOf(Complete.class, domain.decide(ready(), world));
+	}
+
+	@Test void prefersDeepeningTheExcavationOverWideningItsSurface() {
+		Pos lower = FEET.offset(1, -1, 0), higher = FEET.offset(1, 0, 0);
+		var world = new World(EYE, FEET, TOOL, Map.of(lower, seen("minecraft:dirt"), higher, seen("minecraft:grass_block")));
+		assertEquals(new Break(lower, "minecraft:dirt"), ((Execute<Task, Command>) domain.decide(ready(), world)).command());
+	}
+
+	@Test void aSuccessfulBreakCanDescendIntoObservedSpaceWithKnownSupport() {
+		Pos target = FEET.offset(1, -1, 0);
+		Task task = new Task(3, FEET, 4, 0, Set.of(), Optional.of(new Break(target, "minecraft:dirt")));
+		var view = new View<>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
+		var world = new World(EYE, FEET, TOOL, Map.of(target, seen("minecraft:air"), target.offset(0, 1, 0), seen("minecraft:air"),
+			target.offset(0, -1, 0), seen("minecraft:dirt")));
+		assertEquals(new Navigate(target, 24, 200), ((Execute<Task, Command>) domain.decide(view, world)).command());
+	}
+
+	@Test void pathCompletionAloneDoesNotSatisfyTheInventoryGoal() {
+		var world = new World(EYE, FEET, Map.of("minecraft:cobblestone", 3), Map.of());
+		assertEquals(new Complete<Task, Command>(Outcome.success("cobblestone_inventory_observed")), domain.decide(ready(), world));
+		assertNotEquals(new Complete<Task, Command>(Outcome.success("cobblestone_inventory_observed")),
+			domain.decide(ready(), new World(EYE, FEET, TOOL, Map.of())));
+	}
+
+	private static View<Task> ready() {
+		return new View<>(1, new Task(3, FEET, 4, 0, Set.of(), Optional.empty()), false, 1, Optional.empty(), Optional.empty());
+	}
+	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, 15, 1); }
+}

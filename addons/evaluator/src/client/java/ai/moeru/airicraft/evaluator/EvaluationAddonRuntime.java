@@ -43,6 +43,7 @@ public final class EvaluationAddonRuntime {
 	private final EvaluationFlightRecorder recorder = new EvaluationFlightRecorder();
 	private final EvaluationWaypointSeeder waypointSeeder = new EvaluationWaypointSeeder();
 	private final SurvivalSmokeFixtureService survivalFixtures = new SurvivalSmokeFixtureService();
+	private final SystemOneStoneFixture stoneFixture = new SystemOneStoneFixture();
 
 	private EvaluationScenario scenario;
 	private boolean waypointsSeeded;
@@ -68,6 +69,7 @@ public final class EvaluationAddonRuntime {
 			return;
 		}
 		EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
+		if (!stoneFixture.ready(client, activeScenario.id(), runtime.tickCount())) return;
 		if (!waypointsSeeded && runtime.sessionSnapshot().worldLoaded()) {
 			try {
 				waypointSeeder.seed(activeScenario);
@@ -172,6 +174,7 @@ public final class EvaluationAddonRuntime {
 				runtime.prepareForEvaluation();
 				scenario = nextScenario;
 				waypointsSeeded = false;
+				stoneFixture.reset();
 				runner.start(nextScenario, runtime.tickCount(), System.currentTimeMillis());
 				recorder.start(nextScenario, outputDir, restoredWorld);
 				runState = RunState.RUNNING;
@@ -297,6 +300,10 @@ public final class EvaluationAddonRuntime {
 			clearCleanup();
 			return;
 		}
+		if (runtime.systemOneActive()) {
+			recorder.recordSystemOneCleanup(runtime);
+			if (runtime.systemOneBusy()) return;
+		}
 		clearCleanup();
 	}
 
@@ -316,6 +323,7 @@ public final class EvaluationAddonRuntime {
 		response.put("report", runner.report(runtime.tickCount()));
 		response.put("recording", recorder.statusPayload());
 		response.put("noLlmActive", AiricraftClient.runtimeController().agentRuntime().noLlmActive());
+		response.put("systemOne", runtime.systemOneStatus());
 		response.put("runState", runState.name());
 		response.put("postFinishCleanupPending", runState == RunState.CLEANUP);
 		return response;
@@ -365,6 +373,7 @@ public final class EvaluationAddonRuntime {
 		var settings = currentScenario == null ? ai.moeru.airicraft.agent.evaluation.EvaluationEvidenceSettings.defaults() : currentScenario.evidence();
 		evidence.put("report", runner.report(runtime.tickCount()));
 		evidence.put("session", runtime.sessionSnapshot());
+		evidence.put("systemOne", runtime.systemOneStatus());
 		if (settings.includeTaskState()) {
 			evidence.put("activeGoal", runtime.activeGoal().orElse(null));
 			evidence.put("task", runtime.taskSnapshot());
@@ -462,6 +471,7 @@ public final class EvaluationAddonRuntime {
 
 		@Override
 		public String startGoal(EvaluationGoal goal) {
+			if (runtime.systemOneActive()) return runtime.startSystemOneGoal(goal.itemId(), goal.quantity());
 			try {
 				var result = runtime.startActionGoalDetailed(goal.toActionGoal(), "evaluation_no_llm");
 				if (result.admission() != ActionGraphAdmission.STARTED || result.execution() == null) {
@@ -476,6 +486,7 @@ public final class EvaluationAddonRuntime {
 
 		@Override
 		public Optional<String> goalFailure(String executionId) {
+			if (runtime.systemOneActive()) return runtime.systemOneGoalFailure(executionId);
 			var view = runtime.actionGraphExecution(executionId);
 			if (view == null) {
 				return Optional.of("No-LLM goal execution disappeared: " + executionId);
@@ -543,11 +554,13 @@ public final class EvaluationAddonRuntime {
 
 		@Override
 		public String taskState() {
+			if (runtime.systemOneActive()) return String.valueOf(runtime.systemOneStatus().get("state"));
 			return runtime.taskSnapshot().state().name();
 		}
 
 		@Override
 		public String taskExecutionState() {
+			if (runtime.systemOneActive()) return String.valueOf(runtime.systemOneStatus().get("state"));
 			return runtime.taskExecutionSnapshot().state().name();
 		}
 

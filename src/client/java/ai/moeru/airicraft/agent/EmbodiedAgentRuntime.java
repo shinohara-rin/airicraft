@@ -263,6 +263,8 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	private final MinecraftBlockAcquisitionKnowledgeService blockAcquisitionKnowledgeService = new MinecraftBlockAcquisitionKnowledgeService();
 	private final boolean codexDriverActive;
 	private final boolean noLlmActive;
+	private final ai.moeru.airicraft.systemone.minecraft.SystemOneHost systemOneHost =
+		ai.moeru.airicraft.systemone.minecraft.ObservedTerrain.ENABLED ? new ai.moeru.airicraft.systemone.minecraft.SystemOneHost() : null;
 
 	private boolean initialized;
 	private long tickCount;
@@ -305,6 +307,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		this.config = Objects.requireNonNull(config, "config");
 		this.codexDriverActive = Boolean.getBoolean("airicraft.codexDriver");
 		this.noLlmActive = Boolean.getBoolean("airicraft.noLlm");
+		if (systemOneHost != null && !noLlmActive) throw new IllegalStateException("System 1 currently requires no-LLM mode");
 		if (codexDriverActive && noLlmActive) {
 			throw new IllegalArgumentException("No-LLM mode cannot be combined with Codex-driver mode");
 		}
@@ -446,6 +449,12 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		sessionSnapshot = sessionSnapshotOverrideForTests != null
 			? sessionSnapshotOverrideForTests.withTickCount(tickCount)
 			: sessionRuntime.poll(client, tickCount, eventBuffer);
+		if (systemOneHost != null) {
+			openLanIfSingleplayerLocal(client);
+			systemOneHost.tick(client, tickCount, (type, payload) -> eventBuffer.append(tickCount, type, payload));
+			drainEventPipeline();
+			return;
+		}
 		blockAcquisitionKnowledgeService.tick(client);
 		activeJobRuntime.updateBlockAcquisitions(blockAcquisitions());
 		enforcePlayerLifecycle(client);
@@ -1072,6 +1081,15 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return noLlmActive;
 	}
 
+	public boolean systemOneActive() { return systemOneHost != null; }
+	public boolean systemOneBusy() { return systemOneHost != null && systemOneHost.busy(); }
+	public String startSystemOneGoal(String item, int count) {
+		if (systemOneHost == null) throw new IllegalStateException("System 1 is not selected");
+		return systemOneHost.start(item, count, MinecraftClient.getInstance(), tickCount);
+	}
+	public Optional<String> systemOneGoalFailure(String id) { return systemOneHost.failure(id); }
+	public Map<String, Object> systemOneStatus() { return systemOneHost == null ? Map.of("runtime", "legacy") : systemOneHost.status(); }
+
 	public boolean codexDriverActive() {
 		return codexDriverActive;
 	}
@@ -1218,6 +1236,11 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 	}
 
 	public void finishEvaluation() {
+		if (systemOneHost != null) {
+			systemOneHost.cancel("evaluation_finished");
+			dialogueRuntime.clear();
+			return;
+		}
 		evaluationPlannerSuppressed = true;
 		eventPipeline.clearPlannerFeed();
 		completePendingCraftToolResult("Tool result for craft_recipe: cancelled reason=evaluation_finished");

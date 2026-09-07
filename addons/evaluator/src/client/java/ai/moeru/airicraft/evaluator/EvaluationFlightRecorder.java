@@ -115,6 +115,17 @@ public final class EvaluationFlightRecorder {
 		return payload;
 	}
 
+	public void recordSystemOneCleanup(EmbodiedAgentRuntime runtime) {
+		if (outputDir == null) return;
+		try {
+			drainEvents(runtime, now());
+			writeJson(outputDir.resolve("system-one-final.json"), runtime.systemOneStatus());
+		}
+		catch (IOException exception) {
+			Airicraft.LOGGER.warn("Failed to record System 1 control release", exception);
+		}
+	}
+
 	public void reset() {
 		outputDir = null;
 		scenario = null;

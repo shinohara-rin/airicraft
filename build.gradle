@@ -23,6 +23,7 @@ def runClientJdwpPort = providers.gradleProperty("airicraft.jdwp.port").orElse("
 def runClientJdwpSuspend = providers.gradleProperty("airicraft.jdwp.suspend").orElse("n")
 def devPlayerName = providers.gradleProperty("airicraft.devPlayerName").orElse("AiricraftTest")
 def noLlmEnabled = providers.gradleProperty("airicraft.noLlm").orElse("false")
+def systemOneEnabled = providers.gradleProperty("airicraft.systemOne").orElse("false")
 def codexDriverEnabled = providers.gradleProperty("airicraft.codexDriver").orElse("false")
 def arthasVersion = providers.gradleProperty("airicraft.arthas.version").orElse("4.1.8")
 def arthasBootUrl = providers.gradleProperty("airicraft.arthas.bootUrl").orElse("https://arthas.aliyun.com/arthas-boot.jar")
@@ -279,6 +280,7 @@ tasks.named("runClient").configure {
 	)
 	systemProperty("airicraft.codexDriver", codexDriverEnabled.get())
 	systemProperty("airicraft.noLlm", noLlmEnabled.get())
+	systemProperty("airicraft.systemOne", systemOneEnabled.get())
 }
 
 allprojects {
@@ -291,6 +293,7 @@ allprojects {
 		jvmArgs.addAll(hotswapJvmArgs(taskHotswapConfig))
 		jvmArgs.add("-Dairicraft.codexDriver=${codexDriverEnabled.get()}")
 		jvmArgs.add("-Dairicraft.noLlm=${noLlmEnabled.get()}")
+		jvmArgs.add("-Dairicraft.systemOne=${systemOneEnabled.get()}")
 		programArgs.addAll("--username", devPlayerName.get())
 	}
 

@@ -3,6 +3,8 @@
 	"package": "ai.moeru.airicraft.mixin.client",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
+		"BaritoneObservedTerrainMixin",
+		"BaritoneUnknownSupportMixin",
 		"ClientPlayNetworkHandlerMixin",
 		"ClientPlayerInteractionManagerMixin",
 		"ClientPlayerInteractionManagerAccessor",
