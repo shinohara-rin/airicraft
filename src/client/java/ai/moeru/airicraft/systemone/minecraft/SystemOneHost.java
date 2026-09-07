@@ -60,7 +60,13 @@ public final class SystemOneHost {
 		state = step.state();
 		for (var event : step.events()) trace.accept("system_one." + event.type(), Map.of("run", state.run(), "task", event.task(), "detail", event.detail()));
 		for (var effect : step.effects()) {
-			trace.accept("system_one.motor_effect", Map.of("run", state.run(), "effect", effect.toString()));
+			var payload = new java.util.LinkedHashMap<String, Object>();
+			payload.put("run", state.run()); payload.put("effect", effect.toString());
+			if (effect instanceof Start<VoxelCommand> start) {
+				payload.put("commandType", start.command().getClass().getSimpleName());
+				if (start.command() instanceof VoxelCommand.Break broken) payload.put("targetBlock", broken.expectedBlock());
+			}
+			trace.accept("system_one.motor_effect", payload);
 			motor.apply(effect, client, tick);
 		}
 	}

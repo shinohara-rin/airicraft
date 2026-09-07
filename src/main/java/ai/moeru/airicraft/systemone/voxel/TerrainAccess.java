@@ -49,7 +49,7 @@ public final class TerrainAccess {
 			if (route.isEmpty()) route = localRoute(state, world, rejected, clearable, eligible);
 			if (route.isEmpty()) return new Unavailable("no_local_access_proposal");
 			Edge selected = route.getFirst();
-			VoxelCommand command = prepare(selected, world, clearable);
+			VoxelCommand command = prepare(selected, world, clearable, eligible);
 			// A completed look with no usable new evidence cannot retry the same proposal forever.
 			if (command == null || command instanceof Look && command.equals(state.last()) && state.step().filter(selected::equals).isPresent()
 				|| command instanceof Navigate && state.failedApproach().filter(selected::equals).isPresent()) {
@@ -108,7 +108,7 @@ public final class TerrainAccess {
 		}
 		return cost;
 	}
-	private static VoxelCommand prepare(Edge edge, World world, Set<String> clearable) {
+	private static VoxelCommand prepare(Edge edge, World world, Set<String> clearable, Predicate<Pos> eligible) {
 		var cells = clearance(edge);
 		for (Pos cell : cells) {
 			Seen seen = world.known().get(cell);
@@ -117,11 +117,17 @@ public final class TerrainAccess {
 		}
 		for (Pos cell : cells) {
 			Seen seen = world.known().get(cell);
-			if (seen == null || !seen.traversable()) return look(world.eye(), cell);
+			if (seen == null || !seen.traversable()) return inspect(world, cell, clearable, eligible);
 		}
 		Pos floor = edge.to().offset(0, -1, 0);
-		if (!StoneAcquisition.supportsStanding(world.known().get(floor))) return look(world.eye(), floor);
+		if (!StoneAcquisition.supportsStanding(world.known().get(floor))) return inspect(world, floor, clearable, eligible);
 		return new Navigate(edge.to(), 12, 100);
+	}
+	static VoxelCommand inspect(World world, Pos target, Set<String> clearable, Predicate<Pos> eligible) {
+		return ObservedReach.obstruction(world.known(), world.eye(), target, 4.3)
+			.filter(pos -> eligible.test(pos) && !world.footholds().contains(pos) && !pos.equals(world.feet().offset(0,-1,0)))
+			.filter(pos -> clearable.contains(world.known().get(pos).blockId()) && ObservedReach.visible(world.known(), world.eye(), pos, 4.3))
+			.<VoxelCommand>map(pos -> new Break(pos, world.known().get(pos).blockId())).orElseGet(() -> look(world.eye(), target));
 	}
 	private static List<Pos> clearance(Edge edge) {
 		var cells = new LinkedHashSet<Pos>();

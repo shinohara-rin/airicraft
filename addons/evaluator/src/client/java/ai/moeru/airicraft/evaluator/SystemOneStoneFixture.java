@@ -29,7 +29,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -145,6 +145,27 @@ final class SystemOneStoneFixture {
 						world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
 						world.setBlockState(new BlockPos(x - 1, 201, z), Blocks.AIR.getDefaultState(), 3);
 					}
+				}
+				else if (scenario.equals("system-one-obscured-support") || scenario.equals("system-one-cave-turn")) {
+					boolean turn = scenario.equals("system-one-cave-turn");
+					for (int dx=-4;dx<=2;dx++) for (int dz=-1;dz<=8;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
+					for (int dz=0;dz<=6;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					world.setBlockState(new BlockPos(x,200,z),Blocks.TORCH.getDefaultState(),3);
+					if (turn) {
+						for (int dx=-2;dx<=0;dx++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x+dx,y,z+6),Blocks.AIR.getDefaultState(),3);
+						for (int dz=2;dz<=6;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x-2,y,z+dz),Blocks.AIR.getDefaultState(),3);
+						world.setBlockState(new BlockPos(x,200,z+3),Blocks.TORCH.getDefaultState(),3);
+						world.setBlockState(new BlockPos(x-2,200,z+6),Blocks.TORCH.getDefaultState(),3);
+						world.setBlockState(new BlockPos(x-2,200,z+1),Blocks.IRON_ORE.getDefaultState(),3);
+					} else {
+						for (int dz=1;dz<=5;dz++) {
+							world.setBlockState(new BlockPos(x,199,z+dz),(dz==5 ? Blocks.IRON_ORE : Blocks.STONE).getDefaultState(),3);
+							world.setBlockState(new BlockPos(x,200,z+dz),Blocks.LEAF_LITTER.getDefaultState(),3);
+						}
+						world.setBlockState(new BlockPos(x,200,z+6),Blocks.TORCH.getDefaultState(),3);
+					}
+					player.getInventory().setStack(0,new ItemStack(Items.STONE_PICKAXE));
+					player.getInventory().setStack(1,new ItemStack(Items.TORCH,8));
 				}
 				else if (scenario.equals("system-one-stone-canopy")) {
 					for (int dx=-6;dx<=6;dx++) for (int dz=-6;dz<=8;dz++) {

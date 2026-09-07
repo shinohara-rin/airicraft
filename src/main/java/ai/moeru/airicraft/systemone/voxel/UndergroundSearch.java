@@ -60,17 +60,18 @@ public final class UndergroundSearch {
 			}
 		}
 		Optional<Pos> retained = destination;
+		int[] heading = DIRECTIONS[task.direction()];
 		// Finish an opened step: its newly cleared headroom is not a competing cave discovery.
 		// Before excavation starts, a look can still replace the proposal with an existing floor.
-		candidates.sort(Comparator.comparingInt(p -> task.preparation() == Preparation.EXCAVATING && retained.filter(p::equals).isPresent() ? 0
+		candidates.sort(Comparator.<Pos>comparingInt(p -> task.preparation() == Preparation.EXCAVATING && retained.filter(p::equals).isPresent() ? 0
+			: (p.x() - world.feet().x()) * heading[0] + (p.z() - world.feet().z()) * heading[1] < 0 ? 1 : 0)
+			.thenComparingInt(p -> task.preparation() == Preparation.EXCAVATING && retained.filter(p::equals).isPresent() ? 0
 			: StoneAcquisition.standable(world.known(), p) ? 1
 			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 2
 			: retained.filter(p::equals).isPresent() ? 3 : 4));
 		for (Pos next : candidates) {
 			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
-			int[] heading = DIRECTIONS[task.direction()];
-			if ((next.x() - world.feet().x()) * heading[0] + (next.z() - world.feet().z()) * heading[1] < 0) continue;
 			if (world.footholds().contains(next.offset(0, -1, 0)) && retained.filter(next::equals).isEmpty()) continue;
 			var column = entryColumn(world, next);
 			boolean obstructed = false;
@@ -92,9 +93,9 @@ public final class UndergroundSearch {
 			var footing = foothold(task.prior(), world, next, reserved);
 			if (footing.isPresent()) return action(task, world, steps, rejected, next, null, footing.get());
 			Pos inspect = column.stream().filter(p -> world.known().get(p) == null || !world.known().get(p).identified()).findFirst().orElse(next.offset(0, -1, 0));
-			if (looked.filter(inspect::equals).isEmpty()) {
-				double dx = inspect.x() + .5 - world.eye().x(), dy = inspect.y() + .5 - world.eye().y(), dz = inspect.z() + .5 - world.eye().z();
-				return action(task, world, steps, rejected, next, inspect, new Look((float) Math.toDegrees(Math.atan2(-dx, dz)), (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)))));
+			VoxelCommand observation = TerrainAccess.inspect(world, inspect, Set.copyOf(task.prior().excavatable()), eligible);
+			if (observation instanceof Break || looked.filter(inspect::equals).isEmpty()) {
+				return action(task, world, steps, rejected, next, observation instanceof Look ? inspect : null, observation);
 			}
 			rejected.add(next);
 		}

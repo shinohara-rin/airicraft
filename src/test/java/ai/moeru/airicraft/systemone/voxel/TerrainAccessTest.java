@@ -216,6 +216,20 @@ class TerrainAccessTest {
 		var failed = TerrainAccess.advance(first.state(),world(known,start,Set.of()),Optional.of(Outcome.failure("observed_route_unavailable")),2,CLEARABLE,p->true);
 		assertFalse(failed instanceof TerrainAccess.Action a && a.command().equals(first.command()),"failed route edges cannot be repeated unchanged");
 	}
+	@Test void inspectingHiddenSupportCanClearOnlyAnAuthorizedObservedObstruction() {
+		Pos start = new Pos(0,4,0), next = new Pos(0,4,1), floor = next.offset(0,-1,0);
+		var known = new HashMap<Pos,Seen>();
+		known.put(start,air()); known.put(start.offset(0,1,0),air()); known.put(start.offset(0,-1,0),stone());
+		known.put(next.offset(0,1,0),air()); known.put(next,new Seen("litter",false,true,false,15,1,true));
+		var world = world(known,start,Set.of());
+		var action = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(TerrainAccess.State.begin(start,next,0),world,Optional.empty(),1,Set.of("litter"),p->true));
+		assertEquals(new Break(next,"litter"),action.command());
+		assertInstanceOf(Look.class,TerrainAccess.inspect(world,floor,Set.of(),p->true));
+		assertInstanceOf(Look.class,TerrainAccess.inspect(world,floor,Set.of("litter"),p->!p.equals(next)));
+		assertInstanceOf(Look.class,TerrainAccess.inspect(world(known,start,Set.of(next)),floor,Set.of("litter"),p->true));
+		known.put(next,new Seen("unknown",false,false,false,0,2));
+		assertInstanceOf(Look.class,TerrainAccess.inspect(world(known,start,Set.of()),floor,Set.of("unknown"),p->true));
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));

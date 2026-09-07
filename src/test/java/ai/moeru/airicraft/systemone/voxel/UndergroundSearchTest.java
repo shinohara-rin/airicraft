@@ -159,6 +159,38 @@ class UndergroundSearchTest {
 		var action = search.decide(view(task), world);
 		assertFalse(action instanceof Execute<?, ?> execute && execute.command() instanceof Navigate move && move.stance().equals(visitedFloor.offset(0, 1, 0)));
 	}
+	@Test void headingIsAPreferenceAtTheSearchRegionBoundary() {
+		Pos origin = new Pos(-6,69,18), feet = new Pos(-17,16,81), inward = feet.offset(0,0,-1);
+		var prior = new SearchPrior("ore",16,64,96,List.of("minecraft:stone"));
+		var known = new HashMap<Pos,Seen>();
+		for (int x=-18;x<=-16;x++) for (int z=80;z<=82;z++) for (int y=15;y<=18;y++) known.put(new Pos(x,y,z),seen(y==15 ? "minecraft:stone" : "minecraft:air"));
+		known.put(inward,seen("minecraft:stone")); known.put(inward.offset(0,1,0),seen("minecraft:stone"));
+		var world = new StoneAcquisition.World(new Pose(-16.5,17.62,81.5,0,0),feet,Map.of("minecraft:stone_pickaxe",1),known,Set.of(feet.offset(1,-1,0),feet.offset(0,-1,0)));
+		var task = new Task(prior,List.of("iron"),origin,feet,0,73,Set.of(),Set.of(),Optional.empty(),Optional.empty(),null);
+		var action = assertInstanceOf(Execute.class,search.decide(view(task),world));
+		var target = assertInstanceOf(Break.class,action.command()).target();
+		assertEquals(inward.x(),target.x()); assertEquals(inward.z(),target.z());
+		assertEquals(73,((Task)action.continuation()).steps()); assertEquals(origin,((Task)action.continuation()).origin());
+	}
+	@Test void clearsVisibleLitterThenWaitsForAnObservationOfItsHiddenSupport() {
+		Pos next = FEET.offset(0,0,1), floor = next.offset(0,-1,0);
+		var known = new HashMap<>(world(Map.of()).known()); known.remove(floor);
+		known.put(next,new Seen("minecraft:leaf_litter",false,true,false,15,1,true));
+		var prior = new SearchPrior("ore",4,16,20,List.of("minecraft:stone","minecraft:leaf_litter"));
+		var world = new StoneAcquisition.World(EYE_FOR_LITTER,FEET,Map.of("minecraft:stone_pickaxe",1),known);
+		var task = Task.begin(prior,List.of("iron"),world,Set.of());
+		var clear = assertInstanceOf(Execute.class,search.decide(view(task),world,Map.of(),p->p.x()==0&&p.z()>=0));
+		assertEquals(new Break(next,"minecraft:leaf_litter"),clear.command());
+		known.put(next,seen("minecraft:air"));
+		world = new StoneAcquisition.World(world.eye(),FEET,world.inventory(),known);
+		var inspect = assertInstanceOf(Execute.class,search.decide(new View<>(1,(Task)clear.continuation(),false,2,Optional.of(Outcome.success("broken")),Optional.empty()),world,Map.of(),p->p.x()==0&&p.z()>=0));
+		assertInstanceOf(Look.class,inspect.command(),"removing the plant does not prove what was underneath it");
+		known.put(floor,seen("minecraft:stone"));
+		world = new StoneAcquisition.World(world.eye(),FEET,world.inventory(),known);
+		var enter = assertInstanceOf(Execute.class,search.decide(new View<>(1,(Task)inspect.continuation(),false,3,Optional.of(Outcome.success("looked")),Optional.empty()),world,Map.of(),p->p.x()==0&&p.z()>=0));
+		assertEquals(next,assertInstanceOf(Navigate.class,enter.command()).stance());
+	}
+	private static final Pose EYE_FOR_LITTER = new Pose(.5,5.62,.5,0,45);
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, !id.equals("minecraft:air"), 15, 1); }
 	private static StoneAcquisition.World world(Map<Pos, Seen> blocks) {
