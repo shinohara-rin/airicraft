@@ -29,6 +29,16 @@ class UndergroundSearchTest {
 		var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
 		assertInstanceOf(Look.class, action.command());
 	}
+	@Test void observedSupportDoesNotDependOnTheExcavationMaterialList() {
+		for (String id : List.of("minecraft:andesite", "minecraft:deepslate", "another_game:floor")) {
+			var floor = FEET.offset(0, -1, 1);
+			var world = world(Map.of(floor, new Seen(id, false, true, true, 15, 1)));
+			var action = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), world, Set.of())), world));
+			assertEquals(new Navigate(FEET.offset(0, 0, 1), 12, 200), action.command());
+			assertFalse(StoneAcquisition.supportsStanding(new Seen(id, false, true, false, 15, 1)));
+			assertFalse(StoneAcquisition.supportsStanding(new Seen(id, false, false, true, 0, 1)));
+		}
+	}
 	@Test void cheapFloorBehindTheSearchDoesNotDisplaceForwardExcavation() {
 		var surface = FEET.offset(0, 0, 1);
 		var world = world(Map.of(surface, seen("minecraft:stone"), FEET.offset(0, -1, -1), seen("minecraft:stone")));
@@ -43,7 +53,7 @@ class UndergroundSearchTest {
 	}
 	@Test void anInterruptedDestinationIsRevalidatedInsteadOfBlindlyResumed() {
 		var blocked = FEET.offset(0, -1, 1);
-		var world = world(Map.of(blocked, seen("lava"), FEET.offset(-1, -1, 0), seen("minecraft:dirt")));
+		var world = world(Map.of(blocked, new Seen("lava", false, true, false, 15, 1), FEET.offset(-1, -1, 0), seen("minecraft:dirt")));
 		var task = new Task(PRIOR, List.of("iron"), FEET, FEET, 0, 3, Set.of(), Set.of(), Optional.of(blocked), Optional.empty(), new Navigate(blocked, 12, 200));
 		var action = assertInstanceOf(Execute.class, search.decide(view(task), world));
 		assertEquals(new Navigate(FEET.offset(-1, 0, 0), 12, 200), action.command());
@@ -62,7 +72,7 @@ class UndergroundSearchTest {
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, search.decide(view(exhausted), world)).outcome().kind());
 	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
-	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, 15, 1); }
+	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, !id.equals("minecraft:air"), 15, 1); }
 	private static StoneAcquisition.World world(Map<Pos, Seen> blocks) {
 		var known = new HashMap<Pos, Seen>();
 		for (int x = -2; x <= 2; x++) for (int z = -2; z <= 2; z++) for (int y = 3; y <= 6; y++) known.put(new Pos(x, y, z), seen("minecraft:air"));

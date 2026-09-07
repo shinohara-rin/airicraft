@@ -61,7 +61,7 @@ class StoneTapeTest {
 		for (int tick = 1; tick <= 4; tick++) {
 			Map<String, Integer> inventory = tick < 3 ? Map.of("minecraft:wooden_pickaxe", 1) : Map.of("minecraft:cobblestone", 1);
 			World world = new World(new Pose(0.5, 5.62, 0.5, tick * 90, 55), feet, inventory,
-				tick == 1 ? Map.of(new Pos(100, 3, 0), new Seen("minecraft:stone", false, true, 15, tick)) : Map.of());
+				tick == 1 ? Map.of(new Pos(100, 3, 0), new Seen("minecraft:stone", false, true, true, 15, tick)) : Map.of());
 			List<Feedback> feedback = switch (tick) {
 				case 2 -> List.of(new Finished(new Token("session", "run", 1, 1), Outcome.failure("obstruction")));
 				case 4 -> List.of(new Released(new Token("session", "run", 1, 2)));

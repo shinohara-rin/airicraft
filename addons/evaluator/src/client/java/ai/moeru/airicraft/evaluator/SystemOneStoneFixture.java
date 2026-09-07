@@ -58,6 +58,10 @@ final class SystemOneStoneFixture {
 					for (int dz = 1; dz <= length; dz++) for (int dx = -halfWidth; dx <= halfWidth; dx++) {
 						int floor = 200 - Math.min(dz, 4);
 						for (int y = floor; y <= floor + 2; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
+						if (scenario.equals("system-one-lighting-stairs")) {
+							var support = dz % 2 == 0 ? Blocks.ANDESITE : Blocks.DEEPSLATE;
+							world.setBlockState(new BlockPos(x + dx, floor - 1, z + dz), support.getDefaultState(), 3);
+						}
 					}
 					world.setBlockState(new BlockPos(x, 196, z + length + 2), Blocks.IRON_ORE.getDefaultState(), 3);
 					world.setBlockState(new BlockPos(x + 1, 200, z), Blocks.TORCH.getDefaultState(), 3);

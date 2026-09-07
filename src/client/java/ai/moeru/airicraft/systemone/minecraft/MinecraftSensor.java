@@ -7,6 +7,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.EmptyBlockView;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,10 +28,11 @@ final class MinecraftSensor {
 		Map<Pos, BlockState> samples = new HashMap<>();
 		Map<Pos, Seen> seen = VoxelObservation.observe(pos -> {
 			BlockPos p = new BlockPos(pos.x(), pos.y(), pos.z());
-			if (!client.world.isChunkLoaded(p)) return new Sample("unknown", false, 0);
+			if (!client.world.isChunkLoaded(p)) return new Sample("unknown", false, false, 0);
 			BlockState state = client.world.getBlockState(p);
 			samples.put(pos, state);
-			return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(), client.world.getLightLevel(p));
+			// Static collision shapes are cached by Minecraft; this does not query hidden neighbors.
+			return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(), !state.getBlock().hasDynamicBounds() && state.isFullCube(EmptyBlockView.INSTANCE, p), client.world.getLightLevel(p));
 		}, pose, LENS, tick);
 		seen.forEach((pos, value) -> {
 			// A dark re-observation cannot refresh a remembered block's identity.

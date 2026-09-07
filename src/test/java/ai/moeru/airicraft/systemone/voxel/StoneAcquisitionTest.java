@@ -47,7 +47,7 @@ class StoneAcquisitionTest {
 
 	@Test void willNotBreakItsOwnFootingOrUnidentifiedDarkBlocks() {
 		var world = world(EYE, FEET, TOOL, Map.of(FEET.offset(0, -1, 0), seen("minecraft:stone"),
-			FEET.offset(1, -1, 0), new Seen("unknown", false, false, 0, 1)));
+			FEET.offset(1, -1, 0), new Seen("unknown", false, false, false, 0, 1)));
 		assertInstanceOf(Complete.class, domain.decide(ready(), world));
 	}
 
@@ -146,5 +146,5 @@ class StoneAcquisitionTest {
 	private static View<Task> ready() {
 		return new View<>(1, new Task(3, FEET, 4, 0, Set.of(), Optional.empty()), false, 1, Optional.empty(), Optional.empty());
 	}
-	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, 15, 1); }
+	private static Seen seen(String id) { return new Seen(id, id.equals("minecraft:air"), true, !id.equals("minecraft:air"), 15, 1); }
 }

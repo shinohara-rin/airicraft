@@ -11,8 +11,9 @@ public final class VoxelObservation {
 		public Pos offset(int dx, int dy, int dz) { return new Pos(x + dx, y + dy, z + dz); }
 	}
 	public record Pose(double x, double y, double z, double yaw, double pitch) {}
-	public record Sample(String blockId, boolean empty, int light) {}
-	public record Seen(String blockId, boolean empty, boolean identified, int light, long tick) {}
+	/** fullSupport describes observed full-block collision geometry, not a hazard policy. */
+	public record Sample(String blockId, boolean empty, boolean fullSupport, int light) {}
+	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick) {}
 	public record Lens(double range, int yawDegrees, int pitchDegrees, int spacingDegrees, int identificationLight) {
 		public Lens {
 			if (!Double.isFinite(range) || range <= 0 || range > 64 || yawDegrees < 1 || yawDegrees > 180
@@ -49,7 +50,7 @@ public final class VoxelObservation {
 			Sample sample = scene.sample(pos);
 			int light = Math.max(sample.light(), previousLight);
 			boolean identified = sample.empty() || light >= lens.identificationLight();
-			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, light, tick);
+			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick);
 			visible.merge(pos, seen, (a, b) -> a.identified() && !b.identified() ? a : b);
 			if (!sample.empty()) return;
 			previousLight = sample.light();

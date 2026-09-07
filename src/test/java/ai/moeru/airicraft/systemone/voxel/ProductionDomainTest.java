@@ -69,8 +69,8 @@ class ProductionDomainTest {
 		var state = kernel.begin("session", "run", Acquire.root("planks", 3), 0);
 		var base = world(Map.of());
 		var seen = new HashMap<>(base.known());
-		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) seen.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, 15, 0));
-		seen.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 0));
+		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) seen.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, false, 15, 0));
+		seen.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, true, 15, 0));
 		var step = kernel.advance(state, new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), seen), List.of(), 1);
 		assertEquals("oak", ((Acquire) step.state().stack().getFirst().task()).method());
 		assertEquals("oak_log", ((Break) ((Start<VoxelCommand>) step.effects().getFirst()).command()).expectedBlock());
@@ -85,8 +85,8 @@ class ProductionDomainTest {
 		var look = (Start<VoxelCommand>) first.effects().getFirst();
 		assertInstanceOf(Look.class, look.command());
 		var known = new HashMap<>(base.known());
-		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) known.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, 15, 2));
-		known.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, 15, 2));
+		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) known.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, false, 15, 2));
+		known.put(new Pos(0, 1, 2), new Seen("oak_log", false, true, true, 15, 2));
 		var discovered = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
 		var next = kernel.advance(first.state(), discovered, List.of(new Finished(look.token(), Outcome.success("looked"))), 2);
 		assertEquals("oak", ((Acquire) next.state().stack().getFirst().task()).method());
@@ -96,11 +96,11 @@ class ProductionDomainTest {
 	}
 	@Test void rememberedOreBehindAnExcavationRimRequiresAVisibleApproach() {
 		var known = new HashMap<Pos, Seen>();
-		for (int x = 0; x <= 4; x++) for (int y = 0; y <= 5; y++) known.put(new Pos(x, y, 0), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, 15, 1));
-		for (int y = 1; y <= 3; y++) known.put(new Pos(1, y, 0), new Seen("minecraft:stone", false, true, 15, 1));
-		known.put(new Pos(2, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
-		known.put(new Pos(3, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
-		var target = new Pos(3, 3, 0); known.put(target, new Seen("ore", false, true, 15, 1));
+		for (int x = 0; x <= 4; x++) for (int y = 0; y <= 5; y++) known.put(new Pos(x, y, 0), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, y == 0, 15, 1));
+		for (int y = 1; y <= 3; y++) known.put(new Pos(1, y, 0), new Seen("minecraft:stone", false, true, true, 15, 1));
+		known.put(new Pos(2, 2, 0), new Seen("minecraft:stone", false, true, true, 15, 1));
+		known.put(new Pos(3, 2, 0), new Seen("minecraft:stone", false, true, true, 15, 1));
+		var target = new Pos(3, 3, 0); known.put(target, new Seen("ore", false, true, true, 15, 1));
 		var world = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 0), new Pos(0, 1, 0), Map.of(), known);
 		var task = new Gather(new Harvest("iron", List.of("ore"), List.of(), Technique.EXPOSED), 1, world.feet(), 0, Set.of(), Set.of(), null);
 		var domain = new ProductionDomain(BOOK);
@@ -115,12 +115,12 @@ class ProductionDomainTest {
 		var domain = new ProductionDomain(BOOK);
 		var base = world(Map.of("planks", 3, "sticks", 2));
 		var seen = new HashMap<>(base.known());
-		seen.put(new Pos(1, 2, 0), new Seen("minecraft:stone", false, true, 15, 0));
-		seen.put(new Pos(2, 1, 0), new Seen("minecraft:crafting_table", false, true, 15, 0));
-		seen.put(new Pos(2, 2, 0), new Seen("minecraft:air", true, true, 15, 0));
-		seen.put(new Pos(2, 0, 1), new Seen("minecraft:grass_block", false, true, 15, 0));
-		seen.put(new Pos(2, 1, 1), new Seen("minecraft:air", true, true, 15, 0));
-		seen.put(new Pos(2, 2, 1), new Seen("minecraft:air", true, true, 15, 0));
+		seen.put(new Pos(1, 2, 0), new Seen("minecraft:stone", false, true, true, 15, 0));
+		seen.put(new Pos(2, 1, 0), new Seen("minecraft:crafting_table", false, true, true, 15, 0));
+		seen.put(new Pos(2, 2, 0), new Seen("minecraft:air", true, true, false, 15, 0));
+		seen.put(new Pos(2, 0, 1), new Seen("minecraft:grass_block", false, true, true, 15, 0));
+		seen.put(new Pos(2, 1, 1), new Seen("minecraft:air", true, true, false, 15, 0));
+		seen.put(new Pos(2, 2, 1), new Seen("minecraft:air", true, true, false, 15, 0));
 		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), seen);
 		var dependency = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("pick", 1)), observation));
 		var station = assertInstanceOf(Station.class, dependency.child());
@@ -130,9 +130,9 @@ class ProductionDomainTest {
 	@Test void placementAvoidsBodyOverlapAcrossBlockBoundaries() {
 		var seen = new HashMap<Pos, Seen>();
 		for (var support : List.of(new Pos(0, 0, 0), new Pos(-1, 0, 1))) {
-			seen.put(support, new Seen("minecraft:grass_block", false, true, 15, 0));
-			seen.put(support.offset(0, 1, 0), new Seen("minecraft:air", true, true, 15, 0));
-			seen.put(support.offset(0, 2, 0), new Seen("minecraft:air", true, true, 15, 0));
+			seen.put(support, new Seen("minecraft:grass_block", false, true, true, 15, 0));
+			seen.put(support.offset(0, 1, 0), new Seen("minecraft:air", true, true, false, 15, 0));
+			seen.put(support.offset(0, 2, 0), new Seen("minecraft:air", true, true, false, 15, 0));
 		}
 		var world = new StoneAcquisition.World(new Pose(.5, 2.62, 1.08, 0, 45), new Pos(0, 1, 1), Map.of("minecraft:crafting_table", 1), seen);
 		var action = assertInstanceOf(Execute.class, new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), world));
@@ -142,9 +142,9 @@ class ProductionDomainTest {
 		var base = world(Map.of("minecraft:crafting_table", 1));
 		var cells = new HashMap<>(base.known());
 		var alternative = new Pos(2, 0, 0);
-		cells.put(alternative, new Seen("minecraft:stone", false, true, 15, 1));
-		cells.put(alternative.offset(0, 1, 0), new Seen("minecraft:air", true, true, 15, 1));
-		cells.put(alternative.offset(0, 2, 0), new Seen("minecraft:air", true, true, 15, 1));
+		cells.put(alternative, new Seen("minecraft:stone", false, true, true, 15, 1));
+		cells.put(alternative.offset(0, 1, 0), new Seen("minecraft:air", true, true, false, 15, 1));
+		cells.put(alternative.offset(0, 2, 0), new Seen("minecraft:air", true, true, false, 15, 1));
 		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), cells, Set.of(new Pos(1, 0, 0)));
 		var action = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), observation);
 		assertEquals(new Place("minecraft:crafting_table", alternative, "minecraft:stone"), action.command());
@@ -152,9 +152,9 @@ class ProductionDomainTest {
 	@Test void stationPlacementApproachesHighGroundToReachTheTopFace() {
 		var cells = new HashMap<Pos, Seen>();
 		for (int x = 1; x <= 2; x++) {
-			cells.put(new Pos(x, 2, 0), new Seen("minecraft:stone", false, true, 15, 1));
-			cells.put(new Pos(x, 3, 0), new Seen("minecraft:air", true, true, 15, 1));
-			cells.put(new Pos(x, 4, 0), new Seen("minecraft:air", true, true, 15, 1));
+			cells.put(new Pos(x, 2, 0), new Seen("minecraft:stone", false, true, true, 15, 1));
+			cells.put(new Pos(x, 3, 0), new Seen("minecraft:air", true, true, false, 15, 1));
+			cells.put(new Pos(x, 4, 0), new Seen("minecraft:air", true, true, false, 15, 1));
 		}
 		var observation = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 45), new Pos(0, 1, 0), Map.of("minecraft:crafting_table", 1), cells);
 		var action = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), observation);
@@ -165,9 +165,9 @@ class ProductionDomainTest {
 		var rule = new Harvest("raw_iron", List.of("ore"), List.of(), Technique.EXPOSED);
 		var task = new Gather(rule, 1, new Pos(0, 1, 0), 0, Set.of(), Set.of(), new Break(target, "ore"));
 		var base = world(Map.of()); var known = new HashMap<>(base.known());
-		known.put(target, new Seen("minecraft:air", true, true, 15, 1));
-		known.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, 15, 1));
-		known.put(target.offset(0, -1, 0), new Seen("minecraft:grass_block", false, true, 15, 1));
+		known.put(target, new Seen("minecraft:air", true, true, false, 15, 1));
+		known.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, false, 15, 1));
+		known.put(target.offset(0, -1, 0), new Seen("minecraft:grass_block", false, true, true, 15, 1));
 		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
 		var view = new View<Task>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
 		var result = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view, observation);
@@ -182,7 +182,7 @@ class ProductionDomainTest {
 		var cells = new HashMap<Pos, Seen>();
 		for (int z = 0; z <= 2; z++) for (int y = 0; y <= 2; y++) {
 			boolean solid = y == 0 || (z == 2 && y == 2);
-			cells.put(new Pos(0, y, z), new Seen(solid ? "minecraft:stone" : "minecraft:air", !solid, true, 12, 1));
+			cells.put(new Pos(0, y, z), new Seen(solid ? "minecraft:stone" : "minecraft:air", !solid, true, solid, 12, 1));
 		}
 		var observation = new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 30), new Pos(0, 1, 0), Map.of(), cells);
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty()), observation);
@@ -194,7 +194,7 @@ class ProductionDomainTest {
 		var pickup = ((Execute<Task, VoxelCommand>) result).continuation();
 		var clearance = (Execute<Task, VoxelCommand>) domain.decide(new View<>(1, pickup, false, 3, Optional.of(Outcome.success("arrived")), Optional.empty()), arrived);
 		assertEquals(new Break(target.offset(0, 1, 0), "minecraft:stone"), clearance.command());
-		cells.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, 12, 4));
+		cells.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, false, 12, 4));
 		var opened = new StoneAcquisition.World(arrived.eye(), approach, Map.of(), cells);
 		var collect = (Execute<Task, VoxelCommand>) domain.decide(new View<>(1, clearance.continuation(), false, 4, Optional.of(Outcome.success("cleared")), Optional.empty()), opened);
 		assertEquals(new Navigate(target, 24, 200), collect.command());
@@ -223,7 +223,7 @@ class ProductionDomainTest {
 				}
 				else if (start.command() instanceof Place place) {
 					assertTrue(inventory.getOrDefault(place.item(), 0) > 0); inventory.merge(place.item(), -1, Integer::sum);
-					known.put(place.support().offset(0, 1, 0), new Seen(place.item(), false, true, 15, tick));
+					known.put(place.support().offset(0, 1, 0), new Seen(place.item(), false, true, true, 15, tick));
 				}
 				else fail("Unexpected acquisition action: " + start.command());
 				feedback = List.of(new Finished(start.token(), Outcome.success("effect_applied")));
@@ -234,7 +234,7 @@ class ProductionDomainTest {
 	}
 	private static StoneAcquisition.World world(Map<String, Integer> inventory) {
 		return new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 45), new Pos(0, 1, 0), inventory,
-			Map.of(new Pos(0, 2, 0), new Seen("minecraft:air", true, true, 15, 0), new Pos(1, 0, 0), new Seen("minecraft:grass_block", false, true, 15, 0), new Pos(1, 1, 0), new Seen("minecraft:air", true, true, 15, 0), new Pos(1, 2, 0), new Seen("minecraft:air", true, true, 15, 0)));
+			Map.of(new Pos(0, 2, 0), new Seen("minecraft:air", true, true, false, 15, 0), new Pos(1, 0, 0), new Seen("minecraft:grass_block", false, true, true, 15, 0), new Pos(1, 1, 0), new Seen("minecraft:air", true, true, false, 15, 0), new Pos(1, 2, 0), new Seen("minecraft:air", true, true, false, 15, 0)));
 	}
 	private static Recipe recipe(String id, String output, int yield, int width, String... inputs) {
 		var cells = new ArrayList<Cell>(); for (int i = 0; i < inputs.length; i++) cells.add(new Cell(i, inputs[i]));

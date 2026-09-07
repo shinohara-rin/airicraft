@@ -16,7 +16,7 @@ public final class ObservedReach {
 			var aimed = new Pose(eye.x(), eye.y(), eye.z(), Math.toDegrees(Math.atan2(-dx, dz)), -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))));
 			if (VoxelObservation.observe(pos -> {
 				var seen = known.get(pos);
-				return seen == null ? new Sample("unknown", false, 0) : new Sample(seen.blockId(), seen.empty(), 15);
+				return seen == null ? new Sample("unknown", false, false, 0) : new Sample(seen.blockId(), seen.empty(), seen.fullSupport(), 15);
 			}, aimed, new Lens(range, 1, 1, 1, 0), 0).containsKey(target)) return true;
 		}
 		return false;

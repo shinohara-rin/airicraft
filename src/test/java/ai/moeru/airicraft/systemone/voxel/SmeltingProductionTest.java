@@ -93,9 +93,9 @@ class SmeltingProductionTest {
 	private static StoneAcquisition.World world(Map<String, Integer> inventory) {
 		var known = new HashMap<Pos, Seen>();
 		for (int x = -2; x <= 2; x++) for (int z = -2; z <= 2; z++) for (int y = 0; y <= 3; y++) {
-			known.put(new Pos(x, y, z), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, 15, 0));
+			known.put(new Pos(x, y, z), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, y == 0, 15, 0));
 		}
-		known.put(FURNACE, new Seen("minecraft:furnace", false, true, 15, 0));
+		known.put(FURNACE, new Seen("minecraft:furnace", false, true, true, 15, 0));
 		return new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 45), new Pos(0, 1, 0), inventory, known);
 	}
 }

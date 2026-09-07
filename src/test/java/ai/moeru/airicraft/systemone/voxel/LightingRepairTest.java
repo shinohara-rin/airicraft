@@ -49,7 +49,7 @@ class LightingRepairTest {
 		var base = world(4, Map.of("minecraft:torch", 8), FEET);
 		var known = new HashMap<>(base.known());
 		var wall = new Pos(1, 3, 0);
-		known.put(wall, new Seen("minecraft:stone", false, true, 4, 1));
+		known.put(wall, new Seen("minecraft:stone", false, true, true, 4, 1));
 		var route = new HashSet<Pos>();
 		for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) route.add(new Pos(x, 0, z));
 		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
@@ -62,14 +62,14 @@ class LightingRepairTest {
 		var unusedFloor = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, Set.of(FEET.offset(0, -1, 0)));
 		var preferred = domain.decide(new View<Task>(1, task, false, 1, Optional.empty(), Optional.empty()), unusedFloor);
 		assertEquals(command, assertInstanceOf(Execute.class, preferred).command(), "an unused floor may still be the intended passage");
-		known.put(wall, new Seen("unknown", false, false, 0, 2));
+		known.put(wall, new Seen("unknown", false, false, false, 0, 2));
 		var uncertain = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, domain.decide(new View<Task>(1, task, false, 2, Optional.empty(), Optional.empty()), uncertain)).outcome().kind());
 	}
 	private static Start<VoxelCommand> start(Step<Task, VoxelCommand> step) { return (Start<VoxelCommand>) step.effects().getFirst(); }
 	private static StoneAcquisition.World world(int light, Map<String, Integer> inventory, Pos feet) {
 		var known = new HashMap<Pos, Seen>();
-		for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) for (int y = 0; y <= 3; y++) known.put(new Pos(x, y, z), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, light, 1));
+		for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) for (int y = 0; y <= 3; y++) known.put(new Pos(x, y, z), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, y == 0, light, 1));
 		return new StoneAcquisition.World(new Pose(feet.x() + .5, feet.y() + 1.62, feet.z() + .5, 0, 45), feet, inventory, known);
 	}
 }
