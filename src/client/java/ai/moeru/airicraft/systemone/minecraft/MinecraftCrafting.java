@@ -21,7 +21,7 @@ final class MinecraftCrafting {
 	private int nextCell;
 	private int beforeCount;
 	private int syncId;
-	private int settledTicks;
+	private long submittedAfterReceipt;
 
 	MinecraftCrafting(Craft command, long started) { this.command = command; this.started = started; }
 	String status() { return phase.name(); }
@@ -43,6 +43,7 @@ final class MinecraftCrafting {
 		}
 		if (phase == Phase.WAIT_FOR_STATION) {
 			if (!(handler instanceof CraftingScreenHandler)) return Optional.empty();
+			if (((InventorySyncAccess) handler).airicraft$inventoryReceipt().isEmpty()) return Optional.empty();
 			syncId = handler.syncId; phase = Phase.FILL;
 		}
 		if (handler.syncId != syncId || (command.recipe().width() == 2 ? !(handler instanceof PlayerScreenHandler) : !(handler instanceof CraftingScreenHandler))) return failed("crafting_container_changed");
@@ -57,23 +58,21 @@ final class MinecraftCrafting {
 				if (!stack.isEmpty() && Registries.ITEM.getId(stack.getItem()).toString().equals(cell.item())) { source = slot; break; }
 			}
 			if (source < 0) return failed("crafting_ingredient_missing:" + cell.item());
+			submittedAfterReceipt = ((InventorySyncAccess) handler).airicraft$inventoryReceipt().map(r -> r.sequence()).orElse(0L);
 			client.interactionManager.clickSlot(syncId, source, 0, SlotActionType.PICKUP, player);
 			client.interactionManager.clickSlot(syncId, 1 + cell.slot(), 1, SlotActionType.PICKUP, player);
 			client.interactionManager.clickSlot(syncId, source, 0, SlotActionType.PICKUP, player);
 			++nextCell;
-			settledTicks = 0; phase = Phase.WAIT_FOR_CELL;
+			phase = Phase.WAIT_FOR_CELL;
 			return Optional.empty();
 		}
 		if (phase == Phase.WAIT_FOR_CELL) {
-			// Click prediction can be corrected by intermediate server slot/cursor updates.
-			// Observe a settled transfer before issuing another ingredient's clicks.
-			boolean settled = handler.getCursorStack().isEmpty();
-			for (int index = 0; index < nextCell && settled; index++) {
-				var cell = command.recipe().cells().get(index); var stack = handler.getSlot(1 + cell.slot()).getStack();
-				settled = stack.getCount() == 1 && Registries.ITEM.getId(stack.getItem()).toString().equals(cell.item());
+			// A crafting-grid update advances the server revision. The following return click
+			// therefore receives a full resync. Wait for that response, not local click prediction.
+			if (((InventorySyncAccess) handler).airicraft$inventoryReceipt()
+				.filter(receipt -> receipt.confirms(submittedAfterReceipt, syncId, command.recipe(), nextCell)).isPresent()) {
+				phase = nextCell == command.recipe().cells().size() ? Phase.WAIT_FOR_RESULT : Phase.FILL;
 			}
-			settledTicks = settled ? settledTicks + 1 : 0;
-			if (settledTicks >= 2) phase = nextCell == command.recipe().cells().size() ? Phase.WAIT_FOR_RESULT : Phase.FILL;
 			return Optional.empty();
 		}
 		if (phase == Phase.WAIT_FOR_RESULT) {
