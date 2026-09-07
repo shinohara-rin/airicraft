@@ -19,6 +19,16 @@ class StoneAcquisitionTest {
 	private static final Map<String, Integer> TOOL = Map.of("minecraft:wooden_pickaxe", 1);
 	private final StoneAcquisition domain = new StoneAcquisition();
 
+	@Test void terrainSnapshotCannotBeMutatedByItsSourceOrItsReader() {
+		var terrain = new java.util.HashMap<Pos,Seen>();
+		terrain.put(FEET,seen("minecraft:stone"));
+		var snapshot = world(EYE,FEET,TOOL,terrain);
+		terrain.clear();
+		assertEquals("minecraft:stone",snapshot.known().get(FEET).blockId());
+		assertThrows(UnsupportedOperationException.class,()->snapshot.known().clear());
+		assertThrows(UnsupportedOperationException.class,()->snapshot.known().entrySet().iterator().next().setValue(seen("minecraft:air")));
+	}
+
 	@Test void geologicalPriorSelectsAnObservedSurfaceInsteadOfAnUnseenStoneCoordinate() {
 		Pos surface = FEET.offset(1, -1, 0);
 		var world = world(EYE, FEET, TOOL, Map.of(surface, seen("minecraft:grass_block")));
