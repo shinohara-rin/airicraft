@@ -1,0 +1,21 @@
+{
+  "run": "eval-output/20260908-041003-013917-73253/01-system-one-feedback-delivery",
+  "revision": "4a43063d",
+  "methodVersion": "reactive-production-v52",
+  "receiptTick": 106,
+  "deliveryTick": 126,
+  "duplicateTick": 131,
+  "nextCommandStartedTick": 126,
+  "nextCommandMotorReceiptTick": 139,
+  "noNewCommandDuringDelay": true,
+  "duplicateIgnoredWhileNextCommandActive": true,
+  "replayedDecisions": 371,
+  "elapsedTicks": 436,
+  "scenario": "PASSED",
+  "harness": "OK",
+  "llmCalls": 0,
+  "motorReleased": true,
+  "clientExitCode": 0,
+  "recordingCoverage": "complete",
+  "visualPlayReview": "pending"
+}
