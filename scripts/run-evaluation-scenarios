@@ -994,6 +994,16 @@ def discover_scenarios(
         write_json(run_dir / "discovery.json", discovery)
 
 
+def completed_cleanup_status(status: dict[str, Any], require_decision_trace: bool) -> str | None:
+    if status.get("postFinishCleanupPending", False):
+        return None
+    if require_decision_trace:
+        trace = status.get("recording", {}).get("systemOneTrace", {})
+        if not trace.get("complete", False):
+            return "DECISION_TRACE_INCOMPLETE"
+    return "OK"
+
+
 def run_scenario(
     repo_root: Path,
     scenario_root: Path,
@@ -1074,6 +1084,8 @@ def run_scenario(
             evaluation_status = bridge_json(bridge, "GET", "/v1/evaluation/status", timeout_seconds=10)
             if not evaluation_status.get("noLlmActive", False):
                 raise RunnerError("Launched client did not activate no-LLM mode")
+            if args.system_one and evaluation_status.get("systemOne", {}).get("runtime") != "system_one":
+                raise RunnerError("Launched client did not activate the replacement runtime")
         run_request = {"scenario": scenario_id, "outputDir": str(scenario_dir)}
         run_response = bridge_json(
             bridge,
@@ -1087,6 +1099,7 @@ def run_scenario(
             "response": run_response,
         })
 
+        cleanup_deadline = None
         while True:
             if cancellation.is_set():
                 summary["harnessStatus"] = "INTERRUPTED"
@@ -1115,8 +1128,20 @@ def run_scenario(
                 summary["plannerTurns"] = report.get("plannerTurns")
 
                 if report_status in TERMINAL_STATUSES:
-                    summary["harnessStatus"] = "OK"
-                    break
+                    if cleanup_deadline is None:
+                        cleanup_deadline = time.monotonic() + args.client_stop_timeout_seconds
+                    cleanup = bridge_json(bridge, "GET", "/v1/evaluation/status", timeout_seconds=10)
+                    write_json(scenario_dir / "evaluation-cleanup.json", cleanup)
+                    cleanup_status = completed_cleanup_status(cleanup, args.system_one)
+                    if cleanup_status is not None:
+                        summary["harnessStatus"] = cleanup_status
+                        if cleanup_status != "OK":
+                            summary["message"] = "Scenario terminated but decision recording is incomplete"
+                        break
+                    if time.monotonic() >= cleanup_deadline:
+                        summary["harnessStatus"] = "CLEANUP_TIMEOUT"
+                        summary["message"] = "Scenario terminated but control release or recording flush did not finish"
+                        break
             except Exception as error:
                 bridge_failures += 1
                 append_jsonl(scenario_dir / "harness-polls.jsonl", {

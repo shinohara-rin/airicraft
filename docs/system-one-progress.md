@@ -10,6 +10,7 @@ Tracks the [implementation plan](superpowers/plans/2026-09-06-system-one-redesig
 - Baritone terrain hook: block-state interfaces capture immutable observed terrain; hidden live/cached cells are replaced by a non-traversable, non-supporting sentinel. Movement defaults disable terrain mutation, parkour, automatic inventory changes, and Baritone's independent avoidance discovery during owned navigation. Further adapter-level fairness audit and paired-world live checks remain required.
 - Exact breaking aims at and ray-checks the target face, verifies reach/tool eligibility, and avoids breaking the player's own footing. Soil excavation prioritizes lower exposed surfaces and preserves tools when an empty hand is equally effective.
 - Excavation surveys on demand rather than performing four quarter-turns after every move. This correction follows the user's live observation of repeated spins.
+- Decision capture records an initial mission plus every tick's observation delta, motor feedback, cancellation, effects, and lifecycle events. A bounded background writer reports overflow/storage failure as incomplete; evaluator cleanup waits for motor release and writer completion. Offline replay rejects missing turns, incompatible versions, altered decisions, and missing/incomplete footers.
 
 The replacement currently has no production recipe/smelting methods, lighting repairs, or survival controller. Do not use it as a general autonomous survival agent yet.
 
@@ -22,7 +23,7 @@ source .envrc
 ./gradlew :test --tests 'ai.moeru.airicraft.systemone.*'
 ```
 
-At 2026-09-07, 24 tests pass: 10 kernel, 6 geometric sensing, and 8 acquisition tests. The existing evaluation-launcher Python suite also passes (23 tests).
+At 2026-09-07, 31 tests pass: 10 kernel, 6 geometric sensing, 8 acquisition, 4 decision replay, and 3 recording tests. The evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests).
 
 Live fixture command:
 
@@ -42,12 +43,22 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 | `20260907-154110-841283-61691` | Navigation worked, but excavation widened the surface and wore out the pickaxe. The fixture incorrectly gated evaluator ticks on remaining at the starting height, causing recording to stop after descent. Recovered 485 remaining System 1 events from the live event buffer; earlier events were truncated. Gracefully stopped the client. |
 | `20260907-154739-926189-63272` | Obtained three cobblestone in 446 elapsed ticks; scenario PASSED and harness OK. Recorder Play finalized. This run still performed routine panorama scans; the follow-up run tests their removal. |
 | `20260907-155134-120434-64304` | Obtained three cobblestone in 376 elapsed ticks with zero survey-look commands. Scenario PASSED; harness OK; Recorder Play finalized. `system-one-final.json` confirms SUCCEEDED and no remaining motor command, pathing process, or pending release. Planner journal is empty and final LLM records are empty. |
+| `20260907-160438-513978-67297` | Obtained three cobblestone in 376 elapsed ticks; scenario PASSED and harness OK. Decision recording completed with 312 input rows. Offline replay verified all 311 turns, matching effects, lifecycle events, and SUCCEEDED inventory evidence. |
 
 The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. Recorder Play playback has not yet been visually reviewed.
 
+Replay the recorded live decision inputs (no Minecraft client required):
+
+```bash
+./gradlew replaySystemOne \
+  -Pairicraft.replayFile="$PWD/eval-output/20260907-160438-513978-67297/01-system-one-stone/system-one-decisions.jsonl.gz"
+```
+
+This verifies the deterministic decision boundary; it does not replay physics or prove sensor fairness. The initial format is versioned for the stone method and must evolve with the production domain.
+
 ## Outstanding plan gates
 
-1. Complete structured decision-input recording and offline replay of live runs; expose accurate runtime/version diagnostics and finish lifecycle ownership on reload/world changes.
+1. Extend the verified live decision recording/replay to subsequent domain methods; expose accurate runtime/version diagnostics and finish lifecycle ownership on reload/world changes.
 2. Finish the stone variants, adapter-level hidden-terrain checks, and controlled travel/work/perception metrics. The survey correction has passed the controlled live fixture.
 3. Implement resource production, alternative recipes/fuels, resource commitments, and passive smelting waits.
 4. Implement exploration continuations, maintained lighting, resupply children, bounded relaxation, and survival preemption through the same motor owner.

@@ -1083,6 +1083,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 
 	public boolean systemOneActive() { return systemOneHost != null; }
 	public boolean systemOneBusy() { return systemOneHost != null && systemOneHost.busy(); }
+	public void recordSystemOneDecisions(java.util.function.Consumer<Object> recorder) { systemOneHost.recordDecisions(recorder); }
 	public String startSystemOneGoal(String item, int count) {
 		if (systemOneHost == null) throw new IllegalStateException("System 1 is not selected");
 		return systemOneHost.start(item, count, MinecraftClient.getInstance(), tickCount);

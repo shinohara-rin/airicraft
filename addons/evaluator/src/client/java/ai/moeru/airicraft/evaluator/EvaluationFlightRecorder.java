@@ -2,6 +2,7 @@ package ai.moeru.airicraft.evaluator;
 
 import ai.moeru.airicraft.Airicraft;
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
+import ai.moeru.airicraft.systemone.DecisionTraceWriter;
 import ai.moeru.airicraft.agent.evaluation.EvaluationReport;
 import ai.moeru.airicraft.agent.evaluation.EvaluationScenario;
 import ai.moeru.airicraft.agent.evaluation.EvaluationStatus;
@@ -34,11 +35,13 @@ public final class EvaluationFlightRecorder {
 	private boolean timelineTruncated;
 	private boolean llmCallsTruncated;
 	private boolean terminalWritten;
+	private DecisionTraceWriter decisionWriter;
 
 	public void start(
 		EvaluationScenario nextScenario,
 		Path nextOutputDir,
-		EvaluationWorldFixtureService.RestoredWorld restoredWorld
+		EvaluationWorldFixtureService.RestoredWorld restoredWorld,
+		EmbodiedAgentRuntime runtime
 	) {
 		this.outputDir = nextOutputDir.toAbsolutePath().normalize();
 		this.scenario = nextScenario;
@@ -51,6 +54,9 @@ public final class EvaluationFlightRecorder {
 		this.timelineTruncated = false;
 		this.llmCallsTruncated = false;
 		this.terminalWritten = false;
+		if (decisionWriter != null) decisionWriter.close();
+		decisionWriter = runtime.systemOneActive() ? new DecisionTraceWriter(outputDir.resolve("system-one-decisions.jsonl.gz")) : null;
+		if (decisionWriter != null) runtime.recordSystemOneDecisions(decisionWriter::accept);
 		try {
 			Files.createDirectories(outputDir);
 			writeJson(outputDir.resolve("recording-start.json"), Map.of(
@@ -112,21 +118,31 @@ public final class EvaluationFlightRecorder {
 		payload.put("eventsTruncated", eventsTruncated);
 		payload.put("timelineTruncated", timelineTruncated);
 		payload.put("llmCallsTruncated", llmCallsTruncated);
+		if (decisionWriter != null) payload.put("systemOneTrace", decisionWriter.status());
 		return payload;
 	}
 
-	public void recordSystemOneCleanup(EmbodiedAgentRuntime runtime) {
-		if (outputDir == null) return;
+	public boolean recordSystemOneCleanup(EmbodiedAgentRuntime runtime) {
+		if (outputDir == null) return !runtime.systemOneBusy();
 		try {
 			drainEvents(runtime, now());
 			writeJson(outputDir.resolve("system-one-final.json"), runtime.systemOneStatus());
+			if (runtime.systemOneBusy()) return false;
+			if (decisionWriter != null) {
+				decisionWriter.close();
+				if (!decisionWriter.finished()) return false;
+				writeJson(outputDir.resolve("system-one-recording.json"), decisionWriter.status());
+			}
 		}
 		catch (IOException exception) {
 			Airicraft.LOGGER.warn("Failed to record System 1 control release", exception);
 		}
+		return !runtime.systemOneBusy();
 	}
 
 	public void reset() {
+		if (decisionWriter != null) decisionWriter.close();
+		decisionWriter = null;
 		outputDir = null;
 		scenario = null;
 		startedAt = null;

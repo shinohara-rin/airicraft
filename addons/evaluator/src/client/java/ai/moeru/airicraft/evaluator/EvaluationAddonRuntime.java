@@ -176,7 +176,7 @@ public final class EvaluationAddonRuntime {
 				waypointsSeeded = false;
 				stoneFixture.reset();
 				runner.start(nextScenario, runtime.tickCount(), System.currentTimeMillis());
-				recorder.start(nextScenario, outputDir, restoredWorld);
+				recorder.start(nextScenario, outputDir, restoredWorld, runtime);
 				runState = RunState.RUNNING;
 				return acceptedRunPayload(nextScenario, restoredWorld, outputDir, runner.report(runtime.tickCount()));
 			});
@@ -301,8 +301,7 @@ public final class EvaluationAddonRuntime {
 			return;
 		}
 		if (runtime.systemOneActive()) {
-			recorder.recordSystemOneCleanup(runtime);
-			if (runtime.systemOneBusy()) return;
+			if (!recorder.recordSystemOneCleanup(runtime)) return;
 		}
 		clearCleanup();
 	}

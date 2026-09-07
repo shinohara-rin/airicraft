@@ -43,6 +43,13 @@ runner = load_runner()
 
 
 class RunnerPolicyTest(unittest.TestCase):
+    def test_terminal_report_waits_for_release_and_complete_decision_recording(self) -> None:
+        self.assertIsNone(runner.completed_cleanup_status({"postFinishCleanupPending": True}, True))
+        self.assertEqual("DECISION_TRACE_INCOMPLETE", runner.completed_cleanup_status({}, True))
+        self.assertEqual("DECISION_TRACE_INCOMPLETE", runner.completed_cleanup_status({"recording": {"systemOneTrace": {"complete": False}}}, True))
+        self.assertEqual("OK", runner.completed_cleanup_status({"recording": {"systemOneTrace": {"complete": True}}}, True))
+        self.assertEqual("OK", runner.completed_cleanup_status({}, False))
+
     def test_redacts_secrets_and_normalizes_names(self) -> None:
         redacted = runner.redact_json({
             "token": "abc",

@@ -2,6 +2,7 @@ package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.systemone.TaskKernel;
 import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
+import ai.moeru.airicraft.systemone.voxel.StoneTape;
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation.Pos;
 import net.minecraft.client.MinecraftClient;
 
@@ -9,18 +10,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 
 /** Temporary replacement entrance while callers migrate off the legacy execution runtime. */
 public final class SystemOneHost {
 	private final TaskKernel<StoneAcquisition.Task, StoneAcquisition.World, StoneAcquisition.Command> kernel =
-		new TaskKernel<>(new StoneAcquisition(), new Limits(16, 16, 72000, 2000));
+		new TaskKernel<>(new StoneAcquisition(), StoneTape.LIMITS);
 	private final MinecraftSensor sensor = new MinecraftSensor();
 	private final MinecraftMotor motor = new MinecraftMotor();
 	private State<StoneAcquisition.Task> state;
 	private String cancellation;
 	private long sequence;
+	private long recordingSequence;
+	private StoneAcquisition.World recordedObservation;
+	private Consumer<Object> decisionRecorder = ignored -> {};
 
 	public String start(String item, int count, MinecraftClient client, long tick) {
 		if (state != null && state.outcome().isEmpty()) throw new IllegalStateException("A System 1 mission is already active");
@@ -28,8 +33,10 @@ public final class SystemOneHost {
 		if (count < 1) throw new IllegalArgumentException("Positive quantity required");
 		if (client.world == null || client.player == null) throw new IllegalStateException("World not loaded");
 		sensor.clear(); cancellation = null;
+		recordingSequence = 0; recordedObservation = null;
 		state = kernel.begin(client.world.getRegistryKey().getValue() + ":" + tick, "system-one-" + (++sequence),
 			StoneAcquisition.Task.begin(count, new Pos(client.player.getBlockX(), client.player.getBlockY(), client.player.getBlockZ())), tick);
+		decisionRecorder.accept(StoneTape.header(state));
 		return state.run();
 	}
 
@@ -39,6 +46,8 @@ public final class SystemOneHost {
 		if (client.world == null || client.player == null) cancellation = "world_left";
 		StoneAcquisition.World observation = client.world == null || client.player == null ? null : sensor.observe(client, tick);
 		var step = kernel.advance(state, observation, feedback, tick, Optional.ofNullable(cancellation));
+		decisionRecorder.accept(StoneTape.turn(++recordingSequence, recordedObservation, observation, feedback, cancellation, step));
+		recordedObservation = observation;
 		state = step.state();
 		for (var event : step.events()) trace.accept("system_one." + event.type(), Map.of("run", state.run(), "task", event.task(), "detail", event.detail()));
 		for (var effect : step.effects()) {
@@ -47,6 +56,7 @@ public final class SystemOneHost {
 		}
 	}
 	public void cancel(String reason) { cancellation = reason; }
+	public void recordDecisions(Consumer<Object> recorder) { decisionRecorder = java.util.Objects.requireNonNull(recorder); }
 	public boolean busy() { return state != null && state.outcome().isEmpty(); }
 	public Optional<String> failure(String id) {
 		if (state == null || !state.run().equals(id)) return Optional.of("System 1 run disappeared: " + id);

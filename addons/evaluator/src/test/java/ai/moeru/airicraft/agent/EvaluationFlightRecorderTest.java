@@ -35,7 +35,7 @@ class EvaluationFlightRecorderTest {
 		recorder.start(
 			scenario,
 			tempDir,
-			new EvaluationWorldFixtureService.RestoredWorld("iron-pickaxe", "airicraft_eval_iron-pickaxe", tempDir.resolve("world"))
+			new EvaluationWorldFixtureService.RestoredWorld("iron-pickaxe", "airicraft_eval_iron-pickaxe", tempDir.resolve("world")), runtime
 		);
 
 		recorder.recordTick(
