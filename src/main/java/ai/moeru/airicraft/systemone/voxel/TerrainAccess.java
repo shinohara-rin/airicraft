@@ -13,12 +13,13 @@ public final class TerrainAccess {
 	private static final int RADIUS = 6, MAX_WORK = 48, MAX_EXPANSIONS = 512;
 	public record Edge(Pos from, Pos to) {}
 	public record State(Pos origin, Pos goal, long deadline, int work, Set<Edge> rejected,
-		Optional<Edge> step, VoxelCommand last, Optional<Edge> failedApproach) {
-		public State { rejected = Set.copyOf(rejected); }
-		public static State begin(Pos origin, Pos goal, long tick) { return new State(origin, goal, tick + 1000, 0, Set.of(), Optional.empty(), null, Optional.empty()); }
+		List<Edge> route, VoxelCommand last, Optional<Edge> failedApproach) {
+		public State { rejected = Set.copyOf(rejected); route = List.copyOf(route); }
+		public Optional<Edge> step() { return route.stream().findFirst(); }
+		public static State begin(Pos origin, Pos goal, long tick) { return new State(origin, goal, tick + 1000, 0, Set.of(), List.of(), null, Optional.empty()); }
 		/** Preparation may repair this edge, but repeating its unchanged navigation is not progress. */
 		public static State afterFailedNavigation(Pos origin, Pos goal, long tick) {
-			return new State(origin, goal, tick + 1000, 0, Set.of(), Optional.empty(), null, Optional.of(new Edge(origin, goal)));
+			return new State(origin, goal, tick + 1000, 0, Set.of(), List.of(), null, Optional.of(new Edge(origin, goal)));
 		}
 	}
 	public sealed interface Decision permits Action, Arrived, Unavailable {}
@@ -31,28 +32,36 @@ public final class TerrainAccess {
 		if (world.feet().equals(state.goal())) return StoneAcquisition.standable(world.known(), world.feet()) ? new Arrived() : new Unavailable("access_goal_support_unconfirmed");
 		if (tick >= state.deadline() || state.work() >= MAX_WORK) return new Unavailable("access_budget_exhausted");
 		var rejected = new HashSet<>(state.rejected());
-		Optional<Edge> retained = state.step().filter(e -> e.from().equals(world.feet()));
+		List<Edge> route = state.route();
 		if (feedback.filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) {
-			retained.ifPresent(rejected::add); retained = Optional.empty();
+			state.step().ifPresent(rejected::add); route = List.of();
+		} else if (!route.isEmpty() && route.getFirst().to().equals(world.feet())) {
+			route = route.subList(1, route.size());
 		}
 		for (int attempts = 0; attempts < 12; attempts++) {
-			Optional<Edge> edge = retained.filter(e -> !rejected.contains(e) && Double.isFinite(cost(e, world, clearable, eligible)));
-			if (edge.isEmpty()) edge = firstStep(state, world, rejected, clearable, eligible);
-			if (edge.isEmpty()) return new Unavailable("no_local_access_proposal");
-			Edge selected = edge.get();
+			// Retain the selected local route, but authorize only its next edge against
+			// current observations. Arrival, failed execution, or changed terrain can replan.
+			if (!route.isEmpty()) {
+				Edge next = route.getFirst();
+				if (!next.from().equals(world.feet()) || rejected.contains(next)
+					|| !Double.isFinite(cost(next, world, clearable, eligible))) route = List.of();
+			}
+			if (route.isEmpty()) route = localRoute(state, world, rejected, clearable, eligible);
+			if (route.isEmpty()) return new Unavailable("no_local_access_proposal");
+			Edge selected = route.getFirst();
 			VoxelCommand command = prepare(selected, world, clearable);
 			// A completed look with no usable new evidence cannot retry the same proposal forever.
 			if (command == null || command instanceof Look && command.equals(state.last()) && state.step().filter(selected::equals).isPresent()
 				|| command instanceof Navigate && state.failedApproach().filter(selected::equals).isPresent()) {
-				rejected.add(selected); retained = Optional.empty(); continue;
+				rejected.add(selected); route = List.of(); continue;
 			}
-			return new Action(new State(state.origin(), state.goal(), state.deadline(), state.work() + 1, rejected, Optional.of(selected), command, Optional.empty()), command);
+			return new Action(new State(state.origin(), state.goal(), state.deadline(), state.work() + 1, rejected, route, command, Optional.empty()), command);
 		}
 		return new Unavailable("local_access_alternatives_exhausted");
 	}
 
-	private record Node(Pos pos, Pos first, double cost, double estimate) {}
-	private static Optional<Edge> firstStep(State state, World world, Set<Edge> rejected, Set<String> clearable, Predicate<Pos> eligible) {
+	private record Node(Pos pos, Node previous, double cost, double estimate) {}
+	private static List<Edge> localRoute(State state, World world, Set<Edge> rejected, Set<String> clearable, Predicate<Pos> eligible) {
 		var open = new PriorityQueue<Node>(Comparator.comparingDouble(Node::estimate).thenComparingDouble(Node::cost)
 			.thenComparingInt(n -> n.pos().x()).thenComparingInt(n -> n.pos().y()).thenComparingInt(n -> n.pos().z()));
 		var best = new HashMap<Pos, Double>();
@@ -62,7 +71,7 @@ public final class TerrainAccess {
 		for (int expanded = 0; !open.isEmpty() && expanded < MAX_EXPANSIONS; expanded++) {
 			Node node = open.remove();
 			if (node.cost() > best.getOrDefault(node.pos(), Double.POSITIVE_INFINITY)) continue;
-			if (node.pos().equals(state.goal())) return Optional.of(new Edge(world.feet(), node.first()));
+			if (node.pos().equals(state.goal())) return routeTo(node);
 			// Keep the destination while advancing a bounded local planning horizon. A proposed
 			// frontier still goes through prepare(), so unknown cells authorize only observation.
 			if (distant && atHorizon(world.feet(), node.pos()) && distance(node.pos(), state.goal()) < distance(world.feet(), state.goal())
@@ -72,10 +81,16 @@ public final class TerrainAccess {
 				if (!within(world.feet(), next) || rejected.contains(edge)) continue;
 				double cost = node.cost() + cost(edge, world, clearable, eligible);
 				if (cost >= best.getOrDefault(next, Double.POSITIVE_INFINITY)) continue;
-				best.put(next, cost); open.add(new Node(next, node.first() == null ? next : node.first(), cost, cost + distance(next, state.goal())));
+				best.put(next, cost); open.add(new Node(next, node, cost, cost + distance(next, state.goal())));
 			}
 		}
-		return frontier == null ? Optional.empty() : Optional.of(new Edge(world.feet(), frontier.first()));
+		return frontier == null ? List.of() : routeTo(frontier);
+	}
+	private static List<Edge> routeTo(Node node) {
+		var route = new ArrayList<Edge>();
+		for (; node.previous() != null; node = node.previous()) route.add(new Edge(node.previous().pos(), node.pos()));
+		Collections.reverse(route);
+		return List.copyOf(route);
 	}
 	private static double cost(Edge edge, World world, Set<String> clearable, Predicate<Pos> eligible) {
 		Pos floor = edge.to().offset(0, -1, 0);

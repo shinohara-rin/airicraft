@@ -146,6 +146,41 @@ class TerrainAccessTest {
 		var expired = TerrainAccess.advance(TerrainAccess.State.begin(start, goal, 0), world(known, new Pos(0,4,6), Set.of()), Optional.empty(), 1000, CLEARABLE, p -> true);
 		assertEquals(new TerrainAccess.Unavailable("access_budget_exhausted"), expired);
 	}
+	@Test void aDistantUphillGoalDoesNotSwitchFrontiersAfterEverySuccessfulStep() {
+		// Reduced from v48 original ticks 15140-15354: two cheap approaches to an
+		// uphill frontier. Moving one block makes the other frontier enter the horizon.
+		var known = new HashMap<Pos,Seen>();
+		for (int x=0; x<=10; x++) {
+			int floor = x == 0 || x == 10 ? 4 : 3;
+			known.put(new Pos(x,floor,0),stone());
+			for (int y=floor+1;y<=6;y++) known.put(new Pos(x,y,0),air());
+		}
+		Pos feet = new Pos(5,4,0), goal = new Pos(5,53,37);
+		var state = TerrainAccess.State.begin(feet,goal,0);
+		for (int tick=1;tick<=5;tick++) {
+			var action = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(state,world(known,feet,Set.of()),
+				tick == 1 ? Optional.empty() : Optional.of(Outcome.success("stance_reached")),tick,CLEARABLE,p->true));
+			feet = assertInstanceOf(Navigate.class,action.command()).stance(); state = action.state();
+			assertEquals(goal,state.goal()); assertEquals(1000,state.deadline()); assertEquals(tick,state.work());
+		}
+		assertEquals(5,feet.y(),"reach the selected uphill frontier instead of alternating between two floor blocks");
+	}
+	@Test void aRetainedRouteRechecksNewHazardsAndRejectsFailedEdges() {
+		var known = new HashMap<Pos,Seen>();
+		for (int z=0;z<=5;z++) {
+			known.put(new Pos(0,3,z),stone()); known.put(new Pos(0,4,z),air()); known.put(new Pos(0,5,z),air());
+		}
+		Pos start = new Pos(0,4,0), goal = new Pos(0,4,5);
+		var first = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(TerrainAccess.State.begin(start,goal,0),
+			world(known,start,Set.of()),Optional.empty(),1,CLEARABLE,p->true));
+		Pos arrived = assertInstanceOf(Navigate.class,first.command()).stance();
+		Pos dangerous = arrived.offset(0,0,1);
+		var changed = TerrainAccess.advance(first.state(),world(known,arrived,Set.of()),Optional.of(Outcome.success("stance_reached")),2,
+			CLEARABLE,p->!p.equals(dangerous));
+		assertFalse(changed instanceof TerrainAccess.Action a && a.command() instanceof Navigate n && n.stance().equals(dangerous));
+		var failed = TerrainAccess.advance(first.state(),world(known,start,Set.of()),Optional.of(Outcome.failure("observed_route_unavailable")),2,CLEARABLE,p->true);
+		assertFalse(failed instanceof TerrainAccess.Action a && a.command().equals(first.command()),"failed route edges cannot be repeated unchanged");
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));
