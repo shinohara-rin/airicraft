@@ -45,6 +45,24 @@ class LightingRepairTest {
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(2, resume, false, 10, Optional.empty(), Optional.of(Outcome.success("supplied"))), world(15, Map.of("pick", 1, "minecraft:torch", 8), FEET.offset(2, 0, 0)));
 		assertEquals(new Navigate(FEET, 48, 400), assertInstanceOf(Execute.class, result).command());
 	}
+	@Test void aNarrowPassageUsesAnObservedWallAboveItsProtectedRoute() {
+		var base = world(4, Map.of("minecraft:torch", 8), FEET);
+		var known = new HashMap<>(base.known());
+		var wall = new Pos(1, 3, 0);
+		known.put(wall, new Seen("minecraft:stone", false, true, 4, 1));
+		var route = new HashSet<Pos>();
+		for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) route.add(new Pos(x, 0, z));
+		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
+		var domain = new ProductionDomain(BOOK);
+		var task = new PlaceLight(Set.of(), Optional.empty());
+		var result = domain.decide(new View<Task>(1, task, false, 1, Optional.empty(), Optional.empty()), observed);
+		var command = assertInstanceOf(Place.class, assertInstanceOf(Execute.class, result).command());
+		assertEquals(new Place("minecraft:torch", wall, "minecraft:stone", Face.WEST, "minecraft:wall_torch"), command);
+		assertEquals(new Pos(0, 3, 0), command.destination());
+		known.put(wall, new Seen("unknown", false, false, 0, 2));
+		var uncertain = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known, route);
+		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, domain.decide(new View<Task>(1, task, false, 2, Optional.empty(), Optional.empty()), uncertain)).outcome().kind());
+	}
 	private static Start<VoxelCommand> start(Step<Task, VoxelCommand> step) { return (Start<VoxelCommand>) step.effects().getFirst(); }
 	private static StoneAcquisition.World world(int light, Map<String, Integer> inventory, Pos feet) {
 		var known = new HashMap<Pos, Seen>();

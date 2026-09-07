@@ -135,14 +135,16 @@ final class MinecraftMotor {
 	}
 	private void tickPlace(MinecraftClient client, Place target, long tick) {
 		var support = new BlockPos(target.support().x(), target.support().y(), target.support().z());
+		var destination = new BlockPos(target.destination().x(), target.destination().y(), target.destination().z());
+		var face = net.minecraft.util.math.Direction.valueOf(target.face().name());
 		if (tick - started > 60) { finish(client, Outcome.failure("placement_timeout")); return; }
 		if (placed) {
-			var hit = MinecraftInteractions.hit(client, support.up());
-			if (hit.isPresent() && Registries.BLOCK.getId(client.world.getBlockState(support.up()).getBlock()).toString().equals(target.item())) finish(client, Outcome.success("placed_block_observed"));
+			var hit = MinecraftInteractions.hit(client, destination);
+			if (hit.isPresent() && Registries.BLOCK.getId(client.world.getBlockState(destination).getBlock()).toString().equals(target.expectedPlacedBlock())) finish(client, Outcome.success("placed_block_observed"));
 			return;
 		}
-		var hit = MinecraftInteractions.hit(client, support, net.minecraft.util.math.Direction.UP);
-		if (hit.isEmpty() || hit.get().getSide() != net.minecraft.util.math.Direction.UP || client.player.getBoundingBox().intersects(new net.minecraft.util.math.Box(support.up()))
+		var hit = MinecraftInteractions.hit(client, support, face);
+		if (hit.isEmpty() || client.player.getBoundingBox().intersects(new net.minecraft.util.math.Box(destination))
 			|| !Registries.BLOCK.getId(client.world.getBlockState(support).getBlock()).toString().equals(target.expectedSupport())) {
 			finish(client, Outcome.failure("placement_support_changed")); return;
 		}
