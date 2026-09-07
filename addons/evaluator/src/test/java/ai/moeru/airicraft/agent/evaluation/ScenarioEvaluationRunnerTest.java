@@ -13,6 +13,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScenarioEvaluationRunnerTest {
 	@Test
+	void eventChecksRequireTheSpecifiedPayloadRatherThanOnlyAnEventType() {
+		var runner = new ScenarioEvaluationRunner(); var context = new FakeContext();
+		context.observedEvents.put("system_one.task_suspended", Map.of("detail", "ingredient:coal"));
+		runner.start(scenario(List.of(new EvaluationCheck("event_contains", Map.of("eventType", "system_one.task_suspended", "payload", Map.of("detail", "lighting_supply")))), new EvaluationBudget(4, 200, 0, 5)), 0, 0);
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.RUNNING, runner.report(context.tick).status());
+		context.tick = 1; context.observedEvents.put("system_one.task_suspended", Map.of("detail", "lighting_supply"));
+		runner.onTick(context);
+		assertEquals(EvaluationStatus.PASSED, runner.report(context.tick).status());
+	}
+	@Test
 	void emitsInitialPromptAndHeartbeatUntilCheckPasses() {
 		ScenarioEvaluationRunner runner = new ScenarioEvaluationRunner();
 		FakeContext context = new FakeContext();
@@ -490,9 +501,11 @@ class ScenarioEvaluationRunnerTest {
 			return playerBlockZ;
 		}
 
+		final Map<String, Map<String, String>> observedEvents = new HashMap<>();
 		@Override
-		public boolean eventContains(String eventType) {
-			return false;
+		public boolean eventContains(String eventType, Map<String, String> payload) {
+			var event = observedEvents.get(eventType);
+			return event != null && payload.entrySet().stream().allMatch(e -> e.getValue().equals(event.get(e.getKey())));
 		}
 
 		@Override

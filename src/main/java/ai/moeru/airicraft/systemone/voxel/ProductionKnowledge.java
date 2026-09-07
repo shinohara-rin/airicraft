@@ -5,11 +5,15 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /** Recipe and harvesting priors, separate from all world coordinates and observations. */
-public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels) {
+public record ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels, List<SearchPrior> searches, LightingPolicy.Parameters lighting) {
 	public ProductionKnowledge {
-		recipes = List.copyOf(recipes); harvesting = List.copyOf(harvesting); smelting = List.copyOf(smelting); fuels = List.copyOf(fuels);
+		recipes = List.copyOf(recipes); harvesting = List.copyOf(harvesting); smelting = List.copyOf(smelting); fuels = List.copyOf(fuels); searches = List.copyOf(searches);
 	}
+	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting, List<Smelt> smelting, List<Fuel> fuels) { this(version, recipes, harvesting, smelting, fuels, List.of(), new LightingPolicy.Parameters(7, 10, 8, 80, 4)); }
 	public ProductionKnowledge(String version, List<Recipe> recipes, List<Harvest> harvesting) { this(version, recipes, harvesting, List.of(), List.of()); }
+	public record SearchPrior(String item, int preferredY, int radius, int maxSteps, List<String> excavatable) {
+		public SearchPrior { excavatable = List.copyOf(excavatable); if (radius < 1 || maxSteps < 1) throw new IllegalArgumentException("Positive search bounds required"); }
+	}
 	public record Smelt(String id, String input, String output, int yield, String station, int ticks) {
 		public Smelt { if (yield < 1 || ticks < 1) throw new IllegalArgumentException("Positive smelting yield and duration required"); }
 	}

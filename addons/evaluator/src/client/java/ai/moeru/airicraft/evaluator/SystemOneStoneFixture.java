@@ -25,7 +25,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron", "system-one-smelting").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-iron", "system-one-smelting", "system-one-underground", "system-one-lighting").contains(scenario)) return true;
 		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
@@ -48,7 +48,24 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-smelting")) {
+				if (scenario.equals("system-one-underground") || scenario.equals("system-one-lighting")) {
+					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= 12; dz++) for (int y = 195; y <= 204; y++) {
+						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
+					}
+					for (int dz = 1; dz <= 9; dz++) for (int dx = -1; dx <= 1; dx++) {
+						int floor = 200 - Math.min(dz, 4);
+						for (int y = floor; y <= floor + 2; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
+					}
+					world.setBlockState(new BlockPos(x, 196, z + 11), Blocks.IRON_ORE.getDefaultState(), 3);
+					world.setBlockState(new BlockPos(x + 1, 200, z), Blocks.TORCH.getDefaultState(), 3);
+					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
+					if (scenario.equals("system-one-underground")) player.getInventory().setStack(1, new ItemStack(Items.TORCH, 8));
+					else {
+						player.getInventory().setStack(1, new ItemStack(Items.COAL, 2));
+						player.getInventory().setStack(2, new ItemStack(Items.STICK, 2));
+					}
+				}
+				else if (scenario.equals("system-one-smelting")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
 					player.getInventory().setStack(1, new ItemStack(Items.OAK_PLANKS));
 					world.setBlockState(new BlockPos(x, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);

@@ -225,7 +225,7 @@ public final class ScenarioEvaluationRunner {
 			}
 			case "event_contains" -> {
 				String eventType = check.string("eventType");
-				yield context.eventContains(eventType)
+				yield context.eventContains(eventType, check.stringMap("payload"))
 					? EvaluationCheckResult.passed(check, "event seen: " + eventType)
 					: EvaluationCheckResult.failed(check, "event not seen: " + eventType);
 			}
@@ -438,7 +438,7 @@ public final class ScenarioEvaluationRunner {
 
 		int playerBlockZ();
 
-		boolean eventContains(String eventType);
+		boolean eventContains(String eventType, Map<String, String> payload);
 
 		String lastChatText();
 

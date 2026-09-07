@@ -35,7 +35,9 @@ final class MinecraftProductionKnowledge {
 			if (ticks > 0) fuels.add(new Fuel(Registries.ITEM.getId(item).toString(), ticks));
 		}
 		fuels.sort(Comparator.comparing(Fuel::item));
-		return new ProductionKnowledge("minecraft-recipe-display-v2", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
-			SmeltingPlannerService.productionSmelts(client), fuels);
+		var excavatable = List.of("minecraft:stone", "minecraft:deepslate", "minecraft:dirt", "minecraft:grass_block", "minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff");
+		var searches = List.of(new SearchPrior("minecraft:raw_iron", 16, 64, 96, excavatable), new SearchPrior("minecraft:coal", 48, 48, 64, excavatable));
+		return new ProductionKnowledge("minecraft-recipe-display-v3", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+			SmeltingPlannerService.productionSmelts(client), fuels, searches, new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4));
 	}
 }

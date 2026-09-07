@@ -1,0 +1,81 @@
+package ai.moeru.airicraft.systemone.voxel;
+
+import java.util.*;
+import static ai.moeru.airicraft.systemone.TaskKernel.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.*;
+import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
+import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
+
+/** Search opens observed surfaces. A geological prior never supplies an ore coordinate. */
+public final class UndergroundSearch {
+	public record Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction,
+		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
+		public Task { targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); }
+		public static Task begin(SearchPrior prior, List<String> targets, World world, Set<Pos> ignored) {
+			return new Task(prior, targets, world.feet(), world.feet(), Math.floorMod(Math.round((float) world.eye().yaw() / 90), 4), 0, Set.of(), ignored, Optional.empty(), Optional.empty(), null);
+		}
+	}
+	private static final int[][] DIRECTIONS = {{0, 1}, {-1, 0}, {0, -1}, {1, 0}};
+	public Decision<Task, VoxelCommand> decide(View<Task> view, World world) {
+		Task task = view.task();
+		if (world.known().entrySet().stream().anyMatch(e -> e.getValue().identified() && task.targets().contains(e.getValue().blockId()) && !task.ignoredTargets().contains(e.getKey()))) {
+			return new Complete<>(Outcome.success("resource_surface_observed:" + task.prior().item()));
+		}
+		if (view.acting()) return new Keep<>();
+		var rejected = new HashSet<>(task.rejected());
+		if (view.commandResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) task.destination().ifPresent(rejected::add);
+		int steps = task.steps();
+		Optional<Pos> destination = task.destination(), looked = task.lookedAt();
+		if (destination.filter(world.feet()::equals).isPresent()) { steps++; destination = Optional.empty(); looked = Optional.empty(); }
+		if (steps >= task.prior().maxSteps() || rejected.size() >= 16) return new Complete<>(Outcome.failure("underground_search_budget_exhausted"));
+		if (destination.filter(rejected::contains).isPresent()) { destination = Optional.empty(); looked = Optional.empty(); }
+		// Retain a selected step across ceiling preparation and lighting interruptions.
+		List<Pos> candidates = new ArrayList<>();
+		destination.ifPresent(candidates::add);
+		for (int turn : new int[]{0, 1, 3, 2}) {
+			int[] d = DIRECTIONS[(task.direction() + turn) % 4];
+			// An observed cave floor competes with cutting another step.
+			for (int dy : world.feet().y() > task.prior().preferredY() ? new int[]{-1, 0} : new int[]{0}) {
+				Pos candidate = world.feet().offset(d[0], dy, d[1]);
+				if (!candidates.contains(candidate)) candidates.add(candidate);
+			}
+		}
+		Optional<Pos> retained = destination;
+		candidates.sort(Comparator.comparingInt(p -> retained.filter(p::equals).isPresent() ? 0 : StoneAcquisition.standable(world.known(), p) ? 1 : 2));
+		for (Pos next : candidates) {
+			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
+			if (world.footholds().contains(next.offset(0, -1, 0)) && destination.isEmpty()) continue;
+			var column = List.of(next.offset(0, Math.max(1, world.feet().y() + 1 - next.y()), 0), next.offset(0, 1, 0), next);
+			boolean obstructed = false;
+			for (Pos cell : column) {
+				Seen seen = world.known().get(cell);
+				if (seen != null && seen.empty()) continue;
+				if (seen != null && seen.identified() && (!task.prior().excavatable().contains(seen.blockId()) || world.footholds().contains(cell))) { obstructed = true; break; }
+			}
+			if (obstructed) { rejected.add(next); continue; }
+			for (Pos cell : column) {
+				Seen seen = world.known().get(cell);
+				if (seen != null && seen.identified() && !seen.empty() && ObservedReach.visible(world.known(), world.eye(), cell, 4.3)) {
+					return action(task, world, steps, rejected, next, null, new Break(cell, seen.blockId()));
+				}
+			}
+			if (StoneAcquisition.standable(world.known(), next) && column.stream().allMatch(p -> world.known().get(p) != null && world.known().get(p).empty())) {
+				return action(task, world, steps, rejected, next, null, new Navigate(next, 12, 200));
+			}
+			Pos inspect = column.stream().filter(p -> world.known().get(p) == null || !world.known().get(p).identified()).findFirst().orElse(next.offset(0, -1, 0));
+			if (looked.filter(inspect::equals).isEmpty()) {
+				double dx = inspect.x() + .5 - world.eye().x(), dy = inspect.y() + .5 - world.eye().y(), dz = inspect.z() + .5 - world.eye().z();
+				return action(task, world, steps, rejected, next, inspect, new Look((float) Math.toDegrees(Math.atan2(-dx, dz)), (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz)))));
+			}
+			rejected.add(next);
+		}
+		return new Complete<>(Outcome.failure("no_observed_underground_step"));
+	}
+	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
+		int direction = task.direction();
+		for (int i = 0; i < DIRECTIONS.length; i++) if (destination.x() - world.feet().x() == DIRECTIONS[i][0] && destination.z() - world.feet().z() == DIRECTIONS[i][1]) direction = i;
+		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), direction, steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command), command);
+	}
+	public static double squared(Pos a, Pos b) { return Math.pow(a.x() - b.x(), 2) + Math.pow(a.z() - b.z(), 2); }
+}

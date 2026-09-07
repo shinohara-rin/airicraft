@@ -12,7 +12,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch {}
+	public sealed interface Task permits Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat {}
 	public record Acquire(String item, int count, Map<String, Integer> reserved, Set<String> ancestors, Set<String> failed, String method) implements Task {
 		public Acquire { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); failed = Set.copyOf(failed); if (count < 1) throw new IllegalArgumentException("Positive quantity required"); }
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
@@ -30,12 +30,24 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	public record FinishSmeltStart(Smelt recipe, Pos station, int before) implements Task {}
 	public record CollectBatch(Smelt recipe, Pos station, int before, long deadline, int attempts) implements Task {}
+	public record Explore(UndergroundSearch.Task search, LightingPolicy.State light, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
+		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
+	}
+	public record ResumeExplore(Explore saved, Pos anchor, LightingPolicy.Repair repair, Set<Pos> rejected, Optional<Pos> last) implements Task {
+		public ResumeExplore { rejected = Set.copyOf(rejected); }
+	}
+	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
+	public record Retreat(Pos anchor, Set<Pos> rejected, Optional<Pos> last) implements Task { public Retreat { rejected = Set.copyOf(rejected); } }
+	public record AfterRetreat(String reason) implements Task {}
 	private final Map<String, List<Recipe>> recipes;
 	private final Map<String, Recipe> recipesById;
 	private final Map<String, Harvest> harvesting;
 	private final Map<String, List<Smelt>> smelting;
 	private final Map<String, Smelt> smeltsById;
 	private final List<Fuel> fuels;
+	private final Map<String, SearchPrior> searches;
+	private final LightingPolicy lighting;
+	private final UndergroundSearch underground = new UndergroundSearch();
 	private final StoneAcquisition stone = new StoneAcquisition();
 
 	public ProductionDomain(ProductionKnowledge knowledge) {
@@ -45,6 +57,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		smelting = knowledge.smelting().stream().collect(Collectors.groupingBy(Smelt::output));
 		smeltsById = knowledge.smelting().stream().collect(Collectors.toMap(Smelt::id, r -> r));
 		fuels = knowledge.fuels();
+		searches = knowledge.searches().stream().collect(Collectors.toMap(SearchPrior::item, p -> p));
+		lighting = new LightingPolicy(knowledge.lighting());
 	}
 	@Override public Optional<Outcome> completion(Task root, World world) {
 		if (world != null && root instanceof Acquire goal && free(world, goal.reserved(), goal.item()) >= goal.count()) {
@@ -58,6 +72,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case Station task -> station(view, task, world);
 			case Gather task -> gather(view, task, world);
 			case SmeltBatch task -> smelt(view, task, world);
+			case Explore task -> explore(view, task, world);
+			case ResumeExplore task -> resumeExplore(view, task, world);
+			case PlaceLight task -> placeLight(view, task, world);
+			case Retreat task -> retreat(view, task, world);
+			case AfterRetreat task -> failure(task.reason() + (failed(view) ? ":retreat_failed" : ":retreated"));
 			case FinishSmeltStart task -> {
 				if (view.acting()) yield new Keep<>();
 				if (failed(view)) yield failure("smelt_start_failed:" + view.commandResult().orElseThrow().evidence());
@@ -81,6 +100,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> acquire(View<Task> view, Acquire task, World world) {
 		if (free(world, task.reserved(), task.item()) >= task.count()) return success("inventory_observed:" + task.item() + ":" + task.count());
 		if (view.acting()) return new Keep<>();
+		String searchId = "search:" + task.item();
+		if (task.method().equals(searchId) && view.childResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent()) {
+			var alternatives = new HashSet<>(task.failed()); alternatives.remove("harvest:" + task.item());
+			task = new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), alternatives, "");
+		}
 		if (task.ancestors().contains(task.item())) return failure("dependency_cycle:" + task.item());
 		if (failed(view)) {
 			var rejected = new HashSet<>(task.failed()); rejected.add(task.method());
@@ -88,6 +112,21 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		if (task.failed().size() >= 32) return failure("production_alternatives_exhausted:" + task.item());
 		String harvestId = "harvest:" + task.item();
+		var search = searches.get(task.item());
+		if (search != null && !task.failed().contains(searchId)) {
+			var rule = harvesting.get(task.item());
+			var observed = world.known().entrySet().stream().filter(e -> e.getValue().identified() && rule.blocks().contains(e.getValue().blockId())).map(Map.Entry::getKey).collect(Collectors.toSet());
+			if (observed.isEmpty() || task.failed().contains(harvestId)) {
+				String tool = rule.tools().stream().filter(id -> world.inventory().getOrDefault(id, 0) > 0).findFirst().orElse(null);
+				if (tool == null) {
+					Acquire current = task;
+					tool = rule.tools().stream().filter(id -> !current.failed().contains("tool:" + id) && !ancestry(current).contains(id)).findFirst().orElse(null);
+					if (tool == null) return failure("search_tool_alternatives_exhausted:" + task.item());
+					return new Child<>(selected(task, "tool:" + tool), dependency(task, tool, 1, task.reserved()), "search_tool_required:" + tool);
+				}
+				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), LightingPolicy.State.begin(), task.reserved(), ancestry(task)), searchId);
+			}
+		}
 		if (harvesting.containsKey(task.item()) && !task.failed().contains(harvestId)) {
 			var rule = harvesting.get(task.item());
 			Acquire next = selected(task, harvestId);
@@ -130,6 +169,76 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (station == null) return new Child<>(next, new Station("minecraft:crafting_table", commitments(next.reserved(), needed, "", world), ancestry(next), 0, Set.of(), null), "workstation_required");
 		}
 		return new Execute<>(next, new Craft(recipe, station));
+	}
+
+	private Decision<Task, VoxelCommand> explore(View<Task> view, Explore task, World world) {
+		var assessment = lighting.assess(task.light(), light(world), world.inventory().getOrDefault("minecraft:torch", 0), !task.ancestors().contains("minecraft:torch"), world.feet(), view.tick());
+		Explore next = new Explore(task.search(), assessment.state(), task.reserved(), task.ancestors());
+		if (assessment.action() == LightingPolicy.Action.SUPPLY || assessment.action() == LightingPolicy.Action.PLACE) {
+			var repair = assessment.action() == LightingPolicy.Action.SUPPLY ? LightingPolicy.Repair.SUPPLY : LightingPolicy.Repair.PLACEMENT;
+			Task child = repair == LightingPolicy.Repair.SUPPLY
+				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
+				: new PlaceLight(Set.of(), Optional.empty());
+			return new Child<>(new ResumeExplore(next, world.feet(), repair, Set.of(), Optional.empty()), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
+		}
+		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted");
+		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world);
+		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
+			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : world.feet();
+			if (assessment.state().allowance().filter(a -> !lighting.permits(a, affected, view.tick())).isPresent()) return leaveSearch(next, "lighting_region_exhausted");
+			return new Execute<>(new Explore(action.continuation(), assessment.state(), task.reserved(), task.ancestors()), action.command());
+		}
+		if (decision instanceof Complete<UndergroundSearch.Task, VoxelCommand> completed) return new Complete<>(completed.outcome());
+		return new Keep<>();
+	}
+	private Decision<Task, VoxelCommand> leaveSearch(Explore task, String reason) {
+		return new Child<>(new AfterRetreat(reason), new Retreat(task.search().origin(), Set.of(), Optional.empty()), "lighting_retreat");
+	}
+	private Decision<Task, VoxelCommand> resumeExplore(View<Task> view, ResumeExplore task, World world) {
+		Explore saved = task.saved();
+		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) saved = new Explore(saved.search(), saved.light().failed(task.repair()), saved.reserved(), saved.ancestors());
+		if (view.acting()) return new Keep<>();
+		var rejected = new HashSet<>(task.rejected());
+		if (failed(view) && view.commandResult().isPresent()) task.last().ifPresent(rejected::add);
+		if (world.feet().equals(task.anchor()) || (view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent() && UndergroundSearch.squared(world.feet(), task.anchor()) <= 4 && Math.abs(world.feet().y() - task.anchor().y()) <= 1)) {
+			return explore(new View<>(view.id(), saved, false, view.tick(), Optional.empty(), Optional.empty()), saved, world);
+		}
+		Optional<Pos> returnTo = returnStance(world, task.anchor(), rejected);
+		if (returnTo.isEmpty() || rejected.size() >= 4) return failure("exploration_return_route_unavailable");
+		return new Execute<>(new ResumeExplore(saved, task.anchor(), task.repair(), rejected, returnTo), new Navigate(returnTo.get(), 48, 400));
+	}
+	private Decision<Task, VoxelCommand> retreat(View<Task> view, Retreat task, World world) {
+		if (world.feet().equals(task.anchor())) return success("search_refuge_reached");
+		if (view.acting()) return new Keep<>();
+		if (view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent()) return success("search_refuge_reached");
+		var rejected = new HashSet<>(task.rejected()); if (failed(view)) task.last().ifPresent(rejected::add);
+		var target = returnStance(world, task.anchor(), rejected);
+		if (target.isEmpty() || rejected.size() >= 4) return failure("search_refuge_unreachable");
+		return new Execute<>(new Retreat(task.anchor(), rejected, target), new Navigate(target.get(), 64, 600));
+	}
+	private static Optional<Pos> returnStance(World world, Pos anchor, Set<Pos> rejected) {
+		return world.known().keySet().stream().filter(p -> !rejected.contains(p) && StoneAcquisition.standable(world.known(), p))
+			.filter(p -> UndergroundSearch.squared(p, anchor) <= 4 && Math.abs(p.y() - anchor.y()) <= 1)
+			.sorted(Comparator.<Pos>comparingDouble(p -> UndergroundSearch.squared(p, anchor) + Math.pow(p.y() - anchor.y(), 2)).thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z)).findFirst();
+	}
+	private Decision<Task, VoxelCommand> placeLight(View<Task> view, PlaceLight task, World world) {
+		if (light(world) >= lighting.parameters().resumeAt()) return success("working_light_observed");
+		if (view.acting()) return new Keep<>();
+		var rejected = new HashSet<>(task.rejected());
+		if (view.commandResult().isPresent()) {
+			task.last().ifPresent(rejected::add);
+			if (!failed(view)) return new Sleep<>(new PlaceLight(rejected, Optional.empty()), view.tick() + 5);
+		}
+		if (rejected.size() >= 4 || world.inventory().getOrDefault("minecraft:torch", 0) == 0) return failure("light_placement_unavailable");
+		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
+			.filter(p -> !world.footholds().contains(p) && world.eye().y() > p.y() + 1 && !intersectsPlayer(world, p.offset(0, 1, 0)))
+			.filter(p -> distance(world.eye(), p) <= 4.3 * 4.3).sorted(positionOrder(world.eye())).findFirst();
+		if (support.isEmpty()) return failure("no_observed_light_support");
+		return new Execute<>(new PlaceLight(rejected, support), new Place("minecraft:torch", support.get(), world.known().get(support.get()).blockId()));
+	}
+	static int light(World world) {
+		Seen cell = world.known().get(new Pos((int) Math.floor(world.eye().x()), (int) Math.floor(world.eye().y()), (int) Math.floor(world.eye().z())));
+		return cell == null ? 0 : cell.light();
 	}
 
 	private Decision<Task, VoxelCommand> smelt(View<Task> view, SmeltBatch task, World world) {

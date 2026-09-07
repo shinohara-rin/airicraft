@@ -1224,8 +1224,9 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return property.name(state.get(property));
 	}
 
-	public boolean semanticEventContains(String eventType) {
-		return eventType != null && eventBuffer.containsType(eventType);
+	public boolean semanticEventContains(String eventType, Map<String, String> payload) {
+		return eventType != null && eventBuffer.query(null).events().stream().anyMatch(event -> event.type().equals(eventType)
+			&& payload.entrySet().stream().allMatch(entry -> entry.getValue().equals(String.valueOf(event.payload().get(entry.getKey())))));
 	}
 
 	public void prepareForEvaluation() {

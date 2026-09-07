@@ -550,8 +550,8 @@ public final class EvaluationAddonRuntime {
 		}
 
 		@Override
-		public boolean eventContains(String eventType) {
-			return runtime.semanticEventContains(eventType);
+		public boolean eventContains(String eventType, Map<String, String> payload) {
+			return runtime.semanticEventContains(eventType, payload);
 		}
 
 		@Override

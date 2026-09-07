@@ -93,6 +93,10 @@ The compact report includes inventory changes, command counts, failure reasons, 
 
 ## Outstanding plan gates
 
+Underground search and a separate lighting policy are implemented experimentally in production policy v12. Search uses observed cave floors and individual exposed excavation surfaces; geological priors supply only a preferred depth and work bounds. Lighting has hysteresis, child-task supply/placement, return continuations, and a time/region allowance after repair failure. The perception lens is unchanged. Seventy-two System 1 tests and 33 evaluator tests pass, including repair ownership and preserved destinations. Evaluator event checks now support exact payload predicates, so the cave fixtures require supply/placement resumption evidence as well as raw-iron inventory.
+
+The first live cave batch, `20260907-190840-236654-14858`, failed search in both fixtures. `system-one-lighting` entered the cave, requested supply at tick 152, crafted eight torches, placed one, observed restored working light, and resumed exploration at tick 172. The supplied-torch fixture also placed light and resumed. Both reached the cave's end before lateral exploration changed their heading and led excavation into side walls. Final results were FAILED at 960 and 945 elapsed ticks, with zero planner turns. These runs prove the local supply/placement cycle, not successful underground acquisition or the full away-from-cave resupply gate.
+
 1. Extend the verified live decision recording/replay to subsequent domain methods; expose accurate runtime/version diagnostics and finish lifecycle ownership on reload/world changes.
 2. Finish stone variants, paired autonomous hidden-layout runs, and controlled travel/work/perception metrics. The source audit, adapter-level paired-world probe, and survey correction now have live evidence.
 3. Exposed-iron production and passive smelting now have a complete live fixture pass. Extend quantity/fuel accounting beyond one-input batches, test charcoal alternatives, and add underground iron acquisition for the original scenario.
