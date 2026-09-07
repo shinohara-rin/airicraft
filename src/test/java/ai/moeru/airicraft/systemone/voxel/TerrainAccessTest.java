@@ -67,6 +67,23 @@ class TerrainAccessTest {
 		assertInstanceOf(Access.class, repair.child());
 		assertEquals(ProductionDomain.retainedCells(List.of(retreat)), ProductionDomain.retainedCells(List.of((Task) repair.continuation())));
 	}
+	@Test void aFailedApproachToObservedUnminedOreCanPrepareAccessButAnUnknownTargetCannot() {
+		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 2, 2), ore = new Pos(0, 2, 5);
+		var harvest = new Harvest("ore", List.of("ore_block"), List.of(), Technique.EXPOSED);
+		var prior = new SearchPrior("ore", 2, 16, 20, List.of("stone"));
+		var domain = new ProductionDomain(new ProductionKnowledge("test", List.of(), List.of(harvest), List.of(), List.of(), List.of(prior), new LightingPolicy.Parameters(7,10,8,80,4)));
+		var known = solid();
+		for (int x = -1; x <= 1; x++) for (int z = 1; z <= 6; z++) for (int y = 2; y <= 5; y++) known.put(new Pos(x,y,z), air());
+		known.put(start, air()); known.put(start.offset(0,1,0), air());
+		known.put(ore, new Seen("ore_block", false, true, true, 15, 1));
+		var gather = new Gather(harvest, 1, start, 0, Set.of(), Set.of(goal), new Navigate(goal, 24, 200));
+		var failed = new View<Task>(3, gather, false, 1, Optional.of(Outcome.failure("observed_route_unavailable")), Optional.empty());
+		var repair = assertInstanceOf(Child.class, domain.decide(failed, world(known, start, Set.of())));
+		assertEquals(goal, assertInstanceOf(Access.class, repair.child()).state().goal());
+		known.put(ore, new Seen("unknown", false, false, true, 0, 2));
+		var unknown = domain.decide(failed, world(known, start, Set.of()));
+		assertFalse(unknown instanceof Child<?, ?> child && child.child() instanceof Access);
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));

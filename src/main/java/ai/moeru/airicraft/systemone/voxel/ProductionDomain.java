@@ -465,7 +465,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> gather(View<Task> view, Gather task, World world) {
 		if (world.inventory().getOrDefault(task.rule().item(), 0) >= task.count()) return success("harvest_inventory_observed:" + task.rule().item());
 		if (view.acting()) return new Keep<>();
-		if (needsAccess(view) && task.last() instanceof Navigate move && !task.drops().isEmpty() && searches.containsKey(task.rule().item())) {
+		if (needsAccess(view) && task.last() instanceof Navigate move && searches.containsKey(task.rule().item())
+			&& (!task.drops().isEmpty() || harvestApproach(task, move.stance(), world))) {
 			return access(task, move.stance(), world, view.tick(), new HashSet<>(searches.get(task.rule().item()).excavatable()));
 		}
 		var rejected = new HashSet<>(task.rejected()); var visited = new HashSet<>(task.visited());
@@ -521,6 +522,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	private Execute<Task, VoxelCommand> gatherAction(Gather task, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
 		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops()), action);
+	}
+	private boolean harvestApproach(Gather task, Pos stance, World world) {
+		var eye = new Pose(stance.x() + .5, stance.y() + 1.62, stance.z() + .5, 0, 0);
+		return world.known().entrySet().stream()
+			.filter(e -> e.getValue().identified() && task.rule().blocks().contains(e.getValue().blockId()))
+			.filter(e -> !task.rejected().contains(e.getKey()) && !survival.nearHazard(world, e.getKey()))
+			.anyMatch(e -> ObservedReach.visible(world.known(), eye, e.getKey(), 4.3));
 	}
 	private static boolean needsAccess(View<Task> view) {
 		return !view.acting() && view.commandResult().filter(o -> o.kind() == ResultKind.FAILED && Set.of("observed_route_unavailable", "navigation_budget_exhausted").contains(o.evidence())).isPresent();

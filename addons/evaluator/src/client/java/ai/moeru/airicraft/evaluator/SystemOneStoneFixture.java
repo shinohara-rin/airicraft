@@ -29,7 +29,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -98,6 +98,20 @@ final class SystemOneStoneFixture {
 						world.setBlockState(new BlockPos(x + 1, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
 						for (int y = 199; y <= 203; y++) world.setBlockState(new BlockPos(x - 1, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
 					}
+				}
+				else if (scenario.equals("system-one-harvest-approach")) {
+					for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 8; dz++) for (int y = 193; y <= 204; y++) {
+						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
+					}
+					world.setBlockState(new BlockPos(x, 200, z), Blocks.TORCH.getDefaultState(), 3);
+					world.setBlockState(new BlockPos(x, 201, z), Blocks.AIR.getDefaultState(), 3);
+					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= 7; dz++) for (int y = 198; y <= 203; y++) {
+						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.AIR.getDefaultState(), 3);
+					}
+					world.setBlockState(new BlockPos(x, 198, z + 6), Blocks.IRON_ORE.getDefaultState(), 3);
+					for (int dx : new int[]{-2, 2}) world.setBlockState(new BlockPos(x + dx, 198, z + 4), Blocks.TORCH.getDefaultState(), 3);
+					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
+					player.getInventory().setStack(1, new ItemStack(Items.TORCH, 8));
 				}
 				else if (scenario.equals("system-one-pickup-step")) {
 					for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 6; dz++) for (int y = 193; y <= 204; y++) {
