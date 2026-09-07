@@ -45,6 +45,22 @@ class LightingRepairTest {
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(2, resume, false, 10, Optional.empty(), Optional.of(Outcome.success("supplied"))), world(15, Map.of("pick", 1, "minecraft:torch", 8), FEET.offset(2, 0, 0)));
 		assertEquals(new Navigate(FEET, 48, 400), assertInstanceOf(Execute.class, result).command());
 	}
+	@Test void missingLightingInputsUseTheRememberedExitBeforeStartingResourceDiscovery() {
+		var domain = new ProductionDomain(BOOK);
+		var entrance = FEET.offset(0, 0, -2);
+		var cave = world(4, Map.of("pick", 1), FEET);
+		var search = new UndergroundSearch.Task(PRIOR, List.of("ore_block"), entrance, FEET, 0, 2,
+			Set.of(), Set.of(), Optional.empty(), Optional.empty(), null, List.of(entrance, FEET));
+		var explore = new Explore(search, LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
+		var repair = assertInstanceOf(Child.class, domain.decide(new View<Task>(2, explore, false, 10, Optional.empty(), Optional.empty()), cave));
+		var outbound = assertInstanceOf(Execute.class, domain.decide(new View<Task>(3, (Task)repair.child(), false, 11, Optional.empty(), Optional.empty()), cave));
+		assertEquals(new Navigate(entrance, 48, 400), outbound.command());
+		var resumed = assertInstanceOf(ResumeExplore.class, repair.continuation());
+		assertEquals(List.of(entrance, FEET), resumed.returning().route());
+		assertEquals(search, resumed.saved().search());
+		var atEntrance = domain.decide(new View<Task>(3, (Task)outbound.continuation(), false, 12, Optional.of(Outcome.success("arrived")), Optional.empty()), world(15, Map.of("pick", 1), entrance));
+		assertInstanceOf(Child.class, atEntrance, "only at the entrance should ingredient acquisition begin");
+	}
 	@Test void firstDarkTickStartsOneAllowanceEvenWhileMotorFeedbackIsDelayed() {
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(BOOK), new Limits(16, 16, 1000, 50));
 		var bright = world(15, Map.of("pick", 1), FEET);

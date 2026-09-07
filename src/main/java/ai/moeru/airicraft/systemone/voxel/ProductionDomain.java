@@ -12,7 +12,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
 	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
 	public record AfterAccess(Task saved) implements Task {}
 	public record Mission(String item, int count, long life, int deaths) implements Task {}
@@ -46,6 +46,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record LightRepair(LightingPolicy.Repair kind) implements SearchRepair {}
 	public record ToolRepair(String tool, Set<String> rejected) implements SearchRepair { public ToolRepair { rejected = Set.copyOf(rejected); } }
 	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, SearchRepair repair) implements Task {}
+	public record Resupply(Acquire supply, ReturnNavigation.State outward) implements Task {}
 	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
 	public record Retreat(ReturnNavigation.State returning) implements Task {}
 	public record AfterRetreat(String reason) implements Task {}
@@ -160,6 +161,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case SmeltBatch task -> smelt(view, task, world);
 			case Explore task -> explore(view, task, world);
 			case ResumeExplore task -> resumeExplore(view, task, world);
+			case Resupply task -> resupply(view, task, world);
 			case PlaceLight task -> placeLight(view, task, world);
 			case Retreat task -> retreat(view, task, world);
 			case AfterRetreat task -> failure(task.reason() + (failed(view) ? ":retreat_failed" : ":retreated"));
@@ -291,6 +293,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			Task child = repair == LightingPolicy.Repair.SUPPLY
 				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
 				: new PlaceLight(Set.of(), Optional.empty());
+			if (child instanceof Acquire supply && !craftableFromInventory(supply, world)) {
+				var outward = new ArrayList<>(RouteMemory.append(next.search().route(), world.feet()));
+				Collections.reverse(outward);
+				child = new Resupply(supply, ReturnNavigation.State.begin(outward));
+			}
 			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), new LightRepair(repair)), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
 		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
@@ -319,9 +326,27 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			while (task instanceof AfterEscape || task instanceof AfterAccess) task = task instanceof AfterEscape after ? after.saved() : ((AfterAccess) task).saved();
 			if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
 			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
+			else if (task instanceof Resupply supply) RouteMemory.retain(cells, supply.outward().route());
 			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
 		}
 		return Set.copyOf(cells);
+	}
+	private boolean craftableFromInventory(Acquire task, World world) {
+		int missing = task.count() - free(world, task.reserved(), task.item());
+		if (missing <= 0) return true;
+		return recipes.getOrDefault(task.item(), List.of()).stream().anyMatch(recipe -> {
+			int batches = Math.ceilDiv(missing, recipe.yield());
+			return recipe.ingredients().entrySet().stream().allMatch(input -> free(world, task.reserved(), input.getKey()) >= input.getValue() * batches);
+		});
+	}
+	private Decision<Task, VoxelCommand> resupply(View<Task> view, Resupply task, World world) {
+		if (view.acting()) return new Keep<>();
+		if (needsAccess(view) && task.outward().last().isPresent()) return access(task, task.outward().last().get(), world, view.tick(), accessMaterials);
+		var travel = ReturnNavigation.advance(task.outward(), world, view.commandResult());
+		if (travel instanceof ReturnNavigation.Arrived) return acquire(new View<>(view.id(), task.supply(), false, view.tick(), Optional.empty(), Optional.empty()), task.supply(), world);
+		if (travel instanceof ReturnNavigation.Unavailable unavailable) return failure("supply_origin_unreachable:" + unavailable.reason());
+		var move = (ReturnNavigation.Move) travel;
+		return new Execute<>(new Resupply(task.supply(), move.state()), move.command());
 	}
 	private Decision<Task, VoxelCommand> leaveSearch(Explore task, String reason, World world) {
 		var route = new ArrayList<>(RouteMemory.append(task.search().route(), world.feet())); Collections.reverse(route);
