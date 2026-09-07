@@ -3,6 +3,7 @@ package ai.moeru.airicraft.systemone.minecraft;
 import ai.moeru.airicraft.systemone.voxel.StoneAcquisition;
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
 import ai.moeru.airicraft.systemone.voxel.FootingMemory;
+import ai.moeru.airicraft.systemone.voxel.RouteMemory;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
@@ -20,10 +21,11 @@ final class MinecraftSensor {
 	private final Map<BlockPos, BlockState> terrain = new HashMap<>();
 	private final java.util.Set<Pos> footholds = new java.util.HashSet<>();
 
-	StoneAcquisition.World observe(MinecraftClient client, long tick) {
+	StoneAcquisition.World observe(MinecraftClient client, long tick, java.util.Set<Pos> retained) {
 		var player = client.player;
 		var eye = player.getEyePos();
-		footholds.removeIf(pos -> Math.abs(pos.x() - player.getBlockX()) > 48 || Math.abs(pos.z() - player.getBlockZ()) > 48);
+		Pos feet = new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ());
+		footholds.removeIf(pos -> !RouteMemory.keep(pos, feet, retained));
 		Pose pose = new Pose(eye.x, eye.y, eye.z, player.getYaw(), player.getPitch());
 		Map<Pos, BlockState> samples = new HashMap<>();
 		Map<Pos, Seen> seen = VoxelObservation.observe(pos -> {
@@ -48,7 +50,7 @@ final class MinecraftSensor {
 			new Pos((int) Math.floor(body.maxX - 1e-7), player.getBlockY() - 1, (int) Math.floor(body.maxZ - 1e-7)))) : java.util.Optional.<FootingMemory.Contact>empty();
 		var supports = FootingMemory.update(footholds, memory, contact);
 		footholds.clear(); footholds.addAll(supports);
-		memory.keySet().removeIf(pos -> Math.abs(pos.x() - player.getBlockX()) > 48 || Math.abs(pos.z() - player.getBlockZ()) > 48);
+		memory.keySet().removeIf(pos -> !RouteMemory.keep(pos, feet, retained));
 		terrain.keySet().removeIf(pos -> !memory.containsKey(new Pos(pos.getX(), pos.getY(), pos.getZ())));
 		ObservedTerrain.publish(terrain);
 		Map<String, Integer> inventory = new HashMap<>();
@@ -56,7 +58,7 @@ final class MinecraftSensor {
 			var stack = player.getInventory().getStack(i);
 			if (!stack.isEmpty()) inventory.merge(Registries.ITEM.getId(stack.getItem()).toString(), stack.getCount(), Integer::sum);
 		}
-		return new StoneAcquisition.World(pose, new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ()), inventory, memory, footholds);
+		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds);
 	}
 	void clear() { memory.clear(); terrain.clear(); footholds.clear(); ObservedTerrain.clear(); }
 }

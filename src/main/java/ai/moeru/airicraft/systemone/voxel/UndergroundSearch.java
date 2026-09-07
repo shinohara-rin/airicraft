@@ -10,8 +10,12 @@ import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
 /** Search opens observed surfaces. A geological prior never supplies an ore coordinate. */
 public final class UndergroundSearch {
 	public record Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction,
-		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
-		public Task { targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); }
+		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
+		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); }
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
+			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, List.of(origin));
+		}
+
 		public static Task begin(SearchPrior prior, List<String> targets, World world, Set<Pos> ignored) {
 			return new Task(prior, targets, world.feet(), world.feet(), Math.floorMod(Math.round((float) world.eye().yaw() / 90), 4), 0, Set.of(), ignored, Optional.empty(), Optional.empty(), null);
 		}
@@ -28,10 +32,10 @@ public final class UndergroundSearch {
 		if (view.acting()) return new Keep<>();
 		var rejected = new HashSet<>(task.rejected());
 		if (view.commandResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) task.destination().ifPresent(rejected::add);
-		int steps = task.steps();
+		int steps = task.steps() + (world.feet().equals(task.position()) ? 0 : 1);
 		Optional<Pos> destination = task.destination(), looked = task.lookedAt();
 		if (destination.filter(world.feet()::equals).isPresent()) {
-			steps++; destination = Optional.empty(); looked = Optional.empty();
+			destination = Optional.empty(); looked = Optional.empty();
 			// Reachability changed with our position. Past local failures must not exhaust a progressing search.
 			rejected.clear();
 		}
@@ -105,7 +109,7 @@ public final class UndergroundSearch {
 	}
 	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
 		// A sidestep explores local space; it does not replace the search's chosen heading.
-		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command), command);
+		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command, RouteMemory.append(task.route(), world.feet())), command);
 	}
 	public static double squared(Pos a, Pos b) { return Math.pow(a.x() - b.x(), 2) + Math.pow(a.z() - b.z(), 2); }
 }

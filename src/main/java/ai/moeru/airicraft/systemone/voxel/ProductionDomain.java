@@ -33,11 +33,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record Explore(UndergroundSearch.Task search, LightingPolicy.State light, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
 		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
 	}
-	public record ResumeExplore(Explore saved, Pos anchor, LightingPolicy.Repair repair, Set<Pos> rejected, Optional<Pos> last) implements Task {
-		public ResumeExplore { rejected = Set.copyOf(rejected); }
-	}
+	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, LightingPolicy.Repair repair) implements Task {}
 	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
-	public record Retreat(Pos anchor, Set<Pos> rejected, Optional<Pos> last) implements Task { public Retreat { rejected = Set.copyOf(rejected); } }
+	public record Retreat(ReturnNavigation.State returning) implements Task {}
 	public record AfterRetreat(String reason) implements Task {}
 	private final Map<String, List<Recipe>> recipes;
 	private final Map<String, Recipe> recipesById;
@@ -215,47 +213,48 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			Task child = repair == LightingPolicy.Repair.SUPPLY
 				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
 				: new PlaceLight(Set.of(), Optional.empty());
-			return new Child<>(new ResumeExplore(next, world.feet(), repair, Set.of(), Optional.empty()), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
+			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), repair), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
-		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted");
+		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
 		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved());
 		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
 			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : action.command() instanceof Place placed ? placed.destination() : world.feet();
-			if (assessment.state().allowance().filter(a -> !lighting.permits(a, affected, view.tick())).isPresent()) return leaveSearch(next, "lighting_region_exhausted");
+			if (assessment.state().allowance().filter(a -> !lighting.permits(a, affected, view.tick())).isPresent()) return leaveSearch(next, "lighting_region_exhausted", world);
 			return new Execute<>(new Explore(action.continuation(), assessment.state(), task.reserved(), task.ancestors()), action.command());
 		}
 		if (decision instanceof Complete<UndergroundSearch.Task, VoxelCommand> completed) return new Complete<>(completed.outcome());
 		return new Keep<>();
 	}
-	private Decision<Task, VoxelCommand> leaveSearch(Explore task, String reason) {
-		return new Child<>(new AfterRetreat(reason), new Retreat(task.search().origin(), Set.of(), Optional.empty()), "lighting_retreat");
+	public static Set<Pos> retainedCells(List<Task> branch) {
+		var cells = new HashSet<Pos>();
+		for (Task task : branch) {
+			if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
+			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
+			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
+		}
+		return Set.copyOf(cells);
+	}
+	private Decision<Task, VoxelCommand> leaveSearch(Explore task, String reason, World world) {
+		var route = new ArrayList<>(RouteMemory.append(task.search().route(), world.feet())); Collections.reverse(route);
+		return new Child<>(new AfterRetreat(reason), new Retreat(ReturnNavigation.State.begin(route)), "lighting_retreat");
 	}
 	private Decision<Task, VoxelCommand> resumeExplore(View<Task> view, ResumeExplore task, World world) {
 		Explore saved = task.saved();
 		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) saved = new Explore(saved.search(), saved.light().failed(task.repair()), saved.reserved(), saved.ancestors());
 		if (view.acting()) return new Keep<>();
-		var rejected = new HashSet<>(task.rejected());
-		if (failed(view) && view.commandResult().isPresent()) task.last().ifPresent(rejected::add);
-		if (world.feet().equals(task.anchor()) || (view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent() && UndergroundSearch.squared(world.feet(), task.anchor()) <= 4 && Math.abs(world.feet().y() - task.anchor().y()) <= 1)) {
-			return explore(new View<>(view.id(), saved, false, view.tick(), Optional.empty(), Optional.empty()), saved, world);
-		}
-		Optional<Pos> returnTo = returnStance(world, task.anchor(), rejected);
-		if (returnTo.isEmpty() || rejected.size() >= 4) return failure("exploration_return_route_unavailable");
-		return new Execute<>(new ResumeExplore(saved, task.anchor(), task.repair(), rejected, returnTo), new Navigate(returnTo.get(), 48, 400));
+		var returning = ReturnNavigation.advance(task.returning(), world, view.commandResult());
+		if (returning instanceof ReturnNavigation.Arrived) return explore(new View<>(view.id(), saved, false, view.tick(), Optional.empty(), Optional.empty()), saved, world);
+		if (returning instanceof ReturnNavigation.Unavailable failed) return failure("exploration_return_route_unavailable:" + failed.reason());
+		var move = (ReturnNavigation.Move) returning;
+		return new Execute<>(new ResumeExplore(saved, move.state(), task.repair()), move.command());
 	}
 	private Decision<Task, VoxelCommand> retreat(View<Task> view, Retreat task, World world) {
-		if (world.feet().equals(task.anchor())) return success("search_refuge_reached");
 		if (view.acting()) return new Keep<>();
-		if (view.commandResult().filter(o -> o.kind() == ResultKind.SUCCEEDED).isPresent()) return success("search_refuge_reached");
-		var rejected = new HashSet<>(task.rejected()); if (failed(view)) task.last().ifPresent(rejected::add);
-		var target = returnStance(world, task.anchor(), rejected);
-		if (target.isEmpty() || rejected.size() >= 4) return failure("search_refuge_unreachable");
-		return new Execute<>(new Retreat(task.anchor(), rejected, target), new Navigate(target.get(), 64, 600));
-	}
-	private static Optional<Pos> returnStance(World world, Pos anchor, Set<Pos> rejected) {
-		return world.known().keySet().stream().filter(p -> !rejected.contains(p) && StoneAcquisition.standable(world.known(), p))
-			.filter(p -> UndergroundSearch.squared(p, anchor) <= 4 && Math.abs(p.y() - anchor.y()) <= 1)
-			.sorted(Comparator.<Pos>comparingDouble(p -> UndergroundSearch.squared(p, anchor) + Math.pow(p.y() - anchor.y(), 2)).thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z)).findFirst();
+		var returning = ReturnNavigation.advance(task.returning(), world, view.commandResult());
+		if (returning instanceof ReturnNavigation.Arrived) return success("search_refuge_reached");
+		if (returning instanceof ReturnNavigation.Unavailable failed) return failure("search_refuge_unreachable:" + failed.reason());
+		var move = (ReturnNavigation.Move) returning;
+		return new Execute<>(new Retreat(move.state()), move.command());
 	}
 	private Decision<Task, VoxelCommand> placeLight(View<Task> view, PlaceLight task, World world) {
 		if (light(world) >= lighting.parameters().resumeAt()) return success("working_light_observed");

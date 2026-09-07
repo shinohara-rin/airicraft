@@ -1,0 +1,39 @@
+id: system-one-return-route
+name: Resupply beyond the local observation cache and resume the cave route
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one raw iron beyond a long cave. The fixture supplies a stone pickaxe
+  and torches, and exposes wood and a furnace near the entrance. Carried torches
+  are removed after fifty-two blocks of cave progress. Obtain replacement
+  lighting supplies, return to the suspended exploration, and reach the ore.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 18000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: lighting_supply
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:inventory_observed:minecraft:torch:8
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

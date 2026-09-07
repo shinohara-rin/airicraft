@@ -29,13 +29,15 @@ public final class SystemOneHost {
 	private long sequence;
 	private long recordingSequence;
 	private StoneAcquisition.World recordedObservation;
+	private List<ProductionDomain.Task> retentionTasks = List.of();
+	private java.util.Set<Pos> retained = java.util.Set.of();
 	private Consumer<Object> decisionRecorder = ignored -> {};
 
 	public String start(String item, int count, MinecraftClient client, long tick) {
 		if (state != null && state.outcome().isEmpty()) throw new IllegalStateException("A System 1 mission is already active");
 		if (count < 1) throw new IllegalArgumentException("Positive quantity required");
 		if (client.world == null || client.player == null) throw new IllegalStateException("World not loaded");
-		sensor.clear(); cancellation = null;
+		sensor.clear(); cancellation = null; retentionTasks = List.of(); retained = java.util.Set.of();
 		recordingSequence = 0; recordedObservation = null;
 		knowledge = MinecraftProductionKnowledge.capture(client);
 		kernel = new TaskKernel<>(new ProductionDomain(knowledge), StoneTape.LIMITS);
@@ -49,7 +51,9 @@ public final class SystemOneHost {
 		if (state == null || state.outcome().isPresent()) return;
 		List<Feedback> feedback = motor.tick(client, tick).map(List::of).orElseGet(List::of);
 		if (client.world == null || client.player == null) cancellation = "world_left";
-		StoneAcquisition.World observation = client.world == null || client.player == null ? null : sensor.observe(client, tick);
+		var tasks = state.stack().stream().map(Frame::task).toList();
+		if (!tasks.equals(retentionTasks)) { retained = ProductionDomain.retainedCells(tasks); retentionTasks = tasks; }
+		StoneAcquisition.World observation = client.world == null || client.player == null ? null : sensor.observe(client, tick, retained);
 		var step = kernel.advance(state, observation, feedback, tick, Optional.ofNullable(cancellation));
 		decisionRecorder.accept(StoneTape.turn(++recordingSequence, recordedObservation, observation, feedback, cancellation, step));
 		recordedObservation = observation;

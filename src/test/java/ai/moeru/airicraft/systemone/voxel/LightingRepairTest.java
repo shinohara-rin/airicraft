@@ -41,7 +41,7 @@ class LightingRepairTest {
 		var origin = world(15, Map.of("pick", 1), FEET);
 		var search = UndergroundSearch.Task.begin(PRIOR, List.of("ore_block"), origin, Set.of());
 		var saved = new Explore(search, LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
-		var resume = new ResumeExplore(saved, FEET, LightingPolicy.Repair.SUPPLY, Set.of(), Optional.empty());
+		var resume = new ResumeExplore(saved, ReturnNavigation.State.begin(List.of(FEET)), LightingPolicy.Repair.SUPPLY);
 		var result = new ProductionDomain(BOOK).decide(new View<Task>(2, resume, false, 10, Optional.empty(), Optional.of(Outcome.success("supplied"))), world(15, Map.of("pick", 1, "minecraft:torch", 8), FEET.offset(2, 0, 0)));
 		assertEquals(new Navigate(FEET, 48, 400), assertInstanceOf(Execute.class, result).command());
 	}

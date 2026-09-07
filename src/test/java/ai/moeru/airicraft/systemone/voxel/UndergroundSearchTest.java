@@ -72,6 +72,21 @@ class UndergroundSearchTest {
 		var exhausted = new Task(PRIOR, List.of("iron"), FEET, task.position(), 0, PRIOR.maxSteps() - 1, rejected, Set.of(), Optional.of(FEET), Optional.empty(), task.last());
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, search.decide(view(exhausted), world)).outcome().kind());
 	}
+	@Test void partialFailedMovementRecordsActualPositionAndConsumesSearchBudget() {
+		var world = world(Map.of(FEET.offset(0, 0, 1), seen("minecraft:dirt")));
+		var origin = FEET.offset(0, 0, -1);
+		var unreached = FEET.offset(1, 0, 0);
+		var task = new Task(PRIOR, List.of("iron"), origin, origin, 0, 5, Set.of(), Set.of(), Optional.of(unreached), Optional.empty(), new Navigate(unreached, 12, 200));
+		var step = assertInstanceOf(Execute.class, search.decide(new View<>(1, task, false, 6, Optional.of(Outcome.failure("blocked")), Optional.empty()), world));
+		var next = (Task) step.continuation();
+		assertEquals(6, next.steps());
+		assertEquals(List.of(origin, FEET), next.route());
+		assertFalse(next.route().contains(unreached));
+		assertTrue(next.rejected().contains(unreached));
+		var unchanged = (Task) assertInstanceOf(Execute.class, search.decide(view(next), world)).continuation();
+		assertEquals(next.steps(), unchanged.steps());
+		assertEquals(next.route(), unchanged.route());
+	}
 	@Test void aVisibleSideSupportAllowsOneExplicitFootholdBeforeNavigation() {
 		var floor = FEET.offset(0, -2, 1);
 		var support = floor.offset(1, 0, 0);
