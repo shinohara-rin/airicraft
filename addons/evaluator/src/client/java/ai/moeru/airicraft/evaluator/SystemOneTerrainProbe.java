@@ -1,6 +1,8 @@
 package ai.moeru.airicraft.evaluator;
 
 import ai.moeru.airicraft.systemone.minecraft.ObservedTerrain;
+import ai.moeru.airicraft.systemone.minecraft.MinecraftScene;
+import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
 import baritone.api.BaritoneAPI;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.movement.ActionCosts;
@@ -52,6 +54,7 @@ final class SystemOneTerrainProbe {
 		if (phase == Phase.DONE) return true;
 		if (phase == Phase.START) {
 			require(ObservedTerrain.ENABLED, "System 1 terrain hooks are disabled");
+			verifyUnavailableChunk(client, output);
 			feet = client.player.getBlockPos();
 			Map<BlockPos, BlockState> known = new HashMap<>();
 			for (int x = -1; x <= 4; x++) for (int y = -1; y <= 2; y++) {
@@ -89,6 +92,21 @@ final class SystemOneTerrainProbe {
 			phase = Phase.DONE;
 		}
 		return phase == Phase.DONE;
+	}
+
+	private void verifyUnavailableChunk(MinecraftClient client, Path output) {
+		// Probe-only location, never supplied to the autonomous observation stream or goal.
+		var absent = client.player.getBlockPos().add(1_000_000, 0, 1_000_000);
+		boolean actualLoaded = client.world.getChunkManager().isChunkLoaded(absent.getX() >> 4, absent.getZ() >> 4);
+		require(!actualLoaded, "Sensor probe requires an unloaded client chunk");
+		var scene = new MinecraftScene(client.world);
+		var sample = scene.sample(new VoxelObservation.Pos(absent.getX(), absent.getY(), absent.getZ()));
+		try {
+			Files.writeString(output.resolve("system-one-sensor-availability.json"), new GsonBuilder().setPrettyPrinting().create().toJson(
+				Map.of("worldLoadedAnswer", client.world.isChunkLoaded(absent), "chunkManagerLoaded", actualLoaded, "sample", sample)));
+		} catch (IOException failure) { throw new IllegalStateException("Cannot save sensor availability probe", failure); }
+		require(sample.blockId().equals("unknown") && !sample.empty() && !sample.fullSupport() && !sample.clearForBody(),
+			"Unloaded chunk became observed terrain: " + sample.blockId());
 	}
 
 	private void change(MinecraftClient client, BlockState state, long tick) {

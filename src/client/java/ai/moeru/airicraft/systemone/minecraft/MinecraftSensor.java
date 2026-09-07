@@ -9,7 +9,6 @@ import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.EmptyBlockView;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,22 +31,13 @@ final class MinecraftSensor {
 		Pos feet = new Pos(player.getBlockX(), player.getBlockY(), player.getBlockZ());
 		footholds.removeIf(pos -> !RouteMemory.keep(pos, feet, retained));
 		Pose pose = new Pose(eye.x, eye.y, eye.z, player.getYaw(), player.getPitch());
-		Map<Pos, BlockState> samples = new HashMap<>();
-		Map<Pos, Seen> seen = VoxelObservation.observe(pos -> {
-			BlockPos p = new BlockPos(pos.x(), pos.y(), pos.z());
-			if (!client.world.isChunkLoaded(p)) return new Sample("unknown", false, false, 0);
-			BlockState state = client.world.getBlockState(p);
-			samples.put(pos, state);
-			// Static collision shapes are cached by Minecraft; this does not query hidden neighbors.
-			boolean staticShape = !state.getBlock().hasDynamicBounds();
-			return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(), staticShape && state.isFullCube(EmptyBlockView.INSTANCE, p), client.world.getLightLevel(p),
-				staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty());
-		}, pose, LENS, tick);
+		var scene = new MinecraftScene(client.world);
+		Map<Pos, Seen> seen = VoxelObservation.observe(scene, pose, LENS, tick);
 		seen.forEach((pos, value) -> {
 			// A dark re-observation cannot refresh a remembered block's identity.
 			if (value.identified()) {
 				memory.put(pos, value);
-				BlockState state = samples.get(pos);
+				BlockState state = scene.sampledState(pos);
 				if (state != null) terrain.put(new BlockPos(pos.x(), pos.y(), pos.z()), state);
 			}
 		});

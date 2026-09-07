@@ -1,0 +1,51 @@
+{
+  "policy": "reactive-production-v55",
+  "sourceContract": "ClientWorld.isChunkLoaded(int,int) returns true; ClientChunkManager.getChunk(FULL,false) is nullable for unavailable chunks.",
+  "before": {
+    "run": "20260908-050440-020932-86343/01-system-one-terrain",
+    "probe": {
+      "sample": {
+        "blockId": "minecraft:void_air",
+        "empty": true,
+        "fullSupport": false,
+        "light": 15,
+        "clearForBody": true
+      },
+      "chunkManagerLoaded": false,
+      "worldLoadedAnswer": true
+    },
+    "scenario": "FAILED",
+    "harness": "DECISION_TRACE_INCOMPLETE",
+    "reason": "The adapter assertion fails before the autonomous goal and decision trace begin."
+  },
+  "after": {
+    "run": "20260908-050717-759906-87039/01-system-one-terrain",
+    "probe": {
+      "worldLoadedAnswer": true,
+      "sample": {
+        "blockId": "unknown",
+        "empty": false,
+        "fullSupport": false,
+        "light": 0,
+        "clearForBody": false
+      },
+      "chunkManagerLoaded": false
+    },
+    "scenario": "PASSED",
+    "harness": "OK",
+    "clientExit": 0,
+    "elapsedTicks": 425,
+    "exactReplayTurns": 356,
+    "coverage": "complete",
+    "llmCalls": 0,
+    "motorReleased": true,
+    "pairedTerrainProbeEqual": true,
+    "hiddenCellsChanged": 102
+  },
+  "limitations": [
+    "Probe-only coordinates are not supplied to autonomous sensing or planning.",
+    "This verifies unavailable-chunk handling and the existing paired adapter probe, not every possible hidden read.",
+    "Removing false void-air samples alone does not resolve the v54 original underground-search failure.",
+    "This Play was finalized but not visually reviewed."
+  ]
+}
