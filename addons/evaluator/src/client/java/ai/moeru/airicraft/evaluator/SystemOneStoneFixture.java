@@ -150,19 +150,20 @@ final class SystemOneStoneFixture {
 					boolean turn = scenario.equals("system-one-cave-turn");
 					for (int dx=-4;dx<=2;dx++) for (int dz=-1;dz<=8;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
 					for (int dz=0;dz<=6;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
-					world.setBlockState(new BlockPos(x,200,z),Blocks.TORCH.getDefaultState(),3);
+					var wallLight = Blocks.WALL_TORCH.getDefaultState().with(net.minecraft.state.property.Properties.HORIZONTAL_FACING, net.minecraft.util.math.Direction.WEST);
+					world.setBlockState(new BlockPos(x,202,z),wallLight,3);
 					if (turn) {
 						for (int dx=-2;dx<=0;dx++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x+dx,y,z+6),Blocks.AIR.getDefaultState(),3);
 						for (int dz=2;dz<=6;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x-2,y,z+dz),Blocks.AIR.getDefaultState(),3);
-						world.setBlockState(new BlockPos(x,200,z+3),Blocks.TORCH.getDefaultState(),3);
-						world.setBlockState(new BlockPos(x-2,200,z+6),Blocks.TORCH.getDefaultState(),3);
+						world.setBlockState(new BlockPos(x,202,z+3),wallLight,3);
+						world.setBlockState(new BlockPos(x-2,202,z+6),wallLight.with(net.minecraft.state.property.Properties.HORIZONTAL_FACING, net.minecraft.util.math.Direction.EAST),3);
 						world.setBlockState(new BlockPos(x-2,200,z+1),Blocks.IRON_ORE.getDefaultState(),3);
 					} else {
 						for (int dz=1;dz<=5;dz++) {
 							world.setBlockState(new BlockPos(x,199,z+dz),(dz==5 ? Blocks.IRON_ORE : Blocks.STONE).getDefaultState(),3);
 							world.setBlockState(new BlockPos(x,200,z+dz),Blocks.LEAF_LITTER.getDefaultState(),3);
 						}
-						world.setBlockState(new BlockPos(x,200,z+6),Blocks.TORCH.getDefaultState(),3);
+						world.setBlockState(new BlockPos(x,202,z+6),wallLight,3);
 					}
 					player.getInventory().setStack(0,new ItemStack(Items.STONE_PICKAXE));
 					player.getInventory().setStack(1,new ItemStack(Items.TORCH,8));
