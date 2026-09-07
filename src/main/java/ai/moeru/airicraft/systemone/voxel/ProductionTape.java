@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.zip.GZIPInputStream;
 import static ai.moeru.airicraft.systemone.TaskKernel.*;
 import static ai.moeru.airicraft.systemone.voxel.ProductionDomain.*;
@@ -19,7 +21,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v47";
+	public static final String METHOD_VERSION = "reactive-production-v48";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}
@@ -27,7 +29,40 @@ public final class ProductionTape {
 		Task root = state.stack().getFirst().task();
 		boolean mission = root instanceof Mission;
 		var goal = mission ? Acquire.root(((Mission) root).item(), ((Mission) root).count()) : (Acquire) root;
-		return new Header("production_begin", 1, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS, mission, mission ? ((Mission) root).life() : 0);
+		return new Header("production_begin", 2, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS, mission, mission ? ((Mission) root).life() : 0);
+	}
+	/** Factual policy state, including suspended allowances; presence does not imply permission to act. */
+	public record LightingFrame(long task, String phase, boolean leaf, List<String> continuation,
+		boolean maintaining, List<LightingPolicy.Repair> failed, LightingPolicy.Allowance allowance) {}
+	public record LightingTrace(Integer policyLight, List<LightingFrame> before, List<LightingFrame> after) {}
+	public record Turn(String type, long sequence, long tick, StoneTape.Observation observation, List<StoneTape.Reply> feedback,
+		String cancellation, List<String> effects, List<Event> events, String outcome, LightingTrace lighting) {}
+	public static Turn turn(long sequence, World previous, World current, List<Feedback> feedback, String cancellation,
+		State<Task> before, Step<Task, VoxelCommand> step) {
+		var row = StoneTape.turn(sequence, previous, current, feedback, cancellation, step);
+		return new Turn(row.type(), row.sequence(), row.tick(), row.observation(), row.feedback(), row.cancellation(),
+			row.effects(), row.events(), row.outcome(), lightingTrace(before, step.state(), current));
+	}
+	static LightingTrace lightingTrace(State<Task> before, State<Task> after, World world) {
+		return new LightingTrace(world == null ? null : ProductionDomain.light(world), lighting(before), lighting(after));
+	}
+	static List<LightingFrame> lighting(State<Task> state) {
+		var result = new ArrayList<LightingFrame>();
+		for (int i = 0; i < state.stack().size(); i++) {
+			var frame = state.stack().get(i); Task task = frame.task(); var path = new ArrayList<String>();
+			while (true) {
+				if (task instanceof AfterEscape saved) { path.add("survival_repair"); task = saved.saved(); }
+				else if (task instanceof AfterAccess saved) { path.add("access_repair"); task = saved.saved(); }
+				else if (task instanceof ResumeExplore saved) { path.add("resupply_return"); task = saved.saved(); }
+				else break;
+			}
+			if (task instanceof Explore explore) {
+				path.add("explore"); var light = explore.light();
+				result.add(new LightingFrame(frame.id(), frame.phase().getClass().getSimpleName(), i == state.stack().size() - 1,
+					List.copyOf(path), light.maintaining(), light.failed().stream().sorted().toList(), light.allowance().orElse(null)));
+			}
+		}
+		return List.copyOf(result);
 	}
 	public static final class Replay {
 		private TaskKernel<Task, World, VoxelCommand> kernel;
@@ -40,7 +75,7 @@ public final class ProductionTape {
 			switch (row.get("type").getAsString()) {
 				case "production_begin" -> {
 					if (rows != 0) throw new IllegalArgumentException("Repeated recording header");
-					if (row.get("version").getAsInt() != 1 || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
+					if (row.get("version").getAsInt() != 2 || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
 					var header = GSON.fromJson(row, Header.class);
 					kernel = new TaskKernel<>(new ProductionDomain(header.knowledge()), header.limits());
 					state = kernel.begin(header.session(), header.run(), header.mission() ? new Mission(header.item(), header.count(), header.life(), 0) : Acquire.root(header.item(), header.count()), header.tick());
@@ -56,6 +91,7 @@ public final class ProductionTape {
 						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds(), observation.vitals());
 					}
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
+					if (!GSON.toJsonTree(lightingTrace(state, step.state(), world)).equals(row.get("lighting"))) throw new IllegalArgumentException("Production lighting state mismatch at " + turn.tick());
 					if (!turn.effects().equals(step.effects().stream().map(Object::toString).toList()) || !turn.events().equals(step.events())
 						|| !turn.outcome().equals(step.state().outcome().map(Outcome::toString).orElse(""))) throw new IllegalArgumentException("Production decision mismatch at " + turn.tick());
 					state = step.state();

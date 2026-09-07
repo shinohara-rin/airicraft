@@ -39,6 +39,31 @@ class RecordingInspectionTest(unittest.TestCase):
         self.assertEqual({"route_blocked": 1}, report["command_failures"])
         self.assertEqual({"Navigate": 1}, report["commands"])
 
+    def test_allowance_snapshots_distinguish_active_and_suspended_state(self):
+        rows = self.rows()
+        rows[0]["version"] = 2
+        frame = {"task": 2, "phase": "Acting", "leaf": True, "continuation": ["explore"],
+                 "allowance": {"origin": {"x": 0, "y": 2, "z": 0}, "expiresAt": 5}}
+        suspended = copy.deepcopy(frame)
+        suspended.update(task=3, phase="WaitingChild", leaf=False, continuation=["resupply_return", "explore"])
+        rows[1]["lighting"] = {"policyLight": 3, "before": [frame], "after": [frame, suspended]}
+        metrics = self.inspect(rows)["metrics"]["dark_exposure_allowance"]
+        self.assertEqual("recorded_policy_state", metrics["status"])
+        self.assertEqual(2, metrics["instances_observed"])
+        self.assertEqual(2, metrics["allowance_state_samples"])
+        self.assertEqual(1, metrics["active_exploration_state_samples"])
+        self.assertEqual(1, metrics["expired_active_exploration_samples"])
+        self.assertIsNone(metrics["actual_dark_exposure_ticks"])
+
+    def test_new_format_requires_lighting_evidence_and_empty_is_a_recorded_zero(self):
+        rows = self.rows()
+        rows[0]["version"] = 2
+        self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+        rows[1]["lighting"] = {"policyLight": 15, "before": [], "after": []}
+        report = self.inspect(rows)
+        self.assertEqual("complete", report["coverage"])
+        self.assertEqual(0, report["metrics"]["dark_exposure_allowance"]["instances_observed"])
+
     def test_missing_turn_does_not_look_complete_even_with_matching_footer(self):
         rows = self.rows()
         rows[1].update(sequence=2, tick=6)

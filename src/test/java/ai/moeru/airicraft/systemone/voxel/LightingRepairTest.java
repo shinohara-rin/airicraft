@@ -56,6 +56,7 @@ class LightingRepairTest {
 		var state = first.state();
 		for (int tick = 2; tick < 82; tick++) {
 			var waiting = kernel.advance(state, dark, List.of(), tick);
+			assertEquals(82, ProductionTape.lightingTrace(state, waiting.state(), dark).after().getFirst().allowance().expiresAt());
 			assertTrue(waiting.effects().isEmpty()); state = waiting.state();
 		}
 		var expired = kernel.advance(state, dark, List.of(), 82);

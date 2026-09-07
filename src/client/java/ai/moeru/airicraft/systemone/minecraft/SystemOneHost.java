@@ -55,7 +55,7 @@ public final class SystemOneHost {
 		if (!tasks.equals(retentionTasks)) { retained = ProductionDomain.retainedCells(tasks); retentionTasks = tasks; }
 		StoneAcquisition.World observation = client.world == null || client.player == null ? null : sensor.observe(client, tick, retained);
 		var step = kernel.advance(state, observation, feedback, tick, Optional.ofNullable(cancellation));
-		decisionRecorder.accept(StoneTape.turn(++recordingSequence, recordedObservation, observation, feedback, cancellation, step));
+		decisionRecorder.accept(ProductionTape.turn(++recordingSequence, recordedObservation, observation, feedback, cancellation, state, step));
 		recordedObservation = observation;
 		state = step.state();
 		for (var event : step.events()) trace.accept("system_one." + event.type(), Map.of("run", state.run(), "task", event.task(), "detail", event.detail()));

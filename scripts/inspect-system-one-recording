@@ -25,6 +25,44 @@ class RecordingMetrics:
         self.suspensions = Counter()
         self.resumptions = Counter()
         self.task_outcomes = Counter()
+        self.lighting_turns = self.allowance_samples = self.active_allowance_samples = self.expired_active_samples = 0
+        self.allowance_instances = set()
+        self.recent_allowances = deque(maxlen=8)
+
+    def lighting(self, tick, trace):
+        if trace is None:
+            return
+        self.lighting_turns += 1
+        for frame in trace["before"] + trace["after"]:
+            allowance = frame.get("allowance")
+            if allowance:
+                origin = allowance["origin"]
+                identity = (frame["task"], *(origin[axis] for axis in ("x", "y", "z")), allowance["expiresAt"])
+                if identity not in self.allowance_instances:
+                    self.allowance_instances.add(identity)
+                    self.recent_allowances.append({"first_recorded_tick": tick, "task": frame["task"], **allowance})
+        for frame in trace["after"]:
+            allowance = frame.get("allowance")
+            if not allowance:
+                continue
+            self.allowance_samples += 1
+            if frame["leaf"] and frame["phase"] == "Acting" and frame["continuation"] == ["explore"]:
+                self.active_allowance_samples += 1
+                self.expired_active_samples += tick >= allowance["expiresAt"]
+
+    def lighting_report(self, coverage, turns):
+        if not self.lighting_turns:
+            return {"status": "unavailable", "reason": "Lighting policy state is not serialized in this recording format."}
+        return {
+            "status": "recorded_policy_state", "coverage": coverage,
+            "recorded_turns": self.lighting_turns, "missing_turns": turns - self.lighting_turns,
+            "instances_observed": len(self.allowance_instances), "allowance_state_samples": self.allowance_samples,
+            "active_exploration_state_samples": self.active_allowance_samples,
+            "expired_active_exploration_samples": self.expired_active_samples,
+            "recent_instances": list(self.recent_allowances),
+            "actual_dark_exposure_ticks": None,
+            "definition": "Snapshots describe policy state, not physical dark exposure. Active samples require an acting Explore leaf; suspended or returning allowances are excluded. Counts use post-decision state; deadline instances use both before and after state.",
+        }
 
     def observe(self, tick, observation):
         if observation is None:
@@ -86,7 +124,7 @@ class RecordingMetrics:
             "task_suspensions": dict(sorted(self.suspensions.items())),
             "task_resumptions": dict(sorted(self.resumptions.items())),
             "task_outcomes": dict(sorted(self.task_outcomes.items())),
-            "dark_exposure_allowance": {"status": "unavailable", "reason": "Allowance consumption is not serialized in this recording format."},
+            "dark_exposure_allowance": self.lighting_report(coverage, turns),
             "perception_violations": {"status": "unavailable", "count": None, "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."},
         }
 
@@ -154,6 +192,9 @@ def inspect_recording(path, failure_context=False):
                     tick = row["tick"]
                     observation = row.get("observation")
                     metrics.observe(tick, observation)
+                    if header and header.get("type") == "production_begin" and header.get("version", 1) >= 2 and row.get("lighting") is None:
+                        problems.append(f"missing_lighting_state_at_turn:{turns}")
+                    metrics.lighting(tick, row.get("lighting"))
                     if observation:
                         if failure_context:
                             for change in observation.get("changed", []):
@@ -190,6 +231,7 @@ def inspect_recording(path, failure_context=False):
                                 first_task_failure = {"tick": tick, "reason": detail.removeprefix("FAILED:")[:240], "task_chain": chain(task)}
                                 if failure_context:
                                     first_task_failure["context"] = context(observation)
+                                    first_task_failure["context"]["lighting"] = row.get("lighting")
                     outcome = row["outcome"]
                 elif kind == "end":
                     footer = row
