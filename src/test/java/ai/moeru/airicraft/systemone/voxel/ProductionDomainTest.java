@@ -124,6 +124,18 @@ class ProductionDomainTest {
 		assertEquals("oak_log", assertInstanceOf(Break.class, ((Start<VoxelCommand>) next.effects().getFirst()).command()).expectedBlock());
 		assertTrue(next.events().stream().anyMatch(e -> e.type().equals("task_revised")));
 	}
+	@Test void aLargeRecipeYieldCannotHideItsNeedToDiscoverAnInput() {
+		var book = new ProductionKnowledge("source_evidence", List.of(recipe("bulk", "output", 10000, 2, "unknown_log"), recipe("known", "output", 1, 2, "known_log")),
+			List.of(new Harvest("unknown_log", List.of("unknown_log"), List.of(), Technique.EXPOSED), new Harvest("known_log", List.of("known_log"), List.of(), Technique.EXPOSED)));
+		var base = world(Map.of()); var known = new HashMap<>(base.known());
+		known.put(new Pos(40, 40, 0), new Seen("known_log", false, true, true, 15, 1));
+		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var domain = new ProductionDomain(book);
+		var first = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("output", 1)), observation));
+		assertEquals("known_log", ((Acquire) first.child()).item());
+		var failed = new View<Task>(1, (Task) first.continuation(), false, 2, Optional.empty(), Optional.of(Outcome.failure("source_unreachable")));
+		assertEquals("unknown_log", ((Acquire) assertInstanceOf(Child.class, domain.decide(failed, observation)).child()).item());
+	}
 	@Test void anObservedSmeltingAlternativeReplacesUnavailableInputWithoutLosingGoalStock() {
 		var book = new ProductionKnowledge("charcoal", List.of(),
 			List.of(new Harvest("acacia", List.of("acacia"), List.of(), Technique.EXPOSED), new Harvest("oak", List.of("oak"), List.of(), Technique.EXPOSED)),

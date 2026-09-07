@@ -29,7 +29,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -57,11 +57,12 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-underground") || (scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge")) || isReturnScenario(scenario) || scenario.startsWith("system-one-lighting")) {
+				if (scenario.equals("system-one-underground") || (scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge")) || isReturnScenario(scenario) || scenario.equals("system-one-remote-fuel") || scenario.startsWith("system-one-lighting")) {
 					boolean exhaustion = scenario.equals("system-one-lighting-exhaustion");
 					boolean gap = scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge");
-					boolean returning = isReturnScenario(scenario);
-					int length = returning ? 60 : exhaustion ? 24 : 9;
+					boolean remoteFuel = scenario.equals("system-one-remote-fuel");
+					boolean returning = isReturnScenario(scenario) || remoteFuel;
+					int length = remoteFuel ? 40 : returning ? 60 : exhaustion ? 24 : 9;
 					int halfWidth = scenario.equals("system-one-lighting-stairs") || scenario.equals("system-one-lighting-low-ceiling") || gap || returning ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
@@ -95,7 +96,7 @@ final class SystemOneStoneFixture {
 					if (returning) {
 						returnThresholdZ = z + 52;
 						returnBarrier = new BlockPos(x, 196, z + 28);
-						world.setBlockState(new BlockPos(x + 1, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
+						world.setBlockState(new BlockPos(x + 1, remoteFuel ? 197 : 200, z + (remoteFuel ? 39 : 2)), Blocks.FURNACE.getDefaultState(), 3);
 						for (int y = 199; y <= 203; y++) world.setBlockState(new BlockPos(x - 1, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
 					}
 				}

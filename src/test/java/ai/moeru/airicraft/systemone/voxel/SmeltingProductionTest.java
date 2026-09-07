@@ -77,6 +77,27 @@ class SmeltingProductionTest {
 		var action = assertInstanceOf(Execute.class, domain.decide(view, world(Map.of("ore", 1, "plank", 1))));
 		assertEquals(new StartSmelt(IRON, FURNACE, "plank", 1), action.command());
 	}
+	@Test void distantRememberedFuelSourcePrecedesAnUnobservedSpeciesUntilItsMethodFails() {
+		var recipes = List.of(new Recipe("acacia", "acacia_planks", 4, 2, List.of(new Cell(0, "acacia_log"))),
+			new Recipe("birch", "birch_planks", 4, 2, List.of(new Cell(0, "birch_log"))));
+		var harvests = List.of(new Harvest("acacia_log", List.of("acacia_log"), List.of(), Technique.EXPOSED),
+			new Harvest("birch_log", List.of("birch_log"), List.of(), Technique.EXPOSED));
+		var domain = new ProductionDomain(new ProductionKnowledge("fuel_sources", recipes, harvests, List.of(IRON),
+			List.of(new Fuel("acacia_planks", 300), new Fuel("birch_planks", 300))));
+		var base = world(Map.of("ore", 1)); var known = new HashMap<>(base.known());
+		known.put(new Pos(40, 40, 0), new Seen("birch_log", false, true, true, 15, 1));
+		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var task = new SmeltBatch(IRON, Map.of(), Set.of("ingot"), Set.of(), "");
+		var first = (Child<Task, VoxelCommand>) domain.decide(view(task), observed);
+		assertEquals("birch_planks", ((Acquire) first.child()).item());
+		assertEquals(1, ((Acquire) first.child()).reserved().get("ore"));
+		var failed = new View<Task>(1, first.continuation(), false, 2, Optional.empty(), Optional.of(Outcome.failure("route_exhausted")));
+		var alternative = assertInstanceOf(Child.class, domain.decide(failed, observed));
+		assertEquals("acacia_planks", ((Acquire) alternative.child()).item());
+		known.put(new Pos(40, 40, 0), new Seen("unknown", false, false, true, 0, 2));
+		var unknown = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		assertEquals("acacia_planks", ((Acquire) assertInstanceOf(Child.class, domain.decide(view(task), unknown)).child()).item());
+	}
 
 	@Test void collectionFailureWaitsThenTerminatesWithinTheDeclaredBudget() {
 		var domain = new ProductionDomain(book(IRON, List.of()));

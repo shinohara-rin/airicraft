@@ -1,0 +1,38 @@
+id: system-one-remote-fuel
+name: Return to remembered wood for fuel after underground mining
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain an iron ingot from ore beyond a forty-block cave. A furnace is near
+  the ore, and oak logs are exposed at the entrance. A pickaxe and torches
+  are supplied, but fuel is not. Use remembered resources to finish smelting.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: smelting_fuel:minecraft:oak_planks
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:harvest_inventory_observed:minecraft:oak_log
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

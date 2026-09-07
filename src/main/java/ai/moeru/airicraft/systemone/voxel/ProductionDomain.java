@@ -119,10 +119,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (!(ancestor.task() instanceof Acquire task)) continue;
 			if (!recipesById.containsKey(task.method()) && !smeltsById.containsKey(task.method())) continue;
 			var options = rankedMethods(task, world, productionReserve(task, world));
-			double currentCost = options.stream().filter(option -> option.id().equals(task.method())).mapToDouble(Ranked::cost).findFirst().orElse(Double.POSITIVE_INFINITY);
+			SupplyEstimate currentCost = options.stream().filter(option -> option.id().equals(task.method())).map(Ranked::cost).findFirst().orElse(SupplyEstimate.unavailable());
 			var best = options.stream().filter(option -> !option.id().equals(task.method()))
-				.filter(candidate -> Double.isFinite(candidate.cost()) && candidate.cost() * 1.5 + 2 < currentCost)
-				.min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id));
+				.filter(candidate -> candidate.cost().significantlyBetterThan(currentCost))
+				.min(Comparator.comparing(Ranked::cost).thenComparing(Ranked::id));
 			if (best.isPresent()) return Optional.of(new Revision<>(ancestor.id(), selected(task, best.get().id()), "better_observed_method:" + best.get().id()));
 		}
 		return Optional.empty();
@@ -245,7 +245,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		String method = task.method();
 		if (!recipesById.containsKey(method) && !smeltsById.containsKey(method)) {
-			method = rankedMethods(task, world, productionReserve).stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
+			method = rankedMethods(task, world, productionReserve).stream().min(Comparator.comparing(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
 		}
 		int missing = task.count() - free(world, task.reserved(), task.item());
 		if (smeltsById.containsKey(method)) {
@@ -396,9 +396,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (station == null) return new Child<>(task, new Station(task.recipe().station(), reserved, task.ancestors(), 0, Set.of(), null), "smelting_station");
 		SmeltBatch current = task;
 		Fuel fuel = fuels.stream().filter(f -> !current.rejectedFuel().contains(f.item()))
-			.min(Comparator.<Fuel>comparingDouble(f -> {
+			.min(Comparator.<Fuel, SupplyEstimate>comparing(f -> {
 				int missing = Math.max(0, f.quantity(current.recipe().ticks()) - free(world, reserved, f.item()));
-				return missing * (1 + estimate(f.item(), reserved, world, current.ancestors(), new int[]{128})) + f.quantity(current.recipe().ticks()) * .01;
+				return (missing == 0 ? SupplyEstimate.known(0) : estimate(f.item(), reserved, world, current.ancestors(), new int[]{128}).addWork(1).scale(missing))
+					.addWork(f.quantity(current.recipe().ticks()) * .01);
 			}).thenComparing(Fuel::item)).orElse(null);
 		if (fuel == null || task.rejectedFuel().size() >= 16) return failure("smelting_fuel_alternatives_exhausted");
 		int count = fuel.quantity(task.recipe().ticks());
@@ -562,7 +563,27 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Set<String> ancestry(Acquire task) { var result = new HashSet<>(task.ancestors()); result.add(task.item()); return result; }
 	private static Acquire dependency(Acquire task, String item, int count, Map<String, Integer> reserved) { return new Acquire(item, count, reserved, ancestry(task), Set.of(), ""); }
 	private static Acquire selected(Acquire task, String method) { return new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), task.failed(), method); }
-	private record Ranked(String id, double cost) {}
+	/** Source evidence precedes estimated work; a known source is not a promise of a reachable path. */
+	private enum SupplyEvidence { KNOWN, DISCOVERY_REQUIRED, UNAVAILABLE }
+	private record SupplyEstimate(SupplyEvidence evidence, double work) implements Comparable<SupplyEstimate> {
+		static SupplyEstimate known(double work) { return new SupplyEstimate(SupplyEvidence.KNOWN, work); }
+		static SupplyEstimate unavailable() { return new SupplyEstimate(SupplyEvidence.UNAVAILABLE, Double.POSITIVE_INFINITY); }
+		SupplyEstimate addWork(double extra) { return new SupplyEstimate(evidence, work + extra); }
+		SupplyEstimate scale(double factor) { return new SupplyEstimate(evidence, work * factor); }
+		SupplyEstimate add(SupplyEstimate other) {
+			return new SupplyEstimate(evidence.compareTo(other.evidence) >= 0 ? evidence : other.evidence, work + other.work);
+		}
+		SupplyEstimate min(SupplyEstimate other) { return compareTo(other) <= 0 ? this : other; }
+		boolean significantlyBetterThan(SupplyEstimate other) {
+			return evidence != SupplyEvidence.UNAVAILABLE && (evidence.compareTo(other.evidence) < 0
+				|| evidence == other.evidence && work * 1.5 + 2 < other.work);
+		}
+		@Override public int compareTo(SupplyEstimate other) {
+			int evidenceOrder = evidence.compareTo(other.evidence);
+			return evidenceOrder != 0 ? evidenceOrder : Double.compare(work, other.work);
+		}
+	}
+	private record Ranked(String id, SupplyEstimate cost) {}
 	private List<Ranked> rankedMethods(Acquire task, World world, Map<String, Integer> reserved) {
 		var options = new ArrayList<Ranked>();
 		for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!task.failed().contains(recipe.id())) {
@@ -573,26 +594,30 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		return options;
 	}
-	private double estimate(String item, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
-		if (free(world, reserved, item) > 0) return 0;
-		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return Double.POSITIVE_INFINITY;
+	private SupplyEstimate estimate(String item, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
+		if (free(world, reserved, item) > 0) return SupplyEstimate.known(0);
+		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return SupplyEstimate.unavailable();
 		var next = new HashSet<>(trail); next.add(item);
 		var harvest = harvesting.get(item);
-		double best = harvest == null ? Double.POSITIVE_INFINITY : world.known().entrySet().stream()
-			.filter(entry -> entry.getValue().identified() && harvest.blocks().contains(entry.getValue().blockId()))
-			.mapToDouble(entry -> 5 + Math.sqrt(distance(world.eye(), entry.getKey()))).min().orElse(30);
-		for (var recipe : recipes.getOrDefault(item, List.of())) best = Math.min(best, recipeCost(recipe, reserved, world, next, budget) / recipe.yield());
-		for (var recipe : smelting.getOrDefault(item, List.of())) best = Math.min(best, smeltCost(recipe, reserved, world, next, budget) / recipe.yield());
+		SupplyEstimate best = SupplyEstimate.unavailable();
+		if (harvest != null) {
+			var nearest = world.known().entrySet().stream()
+				.filter(entry -> entry.getValue().identified() && harvest.blocks().contains(entry.getValue().blockId()))
+				.mapToDouble(entry -> 5 + Math.sqrt(distance(world.eye(), entry.getKey()))).min();
+			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30);
+		}
+		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, reserved, world, next, budget).scale(1.0 / recipe.yield()));
+		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, reserved, world, next, budget).scale(1.0 / recipe.yield()));
 		return best;
 	}
-	private double smeltCost(Smelt recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
-		return 3 + estimate(recipe.input(), reserved, world, trail, budget);
+	private SupplyEstimate smeltCost(Smelt recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
+		return estimate(recipe.input(), reserved, world, trail, budget).addWork(3);
 	}
-	private double recipeCost(Recipe recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
-		double cost = recipe.width() == 3 ? 2 : 1;
+	private SupplyEstimate recipeCost(Recipe recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
+		SupplyEstimate cost = SupplyEstimate.known(recipe.width() == 3 ? 2 : 1);
 		for (var entry : recipe.ingredients().entrySet()) {
 			int missing = Math.max(0, entry.getValue() - free(world, reserved, entry.getKey()));
-			if (missing > 0) cost += missing * (1 + estimate(entry.getKey(), reserved, world, trail, budget));
+			if (missing > 0) cost = cost.add(estimate(entry.getKey(), reserved, world, trail, budget).addWork(1).scale(missing));
 		}
 		return cost;
 	}
