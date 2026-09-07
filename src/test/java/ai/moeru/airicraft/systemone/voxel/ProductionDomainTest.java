@@ -100,6 +100,20 @@ class ProductionDomainTest {
 		var action = assertInstanceOf(Execute.class, new ProductionDomain(BOOK).decide(view(new Station("minecraft:crafting_table", Map.of(), Set.of(), 0, Set.of(), null)), world));
 		assertEquals(new Pos(-1, 0, 1), assertInstanceOf(Place.class, action.command()).support());
 	}
+	@Test void collectsMinedOreOnItsObservedFloorAboveThePlayersFeet() {
+		var target = new Pos(3, 2, 0);
+		var rule = new Harvest("raw_iron", List.of("ore"), List.of(), Technique.EXPOSED);
+		var task = new Gather(rule, 1, new Pos(0, 1, 0), 0, Set.of(), Set.of(), new Break(target, "ore"));
+		var base = world(Map.of()); var known = new HashMap<>(base.known());
+		known.put(target, new Seen("minecraft:air", true, true, 15, 1));
+		known.put(target.offset(0, 1, 0), new Seen("minecraft:air", true, true, 15, 1));
+		known.put(target.offset(0, -1, 0), new Seen("minecraft:grass_block", false, true, 15, 1));
+		var observation = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var view = new View<Task>(1, task, false, 2, Optional.of(Outcome.success("broken")), Optional.empty());
+		var result = (Execute<Task, VoxelCommand>) new ProductionDomain(BOOK).decide(view, observation);
+		assertEquals(new Navigate(target, 24, 200), result.command());
+		assertEquals(Set.of(target), ((Gather) result.continuation()).drops());
+	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 
 	private static Run run(ProductionKnowledge book, Acquire goal, Map<String, Integer> initial, boolean failFirst) {

@@ -18,8 +18,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
 	}
 	public record Excavate(StoneAcquisition.Task state) implements Task {}
-	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last) implements Task {
-		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); }
+	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops) implements Task {
+		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); drops = Set.copyOf(drops); }
+		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last) { this(rule, count, origin, scans, rejected, visited, last, Set.of()); }
 	}
 	public record Station(String item, Map<String, Integer> reserved, Set<String> ancestors, int scans, Set<Pos> rejected, VoxelCommand last) implements Task {
 		public Station { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejected = Set.copyOf(rejected); }
@@ -191,16 +192,26 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (world.inventory().getOrDefault(task.rule().item(), 0) >= task.count()) return success("harvest_inventory_observed:" + task.rule().item());
 		if (view.acting()) return new Keep<>();
 		var rejected = new HashSet<>(task.rejected()); var visited = new HashSet<>(task.visited());
+		var drops = new HashSet<>(task.drops());
 		if (failed(view)) {
 			if (task.last() instanceof Break broken) rejected.add(broken.target());
 			if (task.last() instanceof Navigate move) visited.add(move.stance());
 		}
 		else if (task.last() instanceof Break broken) {
-			Pos pickup = new Pos(broken.target().x(), world.feet().y(), broken.target().z());
-			if (!pickup.equals(world.feet()) && StoneAcquisition.standable(world.known(), pickup)) return gatherAction(task, new Navigate(pickup, 24, 200), 0, rejected, visited);
+			drops.add(broken.target());
+		}
+		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops);
+		Optional<Pos> pickup = world.known().keySet().stream()
+			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && StoneAcquisition.standable(world.known(), pos))
+			.filter(pos -> drops.stream().anyMatch(drop -> pos.x() == drop.x() && pos.z() == drop.z() && pos.y() <= drop.y() && drop.y() - pos.y() <= 6))
+			.sorted(positionOrder(world.eye())).findFirst();
+		if (pickup.isPresent()) {
+			visited.add(pickup.get());
+			return gatherAction(task, new Navigate(pickup.get(), 24, 200), 0, rejected, visited);
 		}
 		if (rejected.size() + visited.size() >= 24) return failure("harvest_search_exhausted:" + task.rule().item());
-		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && task.rule().blocks().contains(e.getValue().blockId()))
+		Gather current = task;
+		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
 			.filter(e -> !rejected.contains(e.getKey()) && !e.getKey().equals(world.feet().offset(0, -1, 0)))
 			.sorted(Map.Entry.comparingByKey(positionOrder(world.eye()))).toList();
 		for (var target : targets) {
@@ -212,14 +223,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		if (task.scans() < 4) return gatherAction(task, new Look((float) ((world.eye().yaw() + 90) % 360), 15), task.scans() + 1, rejected, visited);
 		Optional<Pos> frontier = world.known().keySet().stream().filter(pos -> StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))
-			.filter(pos -> horizontal(world.feet(), pos) >= 4 && horizontal(task.origin(), pos) <= 32 * 32)
+			.filter(pos -> horizontal(world.feet(), pos) >= 4 && horizontal(current.origin(), pos) <= 32 * 32)
 			.sorted(positionOrder(world.eye())).findFirst();
 		if (frontier.isEmpty()) return failure("no_observed_harvest_frontier:" + task.rule().item());
 		visited.add(frontier.get());
 		return gatherAction(task, new Navigate(frontier.get(), 24, 200), 0, rejected, visited);
 	}
 	private Execute<Task, VoxelCommand> gatherAction(Gather task, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
-		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action), action);
+		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops()), action);
 	}
 	private Optional<Pos> observedStation(World world, String block) {
 		return world.known().entrySet().stream().filter(e -> e.getValue().identified() && e.getValue().blockId().equals(block) && usableStation(world.known(), world.eye(), e.getKey()))
