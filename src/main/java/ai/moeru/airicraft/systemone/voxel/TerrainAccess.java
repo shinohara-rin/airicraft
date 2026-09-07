@@ -13,9 +13,13 @@ public final class TerrainAccess {
 	private static final int RADIUS = 6, MAX_WORK = 48, MAX_EXPANSIONS = 512;
 	public record Edge(Pos from, Pos to) {}
 	public record State(Pos origin, Pos goal, long deadline, int work, Set<Edge> rejected,
-		Optional<Edge> step, VoxelCommand last) {
+		Optional<Edge> step, VoxelCommand last, Optional<Edge> failedApproach) {
 		public State { rejected = Set.copyOf(rejected); }
-		public static State begin(Pos origin, Pos goal, long tick) { return new State(origin, goal, tick + 1000, 0, Set.of(), Optional.empty(), null); }
+		public static State begin(Pos origin, Pos goal, long tick) { return new State(origin, goal, tick + 1000, 0, Set.of(), Optional.empty(), null, Optional.empty()); }
+		/** Preparation may repair this edge, but repeating its unchanged navigation is not progress. */
+		public static State afterFailedNavigation(Pos origin, Pos goal, long tick) {
+			return new State(origin, goal, tick + 1000, 0, Set.of(), Optional.empty(), null, Optional.of(new Edge(origin, goal)));
+		}
 	}
 	public sealed interface Decision permits Action, Arrived, Unavailable {}
 	public record Action(State state, VoxelCommand command) implements Decision {}
@@ -39,10 +43,11 @@ public final class TerrainAccess {
 			Edge selected = edge.get();
 			VoxelCommand command = prepare(selected, world, clearable);
 			// A completed look with no usable new evidence cannot retry the same proposal forever.
-			if (command == null || command instanceof Look && command.equals(state.last()) && state.step().filter(selected::equals).isPresent()) {
+			if (command == null || command instanceof Look && command.equals(state.last()) && state.step().filter(selected::equals).isPresent()
+				|| command instanceof Navigate && state.failedApproach().filter(selected::equals).isPresent()) {
 				rejected.add(selected); retained = Optional.empty(); continue;
 			}
-			return new Action(new State(state.origin(), state.goal(), state.deadline(), state.work() + 1, rejected, Optional.of(selected), command), command);
+			return new Action(new State(state.origin(), state.goal(), state.deadline(), state.work() + 1, rejected, Optional.of(selected), command, Optional.empty()), command);
 		}
 		return new Unavailable("local_access_alternatives_exhausted");
 	}

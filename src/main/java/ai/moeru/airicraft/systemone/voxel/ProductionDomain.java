@@ -292,6 +292,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (!tools.isEmpty() && tools.stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
 			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of());
 		}
+		if (needsAccess(view) && task.search().last() instanceof Navigate move) {
+			return access(next, move.stance(), world, view.tick(), new HashSet<>(task.search().prior().excavatable()));
+		}
 		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved(), pos -> !survival.nearHazard(world, pos));
 		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
 			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : action.command() instanceof Place placed ? placed.destination() : action.command() instanceof EdgePlace edge ? edge.placement().destination() : world.feet();
@@ -536,7 +539,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	private static boolean failedChild(View<Task> view) { return view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent(); }
 	private Decision<Task, VoxelCommand> access(Task saved, Pos goal, World world, long tick, Set<String> clearable) {
-		return new Child<>(new AfterAccess(saved), new Access(TerrainAccess.State.begin(world.feet(), goal, tick), clearable), "prepare_observed_access");
+		return new Child<>(new AfterAccess(saved), new Access(TerrainAccess.State.afterFailedNavigation(world.feet(), goal, tick), clearable), "prepare_observed_access");
 	}
 	private Optional<Pos> observedStation(World world, String block) {
 		return world.known().entrySet().stream().filter(e -> e.getValue().identified() && e.getValue().blockId().equals(block) && usableStation(world.known(), world.eye(), e.getKey()))

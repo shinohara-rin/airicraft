@@ -84,6 +84,37 @@ class TerrainAccessTest {
 		var unknown = domain.decide(failed, world(known, start, Set.of()));
 		assertFalse(unknown instanceof Child<?, ?> child && child.child() instanceof Access);
 	}
+	@Test void aFailedExplorationStepRetainsItsPurposeAndPreparesADifferentApproach() {
+		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 3, 1);
+		var harvest = new Harvest("ore", List.of("ore_block"), List.of(), Technique.EXPOSED);
+		var prior = new SearchPrior("ore", 2, 16, 20, List.of("stone"));
+		var domain = new ProductionDomain(new ProductionKnowledge("test", List.of(), List.of(harvest), List.of(), List.of(), List.of(prior), new LightingPolicy.Parameters(7,10,8,80,4)));
+		var known = solid(); known.put(start, air()); known.put(start.offset(0,1,0), air());
+		for (int y = 3; y <= 5; y++) known.put(new Pos(0,y,1), air());
+		var observed = world(known, start, Set.of(start.offset(0,-1,0)));
+		var search = new UndergroundSearch.Task(prior, harvest.blocks(), start, start, 0, 2, Set.of(), Set.of(), Optional.of(goal), Optional.empty(), new Navigate(goal,12,200));
+		var explore = new Explore(search, LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
+		var failed = new View<Task>(3, explore, false, 1, Optional.of(Outcome.failure("observed_route_unavailable")), Optional.empty());
+		var repair = assertInstanceOf(Child.class, domain.decide(failed, observed));
+		var access = assertInstanceOf(Access.class, repair.child());
+		assertEquals(goal, access.state().goal());
+		assertEquals(ProductionDomain.retainedCells(List.of(explore)), ProductionDomain.retainedCells(List.of((Task) repair.continuation())));
+		var next = assertInstanceOf(Execute.class, domain.decide(new View<Task>(4, access, false, 2, Optional.empty(), Optional.empty()), observed));
+		assertFalse(next.command() instanceof Navigate move && move.stance().equals(goal), "do not repeat the just-failed direct movement");
+		var exhausted = domain.decide(new View<Task>(3, (Task) repair.continuation(), false, 3, Optional.empty(), Optional.of(Outcome.failure("no_access"))), observed);
+		assertFalse(exhausted instanceof Child<?, ?> child && child.child() instanceof Access, "failed preparation returns to bounded search alternatives");
+	}
+	@Test void aFailedDirectMoveCanStillClearAnObservedObstructionOnThatEdge() {
+		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 4, 1);
+		var known = solid(); known.put(start, air()); known.put(start.offset(0,1,0), air());
+		known.put(goal, air());
+		var state = TerrainAccess.State.afterFailedNavigation(start, goal, 0);
+		var action = assertInstanceOf(TerrainAccess.Action.class, TerrainAccess.advance(state, world(known, start, Set.of()), Optional.empty(), 1, CLEARABLE, p -> true));
+		assertEquals(new Break(goal.offset(0,1,0), "stone"), action.command());
+		known.put(goal.offset(0,1,0), air());
+		var repaired = assertInstanceOf(TerrainAccess.Action.class, TerrainAccess.advance(action.state(), world(known, start, Set.of()), Optional.of(Outcome.success("broken")), 2, CLEARABLE, p -> true));
+		assertEquals(goal, assertInstanceOf(Navigate.class, repaired.command()).stance());
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));
