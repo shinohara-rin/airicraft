@@ -115,6 +115,19 @@ class TerrainAccessTest {
 		var repaired = assertInstanceOf(TerrainAccess.Action.class, TerrainAccess.advance(action.state(), world(known, start, Set.of()), Optional.of(Outcome.success("broken")), 2, CLEARABLE, p -> true));
 		assertEquals(goal, assertInstanceOf(Navigate.class, repaired.command()).stance());
 	}
+	@Test void aDistantDestinationUsesLocalPreparationWithoutResettingTheWorkBudget() {
+		Pos start = new Pos(0,4,0), goal = new Pos(0,4,12);
+		var known = new HashMap<Pos,Seen>();
+		for (int z=0; z<=12; z++) {
+			known.put(new Pos(0,3,z), stone()); known.put(new Pos(0,4,z), air()); known.put(new Pos(0,5,z), air());
+		}
+		known.put(new Pos(0,5,3), stone());
+		var commands = run(known, start, goal);
+		assertTrue(commands.contains(new Break(new Pos(0,5,3), "stone")));
+		assertEquals(12, commands.stream().filter(Navigate.class::isInstance).count());
+		var expired = TerrainAccess.advance(TerrainAccess.State.begin(start, goal, 0), world(known, new Pos(0,4,6), Set.of()), Optional.empty(), 1000, CLEARABLE, p -> true);
+		assertEquals(new TerrainAccess.Unavailable("access_budget_exhausted"), expired);
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));

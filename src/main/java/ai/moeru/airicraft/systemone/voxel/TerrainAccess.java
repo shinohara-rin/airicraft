@@ -30,7 +30,6 @@ public final class TerrainAccess {
 		Set<String> clearable, Predicate<Pos> eligible) {
 		if (world.feet().equals(state.goal())) return StoneAcquisition.standable(world.known(), world.feet()) ? new Arrived() : new Unavailable("access_goal_support_unconfirmed");
 		if (tick >= state.deadline() || state.work() >= MAX_WORK) return new Unavailable("access_budget_exhausted");
-		if (!within(state.origin(), state.goal())) return new Unavailable("access_goal_out_of_range");
 		var rejected = new HashSet<>(state.rejected());
 		Optional<Edge> retained = state.step().filter(e -> e.from().equals(world.feet()));
 		if (feedback.filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) {
@@ -58,19 +57,25 @@ public final class TerrainAccess {
 			.thenComparingInt(n -> n.pos().x()).thenComparingInt(n -> n.pos().y()).thenComparingInt(n -> n.pos().z()));
 		var best = new HashMap<Pos, Double>();
 		open.add(new Node(world.feet(), null, 0, distance(world.feet(), state.goal()))); best.put(world.feet(), 0.0);
+		Node frontier = null;
+		boolean distant = !within(world.feet(), state.goal());
 		for (int expanded = 0; !open.isEmpty() && expanded < MAX_EXPANSIONS; expanded++) {
 			Node node = open.remove();
 			if (node.cost() > best.getOrDefault(node.pos(), Double.POSITIVE_INFINITY)) continue;
 			if (node.pos().equals(state.goal())) return Optional.of(new Edge(world.feet(), node.first()));
+			// Keep the destination while advancing a bounded local planning horizon. A proposed
+			// frontier still goes through prepare(), so unknown cells authorize only observation.
+			if (distant && atHorizon(world.feet(), node.pos()) && distance(node.pos(), state.goal()) < distance(world.feet(), state.goal())
+				&& (frontier == null || node.estimate() < frontier.estimate())) frontier = node;
 			for (int[] direction : new int[][]{{0,1},{-1,0},{0,-1},{1,0}}) for (int dy : new int[]{0,-1,1}) {
 				Pos next = node.pos().offset(direction[0], dy, direction[1]); Edge edge = new Edge(node.pos(), next);
-				if (!within(state.origin(), next) || rejected.contains(edge)) continue;
+				if (!within(world.feet(), next) || rejected.contains(edge)) continue;
 				double cost = node.cost() + cost(edge, world, clearable, eligible);
 				if (cost >= best.getOrDefault(next, Double.POSITIVE_INFINITY)) continue;
 				best.put(next, cost); open.add(new Node(next, node.first() == null ? next : node.first(), cost, cost + distance(next, state.goal())));
 			}
 		}
-		return Optional.empty();
+		return frontier == null ? Optional.empty() : Optional.of(new Edge(world.feet(), frontier.first()));
 	}
 	private static double cost(Edge edge, World world, Set<String> clearable, Predicate<Pos> eligible) {
 		Pos floor = edge.to().offset(0, -1, 0);
@@ -115,5 +120,6 @@ public final class TerrainAccess {
 		return new Look((float) Math.toDegrees(Math.atan2(-dx, dz)), (float) -Math.toDegrees(Math.atan2(dy, Math.hypot(dx, dz))));
 	}
 	private static boolean within(Pos a, Pos b) { return UndergroundSearch.squared(a, b) <= RADIUS * RADIUS && Math.abs(a.y() - b.y()) <= RADIUS; }
+	private static boolean atHorizon(Pos a, Pos b) { return UndergroundSearch.squared(a, b) >= (RADIUS - 1) * (RADIUS - 1) || Math.abs(a.y() - b.y()) >= RADIUS - 1; }
 	private static double distance(Pos a, Pos b) { return Math.max(Math.abs(a.x() - b.x()) + Math.abs(a.z() - b.z()), Math.abs(a.y() - b.y())); }
 }
