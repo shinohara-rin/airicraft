@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import importlib.machinery
 import importlib.util
 import json
@@ -43,6 +44,28 @@ runner = load_runner()
 
 
 class RunnerPolicyTest(unittest.TestCase):
+    def test_saved_inspection_is_durable_and_missing_tape_cannot_keep_harness_ok(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            summary = {"harnessStatus": "OK"}
+            runner.write_system_one_inspection(path, summary)
+            self.assertEqual("DECISION_TRACE_INCOMPLETE", summary["harnessStatus"])
+            self.assertEqual("incomplete", json.loads((path / "system-one-inspection.json").read_text())["coverage"])
+            rows = [
+                {"type": "begin", "tick": 0, "count": 1, "methodVersion": "fixture", "run": "r"},
+                {"type": "turn", "sequence": 1, "tick": 1, "observation": None, "effects": [], "events": [], "outcome": "FAILED:fixture"},
+                {"type": "end", "rows": 2},
+            ]
+            with gzip.open(path / "system-one-decisions.jsonl.gz", "wt") as stream:
+                for row in rows:
+                    stream.write(json.dumps(row) + "\n")
+            summary = {"harnessStatus": "OK", "reportStatus": "FAILED"}
+            runner.write_system_one_inspection(path, summary)
+            self.assertEqual("OK", summary["harnessStatus"])
+            self.assertEqual("FAILED", summary["reportStatus"])
+            self.assertEqual("complete", summary["systemOneInspection"]["coverage"])
+            self.assertEqual("not_checked", summary["systemOneInspection"]["decisionReplay"])
+
     def test_terminal_report_waits_for_release_and_complete_decision_recording(self) -> None:
         self.assertIsNone(runner.completed_cleanup_status({"postFinishCleanupPending": True}, True))
         self.assertEqual("DECISION_TRACE_INCOMPLETE", runner.completed_cleanup_status({}, True))

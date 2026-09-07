@@ -52,6 +52,44 @@ class RecordingInspectionTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual("incomplete", self.inspect(rows + [rows[-1]])["coverage"])
 
+    def test_metrics_do_not_invent_vitals_or_a_perception_audit_for_older_tapes(self):
+        metrics = self.inspect(self.rows())["metrics"]
+        self.assertIsNone(metrics["survival"]["minimum_observed_health"])
+        self.assertIsNone(metrics["survival"]["lives_observed_dead"])
+        self.assertIsNone(metrics["travel"]["horizontal_observed_blocks"])
+        self.assertIsNone(metrics["perception_violations"]["count"])
+        self.assertEqual("unavailable", metrics["perception_violations"]["status"])
+
+    def test_metrics_split_gaps_and_lives_and_count_repeated_dead_samples_once(self):
+        header, template, _ = self.rows()
+        rows = [header]
+        # Travel is 5 + 1 + 1 + 1. The gap and respawn displacement are excluded.
+        samples = [(0, 0, 20, 0), (3, 4, 16, 0), None, (100, 0, 12, 0),
+                   (101, 0, 0, 0), (102, 0, 0, 0), (0, 0, 20, 1), (1, 0, 18, 1)]
+        for index, sample in enumerate(samples, 1):
+            row = copy.deepcopy(template)
+            row.update(sequence=index, tick=4 + index, effects=[], events=[])
+            if sample is None:
+                row["observation"] = None
+            else:
+                x, z, health, life = sample
+                row["observation"].update(eye={"x": x, "y": 3, "z": z}, vitals={"health": health, "life": life})
+            rows.append(row)
+        rows[2]["effects"] = ["Start[token=t, command=Break[target=p]]"]
+        rows[2]["events"] = [{"type": "task_suspended", "task": 2, "detail": "lighting_supply"}]
+        rows[-1]["events"] = [{"type": "task_resumed", "task": 2, "detail": "SUCCEEDED:supplied"}]
+        rows.append({"type": "end", "rows": len(rows)})
+        metrics = self.inspect(rows)["metrics"]
+        self.assertEqual(8.0, metrics["travel"]["horizontal_observed_blocks"])
+        self.assertEqual(4, metrics["travel"]["adjacent_same_life_segments"])
+        self.assertEqual(18.0, metrics["survival"]["observed_health_decrease"])
+        self.assertEqual(1, metrics["survival"]["lives_observed_dead"])
+        self.assertEqual(1, metrics["missing_observation_turns"])
+        self.assertEqual(1, metrics["excavation"]["break_commands_started"])
+        self.assertEqual({"lighting_supply": 1}, metrics["task_suspensions"])
+        self.assertEqual({"SUCCEEDED:supplied": 1}, metrics["task_resumptions"])
+        self.assertEqual("incomplete", self.inspect(rows[:-1])["metrics"]["coverage"])
+
     def test_prerequisite_failure_before_actuation_retains_its_task_chain(self):
         rows = self.rows()
         rows[1]["effects"] = []

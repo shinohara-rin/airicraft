@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import re
+import runpy
 import shutil
 import signal
 import subprocess
@@ -1004,6 +1005,17 @@ def completed_cleanup_status(status: dict[str, Any], require_decision_trace: boo
     return "OK"
 
 
+def write_system_one_inspection(scenario_dir: Path, summary: dict[str, Any]) -> None:
+    inspect = runpy.run_path(str(Path(__file__).resolve().with_name("inspect-system-one-recording")))["inspect_recording"]
+    report = inspect(scenario_dir / "system-one-decisions.jsonl.gz")
+    output = scenario_dir / "system-one-inspection.json"
+    write_json(output, report)
+    summary["systemOneInspection"] = {"path": str(output), "coverage": report["coverage"], "decisionReplay": report["decision_replay"]}
+    if report["coverage"] != "complete" and summary.get("harnessStatus") == "OK":
+        summary["harnessStatus"] = "DECISION_TRACE_INCOMPLETE"
+        summary["message"] = "Saved decision recording failed coverage inspection"
+
+
 def run_scenario(
     repo_root: Path,
     scenario_root: Path,
@@ -1194,6 +1206,13 @@ def run_scenario(
         if recorder_options.enabled and client is not None:
             recorder_root = (scenario_dir / "recorder").resolve()
             finalize_recorder_capture(summary, scenario_dir, recorder_root)
+        if args.system_one:
+            try:
+                write_system_one_inspection(scenario_dir, summary)
+            except (OSError, ValueError) as error:
+                summary["systemOneInspection"] = {"status": "ERROR", "message": str(error)}
+                if summary.get("harnessStatus") == "OK":
+                    summary["harnessStatus"] = "INSPECTION_ERROR"
         if should_delete_worker(summary):
             try:
                 shutil.rmtree(worker.worker_dir)

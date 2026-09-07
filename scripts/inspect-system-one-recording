@@ -7,8 +7,88 @@ import argparse
 from collections import Counter, deque
 import gzip
 import json
+import math
 from pathlib import Path
 import re
+
+
+class RecordingMetrics:
+    """Observed measurements only; missing samples never imply zero risk."""
+
+    def __init__(self):
+        self.previous = None
+        self.samples = self.vital_samples = self.travel_segments = 0
+        self.distance = self.health_decrease = 0.0
+        self.minimum_health = None
+        self.dead_lives = set()
+        self.burning_samples = self.lava_samples = 0
+        self.suspensions = Counter()
+        self.resumptions = Counter()
+        self.task_outcomes = Counter()
+
+    def observe(self, tick, observation):
+        if observation is None:
+            self.previous = None
+            return
+        self.samples += 1
+        vitals = observation.get("vitals")
+        if vitals:
+            self.vital_samples += 1
+            health = vitals["health"]
+            self.minimum_health = health if self.minimum_health is None else min(self.minimum_health, health)
+            if health <= 0:
+                self.dead_lives.add(vitals["life"])
+            self.burning_samples += bool(vitals.get("burning"))
+            self.lava_samples += bool(vitals.get("inLava"))
+            if self.previous:
+                previous_tick, previous = self.previous
+                old_vitals = previous.get("vitals")
+                if old_vitals and previous_tick + 1 == tick and old_vitals["life"] == vitals["life"]:
+                    self.health_decrease += max(0, old_vitals["health"] - health)
+                    eye, old_eye = observation.get("eye"), previous.get("eye")
+                    if eye and old_eye:
+                        self.distance += math.hypot(eye["x"] - old_eye["x"], eye["z"] - old_eye["z"])
+                        self.travel_segments += 1
+        self.previous = (tick, observation)
+
+    def event(self, kind, detail):
+        if kind == "task_suspended":
+            self.suspensions[detail] += 1
+        elif kind == "task_resumed":
+            self.resumptions[detail] += 1
+        elif kind == "task_ended":
+            self.task_outcomes[detail] += 1
+
+    def report(self, coverage, turns, commands):
+        return {
+            "coverage": coverage,
+            "observation_samples": self.samples,
+            "missing_observation_turns": turns - self.samples,
+            "travel": {
+                "horizontal_observed_blocks": round(self.distance, 3) if self.travel_segments else None,
+                "adjacent_same_life_segments": self.travel_segments,
+                "definition": "Sum of horizontal displacement between consecutive observed poses in the same life; excludes sample gaps and respawns, includes any same-life teleport.",
+            },
+            "excavation": {
+                "break_commands_started": commands.get("Break", 0),
+                "blocks_destroyed": None,
+                "definition": "Attempts measure issued work; command success does not prove that the agent destroyed a block.",
+            },
+            "survival": {
+                "vital_samples": self.vital_samples,
+                "minimum_observed_health": self.minimum_health,
+                "observed_health_decrease": round(self.health_decrease, 3) if self.vital_samples else None,
+                "lives_observed_dead": len(self.dead_lives) if self.vital_samples else None,
+                "burning_samples": self.burning_samples if self.vital_samples else None,
+                "in_lava_samples": self.lava_samples if self.vital_samples else None,
+                "definition": "Health decrease is the sum of adjacent same-life net decreases, not total damage; death count includes only lives observed at health <= 0.",
+            },
+            "task_suspensions": dict(sorted(self.suspensions.items())),
+            "task_resumptions": dict(sorted(self.resumptions.items())),
+            "task_outcomes": dict(sorted(self.task_outcomes.items())),
+            "dark_exposure_allowance": {"status": "unavailable", "reason": "Allowance consumption is not serialized in this recording format."},
+            "perception_violations": {"status": "unavailable", "count": None, "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."},
+        }
 
 
 def inspect_recording(path, failure_context=False):
@@ -28,6 +108,7 @@ def inspect_recording(path, failure_context=False):
     failed_tasks = 0
     known = {}
     command_history = deque(maxlen=12)
+    metrics = RecordingMetrics()
 
     def context(observation):
         if not observation:
@@ -72,6 +153,7 @@ def inspect_recording(path, failure_context=False):
                         problems.append(f"missing_or_reordered_input_at_turn:{turns}")
                     tick = row["tick"]
                     observation = row.get("observation")
+                    metrics.observe(tick, observation)
                     if observation:
                         if failure_context:
                             for change in observation.get("changed", []):
@@ -93,6 +175,7 @@ def inspect_recording(path, failure_context=False):
                             command_history.append({"tick": tick, "effect": effect[:512], "truncated": len(effect) > 512})
                     for event in row["events"]:
                         event_kind, detail, task = event["type"], event["detail"], event["task"]
+                        metrics.event(event_kind, detail)
                         if event_kind == "task_started":
                             match = re.fullmatch(r"parent=(\d+) reason=(.*)", detail)
                             if match:
@@ -128,6 +211,7 @@ def inspect_recording(path, failure_context=False):
                   commands=dict(sorted(commands.items())), command_failures=dict(failures.most_common(20)),
                   last_command_failure=last_failure, first_task_failure=first_task_failure,
                   failed_tasks=failed_tasks, recent_inventory_changes=list(recent))
+    report["metrics"] = metrics.report(report["coverage"], turns, commands)
     return report
 
 
