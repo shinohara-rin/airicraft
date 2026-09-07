@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.io.BufferedWriter;
+import java.io.BufferedOutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,7 +42,8 @@ public final class DecisionTraceWriter {
 	private void write(Path path) {
 		try {
 			Files.createDirectories(path.toAbsolutePath().getParent());
-			try (var writer = new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(Files.newOutputStream(path)), StandardCharsets.UTF_8))) {
+			// GZIP emits small compressed chunks; coalesce them before writing to external storage.
+			try (var writer = new BufferedWriter(new OutputStreamWriter(new GZIPOutputStream(new BufferedOutputStream(Files.newOutputStream(path), 64 * 1024)), StandardCharsets.UTF_8))) {
 				while (!closing || !queue.isEmpty()) {
 					Object row = queue.poll(100, TimeUnit.MILLISECONDS);
 					if (row != null) { writer.write(GSON.toJson(row)); writer.newLine(); written++; }
