@@ -492,6 +492,9 @@ public final class EvaluationAddonRuntime {
 		}
 
 		@Override
+		public boolean goalAllowsCompletion(String executionId) { return !runtime.systemOneActive() || runtime.systemOneGoalSucceeded(executionId); }
+
+		@Override
 		public Optional<String> goalFailure(String executionId) {
 			if (runtime.systemOneActive()) return runtime.systemOneGoalFailure(executionId);
 			var view = runtime.actionGraphExecution(executionId);

@@ -89,7 +89,7 @@ public final class ScenarioEvaluationRunner {
 		}
 
 		latestCheckResults = evaluateChecks(context);
-		if (checksPassed(latestCheckResults) && scenario.hasDeterministicChecks()) {
+		if (checksPassed(latestCheckResults) && scenario.hasDeterministicChecks() && (goalExecutionId == null || context.goalAllowsCompletion(goalExecutionId))) {
 			finish(EvaluationStatus.PASSED, "Expected outcome reached", false, context.tick());
 			return;
 		}
@@ -425,6 +425,8 @@ public final class ScenarioEvaluationRunner {
 		String startGoal(EvaluationGoal goal);
 
 		Optional<String> goalFailure(String executionId);
+		/** System 1 waits for urgent work and acknowledged motor release before passing checks. */
+		default boolean goalAllowsCompletion(String executionId) { return true; }
 
 		boolean plannerInFlight();
 

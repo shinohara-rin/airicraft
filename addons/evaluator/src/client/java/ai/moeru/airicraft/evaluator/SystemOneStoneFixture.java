@@ -27,10 +27,10 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-return-route", "system-one-survival-wait", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-cave-gap", "system-one-return-route", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-return-route")) depleteReturnSupplies(client, tick);
-			if (scenario.equals("system-one-survival-wait") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
+			if (scenario.startsWith("system-one-survival-") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
 			return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		}
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
@@ -97,10 +97,13 @@ final class SystemOneStoneFixture {
 					player.getInventory().setStack(1, new ItemStack(Items.COAL));
 					world.setBlockState(new BlockPos(x + 2, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
 				}
-				else if (scenario.equals("system-one-death-recovery")) {
+				else if (scenario.equals("system-one-death-recovery") || scenario.equals("system-one-survival-mining")) {
 					for (int y = 200; y <= 204; y++) world.setBlockState(new BlockPos(x, y, z + 3), Blocks.OAK_LOG.getDefaultState(), 3);
-					world.setSpawnPos(new BlockPos(x, 200, z), 0);
-					world.getGameRules().get(net.minecraft.world.GameRules.SPAWN_RADIUS).set(0, server);
+					if (scenario.equals("system-one-death-recovery")) {
+						world.setSpawnPos(new BlockPos(x, 200, z), 0);
+						world.getGameRules().get(net.minecraft.world.GameRules.SPAWN_RADIUS).set(0, server);
+					}
+					else for (int dx : new int[]{-6, 6}) for (int y = 200; y <= 204; y++) world.setBlockState(new BlockPos(x + dx, y, z + 3), Blocks.OAK_LOG.getDefaultState(), 3);
 				}
 				else if (scenario.equals("system-one-charcoal")) {
 					player.getInventory().setStack(0, new ItemStack(Items.OAK_LOG, 2));
@@ -141,10 +144,11 @@ final class SystemOneStoneFixture {
 		if (depletion != null) { if (depletion.isDone()) depletion.join(); return; }
 		if (client.player == null || client.getServer() == null) return;
 		boolean dying = scenario.equals("system-one-death-recovery");
+		boolean mining = scenario.equals("system-one-survival-mining");
 		if (dying) {
 			if (client.player.getInventory().count(Items.OAK_LOG) == 0) return;
 		}
-		else if (!ai.moeru.airicraft.AiricraftClient.runtimeController().agentRuntime().semanticEventContains("system_one.task_waiting", java.util.Map.of())) return;
+		else if (!ai.moeru.airicraft.AiricraftClient.runtimeController().agentRuntime().semanticEventContains(mining ? "system_one.command_started" : "system_one.task_waiting", java.util.Map.of())) return;
 		var server = client.getServer(); var id = client.player.getUuid();
 		depletion = CompletableFuture.runAsync(() -> {
 			var player = server.getPlayerManager().getPlayer(id);
@@ -153,7 +157,7 @@ final class SystemOneStoneFixture {
 			if (dying) player.damage(world, world.getDamageSources().genericKill(), Float.MAX_VALUE);
 			else world.setBlockState(position.south(), Blocks.LAVA.getDefaultState(), 3);
 			try {
-				var evidence = java.util.Map.of("kind", dying ? "death_after_first_log" : "lava_during_furnace_wait", "requestedAtRuntimeTick", tick,
+				var evidence = java.util.Map.of("kind", dying ? "death_after_first_log" : mining ? "lava_during_mining" : "lava_during_furnace_wait", "requestedAtRuntimeTick", tick,
 					"x", position.getX(), "y", position.getY(), "z", position.getZ());
 				java.nio.file.Files.writeString(output.resolve("fixture-intervention.json"), new com.google.gson.Gson().toJson(evidence));
 			} catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }

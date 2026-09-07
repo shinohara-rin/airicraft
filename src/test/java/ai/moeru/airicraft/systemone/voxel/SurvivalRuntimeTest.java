@@ -31,6 +31,14 @@ class SurvivalRuntimeTest {
 		var arrived = kernel.advance(escaped.state(), world(refuge, 0, 20, true, Map.of()), List.of(new Finished(move.token(), Outcome.success("arrived"))), 5);
 		assertTrue(arrived.events().stream().anyMatch(e -> e.type().equals("task_resumed") && e.detail().equals("SUCCEEDED:survival_refuge_observed")));
 		assertTrue(arrived.state().stack().getFirst().task() instanceof Mission mission && mission.item().equals("log"));
+		assertEquals(mining.command(), ((Start<?>) arrived.effects().getFirst()).command(), "a cancelled attempt does not blacklist a still-eligible target");
+	}
+	@Test void obtainedGoalStockDoesNotSuppressAnImmediateEscape() {
+		var kernel = kernel(BOOK);
+		var step = kernel.advance(kernel.begin("s", "r", new Mission("log", 1, 0, 0), 0), world(FEET, 0, 20, true, Map.of("log", 1)), List.of(), 1);
+		assertTrue(step.state().outcome().isEmpty());
+		assertInstanceOf(Navigate.class, ((Start<?>) step.effects().getFirst()).command());
+		assertTrue(step.events().stream().anyMatch(e -> e.type().equals("task_suspended") && e.detail().equals("survival_escape")));
 	}
 	@Test void passiveSmeltingWaitResumesAtItsOriginalReadyTimeAfterEscape() {
 		var book = new ProductionKnowledge("smelt", List.of(), List.of(), List.of(new Smelt("cook", "raw", "bar", 1, "furnace", 200)), List.of(new Fuel("fuel", 200)));

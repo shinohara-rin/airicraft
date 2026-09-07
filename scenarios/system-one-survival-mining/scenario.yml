@@ -1,0 +1,39 @@
+id: system-one-survival-mining
+name: Release active mining before escaping an observed hazard
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain eight oak planks from the exposed trees. The fixture introduces lava
+  beside the player after the first command starts. Release active mining,
+  escape, and continue the production goal using eligible observed resources.
+  Additional trees lie on either side beyond the initial lava source.
+goal:
+  kind: inventory_item
+  itemId: minecraft:oak_planks
+  quantity: 8
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:oak_planks
+    count: 8
+  - type: event_contains
+    eventType: system_one.release_requested
+    payload:
+      detail: survival_escape
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:survival_refuge_observed
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

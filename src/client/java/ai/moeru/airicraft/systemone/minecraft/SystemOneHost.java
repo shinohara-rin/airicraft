@@ -71,6 +71,7 @@ public final class SystemOneHost {
 	}
 	public void recordDecisions(Consumer<Object> recorder) { decisionRecorder = java.util.Objects.requireNonNull(recorder); }
 	public boolean busy() { return state != null && state.outcome().isEmpty(); }
+	public boolean succeeded(String id) { return state != null && state.run().equals(id) && state.outcome().filter(outcome -> outcome.kind() == ResultKind.SUCCEEDED).isPresent(); }
 	public Optional<String> failure(String id) {
 		if (state == null || !state.run().equals(id)) return Optional.of("System 1 run disappeared: " + id);
 		return state.outcome().map(outcome -> outcome.kind() + ": " + outcome.evidence());

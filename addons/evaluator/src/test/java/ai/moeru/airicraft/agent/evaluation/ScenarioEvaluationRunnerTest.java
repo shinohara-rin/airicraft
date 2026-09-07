@@ -374,6 +374,15 @@ class ScenarioEvaluationRunnerTest {
 		assertEquals(1, context.goalStarts);
 		assertTrue(context.triggers.isEmpty());
 	}
+	@Test
+	void passingInventoryWaitsForGoalSafetyAndMotorRelease() {
+		var runner = new ScenarioEvaluationRunner(); var context = new FakeContext();
+		context.noLlmActive = true; context.inventoryCount = 1; context.goalAllowsCompletion = false;
+		runner.start(noLlmScenario(), 0, 0); runner.onTick(context);
+		assertEquals(EvaluationStatus.RUNNING, runner.report(0).status());
+		context.tick = 1; context.goalAllowsCompletion = true; runner.onTick(context);
+		assertEquals(EvaluationStatus.PASSED, runner.report(1).status());
+	}
 
 	@Test
 	void noLlmStillEnforcesElapsedBudget() {
@@ -422,6 +431,7 @@ class ScenarioEvaluationRunnerTest {
 		private boolean noLlmActive;
 		private int goalStarts;
 		private Optional<String> goalFailure = Optional.empty();
+		private boolean goalAllowsCompletion = true;
 		private boolean worldLoaded = true;
 		private int playerBlockX;
 		private int playerBlockY;
@@ -476,6 +486,9 @@ class ScenarioEvaluationRunnerTest {
 			goalStarts++;
 			return "goal-1";
 		}
+
+		@Override
+		public boolean goalAllowsCompletion(String executionId) { return goalAllowsCompletion; }
 
 		@Override
 		public Optional<String> goalFailure(String executionId) {

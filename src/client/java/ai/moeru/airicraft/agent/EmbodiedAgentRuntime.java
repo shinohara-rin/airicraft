@@ -1089,6 +1089,7 @@ public final class EmbodiedAgentRuntime implements PlannerActionToolExecutor {
 		return systemOneHost.start(item, count, MinecraftClient.getInstance(), tickCount);
 	}
 	public Optional<String> systemOneGoalFailure(String id) { return systemOneHost.failure(id); }
+	public boolean systemOneGoalSucceeded(String id) { return systemOneHost.succeeded(id); }
 	public Map<String, Object> systemOneStatus() { return systemOneHost == null ? Map.of("runtime", "legacy") : systemOneHost.status(); }
 
 	public boolean codexDriverActive() {

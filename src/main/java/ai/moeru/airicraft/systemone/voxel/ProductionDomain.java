@@ -67,7 +67,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		survival = new SurvivalPolicy(knowledge.survival());
 	}
 	@Override public Optional<Outcome> completion(Task root, World world) {
-		if (world == null || !world.vitals().alive()) return Optional.empty();
+		if (world == null || !world.vitals().alive() || survival.urgent(world)) return Optional.empty();
+		while (root instanceof AfterEscape after) root = after.saved();
 		if (root instanceof Mission mission) root = Acquire.root(mission.item(), mission.count());
 		if (world != null && root instanceof Acquire goal && free(world, goal.reserved(), goal.item()) >= goal.count()) {
 			return Optional.of(Outcome.success("inventory_observed:" + goal.item() + ":" + goal.count()));
@@ -78,13 +79,20 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (world == null || !survival.urgent(world) || branch.stream().anyMatch(v -> v.task() instanceof Escape || v.task() instanceof AfterEscape || v.task() instanceof Abandon)) return Optional.empty();
 		var leaf = branch.getLast();
 		var command = leaf.acting() ? Optional.of(Outcome.cancelled("survival_interruption")) : leaf.commandResult();
-		return Optional.of(new Interruption<>(new AfterEscape(leaf.task(), command, leaf.childResult()),
+		Task saved = leaf.task();
+		if (leaf.acting() && saved instanceof Gather gather) {
+			// Preemption is not evidence that the resource target itself failed. Revalidate it after escape.
+			saved = new Gather(gather.rule(), gather.count(), gather.origin(), gather.scans(), gather.rejected(), gather.visited(), null, gather.drops());
+			command = Optional.empty();
+		}
+		return Optional.of(new Interruption<>(new AfterEscape(saved, command, leaf.childResult()),
 			new Escape(world.feet(), Set.of(), Optional.empty(), leaf.tick() + survival.parameters().escapeTicks()), "survival_escape"));
 	}
 	@Override public Optional<Revision<Task>> reconsider(List<View<Task>> branch, World world) {
 		if (world == null) return Optional.empty();
 		var root = branch.getFirst();
-		if (root.task() instanceof Mission mission) {
+		Task rootTask = root.task(); while (rootTask instanceof AfterEscape after) rootTask = after.saved();
+		if (rootTask instanceof Mission mission) {
 			if (world.vitals().life() != mission.life()) {
 				int deaths = mission.deaths() + 1;
 				Task next = deaths > survival.parameters().maxDeaths() ? new Abandon("death_recovery_budget_exhausted") : new Mission(mission.item(), mission.count(), world.vitals().life(), deaths);
