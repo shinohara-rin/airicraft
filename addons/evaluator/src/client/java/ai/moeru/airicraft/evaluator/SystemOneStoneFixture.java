@@ -148,7 +148,8 @@ final class SystemOneStoneFixture {
 						int floor = 199 + Math.min(dz, 4);
 						for (int y = 199; y <= floor; y++) world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
 					}
-					world.setBlockState(new BlockPos(x, 204, z + 6), Blocks.FURNACE.getDefaultState(), 3);
+					for (int dx = 2; dx <= 3; dx++) world.setBlockState(new BlockPos(x + dx, 203, z + 4), Blocks.STONE.getDefaultState(), 3);
+					world.setBlockState(new BlockPos(x + 3, 204, z + 4), Blocks.FURNACE.getDefaultState(), 3);
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
 					player.getInventory().setStack(1, new ItemStack(Items.COAL));
 				}
@@ -190,7 +191,7 @@ final class SystemOneStoneFixture {
 				else player.getInventory().setStack(0, new ItemStack(Items.WOODEN_PICKAXE));
 				player.setHealth(player.getMaxHealth());
 				player.getHungerManager().setFoodLevel(20);
-				player.teleport(world, x + 0.5, scenario.equals("system-one-pickup-step") ? 197 : 200, z + 0.5, Set.<PositionFlag>of(), 0, 45, true);
+				player.teleport(world, x + 0.5, scenario.equals("system-one-pickup-step") ? 197 : 200, z + 0.5, Set.<PositionFlag>of(), 0, scenario.equals("system-one-station-stairs") ? -25 : 45, true);
 			}, server);
 			return false;
 		}
