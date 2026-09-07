@@ -1,0 +1,38 @@
+id: system-one-stone-canopy
+name: Leave a canopy and acquire local stone
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain three cobblestone starting above a leaf canopy with a wooden pickaxe.
+  Reach observed ground below, preparing bounded steps and preserving footing,
+  then excavate locally without revisiting exhausted exploration positions.
+goal:
+  kind: inventory_item
+  itemId: minecraft:cobblestone
+  quantity: 3
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:cobblestone
+    count: 3
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: prepare_observed_access
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:access_stance_reached
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

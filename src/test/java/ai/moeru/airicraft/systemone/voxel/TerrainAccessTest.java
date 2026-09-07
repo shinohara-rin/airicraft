@@ -141,6 +141,22 @@ class TerrainAccessTest {
 		var pickupChild = assertInstanceOf(Child.class,domain.decide(pickupFailed,world(known,start,Set.of())));
 		assertEquals(pickup,assertInstanceOf(Access.class,pickupChild.child()).state().goal());
 	}
+	@Test void localStoneExplorationUsesTheSharedAccessRepairAndPreservesItsSearch() {
+		Pos start = new Pos(0,4,0), goal = new Pos(0,2,2);
+		var known = solid();
+		for (int z=0;z<=4;z++) for (int y=2;y<=5;y++) known.put(new Pos(0,y,z),air());
+		known.put(goal.offset(0,-1,0),stone());
+		var state = new StoneAcquisition.Task(3,start,0,0,Set.of(),Optional.of(new Navigate(goal,24,200)));
+		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(),List.of(),List.of(),List.of(),List.of("stone"),
+			new LightingPolicy.Parameters(7,10,8,80,4),SurvivalPolicy.Parameters.minecraft()));
+		var task = new Excavate(state);
+		var observed = new StoneAcquisition.World(new Pose(.5,5.62,.5,0,0),start,Map.of("minecraft:wooden_pickaxe",1),known,Set.of());
+		var child = assertInstanceOf(Child.class,domain.decide(new View<Task>(2,task,false,1,Optional.of(Outcome.failure("observed_route_unavailable")),Optional.empty()),observed));
+		assertEquals(goal,assertInstanceOf(Access.class,child.child()).state().goal());
+		assertEquals(task,assertInstanceOf(AfterAccess.class,child.continuation()).saved());
+		var failed = domain.decide(new View<Task>(2,(Task)child.continuation(),false,2,Optional.empty(),Optional.of(Outcome.failure("no_access"))),observed);
+		assertFalse(failed instanceof Child<?,?> c && c.child() instanceof Access,"a failed repair must return to the stone task's bounded alternatives");
+	}
 	@Test void aFailedDirectMoveCanStillClearAnObservedObstructionOnThatEdge() {
 		Pos start = new Pos(0, 4, 0), goal = new Pos(0, 4, 1);
 		var known = solid(); known.put(start, air()); known.put(start.offset(0,1,0), air());

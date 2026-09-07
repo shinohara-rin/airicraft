@@ -177,6 +177,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				yield new Execute<>(new CollectBatch(task.recipe(), task.station(), task.before(), task.deadline(), task.attempts() + 1), new CollectSmelt(task.recipe(), task.station()));
 			}
 			case Excavate task -> {
+				if (needsAccess(view) && task.state().last().orElse(null) instanceof Navigate move && survival.safeStance(world, move.stance())) {
+					yield access(task, move.stance(), world, view.tick(), accessMaterials);
+				}
 				var result = stone.decide(new View<>(view.id(), task.state(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world);
 				if (result instanceof Execute<StoneAcquisition.Task, VoxelCommand> action) {
 					if (action.command() instanceof Break broken && survival.nearHazard(world, broken.target())) yield failure("observed_excavation_hazard");

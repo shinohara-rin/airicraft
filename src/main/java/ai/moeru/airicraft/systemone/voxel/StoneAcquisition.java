@@ -113,9 +113,13 @@ public final class StoneAcquisition implements TaskKernel.Domain<StoneAcquisitio
 		// Known standing positions are exploration frontiers; no buried resource coordinates are used.
 		Optional<Pos> frontier = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && standable(world.known(), pos))
-			.filter(pos -> !current.rejected().contains(pos) && horizontalSquared(pos, current.origin()) <= 12 * 12)
+			.filter(pos -> !current.rejected().contains(pos) && !current.route().contains(pos) && horizontalSquared(pos, current.origin()) <= 12 * 12)
 			.filter(pos -> horizontalSquared(pos, world.feet()) >= 4)
-			.sorted(Comparator.<Pos>comparingDouble(pos -> horizontalSquared(pos, world.feet()))
+			// Observed soil/stone is a useful excavation surface; a nearer canopy is not.
+			.sorted(Comparator.<Pos>comparingInt(pos -> {
+				String support = world.known().get(pos.offset(0,-1,0)).blockId();
+				return soil(support) || stone(support) ? 0 : 1;
+			}).thenComparingDouble(pos -> horizontalSquared(pos, world.feet()))
 				.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z))
 			.findFirst();
 		return frontier.<Decision<Task, VoxelCommand>>map(pos -> execute(current, new Navigate(pos, 24, 200), 0))

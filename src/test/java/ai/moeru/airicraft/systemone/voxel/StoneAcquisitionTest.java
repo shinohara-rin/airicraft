@@ -136,6 +136,20 @@ class StoneAcquisitionTest {
 		assertEquals(new Break(alternative, "minecraft:dirt"), action.command());
 	}
 
+	@Test void explorationDoesNotRevisitAlreadySurveyedCanopyPositions() {
+		Pos left = FEET.offset(-2,0,0), right = FEET.offset(2,0,0), fresh = FEET.offset(4,0,0);
+		var blocks = Map.of(left.offset(0,-1,0),seen("minecraft:oak_leaves"),right.offset(0,-1,0),seen("minecraft:oak_leaves"),fresh.offset(0,-1,0),seen("minecraft:oak_leaves"));
+		var task = new Task(3,FEET,4,0,Set.of(),Optional.empty(),java.util.List.of(left,FEET,right),Optional.empty());
+		var action = assertInstanceOf(Execute.class,domain.decide(new View<>(1,task,false,1,Optional.empty(),Optional.empty()),world(EYE,FEET,TOOL,blocks)));
+		assertEquals(fresh,assertInstanceOf(Navigate.class,action.command()).stance());
+	}
+	@Test void observedGroundCompetesWithNearbyCanopyForLocalExcavation() {
+		Pos canopy = FEET.offset(2,0,0), ground = FEET.offset(4,-2,0);
+		var blocks = Map.of(canopy.offset(0,-1,0),seen("minecraft:oak_leaves"),ground.offset(0,-1,0),seen("minecraft:grass_block"),ground,seen("minecraft:air"),ground.offset(0,1,0),seen("minecraft:air"));
+		var action = assertInstanceOf(Execute.class,domain.decide(ready(),world(EYE,FEET,TOOL,blocks)));
+		assertEquals(ground,assertInstanceOf(Navigate.class,action.command()).stance());
+	}
+
 	private static World world(Pose eye, Pos feet, Map<String, Integer> inventory, Map<Pos, Seen> blocks) {
 		var known = new java.util.HashMap<Pos, Seen>();
 		for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) for (int dy = -1; dy <= 3; dy++) known.put(feet.offset(dx, dy, dz), seen("minecraft:air"));
