@@ -25,7 +25,7 @@ source .envrc
 ./gradlew :test --tests 'ai.moeru.airicraft.systemone.*'
 ```
 
-At 2026-09-07, 51 tests pass: 11 kernel, 6 geometric sensing, 11 acquisition, 9 production, 6 decision replay, 3 recording tests, and 5 smelting-production tests. The 32 evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests). Four recording-inspector tests cover old-policy diagnosis and incomplete input detection.
+At 2026-09-07, 53 tests pass: 11 kernel, 6 geometric sensing, 11 acquisition, 9 production, 6 decision replay, 3 recording tests, and 7 smelting-production tests. The 32 evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests). Five recording-inspector tests cover old-policy diagnosis and incomplete input detection.
 
 Live fixture command:
 
@@ -57,6 +57,7 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 | `20260907-172346-877489-88255` | Empty-inventory stone-pickaxe goal PASSED in 683 ticks, zero planner turns. Cleanup overwrote pending success with cancellation; all 618 turns reproduced that race offline. Corrected cleanup to preserve terminal decisions while waiting for release. |
 | `20260907-172709-641844-89225` | Final production verification PASSED in 690 elapsed ticks; harness OK, zero planner/LLM calls, runtime SUCCEEDED, motor fully released, client exited normally. All 628 decision turns replayed offline. There were 16 break commands, 7 crafts, 7 navigations, 1 placement, and zero survey turns; one occluded target recovered. |
 | `20260907-174348-876499-93376` | First exposed-iron attempt FAILED before motor actuation: resource cost estimation preferred an unavailable diamond tool. Cyclic block-compression recipes divided a finite unavailability penalty into an apparently cheaper cost. The 8 recorded decision turns replay exactly with production policy v5. |
+| `20260907-174947-087516-94884` | Tool progression correction allowed stone-pickaxe crafting and raw-iron harvesting. Furnace supply then exhausted excavation alternatives despite nearby previously observed stone. Production policy v6 records the failure and bounded cleanup; the next correction adds approaching observed stone before another excavation. |
 
 The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. The final production Recorder Play was rendered successfully to 676 frames and `recording-render/fpv.mp4`. Sampled first-person frames were visually inspected through log harvesting, excavation, cobblestone collection, and return toward the table. The renderer covers its available server ticks 28–703, versus requested 28–724, and reports 314 ignored unsupported packets (310 chunk unloads, 4 player positions). Its images are supporting evidence; they do not independently prove final inventory or exact runtime-tick alignment.
 
@@ -76,7 +77,7 @@ scripts/inspect-system-one-recording \
   eval-output/20260907-171921-268801-87086/01-system-one-production/system-one-decisions.jsonl.gz
 ```
 
-The compact report includes inventory changes, command counts, failure reasons and the last failed command's parent chain. Input coverage is checked separately from decision replay; truncated compression, missing/reordered turns, missing footers, and trailing records report incomplete coverage. The inspector never claims policy replay.
+The compact report includes inventory changes, command counts, failure reasons, the first failed prerequisite chain, and the last failed command's parent chain. Input coverage is checked separately from decision replay; truncated compression, missing/reordered turns, missing footers, and trailing records report incomplete coverage. The inspector never claims policy replay.
 
 ## Outstanding plan gates
 

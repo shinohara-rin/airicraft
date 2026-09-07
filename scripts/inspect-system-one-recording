@@ -24,6 +24,8 @@ def inspect_recording(path):
     failures = Counter()
     recent = deque(maxlen=12)
     last_failure = None
+    first_task_failure = None
+    failed_tasks = 0
 
     def chain(task):
         result = []
@@ -79,6 +81,10 @@ def inspect_recording(path):
                             reason = detail.removeprefix("FAILED:")[:240]
                             failures[reason] += 1
                             last_failure = {"tick": tick, "reason": reason, "task_chain": chain(task)}
+                        elif event_kind == "task_ended" and detail.startswith("FAILED:"):
+                            failed_tasks += 1
+                            if first_task_failure is None:
+                                first_task_failure = {"tick": tick, "reason": detail.removeprefix("FAILED:")[:240], "task_chain": chain(task)}
                     outcome = row["outcome"]
                 elif kind == "end":
                     footer = row
@@ -98,7 +104,8 @@ def inspect_recording(path):
     report.update(coverage="complete" if not problems else "incomplete", coverage_problems=problems[:20],
                   turns=turns, last_tick=tick, outcome=outcome[:240], inventory=inventory,
                   commands=dict(sorted(commands.items())), command_failures=dict(failures.most_common(20)),
-                  last_command_failure=last_failure, recent_inventory_changes=list(recent))
+                  last_command_failure=last_failure, first_task_failure=first_task_failure,
+                  failed_tasks=failed_tasks, recent_inventory_changes=list(recent))
     return report
 
 

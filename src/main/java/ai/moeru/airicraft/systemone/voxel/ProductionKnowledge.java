@@ -32,6 +32,7 @@ public record ProductionKnowledge(String version, List<Recipe> recipes, List<Har
 		}
 	}
 	public enum Technique { EXPOSED, LOCAL_STONE }
+	/** Tools are listed in the domain pack's preferred progression order. */
 	public record Harvest(String item, List<String> blocks, List<String> tools, Technique technique) {
 		public Harvest { blocks = List.copyOf(blocks); tools = List.copyOf(tools); }
 	}

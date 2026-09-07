@@ -72,6 +72,23 @@ class SmeltingProductionTest {
 		assertEquals(2, new Fuel("stick", 100).quantity(200));
 		assertEquals(3, new Fuel("stick", 100).quantity(201));
 	}
+	@Test void toolPrerequisitesFollowDeclaredProgressionAndTryTheNextAfterFailure() {
+		var book = new ProductionKnowledge("tools", List.of(), List.of(new Harvest("ore", List.of("ore_block"), List.of("stone_pick", "diamond_pick"), Technique.EXPOSED)));
+		var domain = new ProductionDomain(book);
+		var first = (Child<Task, VoxelCommand>) domain.decide(view(Acquire.root("ore", 1)), world(Map.of()));
+		assertEquals("stone_pick", ((Acquire) first.child()).item());
+		var failed = new View<Task>(1, first.continuation(), false, 2, Optional.empty(), Optional.of(Outcome.failure("stone_unavailable")));
+		var alternative = (Child<Task, VoxelCommand>) domain.decide(failed, world(Map.of()));
+		assertEquals("diamond_pick", ((Acquire) alternative.child()).item());
+	}
+
+	@Test void anUnavailableInputCannotBecomeCheapByIncreasingRecipeYield() {
+		var recipes = List.of(new Recipe("impossible_bulk", "compressed", Integer.MAX_VALUE, 2, List.of(new Cell(0, "missing"))),
+			new Recipe("bad", "product", 1, 2, List.of(new Cell(0, "compressed"))), new Recipe("good", "product", 1, 2, List.of(new Cell(0, "wood"))));
+		var book = new ProductionKnowledge("cost", recipes, List.of(new Harvest("wood", List.of("wood"), List.of(), Technique.EXPOSED)));
+		var dependency = (Child<Task, VoxelCommand>) new ProductionDomain(book).decide(view(Acquire.root("product", 1)), world(Map.of()));
+		assertEquals("wood", ((Acquire) dependency.child()).item());
+	}
 	private static View<Task> view(Task task) { return new View<>(1, task, false, 1, Optional.empty(), Optional.empty()); }
 	private static StoneAcquisition.World world(Map<String, Integer> inventory) {
 		var known = new HashMap<Pos, Seen>();

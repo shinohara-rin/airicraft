@@ -85,8 +85,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			var rule = harvesting.get(task.item());
 			Acquire next = selected(task, harvestId);
 			if (!rule.tools().isEmpty() && rule.tools().stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
-				String tool = rule.tools().stream().min(Comparator.comparingDouble(id -> estimate(id, next.reserved(), world, ancestry(next), new int[]{256}))).orElseThrow();
-				return new Child<>(next, dependency(next, tool, 1, next.reserved()), "tool_required:" + tool);
+				String tool = rule.tools().stream().filter(id -> !next.failed().contains("tool:" + id) && !ancestry(next).contains(id)).findFirst().orElse(null);
+				if (tool == null) return failure("harvest_tool_alternatives_exhausted:" + task.item());
+				return new Child<>(selected(next, "tool:" + tool), dependency(next, tool, 1, next.reserved()), "tool_required:" + tool);
 			}
 			int target = task.count() + task.reserved().getOrDefault(task.item(), 0);
 			Task child = rule.technique() == Technique.LOCAL_STONE ? new Excavate(StoneAcquisition.Task.begin(target, world.feet()))
@@ -247,10 +248,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Acquire selected(Acquire task, String method) { return new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), task.failed(), method); }
 	private double estimate(String item, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
 		if (free(world, reserved, item) > 0) return 0;
-		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return 1e6;
+		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return Double.POSITIVE_INFINITY;
 		var next = new HashSet<>(trail); next.add(item);
 		var harvest = harvesting.get(item);
-		double best = harvest == null ? 1e6 : world.known().entrySet().stream()
+		double best = harvest == null ? Double.POSITIVE_INFINITY : world.known().entrySet().stream()
 			.filter(entry -> entry.getValue().identified() && harvest.blocks().contains(entry.getValue().blockId()))
 			.mapToDouble(entry -> 5 + Math.sqrt(distance(world.eye(), entry.getKey()))).min().orElse(30);
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = Math.min(best, recipeCost(recipe, reserved, world, next, budget) / recipe.yield());

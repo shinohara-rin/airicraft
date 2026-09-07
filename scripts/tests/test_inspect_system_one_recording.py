@@ -51,6 +51,16 @@ class RecordingInspectionTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual("incomplete", self.inspect(rows + [rows[-1]])["coverage"])
 
+    def test_prerequisite_failure_before_actuation_retains_its_task_chain(self):
+        rows = self.rows()
+        rows[1]["effects"] = []
+        rows[1]["events"][1].update(type="task_ended", detail="FAILED:dependency_cycle:iron")
+        report = self.inspect(rows)
+        self.assertEqual({}, report["commands"])
+        self.assertIsNone(report["last_command_failure"])
+        self.assertEqual("dependency_cycle:iron", report["first_task_failure"]["reason"])
+        self.assertEqual([1, 2], [task["task"] for task in report["first_task_failure"]["task_chain"]])
+
 
 if __name__ == "__main__":
     unittest.main()
