@@ -9,9 +9,13 @@ import ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.SearchPrior;
 
 /** Search opens observed surfaces. A geological prior never supplies an ore coordinate. */
 public final class UndergroundSearch {
+	public enum Preparation { OBSERVING, EXCAVATING }
 	public record Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction,
-		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
+		int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route, Preparation preparation) {
 		public Task { route = List.copyOf(route); targets = List.copyOf(targets); rejected = Set.copyOf(rejected); ignoredTargets = Set.copyOf(ignoredTargets); }
+		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last, List<Pos> route) {
+			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, route, Preparation.OBSERVING);
+		}
 		public Task(SearchPrior prior, List<String> targets, Pos origin, Pos position, int direction, int steps, Set<Pos> rejected, Set<Pos> ignoredTargets, Optional<Pos> destination, Optional<Pos> lookedAt, VoxelCommand last) {
 			this(prior, targets, origin, position, direction, steps, rejected, ignoredTargets, destination, lookedAt, last, List.of(origin));
 		}
@@ -56,10 +60,12 @@ public final class UndergroundSearch {
 			}
 		}
 		Optional<Pos> retained = destination;
-		// A look may reveal an existing floor after a downward step was proposed. Reconsider excavation then.
-		candidates.sort(Comparator.comparingInt(p -> StoneAcquisition.standable(world.known(), p) ? 0
-			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 1
-			: retained.filter(p::equals).isPresent() ? 2 : 3));
+		// Finish an opened step: its newly cleared headroom is not a competing cave discovery.
+		// Before excavation starts, a look can still replace the proposal with an existing floor.
+		candidates.sort(Comparator.comparingInt(p -> task.preparation() == Preparation.EXCAVATING && retained.filter(p::equals).isPresent() ? 0
+			: StoneAcquisition.standable(world.known(), p) ? 1
+			: p.y() == world.feet().y() && foothold(task.prior(), world, p, reserved).isPresent() ? 2
+			: retained.filter(p::equals).isPresent() ? 3 : 4));
 		for (Pos next : candidates) {
 			if (!eligible.test(next) || !eligible.test(next.offset(0, -1, 0)) || entryColumn(world, next).stream().anyMatch(pos -> !eligible.test(pos))) continue;
 			if (rejected.contains(next) || squared(next, task.origin()) > task.prior().radius() * task.prior().radius()) continue;
@@ -115,7 +121,9 @@ public final class UndergroundSearch {
 	}
 	private static Execute<Task, VoxelCommand> action(Task task, World world, int steps, Set<Pos> rejected, Pos destination, Pos looked, VoxelCommand command) {
 		// A sidestep explores local space; it does not replace the search's chosen heading.
-		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command, RouteMemory.append(task.route(), world.feet())), command);
+		Preparation preparation = command instanceof Break ? Preparation.EXCAVATING
+			: task.destination().filter(destination::equals).isPresent() ? task.preparation() : Preparation.OBSERVING;
+		return new Execute<>(new Task(task.prior(), task.targets(), task.origin(), world.feet(), task.direction(), steps, rejected, task.ignoredTargets(), Optional.of(destination), Optional.ofNullable(looked), command, RouteMemory.append(task.route(), world.feet()), preparation), command);
 	}
 	public static double squared(Pos a, Pos b) { return Math.pow(a.x() - b.x(), 2) + Math.pow(a.z() - b.z(), 2); }
 }

@@ -48,6 +48,26 @@ class UndergroundSearchTest {
 		var next = assertInstanceOf(Execute.class, search.decide(new View<>(1, task, false, 2, Optional.of(Outcome.success("looked")), Optional.empty()), observed));
 		assertEquals(new Navigate(floor.offset(0, 1, 0), 12, 200), next.command());
 	}
+	@Test void clearingHeadroomDoesNotAbandonTheDownwardStepEvenAcrossALook() {
+		Pos upper = FEET.offset(0, 0, 1), lower = upper.offset(0, -1, 0);
+		var initial = world(Map.of(upper, seen("minecraft:dirt")));
+		var opening = assertInstanceOf(Execute.class, search.decide(view(Task.begin(PRIOR, List.of("iron"), initial, Set.of())), initial));
+		assertEquals(new Break(upper, "minecraft:dirt"), opening.command());
+		var opened = (Task) opening.continuation();
+		assertEquals(Optional.of(lower), opened.destination());
+		var unknownFloor = world(Map.of());
+		var looking = assertInstanceOf(Execute.class, search.decide(new View<>(1, opened, false, 2, Optional.of(Outcome.success("broken")), Optional.empty()), unknownFloor));
+		assertInstanceOf(Look.class, looking.command());
+		var observedFloor = world(Map.of(lower, seen("minecraft:stone"), lower.offset(0, -1, 0), seen("minecraft:stone")));
+		assertTrue(StoneAcquisition.standable(observedFloor.known(), upper), "the intermediate flat position is now walkable");
+		var downward = assertInstanceOf(Execute.class, search.decide(new View<>(1, (Task) looking.continuation(), false, 3, Optional.of(Outcome.success("looked")), Optional.empty()), observedFloor));
+		assertEquals(new Break(lower, "minecraft:stone"), downward.command());
+		var completedStep = world(Map.of(lower, seen("minecraft:air"), lower.offset(0, -1, 0), seen("minecraft:stone")));
+		var move = assertInstanceOf(Execute.class, search.decide(new View<>(1, (Task) downward.continuation(), false, 4, Optional.of(Outcome.success("broken")), Optional.empty()), completedStep));
+		assertEquals(new Navigate(lower, 12, 200), move.command());
+		var unsafe = search.decide(new View<>(1, (Task) looking.continuation(), false, 3, Optional.of(Outcome.success("looked")), Optional.empty()), observedFloor, Map.of(), p -> !p.equals(lower));
+		assertFalse(unsafe instanceof Execute<?, ?> action && action.command().equals(new Break(lower, "minecraft:stone")), "commitment never overrides a newly observed hazard");
+	}
 	@Test void observedSupportDoesNotDependOnTheExcavationMaterialList() {
 		for (String id : List.of("minecraft:andesite", "minecraft:deepslate", "another_game:floor")) {
 			var floor = FEET.offset(0, -1, 1);
