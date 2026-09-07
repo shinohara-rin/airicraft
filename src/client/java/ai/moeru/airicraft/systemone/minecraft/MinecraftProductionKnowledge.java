@@ -25,7 +25,13 @@ final class MinecraftProductionKnowledge {
 			List.of("minecraft:wooden_pickaxe", "minecraft:stone_pickaxe", "minecraft:iron_pickaxe", "minecraft:diamond_pickaxe", "minecraft:netherite_pickaxe"), Technique.EXPOSED));
 		for (var block : Registries.BLOCK) {
 			if (block.getDefaultState().isIn(BlockTags.LOGS) && block.asItem() != Items.AIR) {
-				harvests.add(new Harvest(Registries.ITEM.getId(block.asItem()).toString(), List.of(Registries.BLOCK.getId(block).toString()), List.of(), Technique.EXPOSED));
+				var id = Registries.BLOCK.getId(block);
+				Discovery discovery = Discovery.none();
+				// These are vanilla ecological priors, not a naming convention imposed on modded trees.
+				if (id.getNamespace().equals("minecraft")) for (String tree : List.of("oak","spruce","birch","jungle","acacia","dark_oak","mangrove","cherry","pale_oak")) {
+					if (id.getPath().equals(tree + "_log")) discovery = new Discovery(List.of("minecraft:" + tree + "_leaves"),16);
+				}
+				harvests.add(new Harvest(Registries.ITEM.getId(block.asItem()).toString(), List.of(id.toString()), List.of(), Technique.EXPOSED, discovery));
 			}
 		}
 		harvests.sort(Comparator.comparing(Harvest::item));
@@ -50,7 +56,7 @@ final class MinecraftProductionKnowledge {
 		// cleared to reach a tree or its drops, but observed footing remains protected.
 		var accessMaterials = new java.util.TreeSet<>(excavatable);
 		for (var block : Registries.BLOCK) if (block.getDefaultState().isIn(BlockTags.LEAVES)) accessMaterials.add(Registries.BLOCK.getId(block).toString());
-		return new ProductionKnowledge("minecraft-recipe-display-v8", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+		return new ProductionKnowledge("minecraft-recipe-display-v9", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
 			SmeltingPlannerService.productionSmelts(client), fuels, searches, List.copyOf(accessMaterials), new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4), ai.moeru.airicraft.systemone.voxel.SurvivalPolicy.Parameters.minecraft());
 	}
 }

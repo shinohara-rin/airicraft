@@ -1,0 +1,35 @@
+id: system-one-tree-indicator
+name: Discover wood from observed foliage
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain a wooden pickaxe from an empty inventory. The evaluator supplies
+  a tree whose logs are enclosed by foliage on an isolated platform.
+  No resource coordinates or action sequence are supplied.
+goal:
+  kind: inventory_item
+  itemId: minecraft:wooden_pickaxe
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:wooden_pickaxe
+    count: 1
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Break
+      targetBlock: minecraft:acacia_leaves
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

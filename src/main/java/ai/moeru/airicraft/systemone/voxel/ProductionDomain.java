@@ -26,8 +26,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
 	}
 	public record Excavate(StoneAcquisition.Task state) implements Task {}
-	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin) implements Task {
+	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin, int discoveryClears) implements Task {
 		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); drops = Set.copyOf(drops); }
+		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin) { this(rule,count,origin,scans,rejected,visited,last,drops,commandOrigin,0); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last) { this(rule, count, origin, scans, rejected, visited, last, Set.of()); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops) { this(rule, count, origin, scans, rejected, visited, last, drops, Optional.empty()); }
 	}
@@ -92,7 +93,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Task saved = leaf.task();
 		if (leaf.acting() && saved instanceof Gather gather) {
 			// Preemption is not evidence that the resource target itself failed. Revalidate it after escape.
-			saved = new Gather(gather.rule(), gather.count(), gather.origin(), gather.scans(), gather.rejected(), gather.visited(), null, gather.drops());
+			saved = new Gather(gather.rule(), gather.count(), gather.origin(), gather.scans(), gather.rejected(), gather.visited(), null, gather.drops(), Optional.empty(), gather.discoveryClears());
 			command = Optional.empty();
 		}
 		return Optional.of(new Interruption<>(new AfterEscape(saved, command, leaf.childResult()),
@@ -121,7 +122,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (leaf.acting() && pending instanceof Break broken && world.known().get(broken.target()) != null && !world.known().get(broken.target()).empty()
 			&& SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList())).footholds().contains(broken.target())) {
 			Task saved = leaf.task();
-			if (saved instanceof Gather gather) saved = new Gather(gather.rule(),gather.count(),gather.origin(),gather.scans(),gather.rejected(),gather.visited(),null,gather.drops());
+			if (saved instanceof Gather gather) saved = new Gather(gather.rule(),gather.count(),gather.origin(),gather.scans(),gather.rejected(),gather.visited(),null,gather.drops(),Optional.empty(),gather.discoveryClears());
 			return Optional.of(new Revision<>(leaf.id(), saved, "support_reservation_changed"));
 		}
 		// Reconsider unavailable inputs at completed observation/travel boundaries, not mid-harvest.
@@ -563,7 +564,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		else if (task.last() instanceof Break broken && task.rule().blocks().contains(broken.expectedBlock())) {
 			drops.add(broken.target());
 		}
-		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops, task.commandOrigin());
+		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops, task.commandOrigin(), task.discoveryClears());
 		Optional<Pos> pickup = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && survival.safeStance(world, pos))
 			// A mined cavity can be only one block high. Pick up from its accessible edge.
@@ -585,10 +586,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return gatherAction(task, world, new Break(ceiling, head.blockId()), 0, rejected, visited);
 		}
 		Gather current = task;
-		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
+		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified()
+			&& (current.rule().blocks().contains(e.getValue().blockId()) || current.discoveryClears() < current.rule().discovery().maxClears()
+				&& current.rule().discovery().indicators().contains(e.getValue().blockId()) && accessMaterials.contains(e.getValue().blockId())))
 			.filter(e -> !survival.nearHazard(world, e.getKey()))
 			.filter(e -> !rejected.contains(e.getKey()) && !world.footholds().contains(e.getKey()))
-			.sorted(Map.Entry.comparingByKey(positionOrder(world.eye()))).toList();
+			.sorted(Comparator.<Map.Entry<Pos,Seen>>comparingInt(e -> current.rule().blocks().contains(e.getValue().blockId()) ? 0 : 1)
+				.thenComparing(Map.Entry.comparingByKey(positionOrder(world.eye())))).toList();
 		for (var target : targets) {
 			if (ObservedReach.visible(world.known(), world.eye(), target.getKey(), 4.3)) return gatherAction(task, world, new Break(target.getKey(), target.getValue().blockId()), task.scans(), rejected, visited);
 			Optional<Pos> stance = world.known().keySet().stream().filter(pos -> !pos.equals(world.feet()) && StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))
@@ -615,7 +619,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return gatherAction(task, world, new Navigate(frontier.get(), 24, 200), 0, rejected, visited);
 	}
 	private Execute<Task, VoxelCommand> gatherAction(Gather task, World world, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
-		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet())), action);
+		int cleared = task.discoveryClears() + (action instanceof Break broken && !task.rule().blocks().contains(broken.expectedBlock())
+			&& task.rule().discovery().indicators().contains(broken.expectedBlock()) ? 1 : 0);
+		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet()), cleared), action);
 	}
 	private static double travelDistance(Pos a, Pos b) { return Math.sqrt(horizontal(a, b) + Math.pow(a.y() - b.y(), 2)); }
 	private static boolean pickupApproach(Set<Pos> drops, Pos stance) {
@@ -662,7 +668,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Acquire dependency(Acquire task, String item, int count, Map<String, Integer> reserved) { return new Acquire(item, count, reserved, ancestry(task), Set.of(), ""); }
 	private static Acquire selected(Acquire task, String method) { return new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), task.failed(), method); }
 	/** Source evidence precedes estimated work; a known source is not a promise of a reachable path. */
-	private enum SupplyEvidence { KNOWN, DISCOVERY_REQUIRED, UNAVAILABLE }
+	private enum SupplyEvidence { KNOWN, INDICATED, DISCOVERY_REQUIRED, UNAVAILABLE }
 	private record SupplyEstimate(SupplyEvidence evidence, double work) implements Comparable<SupplyEstimate> {
 		static SupplyEstimate known(double work) { return new SupplyEstimate(SupplyEvidence.KNOWN, work); }
 		static SupplyEstimate unavailable() { return new SupplyEstimate(SupplyEvidence.UNAVAILABLE, Double.POSITIVE_INFINITY); }
@@ -711,7 +717,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		SupplyEstimate best = SupplyEstimate.unavailable();
 		if (harvest != null) {
 			var nearest = harvest.blocks().stream().map(costing.observedWork()::get).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
-			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30);
+			var indicator = harvest.discovery().indicators().stream().map(costing.observedWork()::get).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
+			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : indicator.isPresent()
+				? new SupplyEstimate(SupplyEvidence.INDICATED,indicator.getAsDouble()+10) : new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30);
 		}
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
 		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
