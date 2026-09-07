@@ -399,10 +399,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Pos station = observedStation(world, task.recipe().station()).orElse(null);
 		if (station == null) return new Child<>(task, new Station(task.recipe().station(), reserved, task.ancestors(), 0, Set.of(), null), "smelting_station");
 		SmeltBatch current = task;
+		var costing = supplyContext(world, reserved);
 		Fuel fuel = fuels.stream().filter(f -> !current.rejectedFuel().contains(f.item()))
 			.min(Comparator.<Fuel, SupplyEstimate>comparing(f -> {
 				int missing = Math.max(0, f.quantity(current.recipe().ticks()) - free(world, reserved, f.item()));
-				return (missing == 0 ? SupplyEstimate.known(0) : estimate(f.item(), reserved, world, current.ancestors(), new int[]{128}).addWork(1).scale(missing))
+				return (missing == 0 ? SupplyEstimate.known(0) : estimate(f.item(), costing, current.ancestors(), new int[]{128}).addWork(1).scale(missing))
 					.addWork(f.quantity(current.recipe().ticks()) * .01);
 			}).thenComparing(Fuel::item)).orElse(null);
 		if (fuel == null || task.rejectedFuel().size() >= 16) return failure("smelting_fuel_alternatives_exhausted");
@@ -600,41 +601,50 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return evidenceOrder != 0 ? evidenceOrder : Double.compare(work, other.work);
 		}
 	}
+	private record SupplyContext(World world, Map<String, Integer> reserved, Map<String, Double> observedWork) {}
+	private static SupplyContext supplyContext(World world, Map<String, Integer> reserved) {
+		// One observation scan per ranking, shared by every recursive recipe estimate.
+		// This index never survives the decision or turns old observations into new ones.
+		var work = new HashMap<String, Double>();
+		for (var entry : world.known().entrySet()) if (entry.getValue().identified()) {
+			work.merge(entry.getValue().blockId(), 5 + Math.sqrt(distance(world.eye(), entry.getKey())), Math::min);
+		}
+		return new SupplyContext(world, Map.copyOf(reserved), Map.copyOf(work));
+	}
 	private record Ranked(String id, SupplyEstimate cost) {}
 	private List<Ranked> rankedMethods(Acquire task, World world, Map<String, Integer> reserved) {
 		var options = new ArrayList<Ranked>();
+		var costing = supplyContext(world, reserved);
 		for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!task.failed().contains(recipe.id())) {
-			options.add(new Ranked(recipe.id(), recipeCost(recipe, reserved, world, ancestry(task), new int[]{256})));
+			options.add(new Ranked(recipe.id(), recipeCost(recipe, costing, ancestry(task), new int[]{256})));
 		}
 		for (var recipe : smelting.getOrDefault(task.item(), List.of())) if (!task.failed().contains(recipe.id())) {
-			options.add(new Ranked(recipe.id(), smeltCost(recipe, reserved, world, ancestry(task), new int[]{256})));
+			options.add(new Ranked(recipe.id(), smeltCost(recipe, costing, ancestry(task), new int[]{256})));
 		}
 		return options;
 	}
-	private SupplyEstimate estimate(String item, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
-		if (free(world, reserved, item) > 0) return SupplyEstimate.known(0);
+	private SupplyEstimate estimate(String item, SupplyContext costing, Set<String> trail, int[] budget) {
+		if (free(costing.world(), costing.reserved(), item) > 0) return SupplyEstimate.known(0);
 		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return SupplyEstimate.unavailable();
 		var next = new HashSet<>(trail); next.add(item);
 		var harvest = harvesting.get(item);
 		SupplyEstimate best = SupplyEstimate.unavailable();
 		if (harvest != null) {
-			var nearest = world.known().entrySet().stream()
-				.filter(entry -> entry.getValue().identified() && harvest.blocks().contains(entry.getValue().blockId()))
-				.mapToDouble(entry -> 5 + Math.sqrt(distance(world.eye(), entry.getKey()))).min();
+			var nearest = harvest.blocks().stream().map(costing.observedWork()::get).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
 			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30);
 		}
-		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, reserved, world, next, budget).scale(1.0 / recipe.yield()));
-		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, reserved, world, next, budget).scale(1.0 / recipe.yield()));
+		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
+		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
 		return best;
 	}
-	private SupplyEstimate smeltCost(Smelt recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
-		return estimate(recipe.input(), reserved, world, trail, budget).addWork(3);
+	private SupplyEstimate smeltCost(Smelt recipe, SupplyContext costing, Set<String> trail, int[] budget) {
+		return estimate(recipe.input(), costing, trail, budget).addWork(3);
 	}
-	private SupplyEstimate recipeCost(Recipe recipe, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
+	private SupplyEstimate recipeCost(Recipe recipe, SupplyContext costing, Set<String> trail, int[] budget) {
 		SupplyEstimate cost = SupplyEstimate.known(recipe.width() == 3 ? 2 : 1);
 		for (var entry : recipe.ingredients().entrySet()) {
-			int missing = Math.max(0, entry.getValue() - free(world, reserved, entry.getKey()));
-			if (missing > 0) cost = cost.add(estimate(entry.getKey(), reserved, world, trail, budget).addWork(1).scale(missing));
+			int missing = Math.max(0, entry.getValue() - free(costing.world(), costing.reserved(), entry.getKey()));
+			if (missing > 0) cost = cost.add(estimate(entry.getKey(), costing, trail, budget).addWork(1).scale(missing));
 		}
 		return cost;
 	}

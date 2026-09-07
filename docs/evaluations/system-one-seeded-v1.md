@@ -6,7 +6,7 @@ Each seed archive contains only `level.dat`. Preparation uses Minecraft 1.21.8's
 
 Difficulty remains Peaceful, matching the reference archive. Game rules and generation settings remain those of the reference. These iron-pickaxe runs cannot establish ordinary survival or game-completion competence.
 
-The three development archives are prepared and their configuration has been verified through Minecraft NBT round trips. Natural spawn, empty initial inventory, and gameplay still require live validation. Held-out terrain has not been generated or inspected.
+The three development archives are prepared and their configuration has been verified through Minecraft NBT round trips. Development seed 01 loaded live in run `20260908-023751-924146-50371`: the initial inventory was empty, and the final saved NBT confirms the frozen seed, initialized world, and natural spawn (-64,79,-544). That diagnostic run was interrupted after collection and performance gaps were identified; it did not pass the gameplay goal. Seeds 02–03 still need live setup validation. Held-out terrain has not been generated or inspected.
 
 ```bash
 source .envrc
