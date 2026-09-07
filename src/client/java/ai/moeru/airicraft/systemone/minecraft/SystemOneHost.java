@@ -66,6 +66,6 @@ public final class SystemOneHost {
 		return state == null ? Map.of("runtime", "system_one", "state", "IDLE")
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
-				"motor", motor.status(), "knowledgeVersion", "local-stone-v1", "policyVersion", "observed-excavation-v1");
+				"motor", motor.status(), "knowledgeVersion", StoneTape.METHOD_VERSION, "policyVersion", "observed-excavation-v1", "motorVersion", "observed-navigation-v2");
 	}
 }

@@ -16,12 +16,17 @@ final class SystemOneStoneFixture {
 	private CompletableFuture<Void> preparation;
 	private long readyAfter = Long.MAX_VALUE;
 	private boolean setupComplete;
+	private SystemOneTerrainProbe terrainProbe = new SystemOneTerrainProbe();
+	private java.nio.file.Path output;
 
-	void reset() { preparation = null; readyAfter = Long.MAX_VALUE; setupComplete = false; }
+	void reset(java.nio.file.Path output) {
+		preparation = null; readyAfter = Long.MAX_VALUE; setupComplete = false;
+		terrainProbe = new SystemOneTerrainProbe(); this.output = output;
+	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!scenario.equals("system-one-stone")) return true;
-		if (setupComplete) return true;
+		if (!scenario.equals("system-one-stone") && !scenario.equals("system-one-terrain")) return true;
+		if (setupComplete) return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		if (client.getServer() == null || client.player == null || client.world == null) return false;
 		if (preparation == null) {
 			var server = client.getServer();
@@ -54,6 +59,6 @@ final class SystemOneStoneFixture {
 		preparation.join();
 		if (readyAfter == Long.MAX_VALUE) readyAfter = tick + 40;
 		setupComplete = tick >= readyAfter && client.player.getBlockY() == 200;
-		return setupComplete;
+		return setupComplete && (!scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output));
 	}
 }

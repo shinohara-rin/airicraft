@@ -69,7 +69,15 @@ public final class EvaluationAddonRuntime {
 			return;
 		}
 		EmbodiedAgentRuntime runtime = AiricraftClient.runtimeController().agentRuntime();
-		if (!stoneFixture.ready(client, activeScenario.id(), runtime.tickCount())) return;
+		try {
+			if (!stoneFixture.ready(client, activeScenario.id(), runtime.tickCount())) return;
+		}
+		catch (RuntimeException exception) {
+			runner.failSetup(exception.getMessage(), runtime.tickCount());
+			recorder.recordTick(activeScenario, runner.report(runtime.tickCount()), runtime, this::evidencePayload);
+			beginCleanup(runtime);
+			return;
+		}
 		if (!waypointsSeeded && runtime.sessionSnapshot().worldLoaded()) {
 			try {
 				waypointSeeder.seed(activeScenario);
@@ -174,7 +182,7 @@ public final class EvaluationAddonRuntime {
 				runtime.prepareForEvaluation();
 				scenario = nextScenario;
 				waypointsSeeded = false;
-				stoneFixture.reset();
+				stoneFixture.reset(outputDir);
 				runner.start(nextScenario, runtime.tickCount(), System.currentTimeMillis());
 				recorder.start(nextScenario, outputDir, restoredWorld, runtime);
 				runState = RunState.RUNNING;

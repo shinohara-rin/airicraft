@@ -5,6 +5,12 @@
 	"client": [
 		"BaritoneObservedTerrainMixin",
 		"BaritoneUnknownSupportMixin",
+		"BaritoneMovementTerrainMixin",
+		"BaritoneFallInventoryMixin",
+		"BaritoneNavigationPreparationMixin",
+		"BaritoneNavigationInputMixin",
+		"BaritoneNavigationAimMixin",
+		"BaritoneNavigationReachMixin",
 		"ClientPlayNetworkHandlerMixin",
 		"ClientPlayerInteractionManagerMixin",
 		"ClientPlayerInteractionManagerAccessor",

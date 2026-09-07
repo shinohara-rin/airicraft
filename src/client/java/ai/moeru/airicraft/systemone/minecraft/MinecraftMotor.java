@@ -29,7 +29,8 @@ final class MinecraftMotor {
 	private final Map<Settings.Setting<?>, Object> savedSettings = new HashMap<>();
 	private Start<Command> active;
 	private long started;
-	private Vec3d origin;
+	private Vec3d lastPosition;
+	private double travelled;
 	private Outcome finishing;
 	private boolean stopping;
 	private boolean breaking;
@@ -44,7 +45,7 @@ final class MinecraftMotor {
 		if (active != null || pathing.processActive()) throw new IllegalStateException("Motor already owned");
 		active = (Start<Command>) effect;
 		started = tick;
-		origin = client.player.getPos();
+		lastPosition = client.player.getPos(); travelled = 0;
 		if (active.command() instanceof Navigate move) {
 			var settings = BaritoneAPI.getSettings();
 			set(settings.allowBreak, false); set(settings.allowBreakAnyway, java.util.List.of());
@@ -52,6 +53,8 @@ final class MinecraftMotor {
 			set(settings.allowParkour, false); set(settings.allowParkourPlace, false);
 			set(settings.allowWaterBucketFall, false); set(settings.avoidance, false);
 			set(settings.allowSprint, false);
+			set(settings.autoTool, false);
+			set(settings.simplifyUnloadedYCoord, false);
 			pathing.startNavigate(new GoalPosition(move.stance().x(), move.stance().y(), move.stance().z(), false));
 		}
 	}
@@ -75,10 +78,12 @@ final class MinecraftMotor {
 			finish(client, Outcome.success("look_applied"));
 		}
 		else if (active.command() instanceof Navigate move) {
+			travelled += client.player.getPos().distanceTo(lastPosition);
+			lastPosition = client.player.getPos();
 			if (client.player.squaredDistanceTo(Vec3d.ofBottomCenter(new BlockPos(move.stance().x(), move.stance().y(), move.stance().z()))) < 0.5) {
 				finish(client, Outcome.success("stance_reached"));
 			}
-			else if (tick - started > move.maxTicks() || client.player.getPos().distanceTo(origin) > move.maxTravel()) {
+			else if (tick - started > move.maxTicks() || travelled > move.maxTravel()) {
 				finish(client, Outcome.failure("navigation_budget_exhausted"));
 			}
 			else if (tick - started > 10 && !pathing.processActive()) finish(client, Outcome.failure("observed_route_unavailable"));

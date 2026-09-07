@@ -1,0 +1,29 @@
+id: system-one-terrain
+name: Observed terrain adapter and local excavation
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Verify the Baritone observation boundary against two hidden world layouts,
+  then obtain three cobblestone autonomously on the restored stone platform.
+goal:
+  kind: inventory_item
+  itemId: minecraft:cobblestone
+  quantity: 3
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:cobblestone
+    count: 3
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

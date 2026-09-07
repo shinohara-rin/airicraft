@@ -24,6 +24,7 @@ public final class ObservedTerrain {
 	}
 
 	public static View capture() { return current; }
+	public static BlockState get(BlockPos pos) { return current.get(pos.getX(), pos.getY(), pos.getZ()); }
 	public static void publish(Map<BlockPos, BlockState> observations) {
 		current = new View(observations, observations.keySet().stream()
 			.map(pos -> column(pos.getX(), pos.getZ())).collect(Collectors.toSet()));
