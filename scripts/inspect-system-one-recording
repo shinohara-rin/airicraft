@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 
-def inspect_recording(path):
+def inspect_recording(path, failure_context=False):
     report = {"recording": str(path), "coverage": "incomplete", "decision_replay": "not_checked"}
     rows = turns = 0
     tick = None
@@ -26,6 +26,20 @@ def inspect_recording(path):
     last_failure = None
     first_task_failure = None
     failed_tasks = 0
+    known = {}
+    command_history = deque(maxlen=12)
+
+    def context(observation):
+        if not observation:
+            return {}
+        feet = observation["feet"]
+        nearby = lambda pos: all(abs(pos[axis] - feet[axis]) <= 2 for axis in ("x", "y", "z"))
+        return {"position": dict(feet), "eye": observation.get("eye"), "inventory": dict(inventory),
+                "nearby_cells": [{"pos": dict(zip(("x", "y", "z"), pos)), "seen": value}
+                                 for pos, value in sorted(known.items())
+                                 if nearby(dict(zip(("x", "y", "z"), pos)))],
+                "nearby_footholds": [pos for pos in observation.get("footholds", []) if nearby(pos)],
+                "recent_commands": list(command_history)}
 
     def chain(task):
         result = []
@@ -59,6 +73,11 @@ def inspect_recording(path):
                     tick = row["tick"]
                     observation = row.get("observation")
                     if observation:
+                        if failure_context:
+                            for change in observation.get("changed", []):
+                                known[tuple(change["pos"][axis] for axis in ("x", "y", "z"))] = change["seen"]
+                            for removed in observation.get("removed", []):
+                                known.pop(tuple(removed[axis] for axis in ("x", "y", "z")), None)
                         current = observation["inventory"]
                         delta = {item: current.get(item, 0) - inventory.get(item, 0)
                                  for item in sorted(current.keys() | inventory.keys())
@@ -71,6 +90,7 @@ def inspect_recording(path):
                         match = re.search(r"command=(\w+)\[", effect)
                         if match:
                             commands[match[1]] += 1
+                            command_history.append({"tick": tick, "effect": effect[:512], "truncated": len(effect) > 512})
                     for event in row["events"]:
                         event_kind, detail, task = event["type"], event["detail"], event["task"]
                         if event_kind == "task_started":
@@ -85,6 +105,8 @@ def inspect_recording(path):
                             failed_tasks += 1
                             if first_task_failure is None:
                                 first_task_failure = {"tick": tick, "reason": detail.removeprefix("FAILED:")[:240], "task_chain": chain(task)}
+                                if failure_context:
+                                    first_task_failure["context"] = context(observation)
                     outcome = row["outcome"]
                 elif kind == "end":
                     footer = row
@@ -112,7 +134,9 @@ def inspect_recording(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording", type=Path)
-    report = inspect_recording(parser.parse_args().recording)
+    parser.add_argument("--failure-context", action="store_true", help="Include the first failed task's observed local cells, inventory, and recent commands.")
+    args = parser.parse_args()
+    report = inspect_recording(args.recording, args.failure_context)
     print(json.dumps(report, indent=2))
     return 0 if report["coverage"] == "complete" else 2
 
