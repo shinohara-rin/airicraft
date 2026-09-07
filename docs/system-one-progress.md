@@ -14,7 +14,7 @@ Tracks the [implementation plan](superpowers/plans/2026-09-06-system-one-redesig
 
 - Production tasks load crafting patterns from the active recipe catalog, preserve parent ingredient reservations, account for recipe yields, and terminate prerequisite cycles. Observed resource sources affect recipe choice. Child tasks harvest logs, bootstrap tools, acquire/place tables, and return toward remembered workstations. Crafting, exact placement, and inventory selection stay under the motor owner; crafting release drains the cursor and input grid. Production recordings include the complete immutable recipe/prior catalog and support offline replay.
 
-The production chain is still being validated. It has made a wooden pickaxe and obtained stone live, but has not yet completed the stone-pickaxe fixture: return footholds are now protected, but descending movement still needs explicit overhead clearance. Smelting, lighting repairs, and survival control remain unimplemented.
+The empty-inventory stone-pickaxe production fixture now passes live. Excavation protects visited footholds, clears a lower step before walking into it, and retains the destination while clearing overhead entry space. Evaluation cleanup preserves an already pending terminal outcome while waiting for physical release. Smelting, lighting repairs, survival control, and the original iron-pickaxe gate remain unimplemented or unverified.
 
 ## Tests and live evidence
 
@@ -25,7 +25,7 @@ source .envrc
 ./gradlew :test --tests 'ai.moeru.airicraft.systemone.*'
 ```
 
-At 2026-09-07, 44 tests pass: 10 kernel, 6 geometric sensing, 10 acquisition, 9 production, 6 decision replay, and 3 recording tests. The evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests).
+At 2026-09-07, 46 tests pass: 11 kernel, 6 geometric sensing, 11 acquisition, 9 production, 6 decision replay, and 3 recording tests. The 32 evaluator tests and evaluation-launcher Python suite also pass (24 launcher tests). Four recording-inspector tests cover old-policy diagnosis and incomplete input detection.
 
 Live fixture command:
 
@@ -36,7 +36,7 @@ scripts/run-evaluation-scenarios --system-one --scenario system-one-stone \
   --stop-client-after-scenario --bridge-timeout-seconds 240
 ```
 
-The evaluator prepares a disposable platform: stone underneath three soil layers, with one wooden pickaxe supplied. Fixture construction executes on the integrated-server thread before goal submission. Setup state and coordinates are not supplied to the agent. This fixture deliberately isolates acquisition; it does not replace the original iron-pickaxe scenario.
+The evaluator prepares a disposable platform: stone underneath three soil layers, with one wooden pickaxe supplied. Fixture construction executes on the integrated-server thread before goal submission. Setup state and coordinates are not supplied to the agent. This fixture deliberately isolates acquisition; it does not replace the original iron-pickaxe scenario. Use `--scenario system-one-production` for the empty-inventory version with an observed log column and a stone-pickaxe goal. That fixture supplies no tools or ingredients directly to the player.
 
 | Run directory under `eval-output/` | Evidence |
 | --- | --- |
@@ -51,27 +51,38 @@ The evaluator prepares a disposable platform: stone underneath three soil layers
 | `20260907-162605-529498-73805` | Final probe also checks placement rejection and bucket-selection isolation. Paired route/cost checks passed; autonomous stone goal PASSED in 382 ticks, harness OK, zero planner calls, and motor fully released. All 312 decision turns replayed offline. |
 | `20260907-164921-022470-78966` | First production attempt chose acacia ingredients despite observed oak. Saved events identified the incorrect cost estimate; stopped the run and added an observed-resource preference regression. No terminal success claim. |
 | `20260907-165313-281422-80092` | Harvested logs, crafted the table and wooden pickaxe, and obtained three cobblestone. Failed because a nearby remembered table was occluded. Replay reproduced all 693 decision turns and the failure. Added station visibility/return logic and placement body-clearance checks. |
-| `20260907-171617-714595-86198` | Protecting visited footholds alone caused surface widening: walking onto each cleared cell immediately protected the floor that needed excavation. Stopped this repetitive run and corrected the step sequence. |
-| `20260907-171921-268801-87086` | The corrected sequence descended two steps and preserved footholds. Later descent failed because the destination ceiling blocked entry despite two-block standing clearance. Recorded observations identify the obstructing grass block; the next change adds a retained step destination and overhead preparation. |
 | `20260907-170343-610028-83181` | Return attempts failed: excavation had removed earlier footholds. The fallback created another table but could not place it from the shaft. Scenario FAILED in 824 elapsed ticks; zero planner turns. This exposes an acquisition defect that the stone-only fixture did not exercise. |
+| `20260907-171617-714595-86198` | Protecting visited footholds alone caused surface widening: walking onto each cleared cell immediately protected the floor that needed excavation. Stopped this repetitive run and corrected the step sequence. |
+| `20260907-171921-268801-87086` | The corrected sequence descended two steps and preserved footholds. Later descent failed because the destination ceiling blocked entry despite two-block standing clearance. Recorded observations identified the obstructing grass block. All 967 turns replayed with policy v3 at checkpoint `dc70f25`. Added a retained step destination and overhead preparation. |
+| `20260907-172346-877489-88255` | Empty-inventory stone-pickaxe goal PASSED in 683 ticks, zero planner turns. Cleanup overwrote pending success with cancellation; all 618 turns reproduced that race offline. Corrected cleanup to preserve terminal decisions while waiting for release. |
+| `20260907-172709-641844-89225` | Final production verification PASSED in 690 elapsed ticks; harness OK, zero planner/LLM calls, runtime SUCCEEDED, motor fully released, client exited normally. All 628 decision turns replayed offline. There were 16 break commands, 7 crafts, 7 navigations, 1 placement, and zero survey turns; one occluded target recovered. |
 
-The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. Recorder Play playback has not yet been visually reviewed.
+The failed recording is a concrete recorder/harness finding: an artifact existing on disk does not prove that recording continued through gameplay. Setup completion is now latched once, and post-outcome recording includes motor release before cleanup finishes. The final production Recorder Play was rendered successfully to 676 frames and `recording-render/fpv.mp4`. Sampled first-person frames were visually inspected through log harvesting, excavation, cobblestone collection, and return toward the table. The renderer covers its available server ticks 28–703, versus requested 28–724, and reports 314 ignored unsupported packets (310 chunk unloads, 4 player positions). Its images are supporting evidence; they do not independently prove final inventory or exact runtime-tick alignment.
 
 Replay the recorded live decision inputs (no Minecraft client required):
 
 ```bash
 ./gradlew replaySystemOne \
-  -Pairicraft.replayFile="$PWD/eval-output/20260907-160438-513978-67297/01-system-one-stone/system-one-decisions.jsonl.gz"
+  -Pairicraft.replayFile="$PWD/eval-output/20260907-172709-641844-89225/01-system-one-production/system-one-decisions.jsonl.gz"
 ```
 
 This verifies the deterministic decision boundary; it does not replay physics or prove sensor fairness. The replay entry point reads both stone and production records. Policy revisions must match the recorded decisions; historical failures should be replayed from their implementation checkpoint.
+
+Inspect any historical policy's recording without launching Minecraft:
+
+```bash
+scripts/inspect-system-one-recording \
+  eval-output/20260907-171921-268801-87086/01-system-one-production/system-one-decisions.jsonl.gz
+```
+
+The compact report includes inventory changes, command counts, failure reasons and the last failed command's parent chain. Input coverage is checked separately from decision replay; truncated compression, missing/reordered turns, missing footers, and trailing records report incomplete coverage. The inspector never claims policy replay.
 
 ## Outstanding plan gates
 
 1. Extend the verified live decision recording/replay to subsequent domain methods; expose accurate runtime/version diagnostics and finish lifecycle ownership on reload/world changes.
 2. Finish stone variants, paired autonomous hidden-layout runs, and controlled travel/work/perception metrics. The source audit, adapter-level paired-world probe, and survey correction now have live evidence.
-3. Implement resource production, alternative recipes/fuels, resource commitments, and passive smelting waits.
+3. Extend production to smelting/fuels, exposed iron harvesting, passive furnace waits, and longer resource commitments.
 4. Implement exploration continuations, maintained lighting, resupply children, bounded relaxation, and survival preemption through the same motor owner.
-5. Pass the original iron-pickaxe scenario and frozen development/held-out evaluations; battle-test diagnosis and visually review Recorder Play evidence.
+5. Pass the original iron-pickaxe scenario and frozen development/held-out evaluations; extend injected-failure diagnosis and visual Recorder Play review to those behaviors.
 6. Migrate remaining entry points and delete the old execution ownership and temporary selector.
 7. Add and evaluate the capabilities needed for autonomous Minecraft completion across multiple seeds.

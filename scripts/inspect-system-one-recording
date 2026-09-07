@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Summarize saved decision evidence without Minecraft or a matching policy checkout.
+
+Coverage checks do not verify decisions. Use replaySystemOne for that separate check.
+"""
+import argparse
+from collections import Counter, deque
+import gzip
+import json
+from pathlib import Path
+import re
+
+
+def inspect_recording(path):
+    report = {"recording": str(path), "coverage": "incomplete", "decision_replay": "not_checked"}
+    rows = turns = 0
+    tick = None
+    header = footer = None
+    outcome = ""
+    problems = []
+    inventory = {}
+    tasks = {}
+    commands = Counter()
+    failures = Counter()
+    recent = deque(maxlen=12)
+    last_failure = None
+
+    def chain(task):
+        result = []
+        seen = set()
+        while task in tasks and task not in seen:
+            seen.add(task)
+            parent, reason = tasks[task]
+            result.append({"task": task, "purpose": reason})
+            task = parent
+        return list(reversed(result))
+
+    try:
+        with gzip.open(path, "rt") as stream:
+            for line in stream:
+                row = json.loads(line)
+                kind = row.get("type")
+                if footer is not None:
+                    problems.append("data_after_footer")
+                if kind in ("begin", "production_begin"):
+                    if rows:
+                        problems.append("repeated_or_late_header")
+                    header = row
+                    tick = row["tick"]
+                    goal = f"acquire {row['count']} {row.get('item', 'minecraft:cobblestone')}"
+                    tasks[1] = (None, goal)
+                    report.update(goal=goal, method_version=row["methodVersion"], run=row["run"])
+                elif kind == "turn":
+                    turns += 1
+                    if header is None or row["sequence"] != turns or tick is None or row["tick"] != tick + 1:
+                        problems.append(f"missing_or_reordered_input_at_turn:{turns}")
+                    tick = row["tick"]
+                    observation = row.get("observation")
+                    if observation:
+                        current = observation["inventory"]
+                        delta = {item: current.get(item, 0) - inventory.get(item, 0)
+                                 for item in sorted(current.keys() | inventory.keys())
+                                 if current.get(item, 0) != inventory.get(item, 0)}
+                        if delta:
+                            recent.append({"tick": tick, "inventory_change": delta})
+                        inventory = current
+                        report["last_position"] = observation["feet"]
+                    for effect in row["effects"]:
+                        match = re.search(r"command=(\w+)\[", effect)
+                        if match:
+                            commands[match[1]] += 1
+                    for event in row["events"]:
+                        event_kind, detail, task = event["type"], event["detail"], event["task"]
+                        if event_kind == "task_started":
+                            match = re.fullmatch(r"parent=(\d+) reason=(.*)", detail)
+                            if match:
+                                tasks[task] = (int(match[1]), match[2][:240])
+                        elif event_kind == "command_finished" and detail.startswith("FAILED:"):
+                            reason = detail.removeprefix("FAILED:")[:240]
+                            failures[reason] += 1
+                            last_failure = {"tick": tick, "reason": reason, "task_chain": chain(task)}
+                    outcome = row["outcome"]
+                elif kind == "end":
+                    footer = row
+                    if row.get("rows") != rows:
+                        problems.append("footer_row_count_mismatch")
+                else:
+                    problems.append(f"unexpected_record:{kind}")
+                rows += 1
+    except (EOFError, OSError, ValueError, KeyError, TypeError) as error:
+        problems.append(f"read_error:{type(error).__name__}:{str(error)[:240]}")
+    if header is None:
+        problems.append("missing_header")
+    if footer is None:
+        problems.append("missing_footer")
+    if not outcome:
+        problems.append("missing_terminal_outcome")
+    report.update(coverage="complete" if not problems else "incomplete", coverage_problems=problems[:20],
+                  turns=turns, last_tick=tick, outcome=outcome[:240], inventory=inventory,
+                  commands=dict(sorted(commands.items())), command_failures=dict(failures.most_common(20)),
+                  last_command_failure=last_failure, recent_inventory_changes=list(recent))
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("recording", type=Path)
+    report = inspect_recording(parser.parse_args().recording)
+    print(json.dumps(report, indent=2))
+    return 0 if report["coverage"] == "complete" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
