@@ -26,9 +26,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		public static Acquire root(String item, int count) { return new Acquire(item, count, Map.of(), Set.of(), Set.of(), ""); }
 	}
 	public record Excavate(StoneAcquisition.Task state) implements Task {}
-	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops) implements Task {
+	public record Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops, Optional<Pos> commandOrigin) implements Task {
 		public Gather { rejected = Set.copyOf(rejected); visited = Set.copyOf(visited); drops = Set.copyOf(drops); }
 		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last) { this(rule, count, origin, scans, rejected, visited, last, Set.of()); }
+		public Gather(Harvest rule, int count, Pos origin, int scans, Set<Pos> rejected, Set<Pos> visited, VoxelCommand last, Set<Pos> drops) { this(rule, count, origin, scans, rejected, visited, last, drops, Optional.empty()); }
 	}
 	public record Station(String item, Map<String, Integer> reserved, Set<String> ancestors, int scans, Set<Pos> rejected, VoxelCommand last) implements Task {
 		public Station { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejected = Set.copyOf(rejected); }
@@ -469,6 +470,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> gather(View<Task> view, Gather task, World world) {
 		if (world.inventory().getOrDefault(task.rule().item(), 0) >= task.count()) return success("harvest_inventory_observed:" + task.rule().item());
 		if (view.acting()) return new Keep<>();
+		if (task.last() instanceof Navigate move && view.commandResult().filter(o -> o.kind() == ResultKind.FAILED && o.evidence().equals("navigation_budget_exhausted")).isPresent()
+			&& task.commandOrigin().filter(origin -> travelDistance(world.feet(), move.stance()) + .5 < travelDistance(origin, move.stance())).isPresent()
+			&& survival.safeStance(world, move.stance()) && harvestApproach(task, move.stance(), world)) {
+			return gatherAction(task, world, move, task.scans(), task.rejected(), task.visited());
+		}
 		if (needsAccess(view) && task.last() instanceof Navigate move && searches.containsKey(task.rule().item())
 			&& (!task.drops().isEmpty() || harvestApproach(task, move.stance(), world))) {
 			return access(task, move.stance(), world, view.tick(), new HashSet<>(searches.get(task.rule().item()).excavatable()));
@@ -482,7 +488,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		else if (task.last() instanceof Break broken && task.rule().blocks().contains(broken.expectedBlock())) {
 			drops.add(broken.target());
 		}
-		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops);
+		task = new Gather(task.rule(), task.count(), task.origin(), task.scans(), rejected, visited, task.last(), drops, task.commandOrigin());
 		Optional<Pos> pickup = world.known().keySet().stream()
 			.filter(pos -> !pos.equals(world.feet()) && !visited.contains(pos) && survival.safeStance(world, pos))
 			// A mined cavity can be only one block high. Pick up from its accessible edge.
@@ -491,7 +497,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				.thenComparing(positionOrder(world.eye()))).findFirst();
 		if (pickup.isPresent()) {
 			visited.add(pickup.get());
-			return gatherAction(task, new Navigate(pickup.get(), 24, 200), 0, rejected, visited);
+			return gatherAction(task, world, new Navigate(pickup.get(), 24, 200), 0, rejected, visited);
 		}
 		if (rejected.size() + visited.size() >= 24) return failure("harvest_search_exhausted:" + task.rule().item());
 		var prior = searches.get(task.rule().item());
@@ -501,7 +507,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (space == null || !space.empty() || !StoneAcquisition.supportsStanding(world.known().get(drop.offset(0, -1, 0)))) continue;
 			if (head == null || !head.identified() || head.empty() || !prior.excavatable().contains(head.blockId())) continue;
 			if (rejected.contains(ceiling) || world.footholds().contains(ceiling) || !ObservedReach.visible(world.known(), world.eye(), ceiling, 4.3)) continue;
-			return gatherAction(task, new Break(ceiling, head.blockId()), 0, rejected, visited);
+			return gatherAction(task, world, new Break(ceiling, head.blockId()), 0, rejected, visited);
 		}
 		Gather current = task;
 		var targets = world.known().entrySet().stream().filter(e -> e.getValue().identified() && current.rule().blocks().contains(e.getValue().blockId()))
@@ -509,24 +515,26 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			.filter(e -> !rejected.contains(e.getKey()) && !e.getKey().equals(world.feet().offset(0, -1, 0)))
 			.sorted(Map.Entry.comparingByKey(positionOrder(world.eye()))).toList();
 		for (var target : targets) {
-			if (ObservedReach.visible(world.known(), world.eye(), target.getKey(), 4.3)) return gatherAction(task, new Break(target.getKey(), target.getValue().blockId()), task.scans(), rejected, visited);
+			if (ObservedReach.visible(world.known(), world.eye(), target.getKey(), 4.3)) return gatherAction(task, world, new Break(target.getKey(), target.getValue().blockId()), task.scans(), rejected, visited);
 			Optional<Pos> stance = world.known().keySet().stream().filter(pos -> !pos.equals(world.feet()) && StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))
 				.filter(pos -> Math.abs(pos.x() - target.getKey().x()) + Math.abs(pos.z() - target.getKey().z()) <= 2)
 				.filter(pos -> ObservedReach.visible(world.known(), new Pose(pos.x() + .5, pos.y() + 1.62, pos.z() + .5, 0, 0), target.getKey(), 4.3))
 				.sorted(positionOrder(world.eye())).findFirst();
-			if (stance.isPresent()) { visited.add(stance.get()); return gatherAction(task, new Navigate(stance.get(), 24, 200), 0, rejected, visited); }
+			if (stance.isPresent()) { visited.add(stance.get()); return gatherAction(task, world, new Navigate(stance.get(), 24, 200), 0, rejected, visited); }
 		}
-		if (task.scans() < 4) return gatherAction(task, new Look((float) ((world.eye().yaw() + 90) % 360), 15), task.scans() + 1, rejected, visited);
+		if (task.scans() < 4) return gatherAction(task, world, new Look((float) ((world.eye().yaw() + 90) % 360), 15), task.scans() + 1, rejected, visited);
 		Optional<Pos> frontier = world.known().keySet().stream().filter(pos -> StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))
 			.filter(pos -> horizontal(world.feet(), pos) >= 4 && horizontal(current.origin(), pos) <= 32 * 32)
 			.sorted(positionOrder(world.eye())).findFirst();
 		if (frontier.isEmpty()) return failure("no_observed_harvest_frontier:" + task.rule().item());
 		visited.add(frontier.get());
-		return gatherAction(task, new Navigate(frontier.get(), 24, 200), 0, rejected, visited);
+		return gatherAction(task, world, new Navigate(frontier.get(), 24, 200), 0, rejected, visited);
 	}
-	private Execute<Task, VoxelCommand> gatherAction(Gather task, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
-		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops()), action);
+	private Execute<Task, VoxelCommand> gatherAction(Gather task, World world, VoxelCommand action, int scans, Set<Pos> rejected, Set<Pos> visited) {
+		return new Execute<>(new Gather(task.rule(), task.count(), task.origin(), scans, rejected, visited, action, task.drops(), Optional.of(world.feet())), action);
 	}
+	private static double travelDistance(Pos a, Pos b) { return Math.sqrt(horizontal(a, b) + Math.pow(a.y() - b.y(), 2)); }
+
 	private boolean harvestApproach(Gather task, Pos stance, World world) {
 		var eye = new Pose(stance.x() + .5, stance.y() + 1.62, stance.z() + .5, 0, 0);
 		return world.known().entrySet().stream()
