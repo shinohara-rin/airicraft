@@ -24,6 +24,7 @@ class ProductionDomainTest {
 		assertEquals(3, run.inventory().get("planks"));
 		assertEquals(2, run.inventory().get("sticks"));
 		assertEquals(1, run.commands().stream().filter(Place.class::isInstance).count());
+		assertEquals(4, run.commands().stream().filter(Look.class::isInstance).count());
 		assertTrue(run.maxDepth() >= 3);
 	}
 	@Test void outputYieldAndReservedStockAreBothAccountedFor() {
@@ -274,11 +275,12 @@ class ProductionDomainTest {
 		var state = kernel.begin("session", "run", goal, 0);
 		var inventory = new HashMap<>(initial);
 		var known = new HashMap<>(world(initial).known());
+		Pose pose = world(initial).eye();
 		var commands = new ArrayList<VoxelCommand>(); var events = new ArrayList<Event>();
 		List<Feedback> feedback = List.of(); int maxDepth = 1;
 		for (int tick = 1; tick <= 100 && state.outcome().isEmpty(); tick++) {
 			var base = world(inventory);
-			var step = kernel.advance(state, new StoneAcquisition.World(base.eye(), base.feet(), inventory, known), feedback, tick);
+			var step = kernel.advance(state, new StoneAcquisition.World(pose, base.feet(), inventory, known), feedback, tick);
 			state = step.state(); events.addAll(step.events()); maxDepth = Math.max(maxDepth, state.stack().size()); feedback = List.of();
 			for (var effect : step.effects()) {
 				if (effect instanceof Stop<VoxelCommand> stop) { feedback = List.of(new Released(stop.token())); continue; }
@@ -292,6 +294,7 @@ class ProductionDomainTest {
 					assertTrue(inventory.getOrDefault(place.item(), 0) > 0); inventory.merge(place.item(), -1, Integer::sum);
 					known.put(place.support().offset(0, 1, 0), new Seen(place.item(), false, true, true, 15, tick));
 				}
+				else if (start.command() instanceof Look look) pose = new Pose(pose.x(), pose.y(), pose.z(), look.yaw(), look.pitch());
 				else fail("Unexpected acquisition action: " + start.command());
 				feedback = List.of(new Finished(start.token(), Outcome.success("effect_applied")));
 			}
