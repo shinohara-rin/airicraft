@@ -74,16 +74,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		for (int i = branch.size() - 2; i >= 0; i--) {
 			var ancestor = branch.get(i);
 			if (!(ancestor.task() instanceof Acquire task)) continue;
-			Recipe current = recipesById.get(task.method());
-			if (current == null) continue;
-			double currentCost = recipeCost(current, productionReserve(task, world), world, ancestry(task), new int[]{256});
-			record Candidate(Recipe recipe, double cost) {}
-			var best = recipes.getOrDefault(task.item(), List.of()).stream()
-				.filter(recipe -> !task.failed().contains(recipe.id()) && !recipe.id().equals(current.id()))
-				.map(recipe -> new Candidate(recipe, recipeCost(recipe, productionReserve(task, world), world, ancestry(task), new int[]{256})))
+			if (!recipesById.containsKey(task.method()) && !smeltsById.containsKey(task.method())) continue;
+			var options = rankedMethods(task, world, productionReserve(task, world));
+			double currentCost = options.stream().filter(option -> option.id().equals(task.method())).mapToDouble(Ranked::cost).findFirst().orElse(Double.POSITIVE_INFINITY);
+			var best = options.stream().filter(option -> !option.id().equals(task.method()))
 				.filter(candidate -> Double.isFinite(candidate.cost()) && candidate.cost() * 1.5 + 2 < currentCost)
-				.min(Comparator.comparingDouble(Candidate::cost).thenComparing(candidate -> candidate.recipe().id()));
-			if (best.isPresent()) return Optional.of(new Revision<>(ancestor.id(), selected(task, best.get().recipe().id()), "better_observed_recipe:" + best.get().recipe().id()));
+				.min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id));
+			if (best.isPresent()) return Optional.of(new Revision<>(ancestor.id(), selected(task, best.get().id()), "better_observed_method:" + best.get().id()));
 		}
 		return Optional.empty();
 	}
@@ -164,16 +161,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		String method = task.method();
 		if (!recipesById.containsKey(method) && !smeltsById.containsKey(method)) {
-			Acquire current = task;
-			record Ranked(String id, double cost) {}
-			var options = new ArrayList<Ranked>();
-			for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
-				options.add(new Ranked(recipe.id(), recipeCost(recipe, productionReserve, world, ancestry(current), new int[]{256})));
-			}
-			for (var recipe : smelting.getOrDefault(task.item(), List.of())) if (!current.failed().contains(recipe.id())) {
-				options.add(new Ranked(recipe.id(), smeltCost(recipe, productionReserve, world, ancestry(current), new int[]{256})));
-			}
-			method = options.stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
+			method = rankedMethods(task, world, productionReserve).stream().min(Comparator.comparingDouble(Ranked::cost).thenComparing(Ranked::id)).map(Ranked::id).orElse("");
 		}
 		int missing = task.count() - free(world, task.reserved(), task.item());
 		if (smeltsById.containsKey(method)) {
@@ -445,6 +433,17 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Set<String> ancestry(Acquire task) { var result = new HashSet<>(task.ancestors()); result.add(task.item()); return result; }
 	private static Acquire dependency(Acquire task, String item, int count, Map<String, Integer> reserved) { return new Acquire(item, count, reserved, ancestry(task), Set.of(), ""); }
 	private static Acquire selected(Acquire task, String method) { return new Acquire(task.item(), task.count(), task.reserved(), task.ancestors(), task.failed(), method); }
+	private record Ranked(String id, double cost) {}
+	private List<Ranked> rankedMethods(Acquire task, World world, Map<String, Integer> reserved) {
+		var options = new ArrayList<Ranked>();
+		for (var recipe : recipes.getOrDefault(task.item(), List.of())) if (!task.failed().contains(recipe.id())) {
+			options.add(new Ranked(recipe.id(), recipeCost(recipe, reserved, world, ancestry(task), new int[]{256})));
+		}
+		for (var recipe : smelting.getOrDefault(task.item(), List.of())) if (!task.failed().contains(recipe.id())) {
+			options.add(new Ranked(recipe.id(), smeltCost(recipe, reserved, world, ancestry(task), new int[]{256})));
+		}
+		return options;
+	}
 	private double estimate(String item, Map<String, Integer> reserved, World world, Set<String> trail, int[] budget) {
 		if (free(world, reserved, item) > 0) return 0;
 		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return Double.POSITIVE_INFINITY;

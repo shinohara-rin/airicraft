@@ -123,6 +123,27 @@ class ProductionDomainTest {
 		assertEquals("oak_log", assertInstanceOf(Break.class, ((Start<VoxelCommand>) next.effects().getFirst()).command()).expectedBlock());
 		assertTrue(next.events().stream().anyMatch(e -> e.type().equals("task_revised")));
 	}
+	@Test void anObservedSmeltingAlternativeReplacesUnavailableInputWithoutLosingGoalStock() {
+		var book = new ProductionKnowledge("charcoal", List.of(),
+			List.of(new Harvest("acacia", List.of("acacia"), List.of(), Technique.EXPOSED), new Harvest("oak", List.of("oak"), List.of(), Technique.EXPOSED)),
+			List.of(new Smelt("cook_acacia", "acacia", "charcoal", 1, "furnace", 200), new Smelt("cook_oak", "oak", "charcoal", 1, "furnace", 200)), List.of());
+		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book), new Limits(16, 16, 500, 100));
+		var base = world(Map.of("charcoal", 1));
+		var first = kernel.advance(kernel.begin("s", "r", Acquire.root("charcoal", 2), 0), base, List.of(), 1);
+		var look = (Start<VoxelCommand>) first.effects().getFirst();
+		assertInstanceOf(Look.class, look.command());
+		assertEquals("cook_acacia", ((Acquire) first.state().stack().getFirst().task()).method());
+		var known = new HashMap<>(base.known());
+		for (int z = 1; z <= 2; z++) for (int y = 1; y <= 2; y++) known.put(new Pos(0, y, z), new Seen("minecraft:air", true, true, false, 15, 2));
+		known.put(new Pos(0, 1, 2), new Seen("oak", false, true, true, 15, 2));
+		var discovered = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
+		var next = kernel.advance(first.state(), discovered, List.of(new Finished(look.token(), Outcome.success("looked"))), 2);
+		assertEquals(1, next.state().stack().getFirst().id());
+		assertEquals("cook_oak", ((Acquire) next.state().stack().getFirst().task()).method());
+		assertEquals("oak", assertInstanceOf(Break.class, ((Start<VoxelCommand>) next.effects().getFirst()).command()).expectedBlock());
+		assertTrue(next.state().stack().stream().map(Frame::task).anyMatch(task -> task instanceof Acquire acquire && acquire.item().equals("oak") && acquire.reserved().getOrDefault("charcoal", 0) == 1));
+		assertTrue(next.events().stream().anyMatch(event -> event.type().equals("task_revised") && event.detail().contains("cook_oak")));
+	}
 	@Test void rememberedOreBehindAnExcavationRimRequiresAVisibleApproach() {
 		var known = new HashMap<Pos, Seen>();
 		for (int x = 0; x <= 4; x++) for (int y = 0; y <= 5; y++) known.put(new Pos(x, y, 0), new Seen(y == 0 ? "minecraft:stone" : "minecraft:air", y != 0, true, y == 0, 15, 1));
