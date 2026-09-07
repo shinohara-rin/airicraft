@@ -361,7 +361,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			else if (task instanceof Resupply supply) stances.addAll(supply.outward().route());
 			else if (task instanceof Retreat retreat) stances.addAll(retreat.returning().route());
 			else if (task instanceof Excavate excavation) stances.addAll(excavation.state().route());
-			else if (task instanceof Gather gather) stances.add(gather.origin());
+			// Gather's origin bounds its search; it is not a promise to return there.
 			else if (task instanceof Access access) stances.add(access.state().origin());
 		}
 		return Set.copyOf(stances);

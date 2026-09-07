@@ -9,6 +9,7 @@ No hidden fixture ground truth or control credentials are included.
 
 - `canopy.json.gz`: v51 canopy at tick 259, with partial contact beside the feet voxel.
 - `original-search.json.gz`: v54 original at tick 1036, after bootstrapping tools.
+- `tree-origin.json.gz`: v62 tree-indicator fixture at tick 570, after walking off the remaining log. Source: `20260908-071051-813945-15866/02-system-one-tree-indicator`. The complete accumulated observation is retained because reducing the neighborhood removed part of the walking bypass. No hidden terrain is included.
 
 The reduction only removes remembered cells. It cannot introduce a walking edge
 or authorize an otherwise unknown block. Tests preserve current contact and the

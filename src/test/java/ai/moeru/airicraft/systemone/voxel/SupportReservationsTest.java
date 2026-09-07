@@ -11,6 +11,20 @@ import static ai.moeru.airicraft.systemone.voxel.ProductionDomain.*;
 import static ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.*;
 
 class SupportReservationsTest {
+	@Test void aHarvestSearchOriginDoesNotReserveAResourceAfterWalkingOffIt() {
+		var world = recorded("tree-origin"); var origin = new Pos(0,201,20); var target = origin.offset(0,-1,0);
+		var rule = new Harvest("minecraft:acacia_log",List.of("minecraft:acacia_log"),List.of(),Technique.EXPOSED);
+		Task gather = new Gather(rule,1,origin,0,Set.of(),Set.of(),null);
+		var domain = new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(rule)));
+		var view = new View<>(2,gather,false,570,Optional.<Outcome>empty(),Optional.<Outcome>empty());
+		var action = assertInstanceOf(Execute.class,domain.decide(view,world));
+		assertEquals(new VoxelCommand.Break(target,"minecraft:acacia_log"),action.command());
+		Task returning = new Retreat(new ReturnNavigation.State(List.of(origin),0,0,Set.of(),Optional.empty()));
+		var branch = List.of(new View<>(1,returning,false,570,Optional.<Outcome>empty(),Optional.<Outcome>empty()),view);
+		var retained = domain.decide(branch,world);
+		assertFalse(retained instanceof Execute<?,?> next && next.command() instanceof VoxelCommand.Break broken && broken.target().equals(target),"an actual return continuation still reserves its waypoint");
+	}
+
 	@Test void anObservedBypassReleasesOldFootingButNotContactWaypointsOrTheOnlyConnector() {
 		var world = recorded("canopy");
 		var entrance = new Pos(0,200,15);
