@@ -29,7 +29,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-stone", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-charcoal", "system-one-underground", "system-one-descent", "system-one-tool-wear", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -109,7 +109,7 @@ final class SystemOneStoneFixture {
 					world.setBlockState(new BlockPos(x, 195, z + 1), Blocks.IRON_ORE.getDefaultState(), 3);
 					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
 				}
-				else if (scenario.equals("system-one-descent")) {
+				else if (scenario.equals("system-one-descent") || scenario.equals("system-one-tool-wear")) {
 					for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 12; dz++) for (int y = 193; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
 					}
@@ -118,6 +118,13 @@ final class SystemOneStoneFixture {
 					world.setBlockState(new BlockPos(x, 195, z + 5), Blocks.IRON_ORE.getDefaultState(), 3);
 					player.getInventory().setStack(0, new ItemStack(Items.STONE_PICKAXE));
 					player.getInventory().setStack(1, new ItemStack(Items.TORCH, 16));
+					if (scenario.equals("system-one-tool-wear")) {
+						var pick = player.getInventory().getStack(0);
+						pick.setDamage(pick.getMaxDamage() - 2);
+						player.getInventory().setStack(2, new ItemStack(Items.COBBLESTONE, 3));
+						player.getInventory().setStack(3, new ItemStack(Items.STICK, 2));
+						world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
+					}
 				}
 				else if (scenario.equals("system-one-survival-wait")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));

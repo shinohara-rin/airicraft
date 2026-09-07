@@ -41,7 +41,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record Explore(UndergroundSearch.Task search, LightingPolicy.State light, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
 		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
 	}
-	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, LightingPolicy.Repair repair) implements Task {}
+	public sealed interface SearchRepair permits LightRepair, ToolRepair {}
+	public record LightRepair(LightingPolicy.Repair kind) implements SearchRepair {}
+	public record ToolRepair(String tool, Set<String> rejected) implements SearchRepair { public ToolRepair { rejected = Set.copyOf(rejected); } }
+	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, SearchRepair repair) implements Task {}
 	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
 	public record Retreat(ReturnNavigation.State returning) implements Task {}
 	public record AfterRetreat(String reason) implements Task {}
@@ -282,9 +285,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			Task child = repair == LightingPolicy.Repair.SUPPLY
 				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
 				: new PlaceLight(Set.of(), Optional.empty());
-			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), repair), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
+			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), new LightRepair(repair)), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
 		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
+		var tools = harvesting.get(task.search().prior().item()).tools();
+		if (!tools.isEmpty() && tools.stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
+			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of());
+		}
 		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved(), pos -> !survival.nearHazard(world, pos));
 		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
 			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : action.command() instanceof Place placed ? placed.destination() : action.command() instanceof EdgePlace edge ? edge.placement().destination() : world.feet();
@@ -311,13 +318,27 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private Decision<Task, VoxelCommand> resumeExplore(View<Task> view, ResumeExplore task, World world) {
 		if (needsAccess(view) && task.returning().last().isPresent()) return access(task, task.returning().last().get(), world, view.tick(), new HashSet<>(task.saved().search().prior().excavatable()));
 		Explore saved = task.saved();
-		if (view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) saved = new Explore(saved.search(), saved.light().failed(task.repair()), saved.reserved(), saved.ancestors());
+		if (failedChild(view)) {
+			if (task.repair() instanceof ToolRepair tool) {
+				var rejected = new HashSet<>(tool.rejected()); rejected.add(tool.tool());
+				return replaceSearchTool(saved, task.returning(), rejected);
+			}
+			var repair = (LightRepair) task.repair();
+			saved = new Explore(saved.search(), saved.light().failed(repair.kind()), saved.reserved(), saved.ancestors());
+		}
 		if (view.acting()) return new Keep<>();
 		var returning = ReturnNavigation.advance(task.returning(), world, view.commandResult());
 		if (returning instanceof ReturnNavigation.Arrived) return explore(new View<>(view.id(), saved, false, view.tick(), Optional.empty(), Optional.empty()), saved, world);
 		if (returning instanceof ReturnNavigation.Unavailable failed) return failure("exploration_return_route_unavailable:" + failed.reason());
 		var move = (ReturnNavigation.Move) returning;
 		return new Execute<>(new ResumeExplore(saved, move.state(), task.repair()), move.command());
+	}
+	private Decision<Task, VoxelCommand> replaceSearchTool(Explore saved, ReturnNavigation.State returning, Set<String> rejected) {
+		var tool = harvesting.get(saved.search().prior().item()).tools().stream()
+			.filter(item -> !rejected.contains(item) && !saved.ancestors().contains(item)).findFirst();
+		if (tool.isEmpty()) return failure("search_tool_replacement_exhausted:" + saved.search().prior().item());
+		return new Child<>(new ResumeExplore(saved, returning, new ToolRepair(tool.get(), rejected)),
+			new Acquire(tool.get(), 1, saved.reserved(), saved.ancestors(), Set.of(), ""), "tool_replacement:" + tool.get());
 	}
 	private Decision<Task, VoxelCommand> retreat(View<Task> view, Retreat task, World world) {
 		if (view.acting()) return new Keep<>();
