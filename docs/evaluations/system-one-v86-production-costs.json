@@ -149,6 +149,111 @@
       },
       "coverage": "complete",
       "exactReplayTurns": 1179
+    },
+    {
+      "run": "eval-output/20260908-164507-819177-73640/01-system-one-charcoal",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:46:25Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 73850,
+        "pid": 73793,
+        "requestedAt": "2026-09-08T08:46:21Z"
+      },
+      "elapsedTicks": 578,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v15",
+        "methodVersion": "reactive-production-v86",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:charcoal:2",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 508
+    },
+    {
+      "run": "eval-output/20260908-164507-819177-73640/02-system-one-lighting-bootstrap",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:47:17Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 74144,
+        "pid": 74076,
+        "requestedAt": "2026-09-08T08:47:14Z"
+      },
+      "elapsedTicks": 447,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:cobblestone:8",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v86",
+        "motorVersion": "production-motor-v15",
+        "motor": {
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13"
+      },
+      "coverage": "complete",
+      "audit": {
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:cobblestone:8"
+        },
+        "inventoryAtRepair": {
+          "minecraft:cobblestone": 3,
+          "minecraft:oak_planks": 3,
+          "minecraft:oak_log": 1,
+          "minecraft:crafting_table": 1,
+          "minecraft:stick": 2,
+          "minecraft:wooden_pickaxe": 1
+        },
+        "coalBreaksDuringRepair": 2,
+        "smeltStarts": 0,
+        "activity": "Excavate",
+        "exactReplayTurns": 377,
+        "task": 3,
+        "resumedTick": 267,
+        "requestedTick": 104,
+        "scope": "Exact replay, observed inventory and lighting lifecycle; no complete perception or independent physical-action audit."
+      }
     }
   ],
   "negativeControl": "LightingBootstrapAudit rejects remote-fuel because it lacks the required cobblestone lighting supply/resumption.",
