@@ -41,6 +41,7 @@ final class SystemOneStoneFixture {
 			if (scenario.equals("system-one-lighting-region")) changeRegionLight(client,tick);
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
+			if (scenario.equals("system-one-return-long")) slowReturnTravel(client,tick);
 			if (scenario.startsWith("system-one-survival-") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
 			return !scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output);
 		}
@@ -129,7 +130,7 @@ final class SystemOneStoneFixture {
 					boolean remoteFuel = scenario.equals("system-one-remote-fuel");
 					boolean remoteTool = scenario.equals("system-one-remote-tool");
 					boolean returning = isReturnScenario(scenario) || remoteFuel || remoteTool;
-					int length = remoteFuel || remoteTool ? 40 : scenario.equals("system-one-return-long") ? 220 : returning ? 60 : exhaustion ? 24 : 9;
+					int length = remoteFuel || remoteTool ? 40 : scenario.equals("system-one-return-long") ? 160 : returning ? 60 : exhaustion ? 24 : 9;
 					int halfWidth = scenario.equals("system-one-lighting-stairs") || scenario.equals("system-one-lighting-low-ceiling") || gap || returning ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
@@ -161,7 +162,7 @@ final class SystemOneStoneFixture {
 						if (exhaustion) player.getInventory().setStack(3, new ItemStack(Items.TORCH));
 					}
 					if (returning) {
-						returnThresholdZ = z + (scenario.equals("system-one-return-long") ? length - 8 : 52);
+						returnThresholdZ = z + (scenario.equals("system-one-return-long") ? length - 32 : scenario.equals("system-one-return-blocked") ? 32 : 52);
 						returnBarrier = new BlockPos(x, 196, z + 28);
 						if (!remoteTool) world.setBlockState(new BlockPos(x + 1, remoteFuel ? 197 : 200, z + (remoteFuel ? 39 : 2)), Blocks.FURNACE.getDefaultState(), 3);
 						for (int y = 199; y <= 203; y++) world.setBlockState(new BlockPos(x - 1, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
@@ -446,6 +447,20 @@ final class SystemOneStoneFixture {
 	private static boolean isReturnScenario(String scenario) {
 		return scenario.equals("system-one-return-route") || scenario.equals("system-one-return-long") || scenario.equals("system-one-return-blocked");
 	}
+	private void slowReturnTravel(MinecraftClient client,long tick) {
+		if(routeChange!=null){if(routeChange.isDone())routeChange.join();return;}
+		if(depletion==null||!depletion.isDone()||client.player==null||client.getServer()==null)return;
+		if(!ai.moeru.airicraft.AiricraftClient.runtimeController().agentRuntime().semanticEventContains("system_one.task_resumed",java.util.Map.of("detail","SUCCEEDED:inventory_observed:minecraft:torch:8")))return;
+		var server=client.getServer();var id=client.player.getUuid();
+		routeChange=CompletableFuture.runAsync(()->{
+			var player=server.getPlayerManager().getPlayer(id);
+			if(player==null)throw new IllegalStateException("Long return player unavailable");
+			player.addStatusEffect(new net.minecraft.entity.effect.StatusEffectInstance(net.minecraft.entity.effect.StatusEffects.SLOWNESS,12000,3));
+			try {java.nio.file.Files.writeString(output.resolve("fixture-return-slowed.json"),new com.google.gson.Gson().toJson(java.util.Map.of("runtimeTick",tick,"effect","minecraft:slowness","amplifier",3,"durationTicks",12000)));}
+			catch(java.io.IOException failure){throw new java.io.UncheckedIOException(failure);}
+		},server);
+	}
+
 	private void blockReturnRoute(MinecraftClient client, long tick) {
 		if (routeChange != null) { if (routeChange.isDone()) routeChange.join(); return; }
 		if (depletion == null || !depletion.isDone() || client.player == null || client.getServer() == null) return;

@@ -6,10 +6,12 @@ metadata:
 worldArchive: ../iron-pickaxe/world.zip
 frozen: true
 prompt: >-
-  Obtain one raw iron beyond a 220-block cave. The fixture supplies a stone pickaxe
+  Obtain one raw iron beyond a 160-block cave. The fixture supplies a stone pickaxe
   and torches, and exposes wood and a furnace near the entrance. Carried torches
-  are removed after 212 blocks of cave progress. Obtain replacement
+  are removed after 128 blocks of cave progress. Obtain replacement
   lighting supplies, return to the suspended exploration, and reach the ore.
+  After supply completes, the evaluator applies Slowness to make the return
+  journey extend beyond the old repair deadline.
 goal:
   kind: inventory_item
   itemId: minecraft:raw_iron
