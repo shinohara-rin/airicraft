@@ -1,0 +1,330 @@
+{
+  "sourceCommit": "4ad8051e",
+  "methodVersion": "reactive-production-v77",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 210,
+    "evaluator": 38,
+    "python": 48
+  },
+  "runs": [
+    {
+      "run": "eval-output/20260908-133725-853628-24786/01-system-one-dim-coal-bootstrap",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 207,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T05:38:23Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 25018,
+        "pid": 24953,
+        "requestedAt": "2026-09-08T05:38:20Z"
+      },
+      "runtimeFinal": {
+        "outcome": "inventory_observed:minecraft:torch:4",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v77",
+        "motorVersion": "production-motor-v13",
+        "motor": {
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one"
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 140,
+      "commands": {
+        "Break": 3,
+        "Craft": 1,
+        "Navigate": 5
+      },
+      "metrics": {
+        "dark_exposure_allowance": {
+          "status": "recorded_policy_state",
+          "coverage": "complete",
+          "recorded_turns": 140,
+          "missing_turns": 0,
+          "instances_observed": 1,
+          "allowance_state_samples": 139,
+          "active_exploration_state_samples": 0,
+          "expired_active_exploration_samples": 0,
+          "active_mission_samples_by_task": {
+            "Access": 48,
+            "Acquire": 5,
+            "Explore": 17,
+            "Gather": 52,
+            "Pickup": 15
+          },
+          "expired_active_mission_samples": 0,
+          "recent_instances": [
+            {
+              "first_recorded_tick": 93,
+              "task": 1,
+              "origin": {
+                "x": 0,
+                "y": 200,
+                "z": 15
+              },
+              "expiresAt": 2493,
+              "observedHealth": 20.0,
+              "life": 0,
+              "validity": "ACTIVE",
+              "radius": 32,
+              "purpose": "LIGHT_RESTORATION"
+            }
+          ],
+          "actual_dark_exposure_ticks": null,
+          "definition": "Snapshots describe policy state, not physical dark exposure. Legacy exploration samples require an acting Explore leaf. Mission samples classify the acting task while excluding repair branches; expired samples may include an inventory transaction draining before interruption. Counts use post-decision state; deadline instances use both before and after state."
+        },
+        "break_target_observations": {
+          "status": "complete",
+          "checked_breaks": 3,
+          "mismatched_breaks": 0,
+          "missing_evidence_breaks": 0,
+          "missing_input_turns": 0,
+          "reasons": {},
+          "unclassified_effects": 0,
+          "recent_problems": [],
+          "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+        },
+        "perception_violations": {
+          "status": "unavailable",
+          "count": null,
+          "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+        }
+      },
+      "tapeSha256": "94b61e557309bf7f074f37a7bdbb7c39148442c0e5bb2cb037595d1a05719fb3",
+      "exactReplay": "Replay verified: 140 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:torch:4]"
+    },
+    {
+      "run": "eval-output/20260908-133725-853628-24786/02-system-one-lighting-gather",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 148,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T05:38:56Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 25194,
+        "pid": 25137,
+        "requestedAt": "2026-09-08T05:38:53Z"
+      },
+      "runtimeFinal": {
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": ""
+        },
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v77",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:coal:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED"
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 80,
+      "commands": {
+        "Break": 2,
+        "Navigate": 1,
+        "Place": 3
+      },
+      "metrics": {
+        "dark_exposure_allowance": {
+          "status": "recorded_policy_state",
+          "coverage": "complete",
+          "recorded_turns": 80,
+          "missing_turns": 0,
+          "instances_observed": 0,
+          "allowance_state_samples": 0,
+          "active_exploration_state_samples": 0,
+          "expired_active_exploration_samples": 0,
+          "active_mission_samples_by_task": {},
+          "expired_active_mission_samples": 0,
+          "recent_instances": [],
+          "actual_dark_exposure_ticks": null,
+          "definition": "Snapshots describe policy state, not physical dark exposure. Legacy exploration samples require an acting Explore leaf. Mission samples classify the acting task while excluding repair branches; expired samples may include an inventory transaction draining before interruption. Counts use post-decision state; deadline instances use both before and after state."
+        },
+        "break_target_observations": {
+          "status": "complete",
+          "checked_breaks": 2,
+          "mismatched_breaks": 0,
+          "missing_evidence_breaks": 0,
+          "missing_input_turns": 0,
+          "reasons": {},
+          "unclassified_effects": 0,
+          "recent_problems": [],
+          "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+        },
+        "perception_violations": {
+          "status": "unavailable",
+          "count": null,
+          "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+        }
+      },
+      "tapeSha256": "8ff2ef6c119b7dd655c5bc179dadde711cdb53e9e90c6bad601d451b05b0b941",
+      "replayBackedResumptionAudit": {
+        "activity": "Gather",
+        "scope": "Observed light and exact lifecycle replay. Does not audit hidden reads or independently prove every physical action.",
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:coal:1"
+        },
+        "task": 3,
+        "resumedTick": 102,
+        "exactReplayTurns": 80,
+        "interruptedTick": 96,
+        "originalCookingDeadline": -1,
+        "releaseTick": 97
+      },
+      "intervention": {
+        "requestedAtRuntimeTick": 89,
+        "sourceZ": 15,
+        "sourceY": 203,
+        "sourceX": 0,
+        "kind": "darkened_gather"
+      }
+    },
+    {
+      "run": "eval-output/20260908-133725-853628-24786/03-system-one-lighting-wait",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 276,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T05:39:34Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 25424,
+        "pid": 25375,
+        "requestedAt": "2026-09-08T05:39:31Z"
+      },
+      "runtimeFinal": {
+        "motor": {
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": ""
+        },
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v77",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13"
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 211,
+      "commands": {
+        "CollectSmelt": 1,
+        "Place": 1,
+        "StartSmelt": 1
+      },
+      "metrics": {
+        "dark_exposure_allowance": {
+          "status": "recorded_policy_state",
+          "coverage": "complete",
+          "recorded_turns": 211,
+          "missing_turns": 0,
+          "instances_observed": 0,
+          "allowance_state_samples": 0,
+          "active_exploration_state_samples": 0,
+          "expired_active_exploration_samples": 0,
+          "active_mission_samples_by_task": {},
+          "expired_active_mission_samples": 0,
+          "recent_instances": [],
+          "actual_dark_exposure_ticks": null,
+          "definition": "Snapshots describe policy state, not physical dark exposure. Legacy exploration samples require an acting Explore leaf. Mission samples classify the acting task while excluding repair branches; expired samples may include an inventory transaction draining before interruption. Counts use post-decision state; deadline instances use both before and after state."
+        },
+        "break_target_observations": {
+          "status": "complete",
+          "checked_breaks": 0,
+          "mismatched_breaks": 0,
+          "missing_evidence_breaks": 0,
+          "missing_input_turns": 0,
+          "reasons": {},
+          "unclassified_effects": 0,
+          "recent_problems": [],
+          "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+        },
+        "perception_violations": {
+          "status": "unavailable",
+          "count": null,
+          "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+        }
+      },
+      "tapeSha256": "444dc537e1b7a72527e1e12dc08557c503ed414f3244697540d43a38be2f6aaf",
+      "replayBackedResumptionAudit": {
+        "originalCookingDeadline": 495,
+        "interruptedTick": 99,
+        "exactReplayTurns": 211,
+        "resumedTick": 104,
+        "task": 3,
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Observed light and exact lifecycle replay. Does not audit hidden reads or independently prove every physical action.",
+        "activity": "CollectBatch",
+        "releaseTick": -1
+      },
+      "intervention": {
+        "requestedAtRuntimeTick": 95,
+        "sourceZ": 15,
+        "sourceY": 203,
+        "sourceX": 0,
+        "kind": "darkened_furnace_wait"
+      }
+    }
+  ],
+  "auditNegativeControl": "Exception in thread \"main\" java.lang.AssertionError: Missing successful same-frame lighting repair and resumption",
+  "visualReview": {
+    "gather": "Viewed frame-001: a wall torch is attached to the coal ore being harvested. This motivated v78 support reservations.",
+    "wait": "Viewed frame-003: a floor torch illuminates the chamber. Inventory outcome and cooking deadline come from replay/evaluator, not the image."
+  },
+  "limits": [
+    "The source maintains mission lighting across ordinary tasks; live evidence here specifically covers gathering, passive furnace wait, and torch bootstrap.",
+    "Full perception auditing, cave resupply/return with this owner, broad integrated reliability and release remain unproven.",
+    "v78 now retains the full observed supply route across lit waypoints and avoids lighting supports required by suspended work; these runs are v77 evidence."
+  ]
+}
