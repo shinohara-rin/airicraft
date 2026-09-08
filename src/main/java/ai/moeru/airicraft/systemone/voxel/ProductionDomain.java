@@ -340,17 +340,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			Task child = repair == LightingPolicy.Repair.SUPPLY
 				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
 				: new PlaceLight(Set.of(), Optional.empty());
-			if (child instanceof Acquire supply && !craftableFromInventory(supply, world)) {
-				var outward = new ArrayList<>(RouteMemory.append(next.search().route(), world.feet()));
-				Collections.reverse(outward);
-				child = new Resupply(supply, ReturnNavigation.State.begin(outward));
-			}
+			if (child instanceof Acquire supply) child = supplyTask(supply, next.search().route(), world);
 			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), new LightRepair(repair)), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
 		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
 		var tools = harvesting.get(task.search().prior().item()).tools();
 		if (!tools.isEmpty() && tools.stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
-			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of());
+			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of(), world);
 		}
 		if (needsAccess(view) && task.search().last() instanceof Navigate move) {
 			return access(next, move.stance(), world, view.tick(), new HashSet<>(task.search().prior().excavatable()));
@@ -400,6 +396,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return recipe.ingredients().entrySet().stream().allMatch(input -> free(world, task.reserved(), input.getKey()) >= input.getValue() * batches);
 		});
 	}
+	/** Missing ingredients justify retracing observed access before starting local resource search. */
+	private Task supplyTask(Acquire supply, List<Pos> route, World world) {
+		if (craftableFromInventory(supply, world) || route.isEmpty() || route.getFirst().equals(world.feet())) return supply;
+		var outward = new ArrayList<>(RouteMemory.append(route, world.feet()));
+		Collections.reverse(outward);
+		return new Resupply(supply, ReturnNavigation.State.begin(outward));
+	}
+
 	private Decision<Task, VoxelCommand> resupply(View<Task> view, Resupply task, World world) {
 		if (view.acting()) return new Keep<>();
 		if (needsAccess(view) && task.outward().last().isPresent()) return access(task, task.outward().last().get(), world, view.tick(), accessMaterials);
@@ -419,7 +423,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (failedChild(view)) {
 			if (task.repair() instanceof ToolRepair tool) {
 				var rejected = new HashSet<>(tool.rejected()); rejected.add(tool.tool());
-				return replaceSearchTool(saved, task.returning(), rejected);
+				return replaceSearchTool(saved, task.returning(), rejected, world);
 			}
 			var repair = (LightRepair) task.repair();
 			saved = new Explore(saved.search(), saved.light().failed(repair.kind()), saved.reserved(), saved.ancestors());
@@ -431,12 +435,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		var move = (ReturnNavigation.Move) returning;
 		return new Execute<>(new ResumeExplore(saved, move.state(), task.repair()), move.command());
 	}
-	private Decision<Task, VoxelCommand> replaceSearchTool(Explore saved, ReturnNavigation.State returning, Set<String> rejected) {
+	private Decision<Task, VoxelCommand> replaceSearchTool(Explore saved, ReturnNavigation.State returning, Set<String> rejected, World world) {
 		var tool = harvesting.get(saved.search().prior().item()).tools().stream()
 			.filter(item -> !rejected.contains(item) && !saved.ancestors().contains(item)).findFirst();
 		if (tool.isEmpty()) return failure("search_tool_replacement_exhausted:" + saved.search().prior().item());
 		return new Child<>(new ResumeExplore(saved, returning, new ToolRepair(tool.get(), rejected)),
-			new Acquire(tool.get(), 1, saved.reserved(), saved.ancestors(), Set.of(), ""), "tool_replacement:" + tool.get());
+			supplyTask(new Acquire(tool.get(), 1, saved.reserved(), saved.ancestors(), Set.of(), ""), saved.search().route(), world), "tool_replacement:" + tool.get());
 	}
 	private Decision<Task, VoxelCommand> retreat(View<Task> view, Retreat task, World world) {
 		if (view.acting()) return new Keep<>();

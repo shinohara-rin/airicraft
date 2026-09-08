@@ -31,7 +31,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-world-change")) return worldProbe.ready(client,tick,output);
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
@@ -66,12 +66,13 @@ final class SystemOneStoneFixture {
 					for (int dx=-1;dx<=1;dx++) for (int dz=4;dz<=6;dz++) for (int y=200;y<=203;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),leaves,3);
 					for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+5),Blocks.ACACIA_LOG.getDefaultState(),3);
 				}
-				else if (scenario.equals("system-one-underground") || (scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge")) || isReturnScenario(scenario) || scenario.equals("system-one-remote-fuel") || scenario.startsWith("system-one-lighting")) {
+				else if (scenario.equals("system-one-underground") || (scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge")) || isReturnScenario(scenario) || scenario.equals("system-one-remote-fuel") || scenario.equals("system-one-remote-tool") || scenario.startsWith("system-one-lighting")) {
 					boolean exhaustion = scenario.equals("system-one-lighting-exhaustion");
 					boolean gap = scenario.equals("system-one-cave-gap") || scenario.equals("system-one-edge-bridge");
 					boolean remoteFuel = scenario.equals("system-one-remote-fuel");
-					boolean returning = isReturnScenario(scenario) || remoteFuel;
-					int length = remoteFuel ? 40 : returning ? 60 : exhaustion ? 24 : 9;
+					boolean remoteTool = scenario.equals("system-one-remote-tool");
+					boolean returning = isReturnScenario(scenario) || remoteFuel || remoteTool;
+					int length = remoteFuel || remoteTool ? 40 : returning ? 60 : exhaustion ? 24 : 9;
 					int halfWidth = scenario.equals("system-one-lighting-stairs") || scenario.equals("system-one-lighting-low-ceiling") || gap || returning ? 0 : 1;
 					for (int dx = -2; dx <= 2; dx++) for (int dz = 1; dz <= length + 3; dz++) for (int y = 195; y <= 204; y++) {
 						world.setBlockState(new BlockPos(x + dx, y, z + dz), Blocks.STONE.getDefaultState(), 3);
@@ -105,8 +106,17 @@ final class SystemOneStoneFixture {
 					if (returning) {
 						returnThresholdZ = z + 52;
 						returnBarrier = new BlockPos(x, 196, z + 28);
-						world.setBlockState(new BlockPos(x + 1, remoteFuel ? 197 : 200, z + (remoteFuel ? 39 : 2)), Blocks.FURNACE.getDefaultState(), 3);
+						if (!remoteTool) world.setBlockState(new BlockPos(x + 1, remoteFuel ? 197 : 200, z + (remoteFuel ? 39 : 2)), Blocks.FURNACE.getDefaultState(), 3);
 						for (int y = 199; y <= 203; y++) world.setBlockState(new BlockPos(x - 1, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
+						if (remoteTool) {
+							var pick = player.getInventory().getStack(0);
+							pick.setDamage(pick.getMaxDamage() - 2);
+							player.getInventory().setStack(2, new ItemStack(Items.COBBLESTONE, 3));
+							world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
+							world.setBlockState(new BlockPos(x - 1, 201, z), Blocks.AIR.getDefaultState(), 3);
+							// Wear out the tool well beyond the entrance, while leaving its observed return route intact.
+							for (int y = 196; y <= 197; y++) world.setBlockState(new BlockPos(x, y, z + 25), Blocks.STONE.getDefaultState(), 3);
+						}
 					}
 				}
 				else if (scenario.equals("system-one-harvest-approach") || scenario.equals("system-one-distant-approach") || scenario.equals("system-one-log-pickup")) {

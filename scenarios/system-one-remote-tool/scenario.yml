@@ -1,0 +1,39 @@
+id: system-one-remote-tool
+name: Return for missing tool materials and resume cave exploration
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain raw iron beyond a forty-block cave. The pickaxe has two uses remaining
+  and a stone obstruction is well inside the cave. Cobblestone is supplied;
+  wood and a crafting table are at the entrance. Replace the worn tool using
+  remembered access, then return to the interrupted underground search.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: tool_replacement:minecraft:stone_pickaxe
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:inventory_observed:minecraft:stone_pickaxe:1
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

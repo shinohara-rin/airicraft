@@ -45,6 +45,25 @@ class ToolMaintenanceTest {
 		assertEquals(1, resumed.state().stack().size());
 	}
 
+	@Test void replacementReturnsForMissingMaterialsBeforeResumingItsRetainedSearch() {
+		var domain=new ProductionDomain(BOOK); var feet=FEET.offset(2,0,0);
+		var world=world(Map.of("material",2),feet);
+		var route=List.of(FEET,FEET.offset(1,0,0),feet);
+		var pending=feet.offset(0,0,1);
+		var search=new UndergroundSearch.Task(PRIOR,List.of("ore_block"),FEET,feet,0,2,Map.of(),Set.of(),Optional.of(pending),Optional.empty(),null,route);
+		var task=new Explore(search,LightingPolicy.State.begin(),Map.of("material",2),Set.of("ore"));
+		var repair=assertInstanceOf(Child.class,domain.decide(view(task,Optional.empty()),world));
+		var outward=assertInstanceOf(Resupply.class,repair.child());
+		assertEquals(Map.of("material",2),outward.supply().reserved());
+		assertEquals(List.of(feet,FEET.offset(1,0,0),FEET),outward.outward().route());
+		var saved=assertInstanceOf(ResumeExplore.class,repair.continuation());
+		assertEquals(search,saved.saved().search()); assertEquals(route,saved.returning().route());
+		var travel=assertInstanceOf(Execute.class,domain.decide(view(outward,Optional.empty()),world));
+		assertEquals(new Navigate(FEET,48,400),travel.command());
+		var local=assertInstanceOf(Child.class,domain.decide(view(task,Optional.empty()),world(Map.of("material",3),feet)));
+		assertInstanceOf(Acquire.class,local.child(),"unreserved local ingredients should avoid a supply trip");
+	}
+
 	@Test void failedReplacementTriesAnotherDeclaredToolThenTerminatesWithoutRecursiveRepair() {
 		var domain = new ProductionDomain(BOOK);
 		var world = world(Map.of(), FEET);

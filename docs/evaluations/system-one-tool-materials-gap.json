@@ -1,0 +1,51 @@
+{
+  "source": "eval-output/20260908-090108-404624-43598/01-iron-pickaxe-development-01/system-one-decisions.jsonl.gz",
+  "sourcePolicy": "reactive-production-v68",
+  "sourceCoverage": "incomplete",
+  "exactReplayedPrefixTurns": 8656,
+  "failureTick": 8703,
+  "failure": "suitable_hotbar_tool_missing",
+  "activeTask": {
+    "id": 78,
+    "type": "Access",
+    "origin": [
+      -24,
+      41,
+      -537
+    ],
+    "goal": [
+      -24,
+      43,
+      -538
+    ],
+    "attempt": 497,
+    "command": "Break minecraft:diorite at (-24,42,-538)"
+  },
+  "parents": [
+    "ResumeExplore tool repair",
+    "Acquire minecraft:stone_pickaxe",
+    "Acquire minecraft:stick",
+    "Acquire minecraft:dark_oak_planks",
+    "Acquire minecraft:dark_oak_log",
+    "AfterAccess Gather"
+  ],
+  "inventoryAtFailure": {
+    "minecraft:dark_oak_sapling": 1,
+    "minecraft:torch": 2,
+    "minecraft:stick": 1,
+    "minecraft:cobblestone": 81,
+    "minecraft:rail": 1,
+    "minecraft:leaf_litter": 9,
+    "minecraft:diorite": 18,
+    "minecraft:dirt": 34,
+    "minecraft:granite": 1
+  },
+  "diagnosis": "Tool replacement was already active. Missing wood inputs caused local underground acquisition; unlike lighting supply, replacement tools did not first retrace the retained route. Local access then repeatedly selected stone breaks without a tool.",
+  "change": "Policy v70 shares outward resupply selection between lighting and replacement tools; preserve search, return route, ingredient commitments, and alternative-tool bounds. Directly available recipe inputs avoid outbound travel.",
+  "unitProof": "New regression failed on v69 because the child was Acquire instead of Resupply; v70 passes outward-route and local-material cases plus existing tool interruption/resumption and bounded alternatives.",
+  "limitations": [
+    "The old tape is incomplete. Only the prefix through the observed failure was replayed exactly.",
+    "This does not prove that every future route is passable without a tool or that access handles every missing capability.",
+    "New remote-tool scenario awaits live verification."
+  ]
+}
