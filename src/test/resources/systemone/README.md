@@ -15,6 +15,7 @@ Original evaluation recordings remain untouched.
 - `canopy.json.gz`: v51 canopy at tick 259, with partial contact beside the feet voxel.
 - `original-search.json.gz`: v54 original at tick 1036, after bootstrapping tools.
 - `tree-origin.json.gz`: v62 tree-indicator fixture at tick 570, after walking off the remaining log. Source: `20260908-071051-813945-15866/02-system-one-tree-indicator`. The complete accumulated observation is retained because reducing the neighborhood removed part of the walking bypass. No hidden terrain is included.
+- `tree-unused-perch.json.gz`: v64 tree-indicator fixture at tick 639, after collecting two logs and walking off the last log. Its complete observation includes an isolated, never-visited leaf perch that was unnecessarily reserving the log. Unlike the historical block-only fixtures, this source already recorded item observations.
 
 The reduction only removes remembered cells. It cannot introduce a walking edge
 or authorize an otherwise unknown block. Tests preserve current contact and the

@@ -11,6 +11,24 @@ import static ai.moeru.airicraft.systemone.voxel.ProductionDomain.*;
 import static ai.moeru.airicraft.systemone.voxel.ProductionKnowledge.*;
 
 class SupportReservationsTest {
+	@Test void anUnvisitedLeafPerchDoesNotReserveTheResourceConnectingItToUsedTerrain() {
+		var world=recorded("tree-unused-perch");var target=new Pos(0,200,20);var perch=new Pos(0,202,21);
+		assertFalse(world.footholds().contains(perch.offset(0,-1,0)));
+		assertTrue(world.footholds().contains(target));
+		var rule=new Harvest("minecraft:acacia_log",List.of("minecraft:acacia_log"),List.of(),Technique.EXPOSED);
+		var domain=new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of(rule)));
+		Task gather=new Gather(rule,1,world.feet(),0,Set.of(),Set.of(),null);
+		var view=new View<>(2,gather,false,639,Optional.<Outcome>empty(),Optional.<Outcome>empty());
+		var action=assertInstanceOf(Execute.class,domain.decide(view,world));
+		assertEquals(new VoxelCommand.Break(target,"minecraft:acacia_log"),action.command());
+		Task returning=new Retreat(ReturnNavigation.State.begin(List.of(perch)));
+		var branch=List.of(new View<>(1,returning,false,639,Optional.<Outcome>empty(),Optional.<Outcome>empty()),view);
+		assertTrue(SupportReservations.protect(world,List.of(perch)).footholds().contains(target),"a promised return to the perch reserves its connector");
+		assertFalse(domain.decide(branch,world) instanceof Execute<?,?> next && next.command().equals(action.command()));
+		var visited=new HashSet<>(world.footholds());visited.add(perch.offset(0,-1,0));
+		var used=new StoneAcquisition.World(world.eye(),world.feet(),world.inventory(),world.known(),visited,world.vitals(),world.drops());
+		assertTrue(SupportReservations.protect(used,List.of()).footholds().contains(target),"an actually used branch still needs a walking bypass");
+	}
 	@Test void aHarvestSearchOriginDoesNotReserveAResourceAfterWalkingOffIt() {
 		var world = recorded("tree-origin"); var origin = new Pos(0,201,20); var target = origin.offset(0,-1,0);
 		var rule = new Harvest("minecraft:acacia_log",List.of("minecraft:acacia_log"),List.of(),Technique.EXPOSED);

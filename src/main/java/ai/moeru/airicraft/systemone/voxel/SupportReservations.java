@@ -44,8 +44,11 @@ public final class SupportReservations {
 				if (pos.equals(previous.get(pos))) break;
 			}
 		}
+		var usedStances = new HashSet<Pos>();
+		world.footholds().forEach(p -> usedStances.add(p.offset(0,1,0)));
+		required.forEach(p -> usedStances.add(p.offset(0,1,0)));
 		if (connected) for (Pos support : world.footholds()) {
-			if (!required.contains(support) && bypass(graph, support.offset(0, 1, 0))) protectedCells.remove(support);
+			if (!required.contains(support) && bypass(graph, support.offset(0, 1, 0), usedStances)) protectedCells.remove(support);
 		}
 		protectedCells.addAll(required);
 		return new World(world.eye(), world.feet(), world.inventory(), world.known(), protectedCells, world.vitals(), world.drops());
@@ -58,17 +61,28 @@ public final class SupportReservations {
 	private static boolean traversable(Map<Pos, Seen> known, Pos pos) {
 		Seen seen = known.get(pos); return seen != null && seen.traversable();
 	}
-	private static boolean bypass(Map<Pos, List<Pos>> graph, Pos removed) {
+	private static boolean bypass(Map<Pos, List<Pos>> graph, Pos removed, Set<Pos> usedStances) {
 		var neighbors = graph.getOrDefault(removed, List.of());
 		if (neighbors.size() < 2) return false;
 		var pending = new HashSet<>(neighbors);
 		var seen = new HashSet<Pos>(); seen.add(removed);
-		var queue = new ArrayDeque<Pos>(); queue.add(neighbors.getFirst()); seen.add(neighbors.getFirst());
-		for (int visits = 0; !queue.isEmpty() && visits < MAX_VISITS; visits++) {
-			Pos pos = queue.removeFirst(); pending.remove(pos);
-			if (pending.isEmpty()) return true;
-			for (Pos next : graph.get(pos)) if (seen.add(next)) queue.addLast(next);
+		boolean usedComponent = false;
+		int visits = 0;
+		while (!pending.isEmpty()) {
+			Pos seed = neighbors.stream().filter(pending::contains).findFirst().orElseThrow();
+			var queue = new ArrayDeque<Pos>(); queue.add(seed); seen.add(seed);
+			boolean occupied = false;
+			while (!queue.isEmpty() && visits++ < MAX_VISITS) {
+				Pos pos = queue.removeFirst(); pending.remove(pos);
+				occupied |= usedStances.contains(pos);
+				if (occupied && usedComponent) return false;
+				if (pending.isEmpty() && !usedComponent) return true;
+				for (Pos next : graph.get(pos)) if (seen.add(next)) queue.addLast(next);
+			}
+			if (!queue.isEmpty()) return false;
+			// An exhaustively observed component with no visits or return anchors carries no route obligation.
+			usedComponent |= occupied;
 		}
-		return false;
+		return true;
 	}
 }
