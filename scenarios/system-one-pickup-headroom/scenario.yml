@@ -1,0 +1,36 @@
+id: system-one-pickup-headroom
+name: Prepare headroom to collect an observed item
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Obtain the visible raw iron beneath stone headroom. The floor is supported, but approaching the item requires clearing the observed ceiling.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 2000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: prepare_pickup_access
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Break
+      targetBlock: minecraft:stone
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

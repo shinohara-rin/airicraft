@@ -19,6 +19,30 @@ class ItemPickupTest {
 	private static ItemPickup.Decision advance(ItemPickup.State state, StoneAcquisition.World world, long tick, Outcome feedback) {
 		return ItemPickup.advance(state,world,Optional.ofNullable(feedback),tick,Set.of("stone"),p->true);
 	}
+	@Test void visibleDropUnderBlockedHeadroomRequestsAnAccessChild() {
+		var known=new HashMap<Pos,Seen>();
+		for(int z=0;z<=3;z++)for(int y=0;y<=2;y++) {
+			boolean air=y>0 && !(z>=2&&y==2);
+			known.put(new Pos(0,y,z),new Seen(air?"air":"stone",air,true,!air,15,1));
+		}
+		var item=new ItemObservation.Drop("entity","log",1,new ItemObservation.Point(.125,1,2.875),1);
+		var world=new StoneAcquisition.World(new Pose(.5,2.62,1.5,0,0),new Pos(0,1,1),Map.of(),known,Set.of(),SurvivalPolicy.Vitals.healthy(),List.of(item));
+		var domain=new ProductionDomain(new ProductionKnowledge("pickup",List.of(),List.of(),List.of(),List.of(),List.of(),List.of("stone"),new LightingPolicy.Parameters(7,10,8,80,4),SurvivalPolicy.Parameters.minecraft()));
+		var task=new ProductionDomain.Pickup(ItemPickup.State.begin(item,1,1));
+		var child=assertInstanceOf(Child.class,domain.decide(new View<ProductionDomain.Task>(1,task,false,2,Optional.empty(),Optional.empty()),world));
+		var access=assertInstanceOf(ProductionDomain.Access.class,child.child());
+		assertEquals(new Pos(0,1,2),access.state().goal());
+		assertEquals(task.state().deadline(),access.state().deadline(),"access preparation cannot extend the pickup deadline");
+		var preparation=domain.decide(new View<ProductionDomain.Task>(2,access,false,2,Optional.empty(),Optional.empty()),world);
+		assertEquals(new VoxelCommand.Break(new Pos(0,2,2),"stone"),assertInstanceOf(Execute.class,preparation).command());
+		var protectedWorld=new StoneAcquisition.World(world.eye(),world.feet(),world.inventory(),known,Set.of(new Pos(0,2,2),new Pos(0,2,3)),world.vitals(),world.drops());
+		assertFalse(domain.decide(new View<ProductionDomain.Task>(1,task,false,2,Optional.empty(),Optional.empty()),protectedWorld) instanceof Child,
+			"pickup cannot request removal of reserved supports");
+		known.remove(new Pos(0,0,2));known.remove(new Pos(0,0,3));
+		var unknownFloor=new StoneAcquisition.World(world.eye(),world.feet(),world.inventory(),known,Set.of(),world.vitals(),world.drops());
+		assertFalse(domain.decide(new View<ProductionDomain.Task>(1,task,false,2,Optional.empty(),Optional.empty()),unknownFloor) instanceof Child,
+			"an observed item does not identify the hidden floor beneath it");
+	}
 	@Test void arrivalAndDisappearanceDoNotSubstituteForInventoryEvidence() {
 		var item=drop(.5,0);var world=world(Map.of(),List.of(item));
 		var first=assertInstanceOf(ItemPickup.Action.class,advance(ItemPickup.State.begin(item,1,0),world,1,null));

@@ -20,8 +20,9 @@ public final class ItemPickup {
 		public State { tried=Set.copyOf(tried); }
 		public static State begin(Drop target,int inventoryGoal,long tick) { return new State(target,inventoryGoal,Set.of(),new Seeking(),0,tick+600); }
 	}
-	public sealed interface Decision permits Action, Wait, Done {}
+	public sealed interface Decision permits Action, Prepare, Wait, Done {}
 	public record Action(State state,VoxelCommand command) implements Decision {}
+	public record Prepare(State state, Pos stance) implements Decision {}
 	public record Wait(State state,long until) implements Decision {}
 	public record Done(Outcome outcome) implements Decision {}
 	public static VoxelCommand command(State state) {
@@ -44,15 +45,25 @@ public final class ItemPickup {
 			if (tick<settling.until()) return new Wait(new State(target,state.inventoryGoal(),tried,progress,state.work(),state.deadline()),settling.until());
 			tried.add(settling.stance()); progress=new Seeking();
 		}
-		var candidate=world.known().keySet().stream()
-			.filter(p->!tried.contains(p) && StoneAcquisition.standable(world.known(),p) && eligible.test(p) && eligible.test(p.offset(0,-1,0)))
+		var nearby=world.known().keySet().stream()
+			.filter(p->!tried.contains(p) && eligible.test(p) && eligible.test(p.offset(0,-1,0)))
 			.filter(p->Math.abs(p.x()+.5-point.x())<=1 && Math.abs(p.z()+.5-point.z())<=1 && p.y()<=point.y()+.25 && point.y()-p.y()<=2)
-			.min(Comparator.<Pos>comparingDouble(p->Math.pow(p.x()+.5-point.x(),2)+Math.pow(p.z()+.5-point.z(),2)+Math.pow(p.y()-point.y(),2))
-				.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z));
+			.sorted(Comparator.<Pos>comparingDouble(p->Math.pow(p.x()+.5-point.x(),2)+Math.pow(p.z()+.5-point.z(),2)+Math.pow(p.y()-point.y(),2))
+				.thenComparingInt(Pos::x).thenComparingInt(Pos::y).thenComparingInt(Pos::z)).toList();
+		var candidate=nearby.stream().filter(p->StoneAcquisition.standable(world.known(),p)).findFirst();
 		VoxelCommand action;
 		if (candidate.isPresent()) {
 			var move=new Navigate(candidate.get(),24,200);action=move;progress=new Moving(move);
 		} else {
+			var prepare=nearby.stream().filter(p->StoneAcquisition.supportsStanding(world.known().get(p.offset(0,-1,0))))
+				.filter(p->List.of(p,p.offset(0,1,0)).stream().allMatch(cell->{
+					Seen seen=world.known().get(cell);
+					return eligible.test(cell) && !world.footholds().contains(cell) && (seen==null || seen.traversable() || seen.identified() && clearable.contains(seen.blockId()));
+				})).findFirst();
+			if(prepare.isPresent()) {
+				var move=new Navigate(prepare.get(),24,200);
+				return new Prepare(new State(target,state.inventoryGoal(),tried,new Moving(move),state.work()+1,state.deadline()),prepare.get());
+			}
 			action=TerrainAccess.inspect(world,point.cell().offset(0,-1,0),clearable,eligible);
 			if (progress instanceof Inspecting previous && (feedback.filter(o->o.kind()!=ResultKind.SUCCEEDED).isPresent() || previous.command().equals(action)))
 				return new Done(Outcome.failure("item_pickup_stance_unobserved"));

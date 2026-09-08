@@ -839,6 +839,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (needsAccess(view) && task.state().progress() instanceof ItemPickup.Moving move && survival.safeStance(world,move.command().stance()))
 			return access(task,move.command().stance(),world,view.tick(),accessMaterials);
 		var decision=ItemPickup.advance(task.state(),world,view.commandResult(),view.tick(),accessMaterials,p->!survival.nearHazard(world,p));
+		if (decision instanceof ItemPickup.Prepare prepare) {
+			var initial=TerrainAccess.State.begin(world.feet(),prepare.stance(),view.tick());
+			var bounded=new TerrainAccess.State(initial.origin(),initial.goal(),Math.min(initial.deadline(),prepare.state().deadline()),initial.work(),initial.rejected(),initial.route(),initial.last(),initial.failedApproach());
+			return new Child<>(new AfterAccess(new Pickup(prepare.state())),new Access(bounded,accessMaterials),"prepare_pickup_access");
+		}
 		if (decision instanceof ItemPickup.Done done) return new Complete<>(done.outcome());
 		if (decision instanceof ItemPickup.Wait wait) return new Sleep<>(new Pickup(wait.state()),wait.until());
 		var action=(ItemPickup.Action)decision;
