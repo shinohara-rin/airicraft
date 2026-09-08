@@ -468,6 +468,7 @@
     "scope": "First-attempt gameplay frame only; not matched-frame proof or inventory verification"
   },
   "limitations": [
+    "Terrain client shutdown required SIGINT and returned 130 after completed gameplay and recording; harness OK is not proof of graceful process exit.",
     "Original iron-pickaxe retry pending",
     "Prospective lighting-region rejection still needs recovery semantics",
     "Unrecorded navigation block-state properties remain",
