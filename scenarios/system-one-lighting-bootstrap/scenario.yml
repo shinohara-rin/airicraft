@@ -1,0 +1,40 @@
+id: system-one-lighting-bootstrap
+name: Restore lighting without a cobblestone furnace cycle
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Obtain eight cobblestone. Lighting dims during stone mining. Start with three cobblestone, wood, sticks and a table but no furnace or torches; obtain coal for lighting and resume stone collection.
+goal:
+  kind: inventory_item
+  itemId: minecraft:cobblestone
+  quantity: 8
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:cobblestone
+    count: 8
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: lighting_supply
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: lighting_supply
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Break
+      targetBlock: minecraft:coal_ore
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

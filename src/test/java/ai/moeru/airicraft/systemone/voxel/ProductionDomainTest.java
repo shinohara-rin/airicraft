@@ -139,9 +139,9 @@ class ProductionDomainTest {
 	@Test void anObservedSmeltingAlternativeReplacesUnavailableInputWithoutLosingGoalStock() {
 		var book = new ProductionKnowledge("charcoal", List.of(),
 			List.of(new Harvest("acacia", List.of("acacia"), List.of(), Technique.EXPOSED), new Harvest("oak", List.of("oak"), List.of(), Technique.EXPOSED)),
-			List.of(new Smelt("cook_acacia", "acacia", "charcoal", 1, "furnace", 200), new Smelt("cook_oak", "oak", "charcoal", 1, "furnace", 200)), List.of());
+			List.of(new Smelt("cook_acacia", "acacia", "charcoal", 1, "furnace", 200), new Smelt("cook_oak", "oak", "charcoal", 1, "furnace", 200)), List.of(new Fuel("fuel", 300)));
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book), new Limits(16, 16, 500, 100));
-		var base = world(Map.of("charcoal", 1));
+		var base = world(Map.of("charcoal", 1, "fuel", 1, "furnace", 1));
 		var first = kernel.advance(kernel.begin("s", "r", Acquire.root("charcoal", 2), 0), base, List.of(), 1);
 		var look = (Start<VoxelCommand>) first.effects().getFirst();
 		assertInstanceOf(Look.class, look.command());

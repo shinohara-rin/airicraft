@@ -15,6 +15,43 @@ class SmeltingProductionTest {
 	private static final Pos FURNACE = new Pos(1, 1, 0);
 	private static ProductionKnowledge book(Smelt recipe, List<Fuel> fuels) { return new ProductionKnowledge("test", List.of(), List.of(), List.of(recipe), fuels); }
 
+	@Test void lightingSupplyCannotTreatPartialCobblestoneAsACompleteFurnace() {
+		var furnaceCells = new ArrayList<Cell>();
+		for (int slot = 0; slot < 9; slot++) if (slot != 4) furnaceCells.add(new Cell(slot, "cobblestone"));
+		var recipes = List.of(new Recipe("furnace", "minecraft:furnace", 1, 3, furnaceCells),
+			new Recipe("charcoal_torch", "torch", 4, 2, List.of(new Cell(0, "charcoal"), new Cell(2, "stick"))),
+			new Recipe("coal_torch", "torch", 4, 2, List.of(new Cell(0, "coal"), new Cell(2, "stick"))));
+		var charcoal = new Smelt("charcoal", "log", "charcoal", 1, "minecraft:furnace", 200);
+		var domain = new ProductionDomain(new ProductionKnowledge("lighting_cycle", recipes,
+			List.of(new Harvest("coal", List.of("coal_ore"), List.of(), Technique.EXPOSED)),
+			List.of(charcoal), List.of(new Fuel("plank", 300))));
+		var task = new Acquire("torch", 4, Map.of(), Set.of("cobblestone"), Set.of(), "");
+		var base = world(Map.of()); var known = new HashMap<>(base.known()); known.remove(FURNACE);
+		for (int cobblestone : List.of(3, 8)) {
+			var inventory = Map.of("cobblestone", cobblestone, "log", 1, "plank", 1, "stick", 1, "minecraft:crafting_table", 1);
+			var choice = assertInstanceOf(Child.class, domain.decide(view(task), new StoneAcquisition.World(base.eye(), base.feet(), inventory, known)));
+			assertEquals(cobblestone == 3 ? "coal_torch" : "charcoal_torch", assertInstanceOf(Acquire.class, choice.continuation()).method());
+		}
+	}
+
+	@Test void rankingCannotSpendTheSmeltingInputAgainAsFuel() {
+		var inputIsFuel = new Smelt("a_input_is_fuel", "coal", "product", 1, "minecraft:furnace", 200);
+		var separateInput = new Smelt("b_separate_input", "ore", "product", 1, "minecraft:furnace", 200);
+		var domain = new ProductionDomain(new ProductionKnowledge("fuel_accounting", List.of(), List.of(),
+			List.of(inputIsFuel, separateInput), List.of(new Fuel("coal", 1600))));
+		var choice = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("product", 1)), world(Map.of("ore", 1, "coal", 1))));
+		assertEquals("b_separate_input", assertInstanceOf(Acquire.class, choice.continuation()).method());
+	}
+
+	@Test void rankingIncludesTheCraftingWorkstationPrerequisite() {
+		var recipes = List.of(new Recipe("a_table", "product", 1, 3, List.of(new Cell(0, "wood"))),
+			new Recipe("b_hand", "product", 1, 2, List.of(new Cell(0, "coal"))));
+		var domain = new ProductionDomain(new ProductionKnowledge("table_cost", recipes,
+			List.of(new Harvest("coal", List.of("coal_ore"), List.of(), Technique.EXPOSED))));
+		var choice = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("product", 1)), world(Map.of("wood", 1))));
+		assertEquals("b_hand", assertInstanceOf(Acquire.class, choice.continuation()).method());
+	}
+
 	@Test void aVisibleFurnaceDoesNotStartAWorkstationTransactionFromUnsupportedFeet() {
 		var domain=new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600))));
 		var base=world(Map.of("ore",1,"coal",1));var known=new HashMap<>(base.known());

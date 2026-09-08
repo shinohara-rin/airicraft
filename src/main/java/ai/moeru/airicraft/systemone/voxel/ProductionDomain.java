@@ -719,7 +719,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		Fuel fuel = fuels.stream().filter(f -> !current.rejectedFuel().contains(f.item()))
 			.min(Comparator.<Fuel, SupplyEstimate>comparing(f -> {
 				int missing = Math.max(0, f.quantity(current.recipe().ticks()) - free(world, reserved, f.item()));
-				return (missing == 0 ? SupplyEstimate.known(0) : estimate(f.item(), costing, current.ancestors(), new int[]{128}).addWork(1).scale(missing))
+				return (missing == 0 ? SupplyEstimate.known(0) : estimateAdditional(f.item(), costing, current.ancestors(), new int[]{128}).addWork(1).scale(missing))
 					.addWork(f.quantity(current.recipe().ticks()) * .01);
 			}).thenComparing(Fuel::item)).orElse(null);
 		if (fuel == null || task.rejectedFuel().size() >= 16) return failure("smelting_fuel_alternatives_exhausted");
@@ -980,8 +980,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		return options;
 	}
-	private SupplyEstimate estimate(String item, SupplyContext costing, Set<String> trail, int[] budget) {
-		if (free(costing.world(), costing.reserved(), item) > 0) return SupplyEstimate.known(0);
+	/** Cost of new supply only. Callers subtract available inventory before reaching this method. */
+	private SupplyEstimate estimateAdditional(String item, SupplyContext costing, Set<String> trail, int[] budget) {
 		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return SupplyEstimate.unavailable();
 		var next = new HashSet<>(trail); next.add(item);
 		var harvest = harvesting.get(item);
@@ -1000,15 +1000,35 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return best;
 	}
 	private SupplyEstimate smeltCost(Smelt recipe, SupplyContext costing, Set<String> trail, int[] budget) {
-		return estimate(recipe.input(), costing, trail, budget).addWork(3);
+		var input = requiredCost(recipe.input(), 1, costing, trail, budget);
+		var reserved = commitments(costing.reserved(), Map.of(recipe.input(), 1), "", costing.world());
+		var afterInput = new SupplyContext(costing.world(), reserved, costing.observedWork());
+		var station = stationCost(recipe.station(), afterInput, trail, budget);
+		SupplyEstimate fuel = SupplyEstimate.unavailable();
+		for (var candidate : fuels) fuel = fuel.min(requiredCost(candidate.item(), candidate.quantity(recipe.ticks()), afterInput, trail, budget)
+			.addWork(candidate.quantity(recipe.ticks()) * .01));
+		return input.add(station).add(fuel).addWork(3);
 	}
 	private SupplyEstimate recipeCost(Recipe recipe, SupplyContext costing, Set<String> trail, int[] budget) {
 		SupplyEstimate cost = SupplyEstimate.known(recipe.width() == 3 ? 2 : 1);
 		for (var entry : recipe.ingredients().entrySet()) {
-			int missing = Math.max(0, entry.getValue() - free(costing.world(), costing.reserved(), entry.getKey()));
-			if (missing > 0) cost = cost.add(estimate(entry.getKey(), costing, trail, budget).addWork(1).scale(missing));
+			var reserved = commitments(costing.reserved(), recipe.ingredients(), entry.getKey(), costing.world());
+			cost = cost.add(requiredCost(entry.getKey(), entry.getValue(), new SupplyContext(costing.world(), reserved, costing.observedWork()), trail, budget));
+		}
+		if (recipe.width() == 3) {
+			var reserved = commitments(costing.reserved(), recipe.ingredients(), "", costing.world());
+			cost = cost.add(stationCost("minecraft:crafting_table", new SupplyContext(costing.world(), reserved, costing.observedWork()), trail, budget));
 		}
 		return cost;
+	}
+	private SupplyEstimate requiredCost(String item, int count, SupplyContext costing, Set<String> trail, int[] budget) {
+		int missing = Math.max(0, count - free(costing.world(), costing.reserved(), item));
+		return missing == 0 ? SupplyEstimate.known(0) : estimateAdditional(item, costing, trail, budget).addWork(1).scale(missing);
+	}
+	private SupplyEstimate stationCost(String item, SupplyContext costing, Set<String> trail, int[] budget) {
+		Double remembered = costing.observedWork().get(item);
+		if (remembered != null) return SupplyEstimate.known(remembered);
+		return requiredCost(item, 1, costing, trail, budget).addWork(1);
 	}
 	private static int free(World world, Map<String, Integer> reserved, String item) { return world.inventory().getOrDefault(item, 0) - reserved.getOrDefault(item, 0); }
 	private static boolean failed(View<Task> view) { return view.commandResult().or(() -> view.childResult()).filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent(); }
