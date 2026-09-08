@@ -1,0 +1,317 @@
+{
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 4444,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 130,
+    "finishedAt": "2026-09-08T07:32:13Z",
+    "initialReturnCode": null,
+    "method": "SIGINT",
+    "minecraftExited": true,
+    "minecraftProcessId": 52902,
+    "pid": 52833,
+    "requestedAt": "2026-09-08T07:31:27Z"
+  },
+  "run": "eval-output/20260908-152426-956497-52133/02-system-one-return-long",
+  "runtimeCommit": "00d5a8e6",
+  "fixtureCommit": "c5d4eb70",
+  "methodVersion": "reactive-production-v82",
+  "coverage": "complete",
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v14",
+    "methodVersion": "reactive-production-v82",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:raw_iron:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "releasePending": false,
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": ""
+    }
+  },
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "supplyAudit": {
+    "repairDeadline": 3494,
+    "returnStartedTick": 2416,
+    "continuedBeyondRepairDeadlineTick": 3494,
+    "sameTaskResumedAt": 3932,
+    "exactReplayTurns": 4376,
+    "returning": [
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 198,
+          "z": 17
+        },
+        "tick": 2416,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 32
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 32
+        },
+        "tick": 2589,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 48
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 48
+        },
+        "tick": 2776,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 64
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 64
+        },
+        "tick": 2964,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 80
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 80
+        },
+        "tick": 3151,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 96
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 96
+        },
+        "tick": 3338,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 112
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 112
+        },
+        "tick": 3525,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 128
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 128
+        },
+        "tick": 3713,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 144
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 144
+        },
+        "tick": 3900,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 146
+        }
+      }
+    ],
+    "outcome": {
+      "kind": "SUCCEEDED",
+      "evidence": "inventory_observed:minecraft:raw_iron:1"
+    },
+    "scope": "Issued navigation, observed feet and exact lifecycle replay; no independent physics or hidden-read audit.",
+    "task": 3,
+    "outward": [
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 146
+        },
+        "tick": 1095,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 130
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 130
+        },
+        "tick": 1169,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 114
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 114
+        },
+        "tick": 1245,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 98
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 98
+        },
+        "tick": 1321,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 82
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 82
+        },
+        "tick": 1398,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 66
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 66
+        },
+        "tick": 1474,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 50
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 50
+        },
+        "tick": 1550,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 34
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 34
+        },
+        "tick": 1626,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 19
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 19
+        },
+        "tick": 1697,
+        "target": {
+          "x": 0,
+          "y": 200,
+          "z": 15
+        }
+      }
+    ],
+    "interruptedDestination": {
+      "x": 0,
+      "y": 196,
+      "z": 146
+    }
+  },
+  "slowReturnIntervention": {
+    "runtimeTick": 2414,
+    "durationTicks": 12000,
+    "amplifier": 3,
+    "effect": "minecraft:slowness"
+  },
+  "negativeControl": {
+    "run": "eval-output/20260908-152426-956497-52133/01-system-one-return-blocked",
+    "audit": "MissionSupplyAudit beyond-repair-deadline",
+    "exitCode": 1,
+    "reason": "Return did not cross the old repair deadline"
+  },
+  "limitations": [
+    "The former repair deadline is crossed during ordinary bounded return travel; unfinished repair deadlines remain enforced by separate tests.",
+    "Gameplay and capture completed, but client shutdown required SIGINT (130); graceful shutdown is not proven.",
+    "This controlled Slowness fixture does not establish current-policy original iron-pickaxe success, full perception audit or release readiness."
+  ]
+}
