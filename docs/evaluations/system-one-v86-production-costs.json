@@ -1,0 +1,161 @@
+{
+  "sourceCommit": "35651084",
+  "methodVersion": "reactive-production-v86",
+  "motorVersion": "production-motor-v15",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 232,
+    "evaluator": 38,
+    "pythonUnchangedPrevious": 50
+  },
+  "redRegressions": [
+    "lightingSupplyCannotTreatPartialCobblestoneAsACompleteFurnace",
+    "rankingCannotSpendTheSmeltingInputAgainAsFuel",
+    "rankingIncludesTheCraftingWorkstationPrerequisite"
+  ],
+  "runs": [
+    {
+      "run": "eval-output/20260908-163945-097193-71989/01-system-one-charcoal",
+      "harnessStatus": "CAPTURE_ERROR",
+      "reportStatus": null,
+      "message": "bridge unavailable for 5 consecutive polls",
+      "clientExit": {
+        "finalReturnCode": 130,
+        "finishedAt": "2026-09-08T08:41:42Z",
+        "gracefulStopError": {
+          "error": "POST /v1/evaluation/client-stop failed with HTTP 500",
+          "method": "POST",
+          "ok": false,
+          "path": "/v1/evaluation/client-stop",
+          "payload": {
+            "error": "internal_error",
+            "message": "Timed out waiting for Minecraft client thread"
+          },
+          "status": 500
+        },
+        "initialReturnCode": null,
+        "method": "SIGINT",
+        "minecraftExited": true,
+        "minecraftProcessId": 72310,
+        "pid": 72231,
+        "requestedAt": "2026-09-08T08:41:35Z"
+      },
+      "coverage": "incomplete"
+    },
+    {
+      "run": "eval-output/20260908-163945-097193-71989/02-system-one-lighting-bootstrap",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "message": "SUCCEEDED: inventory_observed:minecraft:cobblestone:8",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:42:53Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 72728,
+        "pid": 72649,
+        "requestedAt": "2026-09-08T08:42:50Z"
+      },
+      "elapsedTicks": 722,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "motor": {
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": "",
+          "finishing": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:cobblestone:8",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v86",
+        "motorVersion": "production-motor-v15"
+      },
+      "coverage": "complete",
+      "audit": {
+        "scope": "Exact replay, observed inventory and lighting lifecycle; no complete perception or independent physical-action audit.",
+        "requestedTick": 115,
+        "resumedTick": 680,
+        "task": 3,
+        "exactReplayTurns": 649,
+        "activity": "Excavate",
+        "smeltStarts": 0,
+        "coalBreaksDuringRepair": 2,
+        "inventoryAtRepair": {
+          "minecraft:wooden_pickaxe": 1,
+          "minecraft:stick": 2,
+          "minecraft:crafting_table": 1,
+          "minecraft:oak_log": 1,
+          "minecraft:oak_planks": 3,
+          "minecraft:cobblestone": 3
+        },
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:cobblestone:8"
+        }
+      },
+      "reportLimitation": "Original fixture incorrectly expected task_resumed detail lighting_supply; retained as FAILED. Corrected check awaits a fresh run."
+    },
+    {
+      "run": "eval-output/20260908-163945-097193-71989/03-system-one-remote-fuel",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "message": "Expected outcome reached",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:44:23Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 73105,
+        "pid": 73027,
+        "requestedAt": "2026-09-08T08:44:20Z"
+      },
+      "elapsedTicks": 1248,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v15",
+        "methodVersion": "reactive-production-v86",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 1179
+    }
+  ],
+  "negativeControl": "LightingBootstrapAudit rejects remote-fuel because it lacks the required cobblestone lighting supply/resumption.",
+  "limitations": [
+    "Cost ranking remains a bounded heuristic, not a complete quantity/resource scheduling solver.",
+    "Tool acquisition costs and fuel already inside furnaces are not fully modeled by this change.",
+    "No full hidden-read/perception audit; count remains unavailable.",
+    "Original iron-pickaxe and frozen current-policy gates remain unverified."
+  ]
+}
