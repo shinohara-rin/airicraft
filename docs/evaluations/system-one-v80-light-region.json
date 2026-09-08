@@ -1,0 +1,93 @@
+{
+  "sourceCommit": "a648cd2a",
+  "methodVersion": "reactive-production-v80",
+  "motorVersion": "production-motor-v14",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 217,
+    "evaluator": 38,
+    "python": 49
+  },
+  "run": "eval-output/20260908-143809-579509-41576/01-system-one-lighting-region",
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 249,
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "coverage": "complete",
+  "runtimeFinal": {
+    "state": "SUCCEEDED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one",
+    "outcome": "inventory_observed:minecraft:coal:1",
+    "run": "system-one-1",
+    "taskStack": "[]",
+    "methodVersion": "reactive-production-v80",
+    "motorVersion": "production-motor-v14",
+    "motor": {
+      "stopping": false,
+      "edgePlacement": "",
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": "",
+      "pathingActive": false
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v13"
+  },
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T06:39:19Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 41847,
+    "pid": 41784,
+    "requestedAt": "2026-09-08T06:39:15Z"
+  },
+  "exactReplayAndBehaviorAudit": {
+    "minimumRetreatZ": 18,
+    "outcome": {
+      "kind": "SUCCEEDED",
+      "evidence": "inventory_observed:minecraft:coal:1"
+    },
+    "retreatStopTick": 153,
+    "scope": "Recorded task preservation, observed motion/light and release ordering. No complete perception audit.",
+    "resumedTick": 154,
+    "requestedTick": 134,
+    "releaseTick": 154,
+    "task": 3,
+    "exactReplayTurns": 179,
+    "retreatStartZ": 22
+  },
+  "commands": {
+    "Break": 1,
+    "Navigate": 5
+  },
+  "commandFailures": {},
+  "interventions": {
+    "fixture-light-removed.json": {
+      "sourceX": 0,
+      "sourceY": 199,
+      "sourceZ": 22,
+      "runtimeTick": 129,
+      "restored": false
+    },
+    "fixture-light-restored.json": {
+      "sourceX": 0,
+      "sourceY": 199,
+      "sourceZ": 22,
+      "runtimeTick": 154,
+      "restored": true
+    }
+  },
+  "scope": "The evaluator removes a floor light during travel and restores it after the agent regains observed working light. Agent control state is not injected. This is a transient-light recovery fixture, not proof of arbitrary cave recovery.",
+  "open": [
+    "Broader lighting and survival regressions",
+    "Full navigation block-state recording and perception audit",
+    "Current-policy integrated and held-out release gates",
+    "Cutover and game completion"
+  ]
+}
