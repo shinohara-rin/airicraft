@@ -79,6 +79,22 @@ class LightingRepairTest {
 		assertEquals(List.of(new Stop<VoxelCommand>(moving.token())), expired.effects(), "the pending movement cannot restart its darkness deadline every tick");
 		assertEquals(first.state().nextAttempt(), expired.state().nextAttempt());
 	}
+	@Test void observedHealthLossRevokesDarkWorkBeforeItsTimeBudgetAndWaitsForRelease() {
+		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(BOOK), new Limits(16, 16, 1000, 50));
+		var dim = world(4, Map.of("pick", 1), FEET);
+		var task = new Explore(UndergroundSearch.Task.begin(PRIOR, List.of("ore_block"), dim, Set.of()),
+			LightingPolicy.State.begin(), Map.of(), Set.of("ore", "minecraft:torch"));
+		var first = kernel.advance(kernel.begin("s", "r", task, 0), dim, List.of(), 1);
+		var moving = start(first);
+		var injured = new StoneAcquisition.World(dim.eye(), dim.feet(), dim.inventory(), dim.known(), dim.footholds(), new SurvivalPolicy.Vitals(0, 18, false, false));
+		var revoked = kernel.advance(first.state(), injured, List.of(), 2);
+		assertEquals(List.of(new Stop<VoxelCommand>(moving.token())), revoked.effects());
+		assertTrue(revoked.state().stack().getLast().phase() instanceof Releasing);
+		assertEquals(first.state().nextAttempt(), revoked.state().nextAttempt());
+		var stopped = kernel.advance(revoked.state(), injured, List.of(new Released(moving.token())), 3);
+		assertTrue(stopped.effects().isEmpty(), "at the route origin, retreat requires no new movement");
+		assertTrue(stopped.state().outcome().orElseThrow().evidence().contains("lighting_allowance_revoked:health_loss"));
+	}
 	@Test void aNarrowPassageUsesAnObservedWallAboveItsProtectedRoute() {
 		var base = world(4, Map.of("minecraft:torch", 8), FEET);
 		var known = new HashMap<>(base.known());

@@ -338,7 +338,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 
 	private Decision<Task, VoxelCommand> explore(View<Task> view, Explore task, World world) {
-		var assessment = lighting.assess(task.light(), light(world), world.inventory().getOrDefault("minecraft:torch", 0), !task.ancestors().contains("minecraft:torch"), world.feet(), view.tick());
+		var assessment = lighting.assess(task.light(), light(world), world.inventory().getOrDefault("minecraft:torch", 0), !task.ancestors().contains("minecraft:torch"), world.feet(), view.tick(), world.vitals());
 		Explore next = new Explore(task.search(), assessment.state(), task.reserved(), task.ancestors());
 		if (assessment.action() == LightingPolicy.Action.SUPPLY || assessment.action() == LightingPolicy.Action.PLACE) {
 			var repair = assessment.action() == LightingPolicy.Action.SUPPLY ? LightingPolicy.Repair.SUPPLY : LightingPolicy.Repair.PLACEMENT;
@@ -348,7 +348,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (child instanceof Acquire supply) child = supplyTask(supply, next.search().route(), world);
 			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), new LightRepair(repair)), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
 		}
-		if (assessment.action() == LightingPolicy.Action.RETREAT) return leaveSearch(next, "lighting_allowance_exhausted", world);
+		if (assessment.action() == LightingPolicy.Action.RETREAT) {
+			String reason = assessment.state().allowance().filter(a -> a.validity() != LightingPolicy.Validity.ACTIVE)
+				.map(a -> "lighting_allowance_revoked:" + a.validity().name().toLowerCase(Locale.ROOT)).orElse("lighting_allowance_exhausted");
+			return leaveSearch(next, reason, world);
+		}
 		var tools = harvesting.get(task.search().prior().item()).tools();
 		if (!tools.isEmpty() && tools.stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
 			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of(), world);

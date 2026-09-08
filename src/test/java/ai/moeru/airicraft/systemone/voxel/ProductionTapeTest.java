@@ -111,7 +111,7 @@ class ProductionTapeTest {
 		var origin = new Pos(0,1,0);
 		var world = new StoneAcquisition.World(new Pose(.5,2.62,.5,0,0), origin, Map.of(), Map.of());
 		var prior = new ProductionKnowledge.SearchPrior("ore",2,4,20,List.of("stone"));
-		var light = new LightingPolicy.State(true, Set.of(LightingPolicy.Repair.PLACEMENT, LightingPolicy.Repair.SUPPLY), Optional.of(new LightingPolicy.Allowance(origin,80)));
+		var light = new LightingPolicy.State(true, Set.of(LightingPolicy.Repair.PLACEMENT, LightingPolicy.Repair.SUPPLY), Optional.of(LightingPolicy.Allowance.begin(origin,80,SurvivalPolicy.Vitals.healthy())));
 		var explore = new Explore(UndergroundSearch.Task.begin(prior,List.of("ore"),world,Set.of()),light,Map.of(),Set.of());
 		var kernel = new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of())),StoneTape.LIMITS);
 		var before = kernel.begin("session","run",explore,0);
