@@ -42,12 +42,21 @@ public record ProductionKnowledge(String version, List<Recipe> recipes, List<Har
 		}
 	}
 	public enum Technique { EXPOSED, LOCAL_STONE }
-	/** Tools are listed in the domain pack's preferred progression order. */
+	/** Search priors are independent of whether an observed block can be harvested. */
+	public enum SearchMode { OBSERVED_ONLY, LOCAL_SURVEY }
 	/** An observed indicator can motivate inspection; it never locates the hidden resource. */
-	public record Discovery(List<String> indicators, int maxClears) {
-		public Discovery { indicators = List.copyOf(indicators); if (maxClears < 0) throw new IllegalArgumentException("Nonnegative discovery budget required"); }
+	public record Discovery(List<String> indicators, int maxClears, SearchMode searchMode) {
+		public Discovery {
+			indicators = List.copyOf(indicators);
+			if (searchMode == null) throw new IllegalArgumentException("Discovery search mode required");
+			if (maxClears < 0 || searchMode == SearchMode.OBSERVED_ONLY && (!indicators.isEmpty() || maxClears != 0))
+				throw new IllegalArgumentException("Invalid discovery policy");
+		}
+		public Discovery(List<String> indicators, int maxClears) { this(indicators, maxClears, SearchMode.LOCAL_SURVEY); }
+		public static Discovery observedOnly() { return new Discovery(List.of(), 0, SearchMode.OBSERVED_ONLY); }
 		public static Discovery none() { return new Discovery(List.of(),0); }
 	}
+	/** Tools are listed in the domain pack's preferred progression order. */
 	public record Harvest(String item, List<String> blocks, List<String> tools, Technique technique, Discovery discovery) {
 		public Harvest { blocks = List.copyOf(blocks); tools = List.copyOf(tools); }
 		public Harvest(String item, List<String> blocks, List<String> tools, Technique technique) { this(item,blocks,tools,technique,Discovery.none()); }

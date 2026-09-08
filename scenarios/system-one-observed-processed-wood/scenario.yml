@@ -1,0 +1,34 @@
+id: system-one-observed-processed-wood
+name: Harvest observed processed wood without assuming it grows naturally
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Make four oak planks. A stripped oak log is exposed nearby; no ingredients
+  are supplied in inventory. The block may be harvested when observed even
+  though the domain does not survey for unseen processed wood.
+goal:
+  kind: inventory_item
+  itemId: minecraft:oak_planks
+  quantity: 4
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 1500
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:oak_planks
+    count: 4
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: harvest:minecraft:stripped_oak_log
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

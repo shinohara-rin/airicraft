@@ -1,0 +1,290 @@
+{
+  "policy": "reactive-production-v71",
+  "knowledgeVersion": "minecraft-recipe-display-v10",
+  "tests": {
+    "systemOne": 198,
+    "evaluator": 38,
+    "python": 47
+  },
+  "baselineDiagnosis": {
+    "lookCommandsByHarvestDependency": {
+      "harvest:minecraft:acacia_log": 246,
+      "other": 19,
+      "harvest:minecraft:cobblestone": 11,
+      "harvest:minecraft:raw_iron": 152,
+      "harvest:minecraft:acacia_wood": 96,
+      "harvest:minecraft:stripped_acacia_log": 192,
+      "harvest:minecraft:stripped_acacia_wood": 96,
+      "harvest:minecraft:oak_log": 1
+    },
+    "commandsByHarvestDependency": {
+      "harvest:minecraft:acacia_log": 411,
+      "other": 477,
+      "harvest:minecraft:cobblestone": 80,
+      "harvest:minecraft:raw_iron": 224,
+      "harvest:minecraft:coal": 11,
+      "harvest:minecraft:acacia_wood": 122,
+      "harvest:minecraft:stripped_acacia_log": 256,
+      "harvest:minecraft:stripped_acacia_wood": 131,
+      "harvest:minecraft:oak_log": 5
+    },
+    "source": "eval-output/20260908-101439-750985-63653/01-iron-pickaxe-development-03/system-one-decisions.jsonl.gz",
+    "observedProcessedCellUpdates": {
+      "minecraft:acacia_wood": 0,
+      "minecraft:stripped_acacia_log": 0,
+      "minecraft:stripped_acacia_wood": 0
+    }
+  },
+  "redProof": "Three new behavior tests failed on the prior domain: absent processed survey, recipe ranking, and survey after target loss; observed processed harvesting already passed.",
+  "live": [
+    {
+      "path": "eval-output/20260908-105153-668897-72481/01-system-one-observed-processed-wood",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "elapsedTicks": 151,
+      "exactReplayTurns": 84,
+      "plannerTurns": 0,
+      "llmRecords": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:52:45Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 72744,
+        "pid": 72698,
+        "requestedAt": "2026-09-08T02:52:43Z"
+      },
+      "recording": {
+        "finished": true,
+        "failure": "",
+        "writtenRows": 85,
+        "complete": true,
+        "queuedRows": 0
+      },
+      "terminal": {
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v71",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:oak_planks:4",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v10",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "recordedDiscoveryExamples": {
+        "minecraft:acacia_wood": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:oak_log": {
+          "indicators": [
+            "minecraft:oak_leaves"
+          ],
+          "maxClears": 16,
+          "searchMode": "LOCAL_SURVEY"
+        },
+        "minecraft:raw_iron": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:stripped_oak_log": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        }
+      }
+    },
+    {
+      "path": "eval-output/20260908-105153-668897-72481/02-system-one-remote-tool",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "elapsedTicks": 926,
+      "exactReplayTurns": 863,
+      "plannerTurns": 0,
+      "llmRecords": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:53:55Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 72947,
+        "pid": 72899,
+        "requestedAt": "2026-09-08T02:53:53Z"
+      },
+      "recording": {
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": "",
+        "writtenRows": 864
+      },
+      "terminal": {
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v71",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v10",
+        "motor": {
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": ""
+        }
+      },
+      "recordedDiscoveryExamples": {
+        "minecraft:acacia_wood": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:oak_log": {
+          "indicators": [
+            "minecraft:oak_leaves"
+          ],
+          "maxClears": 16,
+          "searchMode": "LOCAL_SURVEY"
+        },
+        "minecraft:raw_iron": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:stripped_oak_log": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        }
+      }
+    },
+    {
+      "path": "eval-output/20260908-105153-668897-72481/03-system-one-tree-indicator",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "elapsedTicks": 660,
+      "exactReplayTurns": 596,
+      "plannerTurns": 0,
+      "llmRecords": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:54:50Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 73245,
+        "pid": 73178,
+        "requestedAt": "2026-09-08T02:54:48Z"
+      },
+      "recording": {
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 597,
+        "failure": "",
+        "finished": true
+      },
+      "terminal": {
+        "motorVersion": "production-motor-v13",
+        "motor": {
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v10",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:wooden_pickaxe:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v71"
+      },
+      "recordedDiscoveryExamples": {
+        "minecraft:acacia_wood": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:oak_log": {
+          "indicators": [
+            "minecraft:oak_leaves"
+          ],
+          "maxClears": 16,
+          "searchMode": "LOCAL_SURVEY"
+        },
+        "minecraft:raw_iron": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        },
+        "minecraft:stripped_oak_log": {
+          "indicators": [],
+          "maxClears": 0,
+          "searchMode": "OBSERVED_ONLY"
+        }
+      }
+    }
+  ],
+  "liveScreenshots": {
+    "scope": "Read-only live screenshots. Heartbeat ticks are approximate; timestamps identify actual capture. Images never feed runtime decisions.",
+    "frames": [
+      {
+        "path": "/Users/rinshinohara/Repo/airicraft/eval-output/20260908-105153-668897-72481/03-system-one-tree-indicator/live-observation-frames/frame-001.png",
+        "capturedAtMs": 1788836066862,
+        "requestStartedAtMs": 1788836065826,
+        "lastHeartbeatElapsedTicks": 266
+      },
+      {
+        "path": "/Users/rinshinohara/Repo/airicraft/eval-output/20260908-105153-668897-72481/03-system-one-tree-indicator/live-observation-frames/frame-002.png",
+        "capturedAtMs": 1788836072301,
+        "requestStartedAtMs": 1788836071317,
+        "lastHeartbeatElapsedTicks": 376
+      },
+      {
+        "path": "/Users/rinshinohara/Repo/airicraft/eval-output/20260908-105153-668897-72481/03-system-one-tree-indicator/live-observation-frames/frame-003.png",
+        "capturedAtMs": 1788836077355,
+        "requestStartedAtMs": 1788836076802,
+        "lastHeartbeatElapsedTicks": 485
+      },
+      {
+        "path": "/Users/rinshinohara/Repo/airicraft/eval-output/20260908-105153-668897-72481/03-system-one-tree-indicator/live-observation-frames/frame-004.png",
+        "capturedAtMs": 1788836082400,
+        "requestStartedAtMs": 1788836081806,
+        "lastHeartbeatElapsedTicks": 585
+      }
+    ]
+  },
+  "visualInspection": "Four live frames show leaf clearing and an exposed log, with changing camera position. They do not show the final inventory.",
+  "limitations": [
+    "This distinction is supplied by domain knowledge; unknown modded log variants default to observed-only harvesting until a pack supplies search priors.",
+    "No claim that every processed block is absent from world generation; observed processed blocks remain usable.",
+    "Fixture results do not prove integrated efficiency or the held-out release gate.",
+    "External replay rendering remains defective; live screenshots do not fix it."
+  ]
+}

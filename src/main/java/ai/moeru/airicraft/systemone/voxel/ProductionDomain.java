@@ -248,6 +248,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (refuge.isEmpty()) return failure("no_observed_survival_refuge");
 		return new Execute<>(new Escape(task.origin(), rejected, refuge, task.deadline()), new Navigate(refuge.get(), 16, 100));
 	}
+	private static boolean harvestAvailable(Harvest rule, World world) {
+		return rule.discovery().searchMode() == SearchMode.LOCAL_SURVEY
+			|| world.known().values().stream().anyMatch(seen -> seen.identified() && rule.blocks().contains(seen.blockId()));
+	}
+
 	private Decision<Task, VoxelCommand> acquire(View<Task> view, Acquire task, World world) {
 		if (free(world, task.reserved(), task.item()) >= task.count()) return success("inventory_observed:" + task.item() + ":" + task.count());
 		if (view.acting()) return new Keep<>();
@@ -285,7 +290,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), LightingPolicy.State.begin(), productionReserve, ancestry(task)), searchId);
 			}
 		}
-		if (harvesting.containsKey(task.item()) && !task.failed().contains(harvestId)) {
+		if (harvesting.containsKey(task.item()) && !task.failed().contains(harvestId) && harvestAvailable(harvesting.get(task.item()), world)) {
 			var rule = harvesting.get(task.item());
 			Acquire next = selected(task, harvestId);
 			if (!rule.tools().isEmpty() && rule.tools().stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
@@ -646,6 +651,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				.findFirst();
 			if (intermediate.isPresent()) { visited.add(intermediate.get()); return gatherAction(task, world, new Navigate(intermediate.get(), 24, 200), 0, rejected, visited); }
 		}
+		if (task.rule().discovery().searchMode() == SearchMode.OBSERVED_ONLY) return failure("no_observed_harvest_approach:" + task.rule().item());
 		if (task.scans() < 4) return gatherAction(task, world, new Look((float) ((world.eye().yaw() + 90) % 360), 15), task.scans() + 1, rejected, visited);
 		Optional<Pos> frontier = world.known().keySet().stream().filter(pos -> StoneAcquisition.standable(world.known(), pos) && !visited.contains(pos))
 			.filter(pos -> horizontal(world.feet(), pos) >= 4 && horizontal(current.origin(), pos) <= 32 * 32)
@@ -765,7 +771,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			var nearest = harvest.blocks().stream().map(costing.observedWork()::get).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
 			var indicator = harvest.discovery().indicators().stream().map(costing.observedWork()::get).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
 			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : indicator.isPresent()
-				? new SupplyEstimate(SupplyEvidence.INDICATED,indicator.getAsDouble()+10) : new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30);
+				? new SupplyEstimate(SupplyEvidence.INDICATED,indicator.getAsDouble()+10)
+				: harvest.discovery().searchMode() == SearchMode.LOCAL_SURVEY ? new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30) : SupplyEstimate.unavailable();
 		}
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
 		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
