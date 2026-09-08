@@ -1,0 +1,175 @@
+{
+  "productionFormatVersion": 3,
+  "stoneFormatVersion": 2,
+  "methodVersion": "reactive-production-v69",
+  "tests": {
+    "systemOne": 192,
+    "evaluator": 38,
+    "python": 47
+  },
+  "offlineFragment": {
+    "sourceRawBytes": 18309238,
+    "allInputsEqual": true,
+    "fullChangedCells": 3938,
+    "compactRawBytes": 4824835,
+    "sourceGzipBytes": 502666,
+    "scope": "Offline exact input reconstruction. Decisions and footer preserved, including any incompleteness. No live throughput claim.",
+    "compactGzipBytes": 377653,
+    "turns": 52,
+    "refreshedCells": 100302
+  },
+  "offlineWorld": {
+    "sourceRawBytes": 3861990,
+    "allInputsEqual": true,
+    "fullChangedCells": 1389,
+    "compactRawBytes": 2586831,
+    "sourceGzipBytes": 149451,
+    "scope": "Offline exact input reconstruction. Decisions and footer preserved, including any incompleteness. No live throughput claim.",
+    "compactGzipBytes": 112048,
+    "turns": 539,
+    "refreshedCells": 10395
+  },
+  "live": [
+    {
+      "path": "eval-output/20260908-101037-126137-62463/01-system-one-stone",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:11:46Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 62658,
+        "pid": 62602,
+        "requestedAt": "2026-09-08T02:11:43Z"
+      },
+      "elapsedTicks": 417,
+      "plannerTurns": 0,
+      "recording": {
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": "",
+        "writtenRows": 354
+      },
+      "replayTurns": 353,
+      "nullObservationTurns": 0,
+      "nullObservationEffects": 0,
+      "refreshedCells": 10349,
+      "terminal": {
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v69",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:cobblestone:3",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v9",
+        "motor": {
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": ""
+        }
+      }
+    },
+    {
+      "path": "eval-output/20260908-101037-126137-62463/02-system-one-world-change",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:12:59Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 62891,
+        "pid": 62828,
+        "requestedAt": "2026-09-08T02:12:56Z"
+      },
+      "elapsedTicks": 995,
+      "plannerTurns": 0,
+      "recording": {
+        "writtenRows": 494,
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": ""
+      },
+      "replayTurns": 493,
+      "nullObservationTurns": 161,
+      "nullObservationEffects": 0,
+      "refreshedCells": 10337,
+      "terminal": {
+        "knowledgeVersion": "minecraft-recipe-display-v9",
+        "motor": {
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false
+        },
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v69",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:cobblestone:3",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED"
+      },
+      "worldProbe": {
+        "terminal": {
+          "knowledgeVersion": "minecraft-recipe-display-v9",
+          "motor": {
+            "crafting": "",
+            "smelting": "",
+            "releasePending": false,
+            "finishing": "",
+            "command": "",
+            "edgePlacement": "",
+            "stopping": false,
+            "pathingActive": false
+          },
+          "motorVersion": "production-motor-v13",
+          "methodVersion": "reactive-production-v69",
+          "taskStack": "[]",
+          "run": "system-one-1",
+          "outcome": "world_changed",
+          "runtime": "system_one",
+          "policyVersion": "observed-survival-v1",
+          "state": "CANCELLED"
+        },
+        "transitionObservedAt": 118,
+        "passed": true,
+        "recording": {
+          "writtenRows": 31,
+          "complete": true,
+          "queuedRows": 0,
+          "finished": true,
+          "failure": ""
+        },
+        "finishedReceiptWithheld": false,
+        "capturedViewInvalidated": true,
+        "cancelledWithoutHelp": true,
+        "terrainCellsAfterInvalidation": 0,
+        "exactReplayTurns": 30
+      }
+    }
+  ],
+  "limitations": [
+    "The incomplete development fragment remains incomplete; exact input reconstruction is not complete policy replay.",
+    "Small fixtures do not establish sustained recorder throughput.",
+    "The current world probe did not withhold a Finished receipt; earlier v69 proof covers that fault.",
+    "Full redesign and release gates remain open."
+  ]
+}

@@ -18,6 +18,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class StoneTapeTest {
 	private static final Gson GSON = new Gson();
 
+	@Test void replayRejectsMissingRefreshEvidenceAndPreviousWireVersion() {
+		var rows=recording(); var replay=new StoneTape.Replay(); replay.accept(rows.getFirst());
+		rows.get(1).getAsJsonObject("observation").remove("refreshed");
+		assertThrows(IllegalArgumentException.class,()->replay.accept(rows.get(1)));
+		rows.getFirst().addProperty("version",StoneTape.FORMAT_VERSION-1);
+		assertThrows(IllegalArgumentException.class,()->new StoneTape.Replay().accept(rows.getFirst()));
+	}
+
 	@Test void serializedLiveShapedInputsReproduceDecisionsIncludingFeedbackAndRelease() {
 		var replay = new StoneTape.Replay();
 		recording().forEach(replay::accept);

@@ -15,6 +15,14 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 class ProductionTapeTest {
 	private static final Gson GSON = new Gson();
+	@Test void replayRejectsMissingRefreshEvidenceAndPreviousWireVersion() {
+		var rows=rows(); var replay=new ProductionTape.Replay(); replay.accept(rows.getFirst());
+		rows.get(1).getAsJsonObject("observation").remove("refreshed");
+		assertThrows(IllegalArgumentException.class,()->replay.accept(rows.get(1)));
+		rows.getFirst().addProperty("version",ProductionTape.FORMAT_VERSION-1);
+		assertThrows(IllegalArgumentException.class,()->new ProductionTape.Replay().accept(rows.getFirst()));
+	}
+
 	@Test void unavailableObservationPreservesAReceiptAndReplayResumesFromTheFreshSnapshot() {
 		var book = new ProductionKnowledge("availability",List.of(),List.of(new ProductionKnowledge.Harvest("ore_item",List.of("ore_block"),List.of(),ProductionKnowledge.Technique.EXPOSED)));
 		var kernel = new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book),StoneTape.LIMITS);

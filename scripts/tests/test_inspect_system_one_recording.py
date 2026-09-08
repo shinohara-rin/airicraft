@@ -95,6 +95,31 @@ class RecordingInspectionTest(unittest.TestCase):
         self.assertEqual("partial", audit["status"])
         self.assertEqual(1, audit["unclassified_effects"])
 
+    def test_compact_refresh_updates_failure_context_and_rejects_corrupt_deltas(self):
+        header, first, _ = self.break_rows()
+        header["version"] = 3
+        first.update(lighting={"before": [], "after": []}, effects=[], outcome="", events=[])
+        first["observation"]["refreshed"] = []
+        second = copy.deepcopy(first)
+        second.update(sequence=2, tick=6, outcome="failed", events=[{"type": "task_ended", "task": 1, "detail": "FAILED:test"}])
+        pos = first["observation"]["changed"][0]["pos"]
+        second["observation"].update(changed=[], refreshed=[pos])
+        rows = [header, first, second, {"type": "end", "rows": 3}]
+        report = self.inspect(rows, failure_context=True)
+        self.assertEqual("complete", report["coverage"])
+        self.assertEqual(6, report["first_task_failure"]["context"]["nearby_cells"][0]["seen"]["tick"])
+        for corruption in ("missing", "unknown", "duplicate", "changed", "removed", "version"):
+            bad = copy.deepcopy(rows)
+            observation = bad[2]["observation"]
+            if corruption == "missing": observation.pop("refreshed")
+            elif corruption == "unknown": observation["refreshed"][0] = {**pos, "x": 999}
+            elif corruption == "duplicate": observation["refreshed"].append(pos)
+            elif corruption == "changed": observation["changed"] = first["observation"]["changed"]
+            elif corruption == "removed": observation["removed"] = [pos]
+            else: bad[0]["version"] = 999
+            with self.subTest(corruption=corruption):
+                self.assertEqual("incomplete", self.inspect(bad)["coverage"])
+
     def rows(self):
         return [
             {"type": "production_begin", "tick": 4, "count": 1, "item": "pickaxe", "run": "r", "methodVersion": "old-policy"},

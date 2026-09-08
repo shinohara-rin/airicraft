@@ -21,6 +21,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
+	public static final int FORMAT_VERSION = 3;
 	public static final String METHOD_VERSION = "reactive-production-v69";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
@@ -29,7 +30,7 @@ public final class ProductionTape {
 		Task root = state.stack().getFirst().task();
 		boolean mission = root instanceof Mission;
 		var goal = mission ? Acquire.root(((Mission) root).item(), ((Mission) root).count()) : (Acquire) root;
-		return new Header("production_begin", 2, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS, mission, mission ? ((Mission) root).life() : 0);
+		return new Header("production_begin", FORMAT_VERSION, METHOD_VERSION, knowledge, state.session(), state.run(), goal.item(), goal.count(), state.lastTick(), StoneTape.LIMITS, mission, mission ? ((Mission) root).life() : 0);
 	}
 	/** Factual policy state, including suspended allowances; presence does not imply permission to act. */
 	public record LightingFrame(long task, String phase, boolean leaf, List<String> continuation,
@@ -106,22 +107,17 @@ public final class ProductionTape {
 			switch (row.get("type").getAsString()) {
 				case "production_begin" -> {
 					if (rows != 0) throw new IllegalArgumentException("Repeated recording header");
-					if (row.get("version").getAsInt() != 2 || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
+					if (row.get("version").getAsInt() != FORMAT_VERSION || !METHOD_VERSION.equals(row.get("methodVersion").getAsString())) throw new IllegalArgumentException("Unsupported production version");
 					var header = GSON.fromJson(row, Header.class);
 					kernel = new TaskKernel<>(new ProductionDomain(header.knowledge()), header.limits());
 					state = kernel.begin(header.session(), header.run(), header.mission() ? new Mission(header.item(), header.count(), header.life(), 0) : Acquire.root(header.item(), header.count()), header.tick());
 				}
 				case "turn" -> {
 					if (state == null) throw new IllegalArgumentException("Missing production header");
+					StoneTape.validateObservation(row);
 					var turn = GSON.fromJson(row, StoneTape.Turn.class);
 					if (turn.sequence() != ++sequence || turn.tick() != state.lastTick() + 1) throw new IllegalArgumentException("Missing or reordered production turn " + sequence);
-					World world = null;
-					if (turn.observation() != null) {
-						var observation = turn.observation();
-						observation.removed().forEach(known::remove); observation.changed().forEach(cell -> known.put(cell.pos(), cell.seen()));
-						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds(), observation.vitals(), observation.drops());
-					}
-					else known.clear(); // The next non-null input is a complete snapshot, not a delta across the gap.
+					World world = StoneTape.reconstruct(turn.observation(), turn.tick(), known);
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 					if (!GSON.toJsonTree(lightingTrace(state, step.state(), world)).equals(row.get("lighting"))) throw new IllegalArgumentException("Production lighting state mismatch at " + turn.tick());
 					if (!GSON.toJsonTree(searchChanges(state, step.state())).equals(row.get("search"))) throw new IllegalArgumentException("Production search evidence mismatch at " + turn.tick());

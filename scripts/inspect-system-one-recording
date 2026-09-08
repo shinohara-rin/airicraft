@@ -191,6 +191,27 @@ class BreakObservationAudit:
                 "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."}
 
 
+def apply_observation_delta(known, observation, tick, compact):
+    if compact:
+        if not all(isinstance(observation.get(k), list) for k in ("changed", "removed", "refreshed")):
+            raise ValueError("missing observation delta")
+        touched = set()
+        for field in ("changed", "removed", "refreshed"):
+            for entry in observation[field]:
+                pos = entry["pos"] if field == "changed" else entry
+                key = tuple(pos[axis] for axis in ("x", "y", "z"))
+                if key in touched or field == "refreshed" and key not in known:
+                    raise ValueError("unknown or conflicting observation delta")
+                touched.add(key)
+    for change in observation.get("changed", []):
+        known[tuple(change["pos"][axis] for axis in ("x", "y", "z"))] = change["seen"]
+    for removed in observation.get("removed", []):
+        known.pop(tuple(removed[axis] for axis in ("x", "y", "z")), None)
+    for refreshed in observation.get("refreshed", []):
+        key = tuple(refreshed[axis] for axis in ("x", "y", "z"))
+        known[key] = {**known[key], "tick": tick}
+
+
 def inspect_recording(path, failure_context=False, audit_breaks=False):
     report = {"recording": str(path), "coverage": "incomplete", "decision_replay": "not_checked"}
     rows = turns = 0
@@ -247,6 +268,9 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                     if rows:
                         problems.append("repeated_or_late_header")
                     header = row
+                    supported = (1, 2, 3) if kind == "production_begin" else (1, 2)
+                    if row.get("version", 1) not in supported:
+                        raise ValueError("unsupported recording version")
                     tick = row["tick"]
                     goal = f"acquire {row['count']} {row.get('item', 'minecraft:cobblestone')}"
                     tasks[1] = (None, goal)
@@ -273,11 +297,9 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                         problems.append(f"missing_lighting_state_at_turn:{turns}")
                     metrics.lighting(tick, row.get("lighting"))
                     if observation:
-                        if failure_context or audit_breaks:
-                            for change in observation.get("changed", []):
-                                known[tuple(change["pos"][axis] for axis in ("x", "y", "z"))] = change["seen"]
-                            for removed in observation.get("removed", []):
-                                known.pop(tuple(removed[axis] for axis in ("x", "y", "z")), None)
+                        compact = header is not None and header.get("version", 1) >= (3 if header["type"] == "production_begin" else 2)
+                        if compact or failure_context or audit_breaks:
+                            apply_observation_delta(known, observation, tick, compact)
                         current = observation["inventory"]
                         delta = {item: current.get(item, 0) - inventory.get(item, 0)
                                  for item in sorted(current.keys() | inventory.keys())
