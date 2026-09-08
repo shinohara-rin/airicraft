@@ -1,0 +1,126 @@
+{
+  "timestampRefreshes": 100302,
+  "allReconstructedObservationsEqual": true,
+  "baseline": [
+    {
+      "nanos": 148328792,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 151071167,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 146777750,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 147007875,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 145882000,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 147577458,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 145478875,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 146420417,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 147297083,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    {
+      "nanos": 146803583,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    }
+  ],
+  "turns": 52,
+  "scope": "Warm single-process Gson serialization plus gzip in memory; no disk, queue scheduling, or live throughput claim.",
+  "compactPrototype": [
+    {
+      "nanos": 72544791,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 72600291,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 72441250,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 71707292,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 73020291,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 71436375,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 72958542,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 71955875,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 71643375,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    },
+    {
+      "nanos": 73701875,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    }
+  ],
+  "changedCells": 104240,
+  "sourceRecording": "eval-output/20260908-085414-506691-41901/01-iron-pickaxe-development-03/system-one-decisions.jsonl.gz",
+  "sourceRecordingSha256": "52d47056546dd765801cb9cfc9d58b65a8e14b7e3f0c71aaa51c66ba168a7462",
+  "prototypeSource": "benchmarks/TraceRefreshBenchmark.java",
+  "summary": {
+    "baseline": {
+      "medianMilliseconds": 146.905729,
+      "rawBytes": 18460619,
+      "gzipBytes": 504235
+    },
+    "compactPrototype": {
+      "medianMilliseconds": 72.4930205,
+      "rawBytes": 4824771,
+      "gzipBytes": 377689
+    }
+  }
+}

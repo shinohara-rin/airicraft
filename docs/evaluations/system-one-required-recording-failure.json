@@ -1,0 +1,96 @@
+{
+  "implementationCommit": "00b61145",
+  "policy": "reactive-production-v69",
+  "cases": [
+    {
+      "directory": "eval-output/20260908-095113-003908-57871/01-system-one-recording-overflow",
+      "expectedRecordingFailure": true,
+      "scenarioStatus": "NEEDS_REVIEW",
+      "reportMessage": "Required decision recording failed: trace_queue_overflow",
+      "harnessStatus": "DECISION_TRACE_INCOMPLETE",
+      "elapsedTicks": 95,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T01:52:01Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 58077,
+        "pid": 58031,
+        "requestedAt": "2026-09-08T01:52:00Z"
+      },
+      "writer": {
+        "failure": "trace_queue_overflow",
+        "writtenRows": 32,
+        "complete": false,
+        "queuedRows": 0,
+        "finished": true
+      },
+      "finalRuntimeState": "CANCELLED",
+      "finalOutcome": "evaluation_finished",
+      "finalMotor": {
+        "stopping": false,
+        "pathingActive": false,
+        "crafting": "",
+        "smelting": "",
+        "releasePending": false,
+        "finishing": "",
+        "command": "",
+        "edgePlacement": ""
+      },
+      "llmCallCount": 0,
+      "traceSha256": "03c8ddc87c35f0555a61030b722f64f09d17d4ac1526f28e3c67193275610f92",
+      "releaseEvidence": {
+        "source": "events.jsonl",
+        "releaseRequestedTick": 118,
+        "commandReleasedTick": 119,
+        "commandAttempt": 2
+      },
+      "decisionReplay": "intentionally_incomplete_not_a_gameplay_pass"
+    },
+    {
+      "directory": "eval-output/20260908-095113-003908-57871/02-system-one-stone",
+      "expectedRecordingFailure": false,
+      "scenarioStatus": "PASSED",
+      "reportMessage": "Expected outcome reached",
+      "harnessStatus": "OK",
+      "elapsedTicks": 420,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T01:52:47Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 58216,
+        "pid": 58161,
+        "requestedAt": "2026-09-08T01:52:45Z"
+      },
+      "writer": {
+        "failure": "",
+        "writtenRows": 356,
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true
+      },
+      "finalRuntimeState": "SUCCEEDED",
+      "finalOutcome": "inventory_observed:minecraft:cobblestone:3",
+      "finalMotor": {
+        "stopping": false,
+        "pathingActive": false,
+        "crafting": "",
+        "smelting": "",
+        "releasePending": false,
+        "finishing": "",
+        "command": "",
+        "edgePlacement": ""
+      },
+      "llmCallCount": 0,
+      "traceSha256": "215c9ac3f24df3d3f2da54bcc8ebd544b169d2fbf159ca1fcc78710f263d27f4",
+      "decisionReplay": {
+        "status": "exact",
+        "turns": 355,
+        "classes": "/private/tmp/airicraft-replay-v69"
+      }
+    }
+  ]
+}
