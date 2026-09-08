@@ -1,0 +1,188 @@
+{
+  "sourceCommit": "e54c4007",
+  "methodVersion": "reactive-production-v84",
+  "motorVersion": "production-motor-v15",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 227,
+    "evaluator": 38,
+    "python": 50
+  },
+  "runs": [
+    {
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 315,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:03:16Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 63586,
+        "pid": 63535,
+        "requestedAt": "2026-09-08T08:03:13Z"
+      },
+      "run": "eval-output/20260908-160208-180819-63374/01-system-one-furnace-return",
+      "runtimeFinal": {
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v84",
+        "motorVersion": "production-motor-v15",
+        "motor": {
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one"
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "exactReplayTurns": 242,
+        "task": 3,
+        "batch": {
+          "recipe": {
+            "id": "inferred:minecraft_raw_iron_to_minecraft_iron_ingot",
+            "input": "minecraft:raw_iron",
+            "output": "minecraft:iron_ingot",
+            "yield": 1,
+            "station": "minecraft:furnace",
+            "ticks": 200
+          },
+          "station": {
+            "x": 0,
+            "y": 200,
+            "z": 17
+          },
+          "before": 0,
+          "deadline": 502,
+          "attempts": 0
+        },
+        "originalDeadline": 502,
+        "loads": 1,
+        "collectionAttempts": 2,
+        "failedCollectionTick": 304,
+        "restorationRequestedTick": 304,
+        "sameBatchResumedTick": 331,
+        "displacedFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 8
+        },
+        "restoredFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 13
+        },
+        "navigation": [
+          {
+            "observedFeet": {
+              "x": 0,
+              "y": 200,
+              "z": 8
+            },
+            "tick": 304,
+            "effect": "Start[token=Token[session=minecraft:overworld:94, run=system-one-1, task=4, attempt=3], command=Navigate[stance=Pos[x=0, y=200, z=13], maxTravel=24, maxTicks=198]]"
+          }
+        ],
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Exact decision replay, recorded movement and same-batch collection; no independent visual or complete perception audit."
+      },
+      "intervention": {
+        "kind": "displaced_during_cooking",
+        "runtimeTick": 102,
+        "from": {
+          "x": 0.5,
+          "y": 200.0,
+          "z": 15.5
+        },
+        "to": {
+          "x": 0.5,
+          "y": 200.0,
+          "z": 8.5
+        }
+      }
+    },
+    {
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 282,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:04:02Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 63816,
+        "pid": 63751,
+        "requestedAt": "2026-09-08T08:03:56Z"
+      },
+      "run": "eval-output/20260908-160208-180819-63374/02-system-one-lighting-wait",
+      "runtimeFinal": {
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false
+        },
+        "motorVersion": "production-motor-v15",
+        "methodVersion": "reactive-production-v84",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED"
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "exactReplayTurns": 212,
+        "interruptedTick": 117,
+        "originalCookingDeadline": 511,
+        "releaseTick": -1,
+        "activity": "CollectBatch",
+        "scope": "Observed light and exact lifecycle replay. Does not audit hidden reads or independently prove every physical action.",
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "task": 3,
+        "resumedTick": 123
+      }
+    }
+  ],
+  "negativeControl": {
+    "run": "eval-output/20260908-160208-180819-63374/02-system-one-lighting-wait",
+    "audit": "BatchCollectionAudit",
+    "exitCode": 1,
+    "reason": "Missing successful batch-preserving access restoration"
+  },
+  "limitations": [
+    "The fixture isolates lost furnace reach by evaluator displacement; it does not reproduce the original fall or all terrain-access failures.",
+    "No additional input or fuel was loaded after displacement; the same batch and deadline are verified by exact replay.",
+    "Full perception audit, integrated v84 iron-pickaxe, held-out release, cutover and game completion remain open."
+  ]
+}
