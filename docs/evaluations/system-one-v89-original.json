@@ -1,0 +1,226 @@
+{
+  "run": "eval-output/20260908-184209-082715-99899/01-iron-pickaxe",
+  "sourceCommit": "7f387c14",
+  "methodVersion": "reactive-production-v89",
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 12484,
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T10:53:25Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 225,
+    "pid": 174,
+    "requestedAt": "2026-09-08T10:53:20Z"
+  },
+  "recording": {
+    "queuedRows": 0,
+    "finished": true,
+    "failure": "",
+    "writtenRows": 12462,
+    "complete": true
+  },
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v15",
+    "methodVersion": "reactive-production-v89",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "FAILED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false,
+      "finishing": ""
+    }
+  },
+  "completionAudit": {
+    "finalOutcome": {
+      "kind": "FAILED",
+      "evidence": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]"
+    },
+    "exactReplayTurns": 12461,
+    "scope": "Observed inventory, original motor token release and descendant retirement; no full perception audit or required dark-light trigger.",
+    "completedAncestors": [
+      {
+        "goal": 9,
+        "releasedTick": 249,
+        "available": 1,
+        "count": 1,
+        "requestedTick": 248,
+        "descendant": 12,
+        "item": "minecraft:spruce_log"
+      },
+      {
+        "goal": 6,
+        "releasedTick": 720,
+        "available": 3,
+        "count": 3,
+        "requestedTick": 719,
+        "descendant": 22,
+        "item": "minecraft:cobblestone"
+      },
+      {
+        "goal": 27,
+        "releasedTick": 1375,
+        "available": 2,
+        "count": 2,
+        "requestedTick": 1374,
+        "descendant": 28,
+        "item": "minecraft:spruce_log"
+      },
+      {
+        "goal": 34,
+        "releasedTick": 1528,
+        "available": 8,
+        "count": 8,
+        "requestedTick": 1527,
+        "descendant": 35,
+        "item": "minecraft:cobblestone"
+      },
+      {
+        "goal": 26,
+        "releasedTick": 2048,
+        "available": 2,
+        "count": 2,
+        "requestedTick": 2046,
+        "descendant": 38,
+        "item": "minecraft:charcoal"
+      },
+      {
+        "goal": 41,
+        "releasedTick": 2125,
+        "available": 1,
+        "count": 1,
+        "requestedTick": 2124,
+        "descendant": 42,
+        "item": "minecraft:spruce_log"
+      },
+      {
+        "goal": 61,
+        "releasedTick": 5045,
+        "available": 2,
+        "count": 2,
+        "requestedTick": 5044,
+        "descendant": 65,
+        "item": "minecraft:spruce_log"
+      },
+      {
+        "goal": 60,
+        "releasedTick": 5721,
+        "available": 2,
+        "count": 2,
+        "requestedTick": 5719,
+        "descendant": 69,
+        "item": "minecraft:charcoal"
+      },
+      {
+        "goal": 80,
+        "releasedTick": 7845,
+        "available": 1,
+        "count": 1,
+        "requestedTick": 7844,
+        "descendant": 82,
+        "item": "minecraft:spruce_log"
+      }
+    ]
+  },
+  "firstTaskFailure": {
+    "reason": "lighting_repair_region_exhausted",
+    "task_chain": [
+      {
+        "purpose": "acquire 1 minecraft:iron_pickaxe",
+        "task": 1
+      },
+      {
+        "purpose": "mission_inventory:minecraft:iron_pickaxe",
+        "task": 2
+      },
+      {
+        "purpose": "ingredient:minecraft:iron_ingot",
+        "task": 3
+      },
+      {
+        "purpose": "smelting_inputs:minecraft:raw_iron",
+        "task": 4
+      },
+      {
+        "purpose": "search:minecraft:raw_iron",
+        "task": 24
+      },
+      {
+        "purpose": "lighting_supply",
+        "task": 51
+      },
+      {
+        "purpose": "ingredient:minecraft:coal",
+        "task": 52
+      },
+      {
+        "purpose": "search:minecraft:coal",
+        "task": 53
+      }
+    ],
+    "tick": 4808
+  },
+  "terminalCause": {
+    "lightingRequestTick": 8646,
+    "releaseTick": 8647,
+    "supplySearchTick": 9423,
+    "deadlineTick": 11046,
+    "cancelledDescendantsTick": 11047,
+    "retreatedTick": 12503,
+    "reason": "lighting_repair_budget_or_health:retreated",
+    "observedHealthDecrease": 0.0
+  },
+  "limits": [
+    "Mission failed; lifecycle audit success is not iron acquisition success.",
+    "Full perception audit unavailable.",
+    "Recorder visual playback not reviewed.",
+    "First cobblestone completion occurred at light 7, so this is not the specialized dim completion regression."
+  ],
+  "supplyChoiceCounterexample": {
+    "v89": {
+      "assertionExitCode": 1,
+      "selection": {
+        "tick": 9423,
+        "dependency": "Acquire[item=minecraft:coal, count=2, reserved={minecraft:iron_ingot=0, minecraft:torch=0, minecraft:iron_pickaxe=0, minecraft:stick=2}, ancestors=[minecraft:iron_ingot, minecraft:torch, minecraft:iron_pickaxe, minecraft:raw_iron], failed=[], method=]",
+        "item": "minecraft:torch",
+        "selectedMethod": "minecraft:torch:4:2:[Cell[slot=0, item=minecraft:coal], Cell[slot=2, item=minecraft:stick]]"
+      }
+    },
+    "offlineCandidate": {
+      "assertionExitCode": 0,
+      "selection": {
+        "dependency": "Acquire[item=minecraft:charcoal, count=2, reserved={minecraft:torch=0, minecraft:iron_ingot=0, minecraft:stick=2, minecraft:iron_pickaxe=0}, ancestors=[minecraft:torch, minecraft:iron_ingot, minecraft:raw_iron, minecraft:iron_pickaxe], failed=[], method=]",
+        "tick": 9423,
+        "selectedMethod": "minecraft:torch:4:2:[Cell[slot=0, item=minecraft:charcoal], Cell[slot=2, item=minecraft:stick]]",
+        "item": "minecraft:torch"
+      }
+    },
+    "snapshot": "eval-output/20260908-184209-082715-99899/01-iron-pickaxe/torch-choice-tick9423.json.gz",
+    "uncompressedSha256": "ff49cf335bef08e3eb115b03c58d18f42f4a96d3a10e372930013f5e49157eb7",
+    "prefixReplayTurns": 9377,
+    "tick": 9423,
+    "scope": "Reconsideration on the same recorded observation with goal reservations and ancestry preserved; selected method reset. Candidate compiled in temporary directory; frozen runtime unchanged. Full mission recovery not demonstrated.",
+    "candidateTests": {
+      "systemOneTests": 237,
+      "passed": 237,
+      "runner": "JUnit Platform over temporary candidate and saved v89 classes, with src/test/resources",
+      "gradleBuild": false,
+      "liveTest": false
+    }
+  }
+}
