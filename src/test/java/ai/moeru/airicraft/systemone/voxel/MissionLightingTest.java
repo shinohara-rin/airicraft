@@ -16,6 +16,19 @@ class MissionLightingTest {
 	private static TaskKernel<Task,StoneAcquisition.World,VoxelCommand> kernel() {
 		return new TaskKernel<>(new ProductionDomain(BOOK),new Limits(16,24,5000,100));
 	}
+	@Test void completedCobblestoneLeavesTheBranchBeforeLightingSupplyInheritsDependencies() {
+		var state=new State<Task>("s","r",List.of(
+			new Frame<>(1,new Mission("goal",1,0,0,WorkingLight.begin()),new WaitingChild<>(2,"goal"),Optional.empty(),Optional.empty()),
+			new Frame<>(2,new Acquire("pick",1,Map.of(),Set.of("goal"),Set.of(),""),new WaitingChild<>(3,"stone"),Optional.empty(),Optional.empty()),
+			new Frame<>(3,new Acquire("cobblestone",3,Map.of(),Set.of("goal","pick"),Set.of(),"harvest"),new Ready<>(),Optional.empty(),Optional.of(Outcome.success("stone collected")))),4,1,5000,0,Optional.empty());
+		var kernel=kernel();var dim=world(4,Map.of("cobblestone",3));
+		var settled=kernel.advance(state,dim,List.of(),1);
+		assertEquals(2,settled.state().stack().size());assertTrue(settled.effects().isEmpty());
+		assertTrue(settled.events().stream().anyMatch(e->e.task()==3 && e.type().equals("task_ended") && e.detail().startsWith("SUCCEEDED")));
+		var repair=kernel.advance(settled.state(),dim,List.of(),2);
+		var supply=repair.state().stack().stream().map(Frame::task).filter(t->t instanceof Acquire a && a.item().equals("minecraft:torch")).map(t->(Acquire)t).findFirst().orElseThrow();
+		assertFalse(supply.ancestors().contains("cobblestone"));assertTrue(supply.ancestors().contains("pick"));
+	}
 	@Test void completedRepairDoesNotExpireWhileReturningThroughWorkingLight() {
 		var route=new ArrayList<Pos>();for(int z=0;z<=16;z++)route.add(FEET.offset(0,0,z));
 		var saved=new Suspended(Acquire.root("log",1),Optional.empty(),Optional.empty());

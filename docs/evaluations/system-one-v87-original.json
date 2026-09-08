@@ -1,0 +1,122 @@
+{
+  "run": "eval-output/20260908-170609-329851-78973/01-iron-pickaxe",
+  "sourceCommit": "13fa72c",
+  "methodVersion": "reactive-production-v87",
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 3177,
+  "exactReplayTurns": 3159,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T09:09:32Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 79152,
+    "pid": 79098,
+    "requestedAt": "2026-09-08T09:09:29Z"
+  },
+  "coverage": "complete",
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v15",
+    "methodVersion": "reactive-production-v87",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "FAILED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false,
+      "finishing": ""
+    }
+  },
+  "events": {
+    "cobblestone_inventory_observed": {
+      "tick": 1057,
+      "event": {
+        "tick": 1057,
+        "task": 27,
+        "type": "task_ended",
+        "detail": "SUCCEEDED:cobblestone_inventory_observed"
+      },
+      "inventory": {
+        "minecraft:dirt": 8,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:spruce_planks": 3,
+        "minecraft:stick": 2,
+        "minecraft:crafting_table": 1
+      },
+      "light": 6
+    },
+    "lighting_supply": {
+      "tick": 1057,
+      "event": {
+        "tick": 1057,
+        "task": 6,
+        "type": "task_suspended",
+        "detail": "lighting_supply"
+      },
+      "inventory": {
+        "minecraft:dirt": 8,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:spruce_planks": 3,
+        "minecraft:stick": 2,
+        "minecraft:crafting_table": 1
+      },
+      "light": 6
+    },
+    "lighting_repair_region_exhausted": {
+      "tick": 1747,
+      "event": {
+        "tick": 1747,
+        "task": 30,
+        "type": "task_ended",
+        "detail": "FAILED:lighting_repair_region_exhausted"
+      },
+      "inventory": {
+        "minecraft:dirt": 19,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:spruce_planks": 3,
+        "minecraft:stick": 2,
+        "minecraft:crafting_table": 1
+      },
+      "light": 8
+    },
+    "smelting:minecraft:charcoal": {
+      "tick": 2684,
+      "event": {
+        "tick": 2684,
+        "task": 37,
+        "type": "task_suspended",
+        "detail": "smelting:minecraft:charcoal"
+      },
+      "inventory": {
+        "minecraft:birch_log": 3,
+        "minecraft:cobblestone": 3,
+        "minecraft:dirt": 19,
+        "minecraft:spruce_log": 3,
+        "minecraft:stick": 2,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:spruce_planks": 3,
+        "minecraft:crafting_table": 1
+      },
+      "light": 15
+    }
+  },
+  "finding": "At tick 1057, successful cobblestone collection returned to Acquire(cobblestone,3), already satisfied by inventory. Maintenance suspended that ready completed goal and inherited its ancestry. Coal search exhausted the repair region; later alternatives did not recover.",
+  "limitations": "Complete decision replay establishes the recorded failure sequence, not a complete physical-perception audit."
+}

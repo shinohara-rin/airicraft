@@ -35,11 +35,14 @@ class ToolMaintenanceTest {
 		var saved = (ResumeExplore) repair.state().stack().getFirst().task();
 		assertEquals(((Navigate) original.command()).stance(), saved.saved().search().destination().orElseThrow());
 		assertEquals(Map.of("material", 2), ((Acquire) repair.state().stack().getLast().task()).reserved());
-		var returnStep = kernel.advance(repair.state(), world(Map.of("pick", 1, "material", 2), FEET.offset(2, 0, 0)),
+		var settled = kernel.advance(repair.state(), world(Map.of("pick", 1, "material", 2), FEET.offset(2, 0, 0)),
 			List.of(new Finished(craft.token(), Outcome.success("crafted"))), 4);
+		assertTrue(settled.effects().isEmpty());
+		assertEquals(Outcome.success("inventory_observed:pick:1"),settled.state().stack().getFirst().childResult().orElseThrow());
+		var returnStep = kernel.advance(settled.state(),world(Map.of("pick",1,"material",2),FEET.offset(2,0,0)),List.of(),5);
 		assertEquals(new Navigate(FEET, 48, 400), start(returnStep).command());
 		var resumed = kernel.advance(returnStep.state(), world(Map.of("pick", 1, "material", 2), FEET),
-			List.of(new Finished(start(returnStep).token(), Outcome.success("arrived"))), 5);
+			List.of(new Finished(start(returnStep).token(), Outcome.success("arrived"))), 6);
 		assertEquals(original.command(), start(resumed).command());
 		assertEquals(original.token().task(), start(resumed).token().task());
 		assertEquals(1, resumed.state().stack().size());

@@ -130,6 +130,28 @@ class TaskKernelTest {
 			List.of(new Released(token)), 4).state().outcome().orElseThrow());
 	}
 
+	@Test void anObservedReadyChildSettlesBeforeMaintenanceAndDoesNotStartParentWork() {
+		Domain<String,Boolean,String> domain=new Domain<>() {
+			@Override public Optional<Outcome> completion(String task,Boolean observed) {
+				return task.equals("supply") && observed ? Optional.of(Outcome.success("supply observed")) : Optional.empty();
+			}
+			@Override public Optional<Interruption<String>> interrupt(List<View<String>> branch,Boolean observed) {
+				return observed ? Optional.of(new Interruption<>(branch.getLast().task(),"repair","maintenance")) : Optional.empty();
+			}
+			@Override public Decision<String,String> decide(View<String> task,Boolean observed) {
+				if(task.task().equals("mission") && task.childResult().isEmpty())return new Child<>("mission","supply","supply");
+				return task.acting() ? new Keep<>() : new Execute<>(task.task(),task.task());
+			}
+		};
+		var kernel=new TaskKernel<>(domain,LIMITS);
+		var acting=kernel.advance(kernel.begin("s","r","mission",0),false,List.of(),1);var token=start(acting).token();
+		var settled=kernel.advance(acting.state(),true,List.of(new Finished(token,Outcome.success("collected"))),2);
+		assertEquals(1,settled.state().stack().size());assertTrue(settled.effects().isEmpty());
+		assertEquals(Outcome.success("supply observed"),settled.state().stack().getFirst().childResult().orElseThrow());
+		var repair=kernel.advance(settled.state(),true,List.of(),3);
+		assertEquals("repair",start(repair).command());
+	}
+
 	@Test
 	void cancellationDuringRepairReleaseCancelsTheRunWithoutStartingTheRepair() {
 		var kernel = new TaskKernel<>(COLLECTOR, LIMITS);

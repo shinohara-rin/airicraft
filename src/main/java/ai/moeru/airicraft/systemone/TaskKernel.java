@@ -16,8 +16,8 @@ public final class TaskKernel<T, O, C> {
 		/** Refresh observed domain state, including waiting parents, once per input tick.
 		 * Preserve task order/count; changing work or ownership requires an ordinary decision. */
 		default List<T> observe(List<View<T>> branch, O observation) { return branch.stream().map(View::task).toList(); }
-		/** Observe the root goal even while a prerequisite is acting or waiting. */
-		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
+		/** Observe the root goal during work, and settle already satisfied ready leaves before maintenance. */
+		default Optional<Outcome> completion(T task, O observation) { return Optional.empty(); }
 		/** Urgent domain work is checked even during passive waits; the continuation revalidates interrupted work. */
 		default Optional<Interruption<T>> interrupt(List<View<T>> branch, O observation) { return Optional.empty(); }
 		/** New evidence may invalidate an ancestor's selected method. Never grants motor ownership. */
@@ -153,6 +153,14 @@ public final class TaskKernel<T, O, C> {
 			Optional<Outcome> completion = domain.completion(turn.stack.getFirst().task(), observation);
 			if (completion.isPresent()) {
 				turn.endRun(completion.get());
+				return turn.finish();
+			}
+		}
+		if (turn.stack.size() > 1 && turn.leaf().phase() instanceof Ready<T>) {
+			var completion = domain.completion(turn.leaf().task(), observation);
+			if (completion.isPresent()) {
+				turn.afterRelease(new EndTask<>(completion.get()));
+				// Close one completed dependency without letting its parent actuate before maintenance.
 				return turn.finish();
 			}
 		}
