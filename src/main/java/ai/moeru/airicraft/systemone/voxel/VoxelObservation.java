@@ -2,6 +2,8 @@ package ai.moeru.airicraft.systemone.voxel;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import static ai.moeru.airicraft.systemone.voxel.VoxelCommand.Face;
 
 /** A bounded geometric sensor. The scene is queried only along rays up to their first occupied voxel. */
 public final class VoxelObservation {
@@ -11,12 +13,22 @@ public final class VoxelObservation {
 		public Pos offset(int dx, int dy, int dz) { return new Pos(x + dx, y + dy, z + dz); }
 	}
 	public record Pose(double x, double y, double z, double yaw, double pitch) {}
+	/** Attachment shape is independent of body collision; foliage can support feet but not fixtures. */
+	public record Attachment(Set<Face> fullFaces, boolean centerUp) {
+		public Attachment { fullFaces = Set.copyOf(fullFaces); }
+		public static Attachment none() { return new Attachment(Set.of(),false); }
+		public static Attachment fullCube() { return new Attachment(Set.of(Face.values()),true); }
+	}
 	/** fullSupport describes observed full-block collision geometry, not a hazard policy. */
-	public record Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody) {
+	public record Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody, Attachment attachment) {
+		public Sample { java.util.Objects.requireNonNull(attachment); }
+		public Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody) { this(blockId,empty,fullSupport,light,clearForBody,fullSupport ? Attachment.fullCube() : Attachment.none()); }
 		public Sample(String blockId, boolean empty, boolean fullSupport, int light) { this(blockId, empty, fullSupport, light, empty); }
 	}
 	/** Body clearance is distinct from an empty voxel: a visible torch can be walked through. */
-	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody) {
+	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody, Attachment attachment) {
+		public Seen { java.util.Objects.requireNonNull(attachment); }
+		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody) { this(blockId,empty,identified,fullSupport,light,tick,clearForBody,identified && fullSupport ? Attachment.fullCube() : Attachment.none()); }
 		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick) { this(blockId, empty, identified, fullSupport, light, tick, empty); }
 		public boolean traversable() { return empty || identified && clearForBody; }
 	}
@@ -57,7 +69,7 @@ public final class VoxelObservation {
 			Sample sample = scene.sample(pos);
 			int light = Math.max(sample.light(), previousLight);
 			boolean identified = sample.empty() || light >= lens.identificationLight();
-			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick, identified && sample.clearForBody());
+			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick, identified && sample.clearForBody(), identified ? sample.attachment() : Attachment.none());
 			visible.merge(pos, seen, (a, b) -> a.identified() && !b.identified() ? a : b);
 			// A noncolliding fixture sharing the eye voxel must not seal every outgoing ray.
 			// All subsequently occupied voxels still occlude, including other torches.

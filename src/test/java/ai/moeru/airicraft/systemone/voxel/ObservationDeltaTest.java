@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ObservationDeltaTest {
 	private static final Gson GSON = new Gson();
 	private static final Pos A = new Pos(0, 4, 1), B = new Pos(1, 4, 1);
-	private static Seen seen(long tick) { return new Seen("stone", false, true, true, 12, tick, false); }
+	private static Seen seen(long tick) { return new Seen("stone", false, true, true, 12, tick, false, new Attachment(Set.of(VoxelCommand.Face.NORTH),false)); }
 	private static StoneAcquisition.World world(Map<Pos,Seen> known) {
 		return new StoneAcquisition.World(new Pose(0.5,5.62,0.5,0,0), new Pos(0,4,0), Map.of(), known);
 	}

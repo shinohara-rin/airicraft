@@ -14,6 +14,15 @@ class VoxelObservationTest {
 	private static final Pose EYE = new Pose(0.5, 2.5, 0.5, 0, 0);
 	private static final Sample AIR = new Sample("air", true, false, 15);
 
+	@Test void attachmentIsImmutableAndOnlyExposedForIdentifiedCells() {
+		var faces = new HashSet<>(Set.of(VoxelCommand.Face.NORTH));
+		var shape = new Attachment(faces,false); faces.clear();
+		assertEquals(Set.of(VoxelCommand.Face.NORTH),shape.fullFaces());
+		var lit = observe(pos -> new Sample("fixture",false,true,15,false,shape),EYE,LENS,1);
+		assertEquals(shape,lit.values().iterator().next().attachment());
+		var dark = observe(pos -> new Sample("fixture",false,true,0,false,shape),EYE,LENS,1);
+		assertTrue(dark.values().stream().allMatch(v -> v.attachment().equals(Attachment.none())));
+	}
 	@Test void hiddenLayoutCannotChangeObservationOrQueries() {
 		Set<Pos> firstReads = new HashSet<>(), secondReads = new HashSet<>();
 		Scene first = pos -> { firstReads.add(pos); return pos.z() < 3 ? AIR : new Sample(pos.z() == 3 ? "wall" : "iron", false, true, 15); };

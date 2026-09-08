@@ -23,8 +23,8 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Versioned wire values for reproducing actual decision inputs, including negative motor feedback. */
 public final class StoneTape {
-	public static final int FORMAT_VERSION = 2;
-	public static final String METHOD_VERSION = "local-stone-v13";
+	public static final int FORMAT_VERSION = 3;
+	public static final String METHOD_VERSION = "local-stone-v14";
 	public static final Limits LIMITS = new Limits(16, 16, 72000, 2000);
 	private static final Gson GSON = new Gson();
 	private StoneTape() {}
@@ -79,7 +79,7 @@ public final class StoneTape {
 			current.footholds(), current.vitals(), current.drops(), refreshed);
 	}
 	private static Seen atTick(Seen seen, long tick) {
-		return new Seen(seen.blockId(), seen.empty(), seen.identified(), seen.fullSupport(), seen.light(), tick, seen.clearForBody());
+		return new Seen(seen.blockId(), seen.empty(), seen.identified(), seen.fullSupport(), seen.light(), tick, seen.clearForBody(), seen.attachment());
 	}
 	/** Wire validation is separate from legacy standalone observation fixtures. */
 	static void validateObservation(JsonObject row) {

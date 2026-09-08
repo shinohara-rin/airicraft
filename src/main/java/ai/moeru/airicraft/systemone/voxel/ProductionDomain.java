@@ -606,7 +606,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (!failed(view)) return new Sleep<>(new PlaceLight(rejected, Optional.empty(),task.reservedSupports()), view.tick() + 5);
 		}
 		if (rejected.size() >= 4 || world.inventory().getOrDefault("minecraft:torch", 0) == 0) return failure("light_placement_unavailable");
-		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && !task.reservedSupports().contains(p) && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
+		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && !task.reservedSupports().contains(p) && world.known().get(p).attachment().centerUp() && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
 			.filter(p -> !world.footholds().contains(p) && world.eye().y() > p.y() + 1 && !intersectsPlayer(world, p.offset(0, 1, 0)))
 			.filter(p -> distance(world.eye(), p) <= 4.3 * 4.3).sorted(positionOrder(world.eye())).findFirst();
 		// Keep the passage floor available, including cells the player has not reached yet.
@@ -614,6 +614,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			Seen seen = world.known().get(wall);
 			if (rejected.contains(wall) || task.reservedSupports().contains(wall) || !seen.identified() || seen.empty()) continue;
 			for (Face face : List.of(Face.NORTH, Face.SOUTH, Face.WEST, Face.EAST)) {
+				if (!seen.attachment().fullFaces().contains(face)) continue;
 				Pos target = face.adjacent(wall); Seen space = world.known().get(target);
 				if (space == null || !space.empty() || intersectsPlayer(world, target)) continue;
 				// Wall torches have no body collision and preserve the observed walking route.

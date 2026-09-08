@@ -118,6 +118,8 @@ class SupportReservationsTest {
 	private static StoneAcquisition.World recorded(String name) {
 		try(var reader = new InputStreamReader(new java.util.zip.GZIPInputStream(Objects.requireNonNull(SupportReservationsTest.class.getResourceAsStream("/systemone/"+name+".json.gz"))))) {
 			var object = JsonParser.parseReader(reader).getAsJsonObject();
+			// Historical terrain fixture predates attachment sensing; it grants no fixture support.
+			for (var cell : object.getAsJsonObject("observation").getAsJsonArray("changed")) cell.getAsJsonObject().getAsJsonObject("seen").add("attachment",new com.google.gson.Gson().toJsonTree(Attachment.none()));
 			var o = new Gson().fromJson(object.get("observation"),StoneTape.Observation.class);
 			var known = new HashMap<Pos,Seen>();o.changed().forEach(c->known.put(c.pos(),c.seen()));
 			return new StoneAcquisition.World(o.eye(),o.feet(),o.inventory(),known,o.footholds(),o.vitals());

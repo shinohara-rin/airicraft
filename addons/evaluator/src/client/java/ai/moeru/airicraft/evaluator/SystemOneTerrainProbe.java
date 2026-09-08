@@ -55,6 +55,7 @@ final class SystemOneTerrainProbe {
 		if (phase == Phase.START) {
 			require(ObservedTerrain.ENABLED, "System 1 terrain hooks are disabled");
 			verifyUnavailableChunk(client, output);
+			verifyAttachment(output);
 			feet = client.player.getBlockPos();
 			Map<BlockPos, BlockState> known = new HashMap<>();
 			for (int x = -1; x <= 4; x++) for (int y = -1; y <= 2; y++) {
@@ -92,6 +93,17 @@ final class SystemOneTerrainProbe {
 			phase = Phase.DONE;
 		}
 		return phase == Phase.DONE;
+	}
+
+	private void verifyAttachment(Path output) {
+		var leaves=MinecraftScene.attachment(Blocks.SPRUCE_LEAVES.getDefaultState());
+		var stone=MinecraftScene.attachment(Blocks.STONE.getDefaultState());
+		var slab=MinecraftScene.attachment(Blocks.STONE_SLAB.getDefaultState());
+		require(leaves.equals(VoxelObservation.Attachment.none()),"Leaf collision incorrectly grants attachment support");
+		require(stone.equals(VoxelObservation.Attachment.fullCube()),"Stone attachment geometry missing");
+		require(!slab.centerUp(),"Bottom slab incorrectly supports a torch at the upper cell boundary");
+		try { Files.writeString(output.resolve("attachment-probe.json"),new GsonBuilder().setPrettyPrinting().create().toJson(Map.of("leaves",leaves,"stone",stone,"bottomSlab",slab,"status","PASSED"))); }
+		catch(IOException failure) { throw new java.io.UncheckedIOException(failure); }
 	}
 
 	private void verifyUnavailableChunk(MinecraftClient client, Path output) {

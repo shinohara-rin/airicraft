@@ -2,6 +2,9 @@ package ai.moeru.airicraft.systemone.minecraft;
 
 import ai.moeru.airicraft.systemone.voxel.VoxelObservation;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.SideShapeType;
+import net.minecraft.util.math.Direction;
+import ai.moeru.airicraft.systemone.voxel.VoxelCommand.Face;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
@@ -29,7 +32,15 @@ public final class MinecraftScene implements VoxelObservation.Scene {
 		boolean staticShape = !state.getBlock().hasDynamicBounds();
 		return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(),
 			staticShape && state.isFullCube(EmptyBlockView.INSTANCE, p), world.getLightLevel(p),
-			staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty());
+			staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty(), attachment(state));
 	}
+	/** Registry-defined attachment geometry of an identified block; never reads the surrounding world. */
+	public static Attachment attachment(BlockState state) {
+		if (state.getBlock().hasDynamicBounds()) return Attachment.none();
+		var faces = java.util.EnumSet.noneOf(Face.class);
+		for (Face face : Face.values()) if (state.isSideSolidFullSquare(EmptyBlockView.INSTANCE,BlockPos.ORIGIN,Direction.valueOf(face.name()))) faces.add(face);
+		return new Attachment(faces,state.isSideSolid(EmptyBlockView.INSTANCE,BlockPos.ORIGIN,Direction.UP,SideShapeType.CENTER));
+	}
+
 	BlockState sampledState(Pos pos) { return sampled.get(pos); }
 }

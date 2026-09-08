@@ -40,6 +40,16 @@ class LightingRepairTest {
 		var branch = List.of(new View<>(2,parent,false,2,Optional.<Outcome>empty(),Optional.<Outcome>empty()),new View<Task>(1,task,false,2,Optional.empty(),Optional.empty()));
 		assertEquals(ResultKind.FAILED, assertInstanceOf(Complete.class, domain.decide(branch, uncertain)).outcome().kind());
 	}
+	@Test void collisionSupportDoesNotAuthorizeTorchAttachment() {
+		var base=world(4,Map.of("minecraft:torch",8),FEET);
+		var known=new HashMap<>(base.known());
+		var leaves=new Pos(1,3,0);
+		known.put(leaves,new Seen("minecraft:spruce_leaves",false,true,true,4,1,false,Attachment.none()));
+		var observed=new StoneAcquisition.World(base.eye(),FEET,base.inventory(),known,Set.of());
+		var result=new ProductionDomain(BOOK).decide(new View<Task>(1,new PlaceLight(Set.of(),Optional.empty()),false,1,Optional.empty(),Optional.empty()),observed);
+		var place=assertInstanceOf(Place.class,assertInstanceOf(Execute.class,result).command());
+		assertNotEquals(leaves,place.support(),"collision-full leaves cannot carry a torch; use the observed floor instead");
+	}
 	private static Start<VoxelCommand> start(Step<Task, VoxelCommand> step) { return (Start<VoxelCommand>) step.effects().getFirst(); }
 	@Test void twoBlockHighTunnelCanBeLitWithoutDestroyingItsWalkingRoute() {
 		var base = world(4, Map.of("minecraft:torch", 8), FEET);
