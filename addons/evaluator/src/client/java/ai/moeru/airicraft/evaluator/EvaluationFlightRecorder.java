@@ -36,6 +36,7 @@ public final class EvaluationFlightRecorder {
 	private boolean llmCallsTruncated;
 	private boolean terminalWritten;
 	private DecisionTraceWriter decisionWriter;
+	private Runnable deferredWriter;
 
 	public void start(
 		EvaluationScenario nextScenario,
@@ -55,7 +56,11 @@ public final class EvaluationFlightRecorder {
 		this.llmCallsTruncated = false;
 		this.terminalWritten = false;
 		if (decisionWriter != null) decisionWriter.close();
-		decisionWriter = runtime.systemOneActive() ? new DecisionTraceWriter(outputDir.resolve("system-one-decisions.jsonl.gz")) : null;
+		startDeferredWriter();
+		decisionWriter = !runtime.systemOneActive() ? null
+			: nextScenario.id().equals("system-one-recording-overflow")
+				? new DecisionTraceWriter(outputDir.resolve("system-one-decisions.jsonl.gz"), worker -> deferredWriter = worker)
+				: new DecisionTraceWriter(outputDir.resolve("system-one-decisions.jsonl.gz"));
 		if (decisionWriter != null) runtime.recordSystemOneDecisions(decisionWriter::accept);
 		try {
 			Files.createDirectories(outputDir);
@@ -84,6 +89,8 @@ public final class EvaluationFlightRecorder {
 		if (terminalWritten) {
 			return;
 		}
+		// The negative fixture holds the real writer until its bounded queue reports overflow.
+		if (requiredEvidenceFailure().isPresent()) startDeferredWriter();
 		try {
 			Files.createDirectories(outputDir);
 			String collectedAt = now();
@@ -121,6 +128,14 @@ public final class EvaluationFlightRecorder {
 		if (decisionWriter != null) payload.put("systemOneTrace", decisionWriter.status());
 		return payload;
 	}
+	public java.util.Optional<String> requiredEvidenceFailure() {
+		return decisionWriter == null ? java.util.Optional.empty() : decisionWriter.failure();
+	}
+	private void startDeferredWriter() {
+		if (deferredWriter == null) return;
+		var worker = deferredWriter; deferredWriter = null;
+		Thread.ofPlatform().name("system-one-recorder-fault").daemon(true).start(worker);
+	}
 
 	public boolean recordSystemOneCleanup(EmbodiedAgentRuntime runtime) {
 		if (outputDir == null) return !runtime.systemOneBusy();
@@ -130,6 +145,7 @@ public final class EvaluationFlightRecorder {
 			if (runtime.systemOneBusy()) return false;
 			if (decisionWriter != null) {
 				decisionWriter.close();
+				startDeferredWriter();
 				if (!decisionWriter.finished()) return false;
 				writeJson(outputDir.resolve("system-one-recording.json"), decisionWriter.status());
 			}
@@ -142,6 +158,7 @@ public final class EvaluationFlightRecorder {
 
 	public void reset() {
 		if (decisionWriter != null) decisionWriter.close();
+		startDeferredWriter();
 		decisionWriter = null;
 		outputDir = null;
 		scenario = null;

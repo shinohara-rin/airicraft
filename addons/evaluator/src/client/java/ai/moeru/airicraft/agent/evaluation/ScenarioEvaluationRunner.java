@@ -43,6 +43,11 @@ public final class ScenarioEvaluationRunner {
 			return;
 		}
 		executionMode = context.noLlmActive() ? "no_llm" : context.externalDriverActive() ? "external_driver" : "planner";
+		var evidenceFailure = context.requiredEvidenceFailure();
+		if (evidenceFailure.isPresent()) {
+			finish(EvaluationStatus.NEEDS_REVIEW, "Required decision recording failed: " + evidenceFailure.get(), true, context.tick());
+			return;
+		}
 		if (!context.worldLoaded()) {
 			status = EvaluationStatus.PENDING_WORLD;
 			message = "Waiting for evaluation world";
@@ -431,6 +436,7 @@ public final class ScenarioEvaluationRunner {
 		boolean plannerInFlight();
 
 		Optional<String> declaredFailure();
+		default Optional<String> requiredEvidenceFailure() { return Optional.empty(); }
 
 		int inventoryCount(String itemId);
 

@@ -12,6 +12,23 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScenarioEvaluationRunnerTest {
+	@Test void requiredEvidenceFailureStopsBeforeAStartOrAnOtherwisePassingCheck() {
+		for (boolean alreadyRunning : List.of(false,true)) {
+			var runner=new ScenarioEvaluationRunner(); var context=new FakeContext();
+			var scenario=scenario(List.of(new EvaluationCheck("inventory_contains",Map.of("itemId","minecraft:iron_ingot","count",1))),new EvaluationBudget(4,200,0,5));
+			runner.start(scenario,0,0);
+			if (alreadyRunning) runner.onTick(context);
+			context.tick=7; context.inventoryCount=1; context.requiredEvidenceFailure=Optional.of("trace_queue_overflow");
+			runner.onTick(context);
+			var report=runner.report(context.tick);
+			assertEquals(EvaluationStatus.NEEDS_REVIEW,report.status());
+			assertEquals("Required decision recording failed: trace_queue_overflow",report.message());
+			assertTrue(report.evidenceReviewRequired());
+			assertEquals(alreadyRunning ? 1 : 0,context.triggers.size());
+			context.tick=100; context.requiredEvidenceFailure=Optional.empty(); runner.onTick(context);
+			assertEquals(report,runner.report(context.tick),"a recovered writer cannot retroactively validate lost decisions");
+		}
+	}
 	@Test
 	void eventChecksRequireTheSpecifiedPayloadRatherThanOnlyAnEventType() {
 		var runner = new ScenarioEvaluationRunner(); var context = new FakeContext();
@@ -439,6 +456,8 @@ class ScenarioEvaluationRunnerTest {
 		private final Map<String, String> blocks = new HashMap<>();
 		private final Map<String, Map<String, String>> blockProperties = new HashMap<>();
 		private Optional<String> declaredFailure = Optional.empty();
+		private Optional<String> requiredEvidenceFailure = Optional.empty();
+		@Override public Optional<String> requiredEvidenceFailure() { return requiredEvidenceFailure; }
 		private String taskExecutionState = "IDLE";
 		private final ArrayList<String> triggers = new ArrayList<>();
 

@@ -1,0 +1,29 @@
+id: system-one-recording-overflow
+name: Abort promptly when required decision recording overflows
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain three cobblestone using local excavation. The evaluator prepares
+  an isolated soil-covered stone platform and supplies a wooden pickaxe.
+goal:
+  kind: inventory_item
+  itemId: minecraft:cobblestone
+  quantity: 3
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:cobblestone
+    count: 3
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

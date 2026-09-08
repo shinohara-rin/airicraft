@@ -91,7 +91,7 @@ public final class EvaluationAddonRuntime {
 				return;
 			}
 		}
-		runner.onTick(new RuntimeEvaluationContext(runtime, activeScenario.id()));
+		runner.onTick(new RuntimeEvaluationContext(runtime, activeScenario.id(), recorder.requiredEvidenceFailure()));
 		var report = runner.report(runtime.tickCount());
 		recorder.recordTick(activeScenario, report, runtime, this::evidencePayload);
 		if (runner.terminal()) {
@@ -440,12 +440,14 @@ public final class EvaluationAddonRuntime {
 	}
 
 	private static final class RuntimeEvaluationContext implements ScenarioEvaluationRunner.Context {
+		private final Optional<String> evidenceFailure;
 		private final EmbodiedAgentRuntime runtime;
 		private final String scenarioId;
 
-		private RuntimeEvaluationContext(EmbodiedAgentRuntime runtime, String scenarioId) {
+		private RuntimeEvaluationContext(EmbodiedAgentRuntime runtime, String scenarioId, Optional<String> evidenceFailure) {
 			this.runtime = runtime;
 			this.scenarioId = scenarioId;
+			this.evidenceFailure = evidenceFailure;
 		}
 
 		@Override
@@ -526,6 +528,7 @@ public final class EvaluationAddonRuntime {
 				? Optional.empty()
 				: Optional.of("Planner entered degraded mode");
 		}
+		@Override public Optional<String> requiredEvidenceFailure() { return evidenceFailure; }
 
 		@Override
 		public int inventoryCount(String itemId) {

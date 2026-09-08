@@ -28,7 +28,9 @@ public final class DecisionTraceWriter {
 	public DecisionTraceWriter(Path path) {
 		this(path, task -> Thread.ofPlatform().name("system-one-recorder").daemon(true).start(task));
 	}
-	DecisionTraceWriter(Path path, java.util.function.Consumer<Runnable> startWorker) { startWorker.accept(() -> write(path)); }
+	/** The supplied owner schedules the I/O worker; accepting inputs never waits for that worker. */
+	public DecisionTraceWriter(Path path, java.util.function.Consumer<Runnable> startWorker) { startWorker.accept(() -> write(path)); }
+	public java.util.Optional<String> failure() { return java.util.Optional.ofNullable(failure.get()); }
 	public void accept(Object row) {
 		if (closing) { failure.compareAndSet(null, "input_after_close"); return; }
 		if (failure.get() == null && !queue.offer(row)) failure.compareAndSet(null, "trace_queue_overflow");
