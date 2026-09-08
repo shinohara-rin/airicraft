@@ -1,0 +1,223 @@
+{
+  "batch": "eval-output/20260908-124843-589350-10978",
+  "policyCommit": "a2c17e5c",
+  "policyVersion": "reactive-production-v75",
+  "runs": [
+    {
+      "run": "eval-output/20260908-124843-589350-10978/01-system-one-mushroom-obstruction",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 422,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:50:12Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 11327,
+        "pid": 11263,
+        "requestedAt": "2026-09-08T04:50:08Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "motor": {
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": ""
+        },
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v75",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:cobblestone:3",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v12"
+      },
+      "recording": {
+        "writtenRows": 348,
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": ""
+      },
+      "exactReplay": "Replay verified: 347 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:cobblestone:3]",
+      "commands": {
+        "Break": 13,
+        "Navigate": 4
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 13,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "37b77e3ef0e8370243eda7228ace5c1846f62bcd4ca517bb99d0b4139c625fd0"
+    },
+    {
+      "run": "eval-output/20260908-124843-589350-10978/02-system-one-return-blocked",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 1987,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:52:16Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 11686,
+        "pid": 11624,
+        "requestedAt": "2026-09-08T04:52:13Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "methodVersion": "reactive-production-v75",
+        "motorVersion": "production-motor-v13",
+        "motor": {
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "run": "system-one-1",
+        "taskStack": "[]"
+      },
+      "recording": {
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 1919,
+        "failure": "",
+        "finished": true
+      },
+      "exactReplay": "Replay verified: 1918 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:raw_iron:1]",
+      "commands": {
+        "Break": 13,
+        "CollectSmelt": 2,
+        "Craft": 4,
+        "Look": 5,
+        "Navigate": 78,
+        "Place": 5,
+        "StartSmelt": 2
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 13,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "23bae54716e34b745bb46d8c0dcc9405f63c7488423c62e25884705ed446d737"
+    },
+    {
+      "run": "eval-output/20260908-124843-589350-10978/03-system-one-stone-canopy",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 486,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:53:06Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 12270,
+        "pid": 12198,
+        "requestedAt": "2026-09-08T04:53:04Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "motor": {
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:cobblestone:3",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v75",
+        "motorVersion": "production-motor-v13"
+      },
+      "recording": {
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 423,
+        "failure": "",
+        "finished": true
+      },
+      "exactReplay": "Replay verified: 422 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:cobblestone:3]",
+      "commands": {
+        "Break": 12,
+        "Navigate": 25
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 12,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "c1fdfe79ee7251e07195f61b160d9a7d56d9c6889963f2d86c5a135936150eb4"
+    }
+  ],
+  "limits": [
+    "These are targeted shared-access regressions, not the integrated seed-01 gate.",
+    "No new visual review or full hidden-read audit is claimed."
+  ]
+}
