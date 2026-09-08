@@ -1,0 +1,84 @@
+{
+  "implementationCommit": "8b0b900c",
+  "policy": "reactive-production-v69",
+  "motorVersion": "production-motor-v13",
+  "runDirectory": "eval-output/20260908-094118-163181-54799/01-system-one-world-change",
+  "scenarioOutcome": "PASSED",
+  "harnessOutcome": "OK",
+  "elapsedTicks": 1051,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T01:42:58Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 55019,
+    "pid": 54947,
+    "requestedAt": "2026-09-08T01:42:54Z"
+  },
+  "llmCalls": {
+    "latestSequenceId": 0,
+    "records": 0,
+    "truncated": false
+  },
+  "finalMotor": {
+    "command": "",
+    "finishing": "",
+    "releasePending": false,
+    "smelting": "",
+    "crafting": "",
+    "pathingActive": false,
+    "stopping": false,
+    "edgePlacement": ""
+  },
+  "transitionProbe": {
+    "passed": true,
+    "transitionObservedAt": 125,
+    "cancelledWithoutHelp": true,
+    "terrainCellsAfterInvalidation": 0,
+    "capturedViewInvalidated": true,
+    "finishedReceiptWithheld": true,
+    "recording": {
+      "finished": true,
+      "queuedRows": 0,
+      "complete": true,
+      "writtenRows": 39,
+      "failure": ""
+    }
+  },
+  "returnObservation": {
+    "light": 15,
+    "tick": 535,
+    "sourceDimension": "minecraft:overworld",
+    "feet": "0, 200, 15",
+    "chunkAvailable": false
+  },
+  "unavailableInput": {
+    "ticks": 185,
+    "firstTick": 536,
+    "lastTick": 720,
+    "effectsIssued": 0,
+    "meaning": "The accepted new mission waited without losing its goal until its client chunk arrived."
+  },
+  "replays": [
+    {
+      "recording": "system-one-decisions.jsonl.gz",
+      "turns": 539,
+      "status": "exact",
+      "sha256": "d21a168f11f6e902a0c1c9ec54af4458eed8f1ce89a3deea8141d1a2e2aa1361",
+      "classSnapshot": "/private/tmp/airicraft-replay-v69"
+    },
+    {
+      "recording": "system-one-world-probe-decisions.jsonl.gz",
+      "turns": 38,
+      "status": "exact",
+      "sha256": "3a37ce2da3f06d60f926894a8826a64714d95266c228ecbe26f59238c5a8f7c7",
+      "classSnapshot": "/private/tmp/airicraft-replay-v69"
+    }
+  ],
+  "limitations": [
+    "World-change invalidation cancels the old mission; autonomous portal travel/resumption is not implemented.",
+    "The probe interrupts block-oriented work, not an in-flight workstation transaction.",
+    "No full hidden-read or survival audit is established by this fixture."
+  ]
+}
