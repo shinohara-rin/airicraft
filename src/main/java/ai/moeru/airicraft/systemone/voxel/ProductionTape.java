@@ -21,7 +21,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final String METHOD_VERSION = "reactive-production-v68";
+	public static final String METHOD_VERSION = "reactive-production-v69";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}
@@ -121,6 +121,7 @@ public final class ProductionTape {
 						observation.removed().forEach(known::remove); observation.changed().forEach(cell -> known.put(cell.pos(), cell.seen()));
 						world = new World(observation.eye(), observation.feet(), observation.inventory(), known, observation.footholds(), observation.vitals(), observation.drops());
 					}
+					else known.clear(); // The next non-null input is a complete snapshot, not a delta across the gap.
 					var step = kernel.advance(state, world, turn.feedback().stream().map(StoneTape.Reply::decode).toList(), turn.tick(), Optional.ofNullable(turn.cancellation()));
 					if (!GSON.toJsonTree(lightingTrace(state, step.state(), world)).equals(row.get("lighting"))) throw new IllegalArgumentException("Production lighting state mismatch at " + turn.tick());
 					if (!GSON.toJsonTree(searchChanges(state, step.state())).equals(row.get("search"))) throw new IllegalArgumentException("Production search evidence mismatch at " + turn.tick());

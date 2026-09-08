@@ -22,16 +22,18 @@ final class SystemOneStoneFixture {
 	private BlockPos returnBarrier;
 	private SystemOneTerrainProbe terrainProbe = new SystemOneTerrainProbe();
 	private SystemOneTargetFault targetFault = new SystemOneTargetFault();
+	private SystemOneWorldProbe worldProbe = new SystemOneWorldProbe();
 	private java.nio.file.Path output;
 
 	void reset(java.nio.file.Path output) {
 		preparation = null; depletion = null; routeChange = null; returnBarrier = null; readyAfter = Long.MAX_VALUE; setupComplete = false;
-		terrainProbe = new SystemOneTerrainProbe(); targetFault = new SystemOneTargetFault(); this.output = output;
+		terrainProbe = new SystemOneTerrainProbe(); targetFault = new SystemOneTargetFault(); worldProbe = new SystemOneWorldProbe(); this.output = output;
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
+			if (scenario.equals("system-one-world-change")) return worldProbe.ready(client,tick,output);
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
@@ -286,7 +288,7 @@ final class SystemOneStoneFixture {
 		preparation.join();
 		if (readyAfter == Long.MAX_VALUE) readyAfter = tick + 40;
 		setupComplete = tick >= readyAfter && client.player.getBlockY() == (scenario.equals("system-one-pickup-step") ? 197 : 200);
-		return setupComplete && (!scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output));
+		return setupComplete && (!scenario.equals("system-one-world-change") || worldProbe.ready(client,tick,output)) && (!scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output));
 	}
 	private void injectSurvivalFailure(MinecraftClient client, String scenario, long tick) {
 		if (depletion != null) { if (depletion.isDone()) depletion.join(); return; }

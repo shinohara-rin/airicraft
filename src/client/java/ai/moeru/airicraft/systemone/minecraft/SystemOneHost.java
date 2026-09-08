@@ -25,6 +25,7 @@ public final class SystemOneHost {
 	private final MinecraftSensor sensor = new MinecraftSensor();
 	private final MinecraftMotor motor = new MinecraftMotor();
 	private State<ProductionDomain.Task> state;
+	private net.minecraft.client.world.ClientWorld missionWorld;
 	private String cancellation;
 	private long sequence;
 	private long recordingSequence;
@@ -42,8 +43,9 @@ public final class SystemOneHost {
 		java.util.function.BiFunction<Long, List<Feedback>, List<Feedback>> delivery) {
 		if (state != null && state.outcome().isEmpty()) throw new IllegalStateException("A System 1 mission is already active");
 		if (count < 1) throw new IllegalArgumentException("Positive quantity required");
-		if (client.world == null || client.player == null) throw new IllegalStateException("World not loaded");
+		if (client.world == null || client.player == null || client.interactionManager == null) throw new IllegalStateException("World not loaded");
 		feedbackDelivery = java.util.Objects.requireNonNull(delivery);
+		missionWorld = client.world;
 		sensor.clear(); cancellation = null; retentionTasks = List.of(); retained = java.util.Set.of();
 		recordingSequence = 0; recordedObservation = null;
 		knowledge = MinecraftProductionKnowledge.capture(client);
@@ -56,15 +58,19 @@ public final class SystemOneHost {
 
 	public void tick(MinecraftClient client, long tick, BiConsumer<String, Map<String, Object>> trace) {
 		if (state == null || state.outcome().isPresent()) return;
+		boolean worldInvalid = client.world != missionWorld || client.player == null || client.interactionManager == null;
+		if (worldInvalid) {
+			if (cancellation == null) cancellation = client.world == null || client.player == null || client.interactionManager == null ? "world_left" : "world_changed";
+			sensor.clear();
+		}
 		List<Feedback> received = motor.tick(client, tick).map(List::of).orElseGet(List::of);
 		for (var reply : received) trace.accept("system_one.motor_feedback_received", Map.of(
 			"run", state.run(), "token", reply.token().toString(), "kind", reply.getClass().getSimpleName(),
 			"detail", reply instanceof Finished finished ? finished.outcome().toString() : "released"));
 		List<Feedback> feedback = List.copyOf(feedbackDelivery.apply(tick, received));
-		if (client.world == null || client.player == null) cancellation = "world_left";
 		var tasks = state.stack().stream().map(Frame::task).toList();
 		if (!tasks.equals(retentionTasks)) { retained = ProductionDomain.retainedCells(tasks); retentionTasks = tasks; }
-		StoneAcquisition.World observation = client.world == null || client.player == null ? null : sensor.observe(client, tick, retained);
+		StoneAcquisition.World observation = worldInvalid ? null : sensor.observe(client, tick, retained);
 		var step = kernel.advance(state, observation, feedback, tick, Optional.ofNullable(cancellation));
 		decisionRecorder.accept(ProductionTape.turn(++recordingSequence, recordedObservation, observation, feedback, cancellation, state, step));
 		recordedObservation = observation;
@@ -106,6 +112,6 @@ public final class SystemOneHost {
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
 				"motor", motor.status(), "knowledgeVersion", knowledge.version(), "methodVersion", ProductionTape.METHOD_VERSION,
-				"policyVersion", "observed-survival-v1", "motorVersion", "production-motor-v12");
+				"policyVersion", "observed-survival-v1", "motorVersion", "production-motor-v13");
 	}
 }

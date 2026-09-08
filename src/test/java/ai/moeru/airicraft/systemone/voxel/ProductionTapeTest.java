@@ -15,6 +15,40 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 class ProductionTapeTest {
 	private static final Gson GSON = new Gson();
+	@Test void unavailableObservationPreservesAReceiptAndReplayResumesFromTheFreshSnapshot() {
+		var book = new ProductionKnowledge("availability",List.of(),List.of(new ProductionKnowledge.Harvest("ore_item",List.of("ore_block"),List.of(),ProductionKnowledge.Technique.EXPOSED)));
+		var kernel = new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book),StoneTape.LIMITS);
+		var initial = kernel.begin("session","run",Acquire.root("ore_item",1),0);
+		var base = ItemPickupTest.world(Map.of(),List.of());
+		var a=base.feet().offset(0,0,1); var b=base.feet().offset(1,0,1);
+		var known=new java.util.HashMap<>(base.known());
+		for(var pos:List.of(a,b)) known.put(pos,new Seen("ore_block",false,true,true,15,1));
+		var observed=new StoneAcquisition.World(base.eye(),base.feet(),base.inventory(),known);
+		var first=kernel.advance(initial,observed,List.of(),1);
+		var start=assertInstanceOf(Start.class,first.effects().getFirst());
+		assertEquals(a,assertInstanceOf(VoxelCommand.Break.class,start.command()).target());
+		var receipt=new Finished(start.token(),Outcome.failure("observed_target_changed"));
+		var missing=kernel.advance(first.state(),null,List.of(receipt),2);
+		assertTrue(missing.effects().isEmpty());
+		assertEquals(Optional.of(receipt.outcome()),missing.state().stack().getLast().commandResult());
+		var waiting=kernel.advance(missing.state(),null,List.of(),3);
+		assertEquals(missing.state().stack(),waiting.state().stack(),"missing terrain must not consume the task or its feedback");
+		var fresh=new java.util.HashMap<>(base.known()); fresh.remove(a); fresh.remove(b);
+		var restored=new StoneAcquisition.World(base.eye(),base.feet(),base.inventory(),fresh);
+		var resumed=kernel.advance(waiting.state(),restored,List.of(),4);
+		assertFalse(resumed.effects().stream().anyMatch(e->e instanceof Start<?> s && s.command() instanceof VoxelCommand.Break));
+		var ended=kernel.advance(resumed.state(),restored,List.of(),5,Optional.of("test_finished"));
+		var released=kernel.advance(ended.state(),restored,ended.effects().stream().filter(e->e instanceof Stop<?>).map(e->(Feedback)new Released(((Stop<?>)e).token())).toList(),6,Optional.of("test_finished"));
+		var replay=new ProductionTape.Replay();
+		List.of(json(ProductionTape.header(initial,book)),json(ProductionTape.turn(1,null,observed,List.of(),null,initial,first)),
+			json(ProductionTape.turn(2,observed,null,List.of(receipt),null,first.state(),missing)),
+			json(ProductionTape.turn(3,null,null,List.of(),null,missing.state(),waiting)),
+			json(ProductionTape.turn(4,null,restored,List.of(),null,waiting.state(),resumed)),
+			json(ProductionTape.turn(5,restored,restored,List.of(),"test_finished",resumed.state(),ended)),
+			json(ProductionTape.turn(6,restored,restored,ended.effects().stream().filter(e->e instanceof Stop<?>).map(e->(Feedback)new Released(((Stop<?>)e).token())).toList(),"test_finished",ended.state(),released)),
+			json(Map.of("type","end","rows",7))).forEach(replay::accept);
+		assertEquals(ResultKind.CANCELLED,replay.finish().kind());
+	}
 	@Test void replaysTheRecordedCatalogAndProductionDecisions() {
 		var replay = new ProductionTape.Replay();
 		rows().forEach(replay::accept);

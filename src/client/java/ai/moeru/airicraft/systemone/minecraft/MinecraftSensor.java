@@ -22,10 +22,17 @@ final class MinecraftSensor {
 	private final Map<BlockPos, BlockState> terrain = new HashMap<>();
 	private final java.util.Set<Pos> footholds = new java.util.HashSet<>();
 	private net.minecraft.client.network.ClientPlayerEntity previousPlayer;
+	private net.minecraft.client.world.ClientWorld previousWorld;
 	private long life;
 
 	StoneAcquisition.World observe(MinecraftClient client, long tick, java.util.Set<Pos> retained) {
+		if (previousWorld != null && previousWorld != client.world) clear();
+		previousWorld = client.world;
 		var player = client.player;
+		if (client.world.getChunkManager().getChunk(player.getBlockX() >> 4, player.getBlockZ() >> 4, net.minecraft.world.chunk.ChunkStatus.FULL, false) == null) {
+			ObservedTerrain.clear();
+			return null;
+		}
 		if (previousPlayer != null && previousPlayer != player) { life++; footholds.clear(); }
 		previousPlayer = player;
 		var eye = player.getEyePos();
@@ -67,5 +74,5 @@ final class MinecraftSensor {
 		drops.sort(java.util.Comparator.comparing(ItemObservation.Drop::id));
 		return new StoneAcquisition.World(pose, feet, inventory, memory, footholds, new SurvivalPolicy.Vitals(life, player.getHealth(), player.isInLava(), player.isOnFire()), drops);
 	}
-	void clear() { memory.clear(); terrain.clear(); footholds.clear(); previousPlayer = null; life = 0; ObservedTerrain.clear(); }
+	void clear() { memory.clear(); terrain.clear(); footholds.clear(); previousPlayer = null; previousWorld = null; life = 0; ObservedTerrain.clear(); }
 }

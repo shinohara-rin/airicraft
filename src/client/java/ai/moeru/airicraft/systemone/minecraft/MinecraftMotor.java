@@ -24,6 +24,10 @@ final class MinecraftMotor {
 	private final LiveBaritoneFacade pathing = new LiveBaritoneFacade();
 	private final Map<Settings.Setting<?>, Object> savedSettings = new HashMap<>();
 	private Start<VoxelCommand> active;
+	private Token lastReleased, pendingRelease;
+	private net.minecraft.client.world.ClientWorld commandWorld;
+	private net.minecraft.client.network.ClientPlayerEntity commandPlayer;
+	private net.minecraft.client.network.ClientPlayerInteractionManager commandInteractions;
 	private long started;
 	private Vec3d lastPosition;
 	private double travelled;
@@ -38,13 +42,16 @@ final class MinecraftMotor {
 
 	void apply(Effect<VoxelCommand> effect, MinecraftClient client, long tick) {
 		if (effect instanceof Stop<VoxelCommand> stop) {
+			// Delivery can lag physical release. A matching stop still receives a truthful acknowledgement.
+			if (active == null && stop.token().equals(lastReleased)) { pendingRelease = stop.token(); return; }
 			if (active == null || !active.token().equals(stop.token())) throw new IllegalStateException("Stopping an unowned command");
 			stopping = true;
 			requestRelease(client);
 			return;
 		}
-		if (active != null || pathing.processActive()) throw new IllegalStateException("Motor already owned");
+		if (active != null || pendingRelease != null || pathing.processActive()) throw new IllegalStateException("Motor already owned");
 		active = (Start<VoxelCommand>) effect;
+		commandWorld = client.world; commandPlayer = client.player; commandInteractions = client.interactionManager;
 		started = tick;
 		lastPosition = client.player.getPos(); travelled = 0;
 		navigationIdleTicks = 0;
@@ -68,10 +75,19 @@ final class MinecraftMotor {
 	}
 
 	Optional<Feedback> tick(MinecraftClient client, long tick) {
-		if (active == null) return Optional.empty();
-		if (client.player == null || client.world == null || client.interactionManager == null) {
-			stopping = true;
+		if (active == null) {
+			if (pendingRelease == null) return Optional.empty();
+			var reply = new Released(pendingRelease); pendingRelease = null; return Optional.of(reply);
+		}
+		if (client.world != commandWorld || client.player != commandPlayer || client.interactionManager != commandInteractions
+			|| client.player == null || client.world == null || client.interactionManager == null) {
+			// Old container and edge-placement continuations must never manipulate the replacement player/world.
+			crafting = null; smelting = null; edgePlacement = null;
+			if (finishing == null) finishing = Outcome.failure("command_context_changed");
 			requestRelease(client);
+			client.options.forwardKey.setPressed(false); client.options.backKey.setPressed(false);
+			client.options.leftKey.setPressed(false); client.options.rightKey.setPressed(false);
+			client.options.jumpKey.setPressed(false); client.options.sprintKey.setPressed(false); client.options.sneakKey.setPressed(false);
 		}
 		if (stopping || finishing != null) {
 			if (pathing.processActive() || pathing.cancellationPending()) return Optional.empty();
@@ -81,6 +97,7 @@ final class MinecraftMotor {
 			var result = stopping ? new Released(active.token()) : new Finished(active.token(), finishing);
 			BaritoneAPI.getProvider().getPrimaryBaritone().getInputOverrideHandler().clearAllKeys();
 			restoreSettings();
+			lastReleased = active.token(); commandWorld = null; commandPlayer = null; commandInteractions = null;
 			active = null; stopping = false; finishing = null; breaking = false; crafting = null; smelting = null; edgePlacement = null;
 			return Optional.of(result);
 		}

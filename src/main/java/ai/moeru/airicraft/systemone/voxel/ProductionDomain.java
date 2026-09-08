@@ -152,6 +152,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return decide(List.of(view), world);
 	}
 	@Override public Decision<Task, VoxelCommand> decide(List<View<Task>> branch, World world) {
+		if (world == null) return new Keep<>();
 		var protectedWorld = SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList()));
 		var result = decidePrepared(branch.getLast(), protectedWorld);
 		if (result instanceof Execute<Task, VoxelCommand> action && action.command() instanceof Break broken && protectedWorld.footholds().contains(broken.target())) return failure("reserved_support");
