@@ -1,0 +1,62 @@
+{
+  "sourceCommit": "a6f03f76",
+  "methodVersion": "reactive-production-v79",
+  "run": "eval-output/20260908-142652-416254-38555/01-iron-pickaxe",
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 21394,
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "coverage": "complete",
+  "exactReplayTurns": 21374,
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v14",
+    "methodVersion": "reactive-production-v79",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "FAILED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false
+    }
+  },
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T06:45:31Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 38773,
+    "pid": 38717,
+    "requestedAt": "2026-09-08T06:45:25Z"
+  },
+  "diagnosis": {
+    "supplyRequestedTick": 17835,
+    "supplyRequestedFeet": {
+      "x": -23,
+      "y": 16,
+      "z": 142
+    },
+    "repairRevokedTick": 20235,
+    "repairRevokedFeet": {
+      "x": -7,
+      "y": 16,
+      "z": 111
+    },
+    "observedLightAtRevocation": 14,
+    "branchFailureTick": 21402,
+    "branchFailure": "lighting_repair_budget_or_health:retreated",
+    "finding": "The fixed 2400-tick repair deadline expired on the return leg in working light, after torch production. Separating repair work from return travel remains required; v80 prospective-region recovery does not fix this."
+  }
+}

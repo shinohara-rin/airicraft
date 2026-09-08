@@ -1,0 +1,271 @@
+{
+  "sourceCommit": "5dc3ed38",
+  "methodVersion": "reactive-production-v81",
+  "motorVersion": "production-motor-v14",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 218,
+    "evaluator": 38,
+    "python": 49
+  },
+  "runs": [
+    {
+      "run": "eval-output/20260908-145521-331410-45601/01-system-one-pickup-headroom",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 105,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "coverage": "complete",
+      "exactReplayTurns": 37,
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v14",
+        "methodVersion": "reactive-production-v81",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T06:56:11Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 45835,
+        "pid": 45775,
+        "requestedAt": "2026-09-08T06:56:09Z"
+      },
+      "commands": {
+        "Break": 1,
+        "Navigate": 2
+      },
+      "commandFailures": {},
+      "observedSequence": {
+        "pickupTask": 3,
+        "accessTask": 4,
+        "accessRequestedTick": 86,
+        "headroomBreakStartedTick": 100,
+        "headroom": {
+          "x": 0,
+          "y": 201,
+          "z": 17
+        },
+        "headroomBefore": "minecraft:stone",
+        "headroomObservedClearTick": 113,
+        "approachStartedTick": 115,
+        "rawIronInventoryObservedTick": 121,
+        "releaseAcknowledgedAndCompletedTick": 122,
+        "floorSupport": "minecraft:bedrock at (0,199,17), retained in observed memory; not a break target",
+        "scope": "Recorded observations and effects verified by exact replay; no screenshot or full perception audit."
+      }
+    },
+    {
+      "run": "eval-output/20260908-145521-331410-45601/02-system-one-return-route",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 2600,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "coverage": "complete",
+      "exactReplayTurns": 2531,
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v14",
+        "methodVersion": "reactive-production-v81",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T06:58:43Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 45976,
+        "pid": 45918,
+        "requestedAt": "2026-09-08T06:58:41Z"
+      },
+      "commands": {
+        "Break": 35,
+        "CollectSmelt": 2,
+        "Craft": 4,
+        "Look": 6,
+        "Navigate": 96,
+        "Place": 9,
+        "StartSmelt": 2
+      },
+      "commandFailures": {},
+      "supplyAudit": {
+        "outward": [
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 55
+            },
+            "tick": 627,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 69
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 39
+            },
+            "tick": 692,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 55
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 23
+            },
+            "tick": 768,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 39
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 200,
+              "z": 15
+            },
+            "tick": 844,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 23
+            }
+          }
+        ],
+        "task": 3,
+        "scope": "Issued navigation, observed feet and exact lifecycle replay; no independent physics or hidden-read audit.",
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:raw_iron:1"
+        },
+        "returning": [
+          {
+            "target": {
+              "x": 0,
+              "y": 198,
+              "z": 17
+            },
+            "tick": 2214,
+            "observedFeet": {
+              "x": -3,
+              "y": 199,
+              "z": 18
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 32
+            },
+            "tick": 2238,
+            "observedFeet": {
+              "x": 0,
+              "y": 198,
+              "z": 17
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 48
+            },
+            "tick": 2315,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 32
+            }
+          },
+          {
+            "target": {
+              "x": -1,
+              "y": 196,
+              "z": 63
+            },
+            "tick": 2391,
+            "observedFeet": {
+              "x": 0,
+              "y": 196,
+              "z": 48
+            }
+          },
+          {
+            "target": {
+              "x": 0,
+              "y": 196,
+              "z": 69
+            },
+            "tick": 2468,
+            "observedFeet": {
+              "x": -1,
+              "y": 196,
+              "z": 63
+            }
+          }
+        ],
+        "exactReplayTurns": 2531,
+        "sameTaskResumedAt": 2504,
+        "interruptedDestination": {
+          "x": 0,
+          "y": 196,
+          "z": 69
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Long-return rerun succeeds, but item motion is not identical across runs; the focused headroom fixture exercises the changed path directly.",
+    "Original iron-pickaxe repair timeout remains unresolved.",
+    "Full navigation-state recording, perception audit, held-out release, cutover and game completion remain open."
+  ]
+}
