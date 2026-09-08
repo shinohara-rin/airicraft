@@ -1,0 +1,44 @@
+{
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 2260,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T07:12:05Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 48764,
+    "pid": 48706,
+    "requestedAt": "2026-09-08T07:12:00Z"
+  },
+  "run": "eval-output/20260908-150921-161186-48530/01-system-one-return-long",
+  "sourceCommit": "00d5a8e6",
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v14",
+    "motor": {
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": "",
+      "pathingActive": false,
+      "stopping": false,
+      "edgePlacement": ""
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "state": "FAILED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one",
+    "outcome": "no_production_method:minecraft:raw_iron rejected=[minecraft:raw_iron:9:2:[Cell[slot=0, item=minecraft:raw_iron_block]], search:minecraft:raw_iron]",
+    "run": "system-one-1",
+    "taskStack": "[]",
+    "methodVersion": "reactive-production-v82"
+  },
+  "exactReplayTurns": 2187,
+  "coverage": "complete",
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "interpretation": "The 220-block corridor exhausted three search areas before reaching the torch-depletion point. This does not exercise return travel beyond the repair deadline. No agent budget changed for the revised fixture."
+}

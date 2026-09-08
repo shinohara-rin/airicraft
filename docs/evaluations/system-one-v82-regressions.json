@@ -1,0 +1,254 @@
+{
+  "sourceCommit": "00d5a8e6",
+  "methodVersion": "reactive-production-v82",
+  "motorVersion": "production-motor-v14",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "runs": [
+    {
+      "id": "system-one-dim-health-loss",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 90,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T07:11:33Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 49137,
+        "pid": 49063,
+        "requestedAt": "2026-09-08T07:11:31Z"
+      },
+      "run": "eval-output/20260908-151030-752657-48897/01-system-one-dim-health-loss",
+      "runtimeFinal": {
+        "runtime": "system_one",
+        "outcome": "lighting_allowance_revoked:health_loss:refuge_unavailable",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v82",
+        "motorVersion": "production-motor-v14",
+        "motor": {
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "FAILED",
+        "policyVersion": "observed-survival-v1"
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "startsAfterInjury": 0,
+        "exactReplayTurns": 6,
+        "releaseAcknowledgedTick": 114,
+        "originalAllowanceDeadline": 2509,
+        "actingDimSamplesByTask": {
+          "Explore": 4
+        },
+        "observedInjuryTick": 113,
+        "scope": "Recorded mission policy and lifecycle for these fixtures only; no full perception audit or physical-exposure certification.",
+        "distinctEpisodes": 1,
+        "outcome": {
+          "kind": "FAILED",
+          "evidence": "lighting_allowance_revoked:health_loss:refuge_unavailable"
+        }
+      }
+    },
+    {
+      "id": "system-one-lighting-region",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 248,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T07:12:17Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 49313,
+        "pid": 49241,
+        "requestedAt": "2026-09-08T07:12:14Z"
+      },
+      "run": "eval-output/20260908-151030-752657-48897/02-system-one-lighting-region",
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v14",
+        "methodVersion": "reactive-production-v82",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:coal:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "scope": "Recorded task preservation, observed motion/light and release ordering. No complete perception audit.",
+        "resumedTick": 162,
+        "requestedTick": 142,
+        "releaseTick": 162,
+        "task": 3,
+        "exactReplayTurns": 176,
+        "retreatStartZ": 22,
+        "minimumRetreatZ": 18,
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:coal:1"
+        },
+        "retreatStopTick": 161
+      }
+    },
+    {
+      "id": "system-one-lighting-wait",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 277,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T07:12:56Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 49566,
+        "pid": 49470,
+        "requestedAt": "2026-09-08T07:12:53Z"
+      },
+      "run": "eval-output/20260908-151030-752657-48897/03-system-one-lighting-wait",
+      "runtimeFinal": {
+        "motor": {
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v82",
+        "motorVersion": "production-motor-v14"
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "activity": "CollectBatch",
+        "releaseTick": -1,
+        "originalCookingDeadline": 489,
+        "interruptedTick": 92,
+        "exactReplayTurns": 211,
+        "resumedTick": 98,
+        "task": 3,
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Observed light and exact lifecycle replay. Does not audit hidden reads or independently prove every physical action."
+      }
+    },
+    {
+      "id": "system-one-return-blocked",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 623,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T07:13:54Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 49743,
+        "pid": 49689,
+        "requestedAt": "2026-09-08T07:13:52Z"
+      },
+      "run": "eval-output/20260908-151030-752657-48897/04-system-one-return-blocked",
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v14",
+        "methodVersion": "reactive-production-v82",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "coverage": "complete",
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "exactReplayTurns": 555,
+      "checks": [
+        {
+          "type": "inventory_contains",
+          "passed": true,
+          "message": "inventory contains 1x minecraft:raw_iron"
+        },
+        {
+          "type": "event_contains",
+          "passed": false,
+          "message": "event not seen: system_one.task_suspended"
+        },
+        {
+          "type": "event_contains",
+          "passed": false,
+          "message": "event not seen: system_one.task_resumed"
+        },
+        {
+          "type": "event_contains",
+          "passed": false,
+          "message": "event not seen: system_one.task_suspended"
+        },
+        {
+          "type": "event_contains",
+          "passed": false,
+          "message": "event not seen: system_one.task_resumed"
+        }
+      ],
+      "interpretation": "Inventory reached without a supply interruption; route-change injection never fired. Not proof of blocked-route recovery."
+    }
+  ],
+  "limitations": [
+    "These cases do not establish current-policy iron-pickaxe success, full perception auditing or release readiness.",
+    "Blocked-return lifecycle did not occur; the failed scenario remains retained."
+  ]
+}
