@@ -1,0 +1,86 @@
+{
+  "scenarioPath": "eval-output/20260908-101439-750985-63653/01-iron-pickaxe-development-03",
+  "policy": "reactive-production-v69",
+  "productionFormatVersion": 3,
+  "reportStatus": "PASSED",
+  "harnessStatus": "OK",
+  "elapsedTicks": 20243,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T02:32:13Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 63838,
+    "pid": 63791,
+    "requestedAt": "2026-09-08T02:32:09Z"
+  },
+  "recording": {
+    "finished": true,
+    "queuedRows": 0,
+    "complete": true,
+    "writtenRows": 20226,
+    "failure": ""
+  },
+  "exactReplayTurns": 20225,
+  "commands": {
+    "Break": 323,
+    "CollectSmelt": 7,
+    "Craft": 24,
+    "EdgePlace": 3,
+    "Look": 813,
+    "Navigate": 513,
+    "Place": 27,
+    "StartSmelt": 7
+  },
+  "commandFailures": {
+    "observed_route_unavailable": 36,
+    "navigation_budget_exhausted": 10
+  },
+  "breakTargetAudit": {
+    "status": "complete",
+    "checked_breaks": 323,
+    "mismatched_breaks": 0,
+    "missing_evidence_breaks": 0,
+    "missing_input_turns": 0,
+    "reasons": {},
+    "unclassified_effects": 0,
+    "recent_problems": [],
+    "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+  },
+  "perceptionAudit": {
+    "status": "unavailable",
+    "count": null,
+    "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+  },
+  "terminal": {
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "run": "system-one-1",
+    "taskStack": "[]",
+    "methodVersion": "reactive-production-v69",
+    "motorVersion": "production-motor-v13",
+    "motor": {
+      "edgePlacement": "",
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": "",
+      "pathingActive": false,
+      "stopping": false
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v9",
+    "state": "SUCCEEDED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one"
+  },
+  "limitations": [
+    "This is development seed 03, not a held-out release result.",
+    "The fresh spawn differs from previous runs; this is not a controlled before/after gameplay comparison.",
+    "813 survey look commands show substantial remaining resource-search inefficiency.",
+    "Exact decision replay and target identity/time checks do not establish a complete perception audit."
+  ],
+  "llmRecords": 0,
+  "llmRecordsTruncated": false
+}
