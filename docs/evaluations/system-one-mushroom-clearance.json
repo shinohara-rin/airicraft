@@ -1,0 +1,141 @@
+{
+  "before": {
+    "run": "eval-output/20260908-112306-499707-82686/01-system-one-mushroom-obstruction",
+    "reportStatus": "FAILED",
+    "harnessStatus": "OK",
+    "elapsedTicks": 694,
+    "exactReplayTurns": 622,
+    "llmRecords": 0,
+    "clientExitCode": 0,
+    "recording": {
+      "failure": "",
+      "writtenRows": 623,
+      "complete": true,
+      "queuedRows": 0,
+      "finished": true
+    },
+    "runtimeFinal": {
+      "run": "system-one-1",
+      "outcome": "no_production_method:minecraft:cobblestone rejected=[harvest:minecraft:cobblestone]",
+      "runtime": "system_one",
+      "policyVersion": "observed-survival-v1",
+      "state": "FAILED",
+      "knowledgeVersion": "minecraft-recipe-display-v10",
+      "motor": {
+        "edgePlacement": "",
+        "stopping": false,
+        "pathingActive": false,
+        "crafting": "",
+        "smelting": "",
+        "releasePending": false,
+        "finishing": "",
+        "command": ""
+      },
+      "motorVersion": "production-motor-v13",
+      "methodVersion": "reactive-production-v71",
+      "taskStack": "[]"
+    },
+    "breaks": {
+      "minecraft:grass_block": 25
+    },
+    "catalogContainsMushroomClearance": false
+  },
+  "after": {
+    "run": "eval-output/20260908-112622-511620-83885/01-system-one-mushroom-obstruction",
+    "reportStatus": "PASSED",
+    "harnessStatus": "OK",
+    "elapsedTicks": 434,
+    "exactReplayTurns": 364,
+    "llmRecords": 0,
+    "clientExitCode": 0,
+    "recording": {
+      "finished": true,
+      "queuedRows": 0,
+      "complete": true,
+      "writtenRows": 365,
+      "failure": ""
+    },
+    "runtimeFinal": {
+      "state": "SUCCEEDED",
+      "policyVersion": "observed-survival-v1",
+      "runtime": "system_one",
+      "outcome": "inventory_observed:minecraft:cobblestone:3",
+      "run": "system-one-1",
+      "taskStack": "[]",
+      "methodVersion": "reactive-production-v71",
+      "motorVersion": "production-motor-v13",
+      "motor": {
+        "stopping": false,
+        "edgePlacement": "",
+        "command": "",
+        "finishing": "",
+        "releasePending": false,
+        "smelting": "",
+        "crafting": "",
+        "pathingActive": false
+      },
+      "knowledgeVersion": "minecraft-recipe-display-v11"
+    },
+    "breaks": {
+      "minecraft:grass_block": 3,
+      "minecraft:brown_mushroom_block": 1,
+      "minecraft:dirt": 6,
+      "minecraft:stone": 3
+    },
+    "catalogContainsMushroomClearance": true
+  },
+  "leafRegression": {
+    "run": "eval-output/20260908-112622-511620-83885/02-system-one-stone-low-canopy",
+    "reportStatus": "PASSED",
+    "harnessStatus": "OK",
+    "elapsedTicks": 415,
+    "exactReplayTurns": 347,
+    "llmRecords": 0,
+    "clientExitCode": 0,
+    "recording": {
+      "writtenRows": 348,
+      "complete": true,
+      "queuedRows": 0,
+      "finished": true,
+      "failure": ""
+    },
+    "runtimeFinal": {
+      "knowledgeVersion": "minecraft-recipe-display-v11",
+      "motor": {
+        "crafting": "",
+        "smelting": "",
+        "releasePending": false,
+        "finishing": "",
+        "command": "",
+        "edgePlacement": "",
+        "stopping": false,
+        "pathingActive": false
+      },
+      "motorVersion": "production-motor-v13",
+      "methodVersion": "reactive-production-v71",
+      "taskStack": "[]",
+      "run": "system-one-1",
+      "outcome": "inventory_observed:minecraft:cobblestone:3",
+      "runtime": "system_one",
+      "policyVersion": "observed-survival-v1",
+      "state": "SUCCEEDED"
+    },
+    "breaks": {
+      "minecraft:grass_block": 3,
+      "minecraft:spruce_leaves": 1,
+      "minecraft:dirt": 6,
+      "minecraft:stone": 3
+    },
+    "catalogContainsMushroomClearance": true
+  },
+  "scope": "Focused mushroom obstruction and leaf-canopy regression. Does not prove the full development-01 seed, which requires another run.",
+  "liveScreenshots": {
+    "path": "eval-output/20260908-112622-511620-83885/01-system-one-mushroom-obstruction/live-observation-frames",
+    "viewed": [
+      1,
+      2,
+      3
+    ],
+    "observed": "Soil clearing and descent to stone. The sampled frames do not show the cap break or final inventory."
+  }
+}

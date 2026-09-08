@@ -56,8 +56,10 @@ final class MinecraftProductionKnowledge {
 		// Surface access is independent of geological resource priors. Leaves can be
 		// cleared to reach a tree or its drops, but observed footing remains protected.
 		var accessMaterials = new java.util.TreeSet<>(excavatable);
+		// Giant fungi are removable surface obstructions, not geological search indicators.
+		accessMaterials.addAll(List.of("minecraft:brown_mushroom_block", "minecraft:red_mushroom_block", "minecraft:mushroom_stem"));
 		for (var block : Registries.BLOCK) if (block.getDefaultState().isIn(BlockTags.LEAVES)) accessMaterials.add(Registries.BLOCK.getId(block).toString());
-		return new ProductionKnowledge("minecraft-recipe-display-v10", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+		return new ProductionKnowledge("minecraft-recipe-display-v11", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
 			SmeltingPlannerService.productionSmelts(client), fuels, searches, List.copyOf(accessMaterials), new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4), ai.moeru.airicraft.systemone.voxel.SurvivalPolicy.Parameters.minecraft());
 	}
 }

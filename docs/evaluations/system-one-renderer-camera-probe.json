@@ -1,0 +1,151 @@
+{
+  "recording": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool",
+  "sourceArchiveMotion": {
+    "parserScope": "Flashback action/move_entities absolute snapshots, decoded offline from original ZIP; not recorder playerState side data.",
+    "ticks": 899,
+    "counts": {
+      "flashback:action/configuration_packet": 30,
+      "flashback:action/game_packet": 8496,
+      "flashback:action/next_tick": 899,
+      "flashback:action/create_local_player": 1,
+      "flashback:action/level_chunk_cached": 1491,
+      "flashback:action/move_entities": 813
+    },
+    "createPlayer": [
+      {
+        "tick": 1,
+        "snapshot": false,
+        "uuid": "f03d3f49-25e2-3aa7-a775-c19b5388042c",
+        "pose": [
+          0.7677705562543863,
+          69.0,
+          15.693909743862205,
+          16.199941635131836,
+          76.95010375976562,
+          76.95010375976562
+        ]
+      }
+    ],
+    "playerMovement": {
+      "dimension": "minecraft:overworld",
+      "id": 37,
+      "samples": 292,
+      "uniquePositions": 284,
+      "first": [
+        2,
+        [
+          0.7677705562543863,
+          69.0,
+          15.693909743862205,
+          76.95010375976562,
+          16.199941635131836,
+          76.95010375976562,
+          true
+        ]
+      ],
+      "middle": [
+        394,
+        [
+          0.500613474509979,
+          199.7531999805212,
+          16.340946526635555,
+          -179.9938201904297,
+          9.161255836486816,
+          -179.9938201904297,
+          false
+        ]
+      ],
+      "last": [
+        842,
+        [
+          0.4999908732518347,
+          196.0,
+          56.37792161482426,
+          -0.00023651123046875,
+          21.784780502319336,
+          -0.00023651123046875,
+          true
+        ]
+      ]
+    }
+  },
+  "rendererCheckout": "/private/tmp/airicraft-recorder-render-diagnosis",
+  "rendererBaseRevision": "024891d",
+  "sharedRendererClassMatchesCleanRendererClass": true,
+  "renders": [
+    {
+      "path": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-camera-probe",
+      "frameCount": 877,
+      "uniquePngHashes": 857,
+      "requestedGlobalTicks": {
+        "firstTick": "20",
+        "lastTick": "917"
+      },
+      "actualGlobalTicks": {
+        "firstTick": "20",
+        "lastTick": "896"
+      },
+      "unsupportedPackets": {
+        "policy": "ignore_flashback_unsupported_v1",
+        "totalCount": "550",
+        "types": [
+          {
+            "packetType": "minecraft:forget_level_chunk",
+            "count": "546"
+          },
+          {
+            "packetType": "minecraft:player_position",
+            "count": "4"
+          }
+        ]
+      }
+    },
+    {
+      "path": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-clean",
+      "frameCount": 897,
+      "uniquePngHashes": 6,
+      "requestedGlobalTicks": {
+        "firstTick": "20",
+        "lastTick": "917"
+      },
+      "actualGlobalTicks": {
+        "firstTick": "20",
+        "lastTick": "916"
+      },
+      "unsupportedPackets": {
+        "policy": "ignore_flashback_unsupported_v1",
+        "totalCount": "550",
+        "types": [
+          {
+            "packetType": "minecraft:forget_level_chunk",
+            "count": "546"
+          },
+          {
+            "packetType": "minecraft:player_position",
+            "count": "4"
+          }
+        ]
+      }
+    }
+  ],
+  "visualReview": {
+    "instrumentedFrames": [
+      201,
+      401,
+      651
+    ],
+    "observed": [
+      "Tunnel travel",
+      "Return to surface",
+      "Tunnel floor during resumed exploration"
+    ],
+    "terminalInventoryShown": false
+  },
+  "findings": [
+    "Original replay ZIP contains 292 movement snapshots and 284 distinct positions for player entity 37.",
+    "Instrumented TrackEntity and camera-application methods both report changing player/camera positions.",
+    "Instrumented images show movement; removing diagnostics reproduces frozen images.",
+    "Root cause remains unresolved. This is not a validated renderer fix.",
+    "External original worktree with unmerged changes was not modified; isolated checkout is source-clean after removing probes."
+  ]
+}

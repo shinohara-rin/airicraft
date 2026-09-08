@@ -1,0 +1,107 @@
+{
+  "run": "eval-output/20260908-105813-695172-74307/02-iron-pickaxe-development-01",
+  "reportStatus": "FAILED",
+  "harnessStatus": "OK",
+  "elapsedTicks": 2352,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T03:13:39Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 78640,
+    "pid": 78564,
+    "requestedAt": "2026-09-08T03:13:37Z"
+  },
+  "recording": {
+    "queuedRows": 0,
+    "complete": true,
+    "writtenRows": 2333,
+    "failure": "",
+    "finished": true
+  },
+  "exactReplayTurns": 2332,
+  "inventory": {
+    "minecraft:dark_oak_sapling": 2,
+    "minecraft:wooden_pickaxe": 1,
+    "minecraft:dark_oak_planks": 3,
+    "minecraft:stick": 3
+  },
+  "lastCommandFailure": {
+    "tick": 2369,
+    "reason": "observed_route_unavailable",
+    "task_chain": [
+      {
+        "task": 1,
+        "purpose": "acquire 1 minecraft:iron_pickaxe"
+      },
+      {
+        "task": 2,
+        "purpose": "mission_inventory:minecraft:iron_pickaxe"
+      },
+      {
+        "task": 3,
+        "purpose": "ingredient:minecraft:iron_ingot"
+      },
+      {
+        "task": 6,
+        "purpose": "smelting_inputs:minecraft:raw_iron"
+      },
+      {
+        "task": 7,
+        "purpose": "search_tool_required:minecraft:stone_pickaxe"
+      },
+      {
+        "task": 8,
+        "purpose": "ingredient:minecraft:cobblestone"
+      },
+      {
+        "task": 26,
+        "purpose": "harvest:minecraft:cobblestone"
+      }
+    ]
+  },
+  "breakObservationAudit": {
+    "status": "complete",
+    "checked_breaks": 36,
+    "mismatched_breaks": 0,
+    "missing_evidence_breaks": 0,
+    "missing_input_turns": 0,
+    "reasons": {},
+    "unclassified_effects": 0,
+    "recent_problems": [],
+    "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+  },
+  "perceptionAudit": {
+    "status": "unavailable",
+    "count": null,
+    "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+  },
+  "diagnosis": {
+    "failedPrerequisite": "Acquire cobblestone for the stone pickaxe",
+    "firstTwoAccessFailures": {
+      "task27": {
+        "tick": 1673,
+        "work": 48,
+        "reason": "access_budget_exhausted"
+      },
+      "task28": {
+        "tick": 2159,
+        "work": 48,
+        "reason": "access_budget_exhausted"
+      }
+    },
+    "finalArea": {
+      "feet": [
+        -75,
+        77,
+        -549
+      ],
+      "support": "minecraft:brown_mushroom_block",
+      "capHeight": 76,
+      "knowledgePermitsMushroomClearance": false
+    },
+    "limits": "Missing mushroom clearance is a concrete domain-knowledge gap. It is not yet proved to be the sole cause of this seed failure."
+  }
+}
