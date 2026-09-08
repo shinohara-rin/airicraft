@@ -1,0 +1,31 @@
+id: system-one-lighting-region
+name: Regain observed light before resuming travel
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Obtain one coal down a leaf-lined corridor. The middle light fails during travel and local torch attachment is unavailable. Return toward observed light; the evaluator restores the failed source after recovery.
+goal:
+  kind: inventory_item
+  itemId: minecraft:coal
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:coal
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_revised
+    payload:
+      detail: working_light_regained
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

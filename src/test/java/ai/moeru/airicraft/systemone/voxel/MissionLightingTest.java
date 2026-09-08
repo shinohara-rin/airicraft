@@ -16,6 +16,66 @@ class MissionLightingTest {
 	private static TaskKernel<Task,StoneAcquisition.World,VoxelCommand> kernel() {
 		return new TaskKernel<>(new ProductionDomain(BOOK),new Limits(16,24,5000,100));
 	}
+	@Test void prospectiveDimRegionLimitPreservesTheInterruptedReturnTask() {
+		var result=kernel().advance(dimReturnBranch(),returnWorld(FEET,4),List.of(),10);
+		assertTrue(result.state().outcome().isEmpty(),"an out-of-region destination must request recovery, not fail the mission");
+		assertTrue(result.effects().isEmpty(),"the prohibited destination must not reach the motor");
+		assertEquals(2,result.state().stack().getLast().id());
+	}
+	@Test void regainedLightStopsRetreatBeforeResumingTheSameReturnFrame() {
+		var kernel=kernel();var initial=dimReturnBranch();
+		var requested=kernel.advance(initial,returnWorld(FEET,4),List.of(),10);
+		var saved=assertInstanceOf(RegainLight.class,requested.state().stack().getLast().task());
+		assertEquals(initial.stack().getLast().task(),saved.saved().task());
+		var moving=kernel.advance(requested.state(),returnWorld(FEET,4),List.of(),11);
+		var retreat=(Start<VoxelCommand>)moving.effects().getFirst();
+		assertEquals(FEET.offset(0,0,-4),((VoxelCommand.Navigate)retreat.command()).stance());
+		var lit=returnWorld(FEET.offset(0,0,-2),15);
+		var stop=kernel.advance(moving.state(),lit,List.of(),12);
+		assertEquals(List.of(new Stop<>(retreat.token())),stop.effects());
+		assertTrue(kernel.advance(stop.state(),lit,List.of(),13).effects().isEmpty());
+		var resumed=kernel.advance(stop.state(),lit,List.of(new Released(retreat.token())),13);
+		var work=(Start<VoxelCommand>)resumed.effects().getFirst();
+		assertEquals(2,work.token().task());
+		assertEquals(FEET.offset(0,0,16),((VoxelCommand.Navigate)work.command()).stance());
+		assertTrue(resumed.events().stream().anyMatch(e->e.detail().equals("working_light_regained")));
+	}
+	@Test void staleRefugeLightDoesNotCountAsSuccessfulRecovery() {
+		var kernel=kernel();var requested=kernel.advance(dimReturnBranch(),returnWorld(FEET,4),List.of(),10);
+		var moving=kernel.advance(requested.state(),returnWorld(FEET,4),List.of(),11);
+		var command=(Start<VoxelCommand>)moving.effects().getFirst();
+		var atEnd=returnWorld(FEET.offset(0,0,-4),4);var known=new HashMap<>(atEnd.known());
+		known.put(new Pos(0,2,-4),new Seen("air",true,true,false,4,12));
+		atEnd=new StoneAcquisition.World(atEnd.eye(),atEnd.feet(),atEnd.inventory(),known);
+		var failed=kernel.advance(moving.state(),atEnd,List.of(new Finished(command.token(),Outcome.success("arrived"))),12);
+		assertEquals("lighting_refuge_still_dim",failed.state().outcome().orElseThrow().evidence());
+		assertTrue(failed.effects().isEmpty());
+	}
+	@Test void aStalledLightRecoveryReleasesBeforeItsDeadlineFailure() {
+		var kernel=kernel();var requested=kernel.advance(dimReturnBranch(),returnWorld(FEET,4),List.of(),10);
+		var recovery=(RegainLight)requested.state().stack().getLast().task();
+		var moving=kernel.advance(requested.state(),returnWorld(FEET,4),List.of(),11);
+		var command=(Start<VoxelCommand>)moving.effects().getFirst();
+		var stop=kernel.advance(moving.state(),returnWorld(FEET,4),List.of(),recovery.deadline());
+		assertEquals(List.of(new Stop<>(command.token())),stop.effects());
+		var failed=kernel.advance(stop.state(),returnWorld(FEET,4),List.of(new Released(command.token())),recovery.deadline()+1);
+		assertEquals("lighting_refuge_budget_exhausted",failed.state().outcome().orElseThrow().evidence());
+		assertTrue(failed.effects().isEmpty());
+	}
+	private static State<Task> dimReturnBranch() {
+		var prior=new SearchPrior("ore",0,16,20,List.of("stone"));
+		var route=new ArrayList<Pos>();for(int z=0;z<=16;z++)route.add(FEET.offset(0,0,z));
+		var search=new UndergroundSearch.Task(prior,List.of("ore_block"),FEET,FEET,0,0,Map.of(),Set.of(),Optional.empty(),Optional.empty(),null,route);
+		var task=new ResumeExplore(new Explore(search,Map.of(),Set.of()),ReturnNavigation.State.begin(route),new ToolRepair("pick",Set.of()));
+		var lightRoute=new ArrayList<Pos>();for(int z=-4;z<=0;z++)lightRoute.add(FEET.offset(0,0,z));
+		var policy=new LightingPolicy.State(true,Set.of(LightingPolicy.Repair.PLACEMENT,LightingPolicy.Repair.SUPPLY),Optional.of(LightingPolicy.Allowance.begin(FEET,90,new SurvivalPolicy.Vitals(0,20,false,false))));
+		return branch(task,new Ready<>(),new WorkingLight(policy,lightRoute));
+	}
+	private static StoneAcquisition.World returnWorld(Pos feet,int light) {
+		var known=new HashMap<Pos,Seen>();
+		for(int z=-4;z<=16;z++)for(int y=0;y<=2;y++)known.put(new Pos(0,y,z),new Seen(y==0?"stone":"air",y>0,true,y==0,z==-4?15:light,10));
+		return new StoneAcquisition.World(new Pose(.5,2.62,feet.z()+.5,0,0),feet,Map.of("pick",1),known);
+	}
 	@Test void darknessInterruptsGatheringEvenWithoutAnExploreTask() {
 		var kernel = kernel();
 		var first = kernel.advance(kernel.begin("s","r",new Mission("log",1,0,0),0),world(15,Map.of("minecraft:torch",2)),List.of(),1);

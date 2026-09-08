@@ -32,12 +32,13 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-lighting-leaves", "system-one-lighting-gather", "system-one-lighting-wait", "system-one-dim-health-loss", "system-one-trunk-descent", "system-one-dim-coal-bootstrap", "system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-lighting-region", "system-one-lighting-leaves", "system-one-lighting-gather", "system-one-lighting-wait", "system-one-dim-health-loss", "system-one-trunk-descent", "system-one-dim-coal-bootstrap", "system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-world-change")) return worldProbe.ready(client,tick,output);
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
 			if (scenario.equals("system-one-dim-health-loss")) injureDuringDimSearch(client, tick);
 			if ((scenario.equals("system-one-lighting-gather") || scenario.equals("system-one-lighting-leaves")) || scenario.equals("system-one-lighting-wait")) darkenActiveWork(client, scenario, tick);
+			if (scenario.equals("system-one-lighting-region")) changeRegionLight(client,tick);
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
 			if (scenario.equals("system-one-return-blocked")) blockReturnRoute(client, tick);
 			if (scenario.startsWith("system-one-survival-") || scenario.equals("system-one-death-recovery")) injectSurvivalFailure(client, scenario, tick);
@@ -64,7 +65,18 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if ((scenario.equals("system-one-lighting-gather") || scenario.equals("system-one-lighting-leaves")) || scenario.equals("system-one-lighting-wait")) {
+				if (scenario.equals("system-one-lighting-region")) {
+					for(int dx=-2;dx<=2;dx++)for(int dz=-3;dz<=20;dz++)for(int y=198;y<=205;y++)world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
+					var leaves=Blocks.SPRUCE_LEAVES.getDefaultState().with(net.minecraft.state.property.Properties.PERSISTENT,true);
+					for(int dx=-1;dx<=1;dx++)for(int dz=-2;dz<=18;dz++)for(int y=199;y<=204;y++)world.setBlockState(new BlockPos(x+dx,y,z+dz),leaves,3);
+					for(int dz=-1;dz<=17;dz++)for(int y=200;y<=202;y++)world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					for(int dz : new int[]{0,7,15})world.setBlockState(new BlockPos(x,199,z+dz),Blocks.SEA_LANTERN.getDefaultState(),3);
+					lightSource=new BlockPos(x,199,z+7);
+					world.setBlockState(new BlockPos(x,200,z+16),Blocks.COAL_ORE.getDefaultState(),3);
+					player.getInventory().setStack(0,new ItemStack(Items.WOODEN_PICKAXE));
+					player.getInventory().setStack(1,new ItemStack(Items.TORCH,8));
+				}
+				else if ((scenario.equals("system-one-lighting-gather") || scenario.equals("system-one-lighting-leaves")) || scenario.equals("system-one-lighting-wait")) {
 					for (int dx=-5;dx<=5;dx++) for (int dz=-2;dz<=6;dz++) for (int y=198;y<=205;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
 					for (int dx=-4;dx<=4;dx++) for (int dz=-1;dz<=5;dz++) for (int y=200;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.AIR.getDefaultState(),3);
 					if (scenario.equals("system-one-lighting-leaves")) {
@@ -345,6 +357,25 @@ final class SystemOneStoneFixture {
 		setupComplete = tick >= readyAfter && client.player.getBlockY() == (scenario.equals("system-one-pickup-step") ? 197 : 200);
 		return setupComplete && (!scenario.equals("system-one-world-change") || worldProbe.ready(client,tick,output)) && (!scenario.equals("system-one-terrain") || terrainProbe.ready(client, tick, output));
 	}
+	private void changeRegionLight(MinecraftClient client,long tick) {
+		if(client.player==null||client.getServer()==null)return;
+		boolean restore=depletion!=null;
+		if(restore) {
+			if(!depletion.isDone())return;depletion.join();
+			if(routeChange!=null){if(routeChange.isDone())routeChange.join();return;}
+			if(!ai.moeru.airicraft.AiricraftClient.runtimeController().agentRuntime().semanticEventContains("system_one.task_revised",java.util.Map.of("detail","working_light_regained")))return;
+		} else if(client.player.getBlockZ()<lightSource.getZ())return;
+		var server=client.getServer();var id=client.player.getUuid();var source=lightSource;
+		var change=CompletableFuture.runAsync(()->{
+			var player=server.getPlayerManager().getPlayer(id);
+			if(player==null)throw new IllegalStateException("Lighting region player unavailable");
+			player.getWorld().setBlockState(source,restore?Blocks.SEA_LANTERN.getDefaultState():Blocks.SPRUCE_LEAVES.getDefaultState().with(net.minecraft.state.property.Properties.PERSISTENT,true),3);
+			try { java.nio.file.Files.writeString(output.resolve(restore?"fixture-light-restored.json":"fixture-light-removed.json"),new com.google.gson.Gson().toJson(java.util.Map.of("runtimeTick",tick,"restored",restore,"sourceX",source.getX(),"sourceY",source.getY(),"sourceZ",source.getZ()))); }
+			catch(java.io.IOException failure){throw new java.io.UncheckedIOException(failure);}
+		},server);
+		if(restore)routeChange=change;else depletion=change;
+	}
+
 	private void darkenActiveWork(MinecraftClient client, String scenario, long tick) {
 		if (depletion != null) { if (depletion.isDone()) depletion.join(); return; }
 		if (client.player == null || client.getServer() == null) return;
