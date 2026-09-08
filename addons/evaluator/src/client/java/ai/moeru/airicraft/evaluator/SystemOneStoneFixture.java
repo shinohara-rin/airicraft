@@ -30,7 +30,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
@@ -239,10 +239,14 @@ final class SystemOneStoneFixture {
 					world.setBlockState(new BlockPos(x, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
 					for (int y = 200; y <= 203; y++) world.setBlockState(new BlockPos(x - 2, y, z + 2), Blocks.OAK_LOG.getDefaultState(), 3);
 				}
-				else if (scenario.equals("system-one-smelting")) {
+				else if (scenario.equals("system-one-smelting") || scenario.equals("system-one-furnace-reach")) {
 					player.getInventory().setStack(0, new ItemStack(Items.RAW_IRON));
 					player.getInventory().setStack(1, new ItemStack(Items.OAK_PLANKS));
 					world.setBlockState(new BlockPos(x, 200, z + 2), Blocks.FURNACE.getDefaultState(), 3);
+					if (scenario.equals("system-one-furnace-reach")) {
+						world.setBlockState(new BlockPos(x,200,z), Blocks.LARGE_FERN.getDefaultState(), 3);
+						world.setBlockState(new BlockPos(x,201,z), Blocks.LARGE_FERN.getDefaultState().with(net.minecraft.block.TallPlantBlock.HALF, net.minecraft.block.enums.DoubleBlockHalf.UPPER), 3);
+					}
 				}
 				else if (scenario.equals("system-one-production") || scenario.equals("system-one-production-discovery") || scenario.equals("system-one-iron")) {
 					int treeOffset = scenario.equals("system-one-production-discovery") ? -3 : 3;

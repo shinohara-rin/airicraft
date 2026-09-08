@@ -1,0 +1,38 @@
+id: system-one-furnace-reach
+name: Recover furnace interaction reach from inside foliage
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one iron ingot. This fixture supplies raw iron, plank fuel, and an
+  observed furnace. A large fern shares the initial player position. Recover
+  from rejected interaction reach by moving to another observed stance.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 6000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+  - type: event_contains
+    eventType: system_one.command_finished
+    payload:
+      detail: FAILED:furnace_not_observed
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:station_observed:minecraft:furnace
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

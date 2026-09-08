@@ -38,10 +38,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record Station(String item, Map<String, Integer> reserved, Set<String> ancestors, int scans, Set<Pos> rejected, VoxelCommand last) implements Task {
 		public Station { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejected = Set.copyOf(rejected); }
 	}
-	public record SmeltBatch(Smelt recipe, Map<String, Integer> reserved, Set<String> ancestors, Set<String> rejectedFuel, String fuel) implements Task {
-		public SmeltBatch { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejectedFuel = Set.copyOf(rejectedFuel); }
+	public record SmeltBatch(Smelt recipe, Map<String, Integer> reserved, Set<String> ancestors, Set<String> rejectedFuel, String fuel, Set<Pos> rejectedStances) implements Task {
+		public SmeltBatch { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); rejectedFuel = Set.copyOf(rejectedFuel); rejectedStances = Set.copyOf(rejectedStances); }
+		public SmeltBatch(Smelt recipe, Map<String,Integer> reserved, Set<String> ancestors, Set<String> rejectedFuel, String fuel) { this(recipe,reserved,ancestors,rejectedFuel,fuel,Set.of()); }
 	}
-	public record FinishSmeltStart(Smelt recipe, Pos station, int before) implements Task {}
+	public record FinishSmeltStart(SmeltBatch request, Pos station, Pos stance, int before) implements Task {}
 	public record CollectBatch(Smelt recipe, Pos station, int before, long deadline, int attempts) implements Task {}
 	public record Explore(UndergroundSearch.Task search, LightingPolicy.State light, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
 		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
@@ -199,8 +200,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			case AfterRetreat task -> failure(task.reason() + (failed(view) ? ":retreat_failed" : ":retreated"));
 			case FinishSmeltStart task -> {
 				if (view.acting()) yield new Keep<>();
+				if (view.commandResult().filter(o -> o.kind() == ResultKind.FAILED && o.evidence().equals("furnace_not_observed")).isPresent()) {
+					var saved = task.request(); var rejected = new HashSet<>(saved.rejectedStances()); rejected.add(task.stance());
+					if (rejected.size() >= 4) yield failure("furnace_reach_alternatives_exhausted");
+					var retry = new SmeltBatch(saved.recipe(),saved.reserved(),saved.ancestors(),saved.rejectedFuel(),saved.fuel(),rejected);
+					yield smelt(new View<>(view.id(),retry,false,view.tick(),Optional.empty(),Optional.empty()),retry,world);
+				}
 				if (failed(view)) yield failure("smelt_start_failed:" + view.commandResult().orElseThrow().evidence());
-				yield new Sleep<>(new CollectBatch(task.recipe(), task.station(), task.before(), view.tick() + task.recipe().ticks() + 200, 0), view.tick() + task.recipe().ticks());
+				var recipe = task.request().recipe();
+				yield new Sleep<>(new CollectBatch(recipe, task.station(), task.before(), view.tick() + recipe.ticks() + 200, 0), view.tick() + recipe.ticks());
 			}
 			case CollectBatch task -> {
 				if (world.inventory().getOrDefault(task.recipe().output(), 0) >= task.before() + task.recipe().yield()) yield success("smelted_inventory_observed:" + task.recipe().output());
@@ -476,13 +484,13 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (failed(view)) {
 			if (task.fuel().isEmpty()) return failure("smelting_prerequisite_failed");
 			var rejected = new HashSet<>(task.rejectedFuel()); rejected.add(task.fuel());
-			task = new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), rejected, "");
+			task = new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), rejected, "", task.rejectedStances());
 		}
 		if (free(world, task.reserved(), task.recipe().input()) < 1) return new Child<>(task,
 			new Acquire(task.recipe().input(), 1, task.reserved(), task.ancestors(), Set.of(), ""), "smelting_input");
 		var reserved = new TreeMap<>(task.reserved()); reserved.merge(task.recipe().input(), 1, Integer::sum);
-		Pos station = observedStation(world, task.recipe().station()).orElse(null);
-		if (station == null) return new Child<>(task, new Station(task.recipe().station(), reserved, task.ancestors(), 0, Set.of(), null), "smelting_station");
+		Pos station = task.rejectedStances().contains(world.feet()) ? null : observedStation(world, task.recipe().station()).orElse(null);
+		if (station == null) return new Child<>(task, new Station(task.recipe().station(), reserved, task.ancestors(), 0, task.rejectedStances(), null), "smelting_station");
 		SmeltBatch current = task;
 		var costing = supplyContext(world, reserved);
 		Fuel fuel = fuels.stream().filter(f -> !current.rejectedFuel().contains(f.item()))
@@ -493,14 +501,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			}).thenComparing(Fuel::item)).orElse(null);
 		if (fuel == null || task.rejectedFuel().size() >= 16) return failure("smelting_fuel_alternatives_exhausted");
 		int count = fuel.quantity(task.recipe().ticks());
-		if (free(world, reserved, fuel.item()) < count) return new Child<>(new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), task.rejectedFuel(), fuel.item()),
+		if (free(world, reserved, fuel.item()) < count) return new Child<>(new SmeltBatch(task.recipe(), task.reserved(), task.ancestors(), task.rejectedFuel(), fuel.item(), task.rejectedStances()),
 			new Acquire(fuel.item(), count, reserved, task.ancestors(), Set.of(), ""), "smelting_fuel:" + fuel.item());
-		return new Execute<>(new FinishSmeltStart(task.recipe(), station, world.inventory().getOrDefault(task.recipe().output(), 0)), new StartSmelt(task.recipe(), station, fuel.item(), count));
+		return new Execute<>(new FinishSmeltStart(task, station, world.feet(), world.inventory().getOrDefault(task.recipe().output(), 0)), new StartSmelt(task.recipe(), station, fuel.item(), count));
 	}
 
 	private Decision<Task, VoxelCommand> station(View<Task> view, Station task, World world) {
 		if (view.acting()) return new Keep<>();
-		if (observedStation(world, task.item()).isPresent()) return success("station_observed:" + task.item());
+		if (!task.rejected().contains(world.feet()) && observedStation(world, task.item()).isPresent()) return success("station_observed:" + task.item());
 		if (needsAccess(view) && task.last() instanceof Navigate move) {
 			var eye = new Pose(move.stance().x() + .5, move.stance().y() + 1.62, move.stance().z() + .5, 0, 0);
 			boolean stationReach = world.known().entrySet().stream().anyMatch(e -> e.getValue().identified()

@@ -15,6 +15,44 @@ class SmeltingProductionTest {
 	private static final Pos FURNACE = new Pos(1, 1, 0);
 	private static ProductionKnowledge book(Smelt recipe, List<Fuel> fuels) { return new ProductionKnowledge("test", List.of(), List.of(), List.of(recipe), fuels); }
 
+	@Test void rejectedFurnaceReachRepositionsBeforeRetryingWithoutDiscardingTheRecipe() {
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600)))),new Limits(16,16,1000,50));
+		var world=world(Map.of("ore",1,"coal",1));
+		var first=kernel.advance(kernel.begin("s","r",Acquire.root("ingot",1),0),world,List.of(),1);
+		var load=assertInstanceOf(Start.class,first.effects().getFirst());
+		var repair=kernel.advance(first.state(),world,List.of(new Finished(load.token(),Outcome.failure("furnace_not_observed"))),2);
+		assertTrue(repair.state().outcome().isEmpty());
+		var movement=assertInstanceOf(Start.class,repair.effects().getFirst());
+		var move=assertInstanceOf(Navigate.class,movement.command());
+		assertNotEquals(world.feet(),move.stance());
+		var feet=move.stance();var arrived=new StoneAcquisition.World(new Pose(feet.x()+.5,feet.y()+1.62,feet.z()+.5,0,0),feet,world.inventory(),world.known());
+		var retry=kernel.advance(repair.state(),arrived,List.of(new Finished(movement.token(),Outcome.success("arrived"))),3);
+		var retried=assertInstanceOf(Start.class,retry.effects().getFirst());
+		assertEquals(load.command(),retried.command());
+		assertEquals(1,world.inventory().get("ore"));
+		assertTrue(retry.state().outcome().isEmpty());
+	}
+	@Test void repeatedFurnaceReachFailuresHaveABoundedNumberOfDistinctAttempts() {
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600)))),new Limits(16,16,1000,50));
+		var world=world(Map.of("ore",1,"coal",1));var state=kernel.begin("s","r",Acquire.root("ingot",1),0);
+		List<Feedback> feedback=List.of();var attempted=new HashSet<Pos>();int loads=0;
+		for(int tick=1;tick<50 && state.outcome().isEmpty();tick++) {
+			var next=kernel.advance(state,world,feedback,tick);state=next.state();feedback=List.of();
+			for(var effect:next.effects()) if(effect instanceof Start<VoxelCommand> start) {
+				if(start.command() instanceof StartSmelt) {
+					loads++;assertTrue(attempted.add(world.feet()),"failed reach must not retry the same stance");
+					feedback=List.of(new Finished(start.token(),Outcome.failure("furnace_not_observed")));
+				} else {
+					var feet=assertInstanceOf(Navigate.class,start.command()).stance();
+					world=new StoneAcquisition.World(new Pose(feet.x()+.5,feet.y()+1.62,feet.z()+.5,0,0),feet,world.inventory(),world.known());
+					feedback=List.of(new Finished(start.token(),Outcome.success("arrived")));
+				}
+			}
+		}
+		assertEquals(4,loads);assertEquals(ResultKind.FAILED,state.outcome().orElseThrow().kind());
+		assertEquals(Map.of("ore",1,"coal",1),world.inventory());
+	}
+
 	@Test void furnaceWaitReleasesTheMotorAndCollectionRequiresObservedInventory() {
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book(IRON, List.of(new Fuel("coal", 1600)))), new Limits(16, 16, 1000, 50));
 		var start = kernel.advance(kernel.begin("s", "r", Acquire.root("ingot", 1), 0), world(Map.of("ore", 1, "coal", 1)), List.of(), 1);
