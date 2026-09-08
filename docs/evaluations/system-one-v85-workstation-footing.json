@@ -1,0 +1,321 @@
+{
+  "sourceCommit": "4cde5297",
+  "methodVersion": "reactive-production-v85",
+  "motorVersion": "production-motor-v15",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 229,
+    "evaluator": 38,
+    "python": 50
+  },
+  "runs": [
+    {
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 279,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:24:34Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 68243,
+        "pid": 68182,
+        "requestedAt": "2026-09-08T08:24:31Z"
+      },
+      "run": "eval-output/20260908-162331-984382-68031/01-system-one-furnace-footing",
+      "coverage": "complete",
+      "runtimeFinal": {
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v85",
+        "motorVersion": "production-motor-v15",
+        "motor": {
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "exactReplayTurns": 215,
+        "initialTick": 95,
+        "initialFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 15
+        },
+        "initialFloor": {
+          "blockId": "minecraft:air",
+          "empty": true,
+          "identified": true,
+          "fullSupport": false,
+          "light": 15,
+          "tick": 95,
+          "clearForBody": true,
+          "attachment": {
+            "fullFaces": [],
+            "centerUp": false
+          },
+          "properties": {}
+        },
+        "loadTick": 98,
+        "loadedFeet": {
+          "x": -1,
+          "y": 200,
+          "z": 15
+        },
+        "loadedFloor": {
+          "blockId": "minecraft:grass_block",
+          "empty": false,
+          "identified": true,
+          "fullSupport": true,
+          "light": 15,
+          "tick": 98,
+          "clearForBody": false,
+          "attachment": {
+            "fullFaces": [
+              "SOUTH",
+              "EAST",
+              "UP",
+              "NORTH",
+              "WEST"
+            ],
+            "centerUp": true
+          },
+          "properties": {
+            "snowy": "false"
+          }
+        },
+        "loads": 1,
+        "navigationStartsBeforeLoad": 1,
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Recorded standing support and movement before loading; no physical velocity or full perception audit."
+      }
+    },
+    {
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 287,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:25:13Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 68443,
+        "pid": 68385,
+        "requestedAt": "2026-09-08T08:25:10Z"
+      },
+      "run": "eval-output/20260908-162331-984382-68031/02-system-one-furnace-reach",
+      "coverage": "complete",
+      "runtimeFinal": {
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v85",
+        "motorVersion": "production-motor-v15",
+        "motor": {
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "run": "system-one-1"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "exactReplayTurns": 218,
+        "initialTick": 91,
+        "initialFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 15
+        },
+        "loadTick": 97,
+        "loadedFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 16
+        },
+        "loadedFloor": {
+          "blockId": "minecraft:grass_block",
+          "empty": false,
+          "identified": true,
+          "fullSupport": true,
+          "light": 15,
+          "tick": 97,
+          "clearForBody": false,
+          "attachment": {
+            "fullFaces": [
+              "WEST",
+              "SOUTH",
+              "EAST",
+              "UP",
+              "NORTH"
+            ],
+            "centerUp": true
+          },
+          "properties": {
+            "snowy": "false"
+          }
+        },
+        "loads": 1,
+        "navigationStartsBeforeLoad": 1,
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Recorded standing support and movement before loading; no physical velocity or full perception audit."
+      },
+      "checks": [
+        {
+          "type": "inventory_contains",
+          "passed": true,
+          "message": "inventory contains 1x minecraft:iron_ingot"
+        },
+        {
+          "type": "event_contains",
+          "passed": false,
+          "message": "event not seen: system_one.command_finished"
+        },
+        {
+          "type": "event_contains",
+          "passed": true,
+          "message": "event seen: system_one.task_resumed (matched at tick 97)"
+        }
+      ],
+      "interpretation": "Inventory succeeded after preemptive supported repositioning. The scenario remains FAILED because its required furnace_not_observed rejection never occurred; this is not current live proof of reactive start-reach recovery."
+    },
+    {
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 312,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T08:25:54Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 68622,
+        "pid": 68567,
+        "requestedAt": "2026-09-08T08:25:51Z"
+      },
+      "run": "eval-output/20260908-162331-984382-68031/03-system-one-furnace-return",
+      "coverage": "complete",
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v15",
+        "methodVersion": "reactive-production-v85",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:iron_ingot:1",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": ""
+        }
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "audit": {
+        "exactReplayTurns": 241,
+        "task": 3,
+        "batch": {
+          "recipe": {
+            "id": "inferred:minecraft_raw_iron_to_minecraft_iron_ingot",
+            "input": "minecraft:raw_iron",
+            "output": "minecraft:iron_ingot",
+            "yield": 1,
+            "station": "minecraft:furnace",
+            "ticks": 200
+          },
+          "station": {
+            "x": 0,
+            "y": 200,
+            "z": 17
+          },
+          "before": 0,
+          "deadline": 502,
+          "attempts": 0
+        },
+        "originalDeadline": 502,
+        "loads": 1,
+        "collectionAttempts": 2,
+        "failedCollectionTick": 304,
+        "restorationRequestedTick": 304,
+        "sameBatchResumedTick": 331,
+        "displacedFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 8
+        },
+        "restoredFeet": {
+          "x": 0,
+          "y": 200,
+          "z": 13
+        },
+        "navigation": [
+          {
+            "effect": "Start[token=Token[session=minecraft:overworld:94, run=system-one-1, task=4, attempt=3], command=Navigate[stance=Pos[x=0, y=200, z=13], maxTravel=24, maxTicks=198]]",
+            "observedFeet": {
+              "x": 0,
+              "y": 200,
+              "z": 8
+            },
+            "tick": 304
+          }
+        ],
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:iron_ingot:1"
+        },
+        "scope": "Exact decision replay, recorded movement and same-batch collection; no independent visual or complete perception audit."
+      }
+    }
+  ],
+  "negativeControl": {
+    "run": "eval-output/20260908-162331-984382-68031/03-system-one-furnace-return",
+    "audit": "WorkstationFootingAudit initial-air",
+    "exitCode": 1,
+    "reason": "Initial stance was already supported"
+  },
+  "limitations": [
+    "The ledge case verifies observed support, not zero velocity or reproduction of the original fall.",
+    "The foliage scenario retains its failed rejection assertion; current release gate is not green.",
+    "No current original iron success, full perception audit, held-out release, cutover or game completion is claimed."
+  ]
+}

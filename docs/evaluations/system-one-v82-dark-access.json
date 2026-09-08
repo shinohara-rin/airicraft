@@ -1,0 +1,29 @@
+{
+  "sourceRun": "eval-output/20260908-153346-786024-54130/01-iron-pickaxe",
+  "snapshot": "eval-output/20260908-153346-786024-54130/01-iron-pickaxe/access-failure-tick14595.json.gz",
+  "methodVersion": "reactive-production-v82",
+  "exactReplayPrefixThroughTick": 14595,
+  "failedTask": 97,
+  "feet": {
+    "x": 5,
+    "y": 65,
+    "z": 16
+  },
+  "goal": {
+    "x": 10,
+    "y": 68,
+    "z": 20
+  },
+  "observedEyeLight": 0,
+  "floorObserved": false,
+  "terrainAccessWork": 13,
+  "rejectedFirstEdges": 9,
+  "lastAction": "Look toward (5,64,15)",
+  "outcome": "no_local_access_proposal",
+  "observedFacts": [
+    "Current eye and feet cells were recorded air at light 0; the floor below the feet was not identified in memory.",
+    "TerrainAccess exhausted local observation proposals without a usable route; no hidden floor identity is inferred."
+  ],
+  "interpretation": "The darkness/footing boundary is a separate escape problem. Preventing an unsupported workstation start does not establish a way out of this shaft.",
+  "scope": "Protected observations and state extracted while replaying the saved v82 tape. Snapshot is a diagnostic artifact in the historical schema, not a current navigation replay."
+}
