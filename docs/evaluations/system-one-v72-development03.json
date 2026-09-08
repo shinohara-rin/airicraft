@@ -1,0 +1,96 @@
+{
+  "run": "eval-output/20260908-121037-612623-97368/01-iron-pickaxe-development-03",
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 21438,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T04:29:59Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 97659,
+    "pid": 97594,
+    "requestedAt": "2026-09-08T04:29:55Z"
+  },
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "runtimeFinal": {
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED",
+    "knowledgeVersion": "minecraft-recipe-display-v11",
+    "motor": {
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false,
+      "finishing": "",
+      "command": ""
+    },
+    "motorVersion": "production-motor-v13",
+    "methodVersion": "reactive-production-v72"
+  },
+  "recording": {
+    "failure": "",
+    "writtenRows": 21419,
+    "complete": true,
+    "queuedRows": 0,
+    "finished": true
+  },
+  "exactReplay": "Replay verified: 21418 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:iron_pickaxe:1]",
+  "tapeSha256": "8f4e4d45a524357dabef1da1c4be2b993503ccaa14c7d6a9319c3ae7ac259352",
+  "commands": {
+    "Break": 380,
+    "CollectSmelt": 9,
+    "Craft": 25,
+    "EdgePlace": 2,
+    "Look": 593,
+    "Navigate": 561,
+    "Place": 24,
+    "StartSmelt": 9
+  },
+  "metrics": {
+    "travel": {
+      "horizontal_observed_blocks": 1294.469,
+      "adjacent_same_life_segments": 21417,
+      "definition": "Sum of horizontal displacement between consecutive observed poses in the same life; excludes sample gaps and respawns, includes any same-life teleport."
+    },
+    "survival": {
+      "vital_samples": 21418,
+      "minimum_observed_health": 20.0,
+      "observed_health_decrease": 0.0,
+      "lives_observed_dead": 0,
+      "burning_samples": 0,
+      "in_lava_samples": 0,
+      "definition": "Health decrease is the sum of adjacent same-life net decreases, not total damage; death count includes only lives observed at health <= 0."
+    },
+    "break_target_observations": {
+      "status": "complete",
+      "checked_breaks": 380,
+      "mismatched_breaks": 0,
+      "missing_evidence_breaks": 0,
+      "missing_input_turns": 0,
+      "reasons": {},
+      "unclassified_effects": 0,
+      "recent_problems": [],
+      "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+    },
+    "perception_violations": {
+      "status": "unavailable",
+      "count": null,
+      "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+    }
+  },
+  "limits": [
+    "This is the v72 rerun after a pre-world client timeout, not v75 validation.",
+    "Full perception audit and visual review are not claimed.",
+    "Development-01 remains a failed integrated gate under v72; the four-scenario set has not all passed on a current policy."
+  ]
+}
