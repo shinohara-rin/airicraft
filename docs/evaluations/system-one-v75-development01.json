@@ -1,0 +1,90 @@
+{
+  "run": "eval-output/20260908-125703-984840-13409/01-iron-pickaxe-development-01",
+  "sourceCommit": "a2c17e5c",
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 9490,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T05:05:54Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 13622,
+    "pid": 13554,
+    "requestedAt": "2026-09-08T05:05:50Z"
+  },
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "runtimeFinal": {
+    "knowledgeVersion": "minecraft-recipe-display-v12",
+    "motor": {
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false,
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false
+    },
+    "motorVersion": "production-motor-v13",
+    "methodVersion": "reactive-production-v75",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED"
+  },
+  "exactReplay": "Replay verified: 9468 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:iron_pickaxe:1]",
+  "coverage": "complete",
+  "tapeSha256": "5471242df34182251901440e82291a090ff288d18549850e6c81772b706fd224",
+  "commands": {
+    "Break": 223,
+    "CollectSmelt": 7,
+    "Craft": 17,
+    "Look": 20,
+    "Navigate": 183,
+    "Place": 16,
+    "StartSmelt": 7
+  },
+  "metrics": {
+    "travel": {
+      "horizontal_observed_blocks": 300.202,
+      "adjacent_same_life_segments": 9467,
+      "definition": "Sum of horizontal displacement between consecutive observed poses in the same life; excludes sample gaps and respawns, includes any same-life teleport."
+    },
+    "survival": {
+      "vital_samples": 9468,
+      "minimum_observed_health": 20.0,
+      "observed_health_decrease": 0.0,
+      "lives_observed_dead": 0,
+      "burning_samples": 0,
+      "in_lava_samples": 0,
+      "definition": "Health decrease is the sum of adjacent same-life net decreases, not total damage; death count includes only lives observed at health <= 0."
+    },
+    "break_target_observations": {
+      "status": "complete",
+      "checked_breaks": 223,
+      "mismatched_breaks": 0,
+      "missing_evidence_breaks": 0,
+      "missing_input_turns": 0,
+      "reasons": {},
+      "unclassified_effects": 0,
+      "recent_problems": [],
+      "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+    },
+    "perception_violations": {
+      "status": "unavailable",
+      "count": null,
+      "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+    }
+  },
+  "limits": [
+    "Fresh-spawn integrated retry, not a controlled comparison with v72.",
+    "No full perception audit or new visual review.",
+    "Original and development-02/03 successes remain v72; this is not a current-policy release-set pass."
+  ]
+}
