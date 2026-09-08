@@ -103,8 +103,7 @@ class TaskKernelTest {
 	void rootObservationCompletesThroughAnActingChildButStillWaitsForRelease() {
 		Domain<String, Boolean, String> domain = new Domain<>() {
 			@Override public Optional<Outcome> completion(String root, Boolean observed) {
-				assertEquals("mission", root);
-				return observed ? Optional.of(Outcome.success("goal observed")) : Optional.empty();
+				return root.equals("mission") && observed ? Optional.of(Outcome.success("goal observed")) : Optional.empty();
 			}
 			@Override public Decision<String, String> decide(View<String> task, Boolean observed) {
 				if (task.task().equals("mission")) return new Child<>("mission", "prerequisite", "prepare");
@@ -150,6 +149,36 @@ class TaskKernelTest {
 		assertEquals(Outcome.success("supply observed"),settled.state().stack().getFirst().childResult().orElseThrow());
 		var repair=kernel.advance(settled.state(),true,List.of(),3);
 		assertEquals("repair",start(repair).command());
+	}
+
+	@Test void anObservedAncestorReleasesItsActingDescendantBeforeParentMaintenance() {
+		Domain<String,Boolean,String> domain=new Domain<>() {
+			@Override public Optional<Outcome> completion(String task,Boolean observed) {
+				return task.equals("supply") && observed ? Optional.of(Outcome.success("supply observed")) : Optional.empty();
+			}
+			@Override public Optional<Interruption<String>> interrupt(List<View<String>> branch,Boolean observed) {
+				return observed ? Optional.of(new Interruption<>(branch.getLast().task(),"repair","maintenance")) : Optional.empty();
+			}
+			@Override public Decision<String,String> decide(View<String> task,Boolean observed) {
+				if(task.task().equals("mission") && task.childResult().isEmpty())return new Child<>("mission","supply","supply");
+				if(task.task().equals("supply"))return new Child<>("supply","collect","collect");
+				return task.acting() ? new Keep<>() : new Execute<>(task.task(),task.task());
+			}
+		};
+		var kernel=new TaskKernel<>(domain,LIMITS);
+		var active=kernel.advance(kernel.begin("s","r","mission",0),false,List.of(),1);var token=start(active).token();
+		var stopping=kernel.advance(active.state(),true,List.of(),2);
+		assertEquals(List.of(new Stop<String>(token)),stopping.effects());
+		assertTrue(stopping.events().stream().noneMatch(e->e.detail().equals("maintenance")));
+		var waiting=kernel.advance(stopping.state(),true,List.of(),3);assertTrue(waiting.effects().isEmpty());
+		var repair=kernel.advance(waiting.state(),true,List.of(new Released(token)),4);
+		assertEquals("repair",start(repair).command());
+		assertTrue(repair.state().stack().stream().noneMatch(f->f.task().equals("supply") || f.task().equals("collect")));
+		assertTrue(repair.events().stream().anyMatch(e->e.task()==2 && e.type().equals("task_ended") && e.detail().equals("SUCCEEDED:supply observed")));
+		assertTrue(repair.events().stream().anyMatch(e->e.task()==1 && e.type().equals("task_suspended") && e.detail().equals("maintenance")));
+		var late=kernel.advance(repair.state(),false,List.of(new Finished(token,Outcome.success("late collection"))),5);
+		assertTrue(late.effects().isEmpty());assertEquals(repair.state().stack(),late.state().stack());
+		assertTrue(late.events().stream().anyMatch(e->e.type().equals("feedback_ignored")));
 	}
 
 	@Test

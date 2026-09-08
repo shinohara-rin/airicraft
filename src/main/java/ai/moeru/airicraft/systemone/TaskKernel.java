@@ -16,7 +16,7 @@ public final class TaskKernel<T, O, C> {
 		/** Refresh observed domain state, including waiting parents, once per input tick.
 		 * Preserve task order/count; changing work or ownership requires an ordinary decision. */
 		default List<T> observe(List<View<T>> branch, O observation) { return branch.stream().map(View::task).toList(); }
-		/** Observe the root goal during work, and settle already satisfied ready leaves before maintenance. */
+		/** Observe goal completion anywhere in the branch, independently of executor progress. */
 		default Optional<Outcome> completion(T task, O observation) { return Optional.empty(); }
 		/** Urgent domain work is checked even during passive waits; the continuation revalidates interrupted work. */
 		default Optional<Interruption<T>> interrupt(List<View<T>> branch, O observation) { return Optional.empty(); }
@@ -70,10 +70,11 @@ public final class TaskKernel<T, O, C> {
 	public record Releasing<T>(Token token, AfterRelease<T> next) implements Phase<T> {}
 	public record WaitingChild<T>(long childId, String reason) implements Phase<T> {}
 	public record Sleeping<T>(long wakeTick) implements Phase<T> {}
-	public sealed interface AfterRelease<T> permits PushChild, EndTask, EndRun, ReviseTask {}
+	public sealed interface AfterRelease<T> permits PushChild, EndTask, EndRun, EndSubtree, ReviseTask {}
 	public record PushChild<T>(T child, String reason) implements AfterRelease<T> {}
 	public record EndTask<T>(Outcome outcome) implements AfterRelease<T> {}
 	public record EndRun<T>(Outcome outcome) implements AfterRelease<T> {}
+	public record EndSubtree<T>(long task, Outcome outcome) implements AfterRelease<T> {}
 	public record ReviseTask<T>(Revision<T> revision) implements AfterRelease<T> {}
 
 	public record Frame<T>(long id, T task, Phase<T> phase,
@@ -156,12 +157,15 @@ public final class TaskKernel<T, O, C> {
 				return turn.finish();
 			}
 		}
-		if (turn.stack.size() > 1 && turn.leaf().phase() instanceof Ready<T>) {
-			var completion = domain.completion(turn.leaf().task(), observation);
-			if (completion.isPresent()) {
-				turn.afterRelease(new EndTask<>(completion.get()));
-				// Close one completed dependency without letting its parent actuate before maintenance.
-				return turn.finish();
+		if (!(turn.leaf().phase() instanceof Releasing<T>)) {
+			for (int i = 1; i < turn.stack.size(); i++) {
+				var goal = turn.stack.get(i);
+				var completion = domain.completion(goal.task(), observation);
+				if (completion.isPresent()) {
+					turn.afterRelease(new EndSubtree<>(goal.id(), completion.get()));
+					// Release descendants and settle the outermost satisfied goal before new parent work.
+					return turn.finish();
+				}
 			}
 		}
 		boolean interrupted = false;
@@ -286,6 +290,12 @@ public final class TaskKernel<T, O, C> {
 				event("task_started", "parent=" + parent.id() + " reason=" + child.reason());
 			}
 			else if (next instanceof EndTask<T> end) completeTask(end.outcome());
+			else if (next instanceof EndSubtree<T> end) {
+				while (leaf().id() != end.task()) {
+					event("task_ended", "CANCELLED:ancestor_goal_observed:" + end.task()); stack.removeLast();
+				}
+				completeTask(end.outcome());
+			}
 			else if (next instanceof ReviseTask<T> revise) {
 				var revision = revise.revision();
 				while (leaf().id() != revision.task()) {

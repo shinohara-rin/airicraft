@@ -167,7 +167,10 @@ class MissionLightingTest {
 		var initial=((Mission)first.state().stack().getFirst().task()).light().policy().allowance().orElseThrow();
 		assertEquals(LightingPolicy.Purpose.LIGHT_RESTORATION,initial.purpose());
 		var harvest=(Start<VoxelCommand>)first.effects().getFirst(); assertInstanceOf(VoxelCommand.Break.class,harvest.command());
-		var crafting=kernel.advance(first.state(),world(4,Map.of("stick",1,"coal",1)),List.of(new Finished(harvest.token(),Outcome.success("harvested"))),20);
+		var settled=kernel.advance(first.state(),world(4,Map.of("stick",1,"coal",1)),List.of(new Finished(harvest.token(),Outcome.success("harvested"))),20);
+		assertTrue(settled.effects().isEmpty());
+		assertEquals(initial,((Mission)settled.state().stack().getFirst().task()).light().policy().allowance().orElseThrow());
+		var crafting=kernel.advance(settled.state(),world(4,Map.of("stick",1,"coal",1)),List.of(),21);
 		var craft=(Start<VoxelCommand>)crafting.effects().getFirst(); assertInstanceOf(VoxelCommand.Craft.class,craft.command());
 		assertEquals(initial,((Mission)crafting.state().stack().getFirst().task()).light().policy().allowance().orElseThrow());
 		var transaction=kernel.advance(crafting.state(),world(4,Map.of()),List.of(),initial.expiresAt());
