@@ -26,7 +26,7 @@ checks:
   - type: event_contains
     eventType: system_one.task_resumed
     payload:
-      detail: lighting_supply
+      detail: SUCCEEDED:working_light_observed
   - type: event_contains
     eventType: system_one.motor_effect
     payload:
