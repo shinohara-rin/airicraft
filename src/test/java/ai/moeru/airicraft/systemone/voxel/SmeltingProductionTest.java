@@ -52,6 +52,26 @@ class SmeltingProductionTest {
 		assertEquals("b_hand", assertInstanceOf(Acquire.class, choice.continuation()).method());
 	}
 
+	@Test void aWideRecipeCatalogDoesNotHideStockedWoodBehindRepeatedStationEstimates() {
+		var recipes = new ArrayList<Recipe>(); var harvests = new ArrayList<Harvest>();
+		for (int species = 0; species < 40; species++) {
+			String wood = "wood_" + String.format("%02d", species), plank = wood + "_plank";
+			harvests.add(new Harvest(wood, List.of(wood), List.of(), Technique.EXPOSED));
+			for (int variant = 0; variant < 8; variant++) {
+				String input = wood + "_variant_" + variant;
+				recipes.add(new Recipe(input, input, 3, 2, List.of(new Cell(0,wood),new Cell(1,wood),new Cell(2,wood),new Cell(3,wood))));
+				recipes.add(new Recipe(input + "_planks", plank, 4, 2, List.of(new Cell(0,input))));
+			}
+			recipes.add(new Recipe(wood + "_planks", plank, 4, 2, List.of(new Cell(0,wood))));
+			recipes.add(new Recipe(wood + "_sticks", "stick", 4, 2, List.of(new Cell(0,plank),new Cell(2,plank))));
+			recipes.add(new Recipe(wood + "_table", "minecraft:crafting_table", 1, 2, List.of(new Cell(0,plank),new Cell(1,plank),new Cell(2,plank),new Cell(3,plank))));
+			recipes.add(new Recipe(wood + "_pick", "pick", 1, 3, List.of(new Cell(0,plank),new Cell(1,plank),new Cell(2,plank),new Cell(4,"stick"),new Cell(7,"stick"))));
+		}
+		var domain = new ProductionDomain(new ProductionKnowledge("wide_catalog", recipes, harvests));
+		var choice = assertInstanceOf(Child.class, domain.decide(view(Acquire.root("pick",1)), world(Map.of("wood_39",3))));
+		assertEquals("wood_39_pick", assertInstanceOf(Acquire.class, choice.continuation()).method());
+	}
+
 	@Test void aVisibleFurnaceDoesNotStartAWorkstationTransactionFromUnsupportedFeet() {
 		var domain=new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600))));
 		var base=world(Map.of("ore",1,"coal",1));var known=new HashMap<>(base.known());

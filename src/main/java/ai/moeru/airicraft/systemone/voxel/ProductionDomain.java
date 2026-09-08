@@ -958,7 +958,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			return evidenceOrder != 0 ? evidenceOrder : Double.compare(work, other.work);
 		}
 	}
-	private record SupplyContext(World world, Map<String, Integer> reserved, Map<String, Double> observedWork) {}
+	private record SupplyKey(String item, Map<String,Integer> reserved, Set<String> trail) {}
+	private record SupplyContext(World world, Map<String, Integer> reserved, Map<String, Double> observedWork,
+		Map<SupplyKey,SupplyEstimate> estimates) {
+		SupplyContext withReservations(Map<String,Integer> next) { return new SupplyContext(world,next,observedWork,estimates); }
+	}
 	private static SupplyContext supplyContext(World world, Map<String, Integer> reserved) {
 		// One observation scan per ranking, shared by every recursive recipe estimate.
 		// This index never survives the decision or turns old observations into new ones.
@@ -966,7 +970,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		for (var entry : world.known().entrySet()) if (entry.getValue().identified()) {
 			work.merge(entry.getValue().blockId(), 5 + Math.sqrt(distance(world.eye(), entry.getKey())), Math::min);
 		}
-		return new SupplyContext(world, Map.copyOf(reserved), Map.copyOf(work));
+		return new SupplyContext(world, Map.copyOf(reserved), Map.copyOf(work), new HashMap<>());
 	}
 	private record Ranked(String id, SupplyEstimate cost) {}
 	private List<Ranked> rankedMethods(Acquire task, World world, Map<String, Integer> reserved) {
@@ -982,6 +986,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	/** Cost of new supply only. Callers subtract available inventory before reaching this method. */
 	private SupplyEstimate estimateAdditional(String item, SupplyContext costing, Set<String> trail, int[] budget) {
+		var positive = new TreeMap<String,Integer>(); costing.reserved().forEach((id,count) -> { if(count>0) positive.put(id,count); });
+		var key = new SupplyKey(item,Map.copyOf(positive),Set.copyOf(trail));
+		var cached = costing.estimates().get(key); if(cached!=null) return cached;
 		if (--budget[0] <= 0 || trail.contains(item) || trail.size() >= 12) return SupplyEstimate.unavailable();
 		var next = new HashSet<>(trail); next.add(item);
 		var harvest = harvesting.get(item);
@@ -997,12 +1004,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
 		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
+		// A truncated search is not an infeasibility proof and must not poison subsequent alternatives.
+		if(budget[0]>0) costing.estimates().put(key,best);
 		return best;
 	}
 	private SupplyEstimate smeltCost(Smelt recipe, SupplyContext costing, Set<String> trail, int[] budget) {
 		var input = requiredCost(recipe.input(), 1, costing, trail, budget);
 		var reserved = commitments(costing.reserved(), Map.of(recipe.input(), 1), "", costing.world());
-		var afterInput = new SupplyContext(costing.world(), reserved, costing.observedWork());
+		var afterInput = costing.withReservations(reserved);
 		var station = stationCost(recipe.station(), afterInput, trail, budget);
 		SupplyEstimate fuel = SupplyEstimate.unavailable();
 		for (var candidate : fuels) fuel = fuel.min(requiredCost(candidate.item(), candidate.quantity(recipe.ticks()), afterInput, trail, budget)
@@ -1013,11 +1022,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		SupplyEstimate cost = SupplyEstimate.known(recipe.width() == 3 ? 2 : 1);
 		for (var entry : recipe.ingredients().entrySet()) {
 			var reserved = commitments(costing.reserved(), recipe.ingredients(), entry.getKey(), costing.world());
-			cost = cost.add(requiredCost(entry.getKey(), entry.getValue(), new SupplyContext(costing.world(), reserved, costing.observedWork()), trail, budget));
+			cost = cost.add(requiredCost(entry.getKey(), entry.getValue(), costing.withReservations(reserved), trail, budget));
 		}
 		if (recipe.width() == 3) {
 			var reserved = commitments(costing.reserved(), recipe.ingredients(), "", costing.world());
-			cost = cost.add(stationCost("minecraft:crafting_table", new SupplyContext(costing.world(), reserved, costing.observedWork()), trail, budget));
+			cost = cost.add(stationCost("minecraft:crafting_table", costing.withReservations(reserved), trail, budget));
 		}
 		return cost;
 	}
