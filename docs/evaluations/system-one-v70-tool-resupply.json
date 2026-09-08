@@ -1,0 +1,295 @@
+{
+  "policy": "reactive-production-v70",
+  "productionFormatVersion": 3,
+  "tests": {
+    "systemOne": 193,
+    "evaluator": 38,
+    "python": 47
+  },
+  "live": [
+    {
+      "path": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "elapsedTicks": 849,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:34:08Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 68251,
+        "pid": 68194,
+        "requestedAt": "2026-09-08T02:34:05Z"
+      },
+      "plannerTurns": 0,
+      "llmRecords": 0,
+      "recording": {
+        "complete": true,
+        "writtenRows": 787,
+        "failure": "",
+        "finished": true,
+        "queuedRows": 0
+      },
+      "terminal": {
+        "motor": {
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v9",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v70",
+        "motorVersion": "production-motor-v13"
+      },
+      "exactReplayTurns": 786
+    },
+    {
+      "path": "eval-output/20260908-103240-128262-68045/02-system-one-tool-wear",
+      "reportStatus": "PASSED",
+      "harnessStatus": "OK",
+      "elapsedTicks": 551,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T02:34:58Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 68520,
+        "pid": 68453,
+        "requestedAt": "2026-09-08T02:34:55Z"
+      },
+      "plannerTurns": 0,
+      "llmRecords": 0,
+      "recording": {
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 488,
+        "failure": "",
+        "finished": true
+      },
+      "terminal": {
+        "motor": {
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v9",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:raw_iron:1",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v70",
+        "motorVersion": "production-motor-v13"
+      },
+      "exactReplayTurns": 487
+    }
+  ],
+  "routeAudit": {
+    "returnCommands": [
+      {
+        "feet": {
+          "x": 0,
+          "y": 199,
+          "z": 16
+        },
+        "tick": 542,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 30
+        }
+      },
+      {
+        "feet": {
+          "x": 0,
+          "y": 196,
+          "z": 30
+        },
+        "tick": 618,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 39
+        }
+      }
+    ],
+    "interruptedDestination": {
+      "x": 0,
+      "y": 195,
+      "z": 40
+    },
+    "exactReplayTurns": 786,
+    "repairFrame": 3,
+    "outwardCommands": [
+      {
+        "feet": {
+          "x": 0,
+          "y": 196,
+          "z": 39
+        },
+        "tick": 311,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 23
+        }
+      },
+      {
+        "feet": {
+          "x": 0,
+          "y": 196,
+          "z": 23
+        },
+        "tick": 386,
+        "target": {
+          "x": 0,
+          "y": 200,
+          "z": 15
+        }
+      }
+    ],
+    "sameFrameResumedExploration": true,
+    "outcome": "Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:raw_iron:1]",
+    "scope": "Exact decision replay plus issued navigation and observed feet. Does not independently validate world visibility or all physical path segments."
+  },
+  "rendering": [
+    {
+      "path": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-tool",
+      "frameCount": 897,
+      "requestedTicks": {
+        "firstTick": "20",
+        "lastTick": "917"
+      },
+      "renderedTicks": {
+        "firstTick": "20",
+        "lastTick": "916"
+      },
+      "unsupportedPackets": {
+        "policy": "ignore_flashback_unsupported_v1",
+        "totalCount": "550",
+        "types": [
+          {
+            "packetType": "minecraft:forget_level_chunk",
+            "count": "546"
+          },
+          {
+            "packetType": "minecraft:player_position",
+            "count": "4"
+          }
+        ]
+      },
+      "uniqueImageHashes": 7,
+      "mostRepeatedImageCount": 432,
+      "inspectedFrames": [
+        300,
+        460,
+        520,
+        660,
+        860
+      ],
+      "visualVerdict": "unusable frozen camera near entrance crafting table; no visual success claim"
+    },
+    {
+      "path": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-no-gui",
+      "frameCount": 897,
+      "requestedTicks": {
+        "firstTick": "20",
+        "lastTick": "917"
+      },
+      "renderedTicks": {
+        "firstTick": "20",
+        "lastTick": "916"
+      },
+      "unsupportedPackets": {
+        "policy": "ignore_flashback_unsupported_v1",
+        "totalCount": "550",
+        "types": [
+          {
+            "packetType": "minecraft:forget_level_chunk",
+            "count": "546"
+          },
+          {
+            "packetType": "minecraft:player_position",
+            "count": "4"
+          }
+        ]
+      },
+      "uniqueImageHashes": 6,
+      "mostRepeatedImageCount": 432,
+      "inspectedFrames": [
+        300,
+        460,
+        520,
+        660,
+        860
+      ],
+      "visualVerdict": "unusable frozen camera near entrance crafting table; no visual success claim"
+    }
+  ],
+  "captureMotion": {
+    "samples": 898,
+    "uniquePositions": 582,
+    "first": {
+      "tick": 20,
+      "position": {
+        "x": 0.7677705562543863,
+        "y": 69.0,
+        "z": 15.693909743862205
+      },
+      "rotation": {
+        "yaw": 76.95010375976562,
+        "pitch": 16.199941635131836,
+        "headYaw": 76.95010375976562
+      }
+    },
+    "middle": {
+      "tick": 469,
+      "position": {
+        "x": 0.5007043860159253,
+        "y": 200.0,
+        "z": 15.392705149590842
+      },
+      "rotation": {
+        "yaw": 13.39166259765625,
+        "pitch": 27.340579986572266,
+        "headYaw": 13.39166259765625
+      }
+    },
+    "last": {
+      "tick": 917,
+      "position": {
+        "x": 0.4999908732518347,
+        "y": 196.0,
+        "z": 56.37792161482426
+      },
+      "rotation": {
+        "yaw": -0.00023651123046875,
+        "pitch": 21.784780502319336,
+        "headYaw": -0.00023651123046875
+      }
+    }
+  },
+  "limitations": [
+    "The route audit proves exact decisions, issued commands, and observed feet; it is not a complete physical-path or perception audit.",
+    "Both GUI and no-GUI playback froze despite changing captured player positions. The external playback cause remains unresolved; video is not proof of the repair.",
+    "Full release and game-completion gates remain open."
+  ]
+}

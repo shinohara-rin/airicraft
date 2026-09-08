@@ -46,6 +46,6 @@
   "limitations": [
     "The old tape is incomplete. Only the prefix through the observed failure was replayed exactly.",
     "This does not prove that every future route is passable without a tool or that access handles every missing capability.",
-    "New remote-tool scenario awaits live verification."
+    "Remote-tool scenario now has live and exact-replay proof in system-one-v70-tool-resupply.json; visual playback remains defective."
   ]
 }
