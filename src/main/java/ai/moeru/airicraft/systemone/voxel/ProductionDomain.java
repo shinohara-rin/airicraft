@@ -61,7 +61,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record ToolRepair(String tool, Set<String> rejected) { public ToolRepair { rejected = Set.copyOf(rejected); } }
 	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, ToolRepair repair) implements Task {}
 	public record Resupply(Acquire supply, ReturnNavigation.State outward) implements Task {}
-	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
+	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last, Set<Pos> reservedSupports) implements Task {
+		public PlaceLight { rejected = Set.copyOf(rejected); reservedSupports = Set.copyOf(reservedSupports); }
+		public PlaceLight(Set<Pos> rejected, Optional<Pos> last) { this(rejected,last,Set.of()); }
+	}
 	public record Retreat(ReturnNavigation.State returning) implements Task {}
 	public record AfterRetreat(String reason) implements Task {}
 	private final Map<String, List<Recipe>> recipes;
@@ -127,8 +130,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		policy = repairing ? lighting.observe(policy,light(world),world.vitals()) : lighting.assess(policy,light(world),world.inventory().getOrDefault("minecraft:torch",0),maySupply(branch,mission),world.feet(),branch.getLast().tick(),world.vitals()).state();
 		var route = mission.light().route();
-		if (!repairing && !policy.maintaining()) route = List.of(world.feet());
-		else if (route.isEmpty() || StoneAcquisition.standable(world.known(),world.feet())) route = RouteMemory.append(route,world.feet());
+		if (route.isEmpty() || StoneAcquisition.standable(world.known(),world.feet())) {
+			int visited = route.indexOf(world.feet());
+			route = visited >= 0 ? route.subList(0,visited+1) : RouteMemory.append(route,world.feet());
+		}
 		var updated = new Mission(mission.item(),mission.count(),mission.life(),mission.deaths(),new WorkingLight(policy,route));
 		tasks.set(0,replaceMission(tasks.getFirst(),updated));
 		return tasks;
@@ -165,7 +170,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		for (var view : branch) if (unwrap(view.task()) instanceof Acquire acquire) { reserved = acquire.reserved(); ancestors = ancestry(acquire); }
 		var supply = new Acquire("minecraft:torch",lighting.parameters().supplyCount(),reserved,ancestors,Set.of(),"");
 		boolean local = repair == LightingPolicy.Repair.PLACEMENT || craftableFromInventory(supply,world);
-		Task child = repair == LightingPolicy.Repair.PLACEMENT ? new PlaceLight(Set.of(),Optional.empty()) : supplyTask(supply,route,world);
+		Task child = repair == LightingPolicy.Repair.PLACEMENT ? new PlaceLight(Set.of(),Optional.empty(),lightingSupportReservations(branch,world)) : supplyTask(supply,route,world);
 		var resume = new ResumeWork(suspend(leaf),ReturnNavigation.State.begin(route),repair,Optional.empty(),leaf.tick()+lighting.parameters().repairTicks(),local ? world.feet() : route.getFirst(),world.vitals());
 		return Optional.of(new Interruption<>(resume,child,"lighting_"+repair.name().toLowerCase(Locale.ROOT)));
 	}
@@ -582,32 +587,42 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		var move = (ReturnNavigation.Move) returning;
 		return new Execute<>(new Retreat(move.state()), move.command());
 	}
+	private static Set<Pos> lightingSupportReservations(List<View<Task>> branch, World world) {
+		var reserved=new HashSet<Pos>();
+		for (var view:branch) {
+			Task task=unwrap(view.task()); if (task instanceof ResumeWork repair) task=unwrap(repair.saved().task());
+			if (task instanceof Gather gather) world.known().forEach((pos,seen) -> { if (seen.identified() && gather.rule().blocks().contains(seen.blockId())) reserved.add(pos); });
+			VoxelCommand pending=task instanceof Explore explore ? explore.search().last() : task instanceof Access access ? access.state().last() : task instanceof Excavate excavation ? excavation.state().last().orElse(null) : null;
+			if (pending instanceof Break broken) reserved.add(broken.target());
+		}
+		return Set.copyOf(reserved);
+	}
 	private Decision<Task, VoxelCommand> placeLight(View<Task> view, PlaceLight task, World world) {
 		if (light(world) >= lighting.parameters().resumeAt()) return success("working_light_observed");
 		if (view.acting()) return new Keep<>();
 		var rejected = new HashSet<>(task.rejected());
 		if (view.commandResult().isPresent()) {
 			task.last().ifPresent(rejected::add);
-			if (!failed(view)) return new Sleep<>(new PlaceLight(rejected, Optional.empty()), view.tick() + 5);
+			if (!failed(view)) return new Sleep<>(new PlaceLight(rejected, Optional.empty(),task.reservedSupports()), view.tick() + 5);
 		}
 		if (rejected.size() >= 4 || world.inventory().getOrDefault("minecraft:torch", 0) == 0) return failure("light_placement_unavailable");
-		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
+		var support = world.known().keySet().stream().filter(p -> !rejected.contains(p) && !task.reservedSupports().contains(p) && StoneAcquisition.standable(world.known(), p.offset(0, 1, 0)))
 			.filter(p -> !world.footholds().contains(p) && world.eye().y() > p.y() + 1 && !intersectsPlayer(world, p.offset(0, 1, 0)))
 			.filter(p -> distance(world.eye(), p) <= 4.3 * 4.3).sorted(positionOrder(world.eye())).findFirst();
 		// Keep the passage floor available, including cells the player has not reached yet.
 		for (Pos wall : world.known().keySet().stream().sorted(positionOrder(world.eye())).toList()) {
 			Seen seen = world.known().get(wall);
-			if (rejected.contains(wall) || !seen.identified() || seen.empty()) continue;
+			if (rejected.contains(wall) || task.reservedSupports().contains(wall) || !seen.identified() || seen.empty()) continue;
 			for (Face face : List.of(Face.NORTH, Face.SOUTH, Face.WEST, Face.EAST)) {
 				Pos target = face.adjacent(wall); Seen space = world.known().get(target);
 				if (space == null || !space.empty() || intersectsPlayer(world, target)) continue;
 				// Wall torches have no body collision and preserve the observed walking route.
 				double facing = (world.eye().x() - wall.x() - .5) * face.x + (world.eye().z() - wall.z() - .5) * face.z;
 				if (facing <= .5 || !ObservedReach.visible(world.known(), world.eye(), wall, 4.3)) continue;
-				return new Execute<>(new PlaceLight(rejected, Optional.of(wall)), new Place("minecraft:torch", wall, seen.blockId(), face, "minecraft:wall_torch"));
+				return new Execute<>(new PlaceLight(rejected, Optional.of(wall),task.reservedSupports()), new Place("minecraft:torch", wall, seen.blockId(), face, "minecraft:wall_torch"));
 			}
 		}
-		if (support.isPresent()) return new Execute<>(new PlaceLight(rejected, support), new Place("minecraft:torch", support.get(), world.known().get(support.get()).blockId()));
+		if (support.isPresent()) return new Execute<>(new PlaceLight(rejected, support,task.reservedSupports()), new Place("minecraft:torch", support.get(), world.known().get(support.get()).blockId()));
 		return failure("no_observed_light_support");
 	}
 	static int light(World world) {

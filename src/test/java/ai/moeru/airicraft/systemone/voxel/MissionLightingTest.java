@@ -23,6 +23,16 @@ class MissionLightingTest {
 		assertInstanceOf(VoxelCommand.Break.class,mining.command());
 		var dark = kernel.advance(first.state(),world(4,Map.of("minecraft:torch",2)),List.of(),2);
 		assertEquals(List.of(new Stop<>(mining.token())),dark.effects());
+		var repair=kernel.advance(dark.state(),world(4,Map.of("minecraft:torch",2)),List.of(new Released(mining.token())),3);
+		var place=assertInstanceOf(VoxelCommand.Place.class,((Start<?>)repair.effects().getFirst()).command());
+		assertNotEquals(((VoxelCommand.Break)mining.command()).target(),place.support(),"the resumed harvest must not destroy its new light source");
+	}
+	@Test void LightingDoesNotForgetTheSupplyRouteWhenPassingAnExistingTorch() {
+		var kernel=kernel();var first=kernel.advance(kernel.begin("s","r",new Mission("log",1,0,0),0),world(15,Map.of()),List.of(),1);
+		var moved=world(15,Map.of()); var feet=FEET.offset(1,0,0);
+		moved=new StoneAcquisition.World(new Pose(1.5,2.62,.5,0,30),feet,moved.inventory(),moved.known());
+		var next=kernel.advance(first.state(),moved,List.of(),2);
+		assertEquals(List.of(FEET,feet),((Mission)next.state().stack().getFirst().task()).light().route());
 	}
 	@Test void supplyAndPlacementResumeTheSameHarvestFrameWithoutRejectingItsTarget() {
 		var kernel=kernel(); var stock=new HashMap<>(Map.of("coal",2,"stick",2));
