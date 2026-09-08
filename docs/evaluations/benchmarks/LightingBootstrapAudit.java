@@ -9,15 +9,21 @@ import java.util.zip.GZIPInputStream;
 public class LightingBootstrapAudit {
  public static void main(String[] args)throws Exception {
   var replay=new ProductionTape.Replay();var field=ProductionTape.Replay.class.getDeclaredField("state");field.setAccessible(true);
-  var gson=new Gson();long requested=-1,resumed=-1,task=-1;String activity="";int coalBreaks=0,smeltStarts=0;boolean coalChoice=false;
+  var gson=new Gson();long requested=-1,resumed=-1,task=-1,restored=-1;String activity="";int coalBreaks=0,smeltStarts=0,resumedLight=-1;boolean coalChoice=false;
+  LightingPolicy.Parameters light=null;
   Map<String,Integer> stock=Map.of();
   try(var reader=new BufferedReader(new InputStreamReader(new GZIPInputStream(new FileInputStream(args[0]))))) {
    for(String line;(line=reader.readLine())!=null;) {
     var row=JsonParser.parseString(line).getAsJsonObject();replay.accept(row);
+    if(row.get("type").getAsString().equals("production_begin"))light=gson.fromJson(row,ProductionTape.Header.class).knowledge().lighting();
     if(!row.get("type").getAsString().equals("turn"))continue;
     var turn=gson.fromJson(row,ProductionTape.Turn.class);var state=(TaskKernel.State<?>)field.get(replay);
     for(var event:turn.events()) {
      if(event.detail().contains("dependency_cycle:minecraft:cobblestone"))throw new AssertionError("Lighting entered the suspended cobblestone cycle");
+     if(requested>=0 && event.type().equals("task_resumed") && event.detail().equals("SUCCEEDED:working_light_observed")) {
+      if(turn.lighting().policyLight()<light.resumeAt())throw new AssertionError("Light restoration did not reach its threshold");
+      if(restored<0)restored=turn.tick();
+     }
      if(event.type().equals("task_suspended") && event.detail().equals("lighting_supply") && requested<0) {
       requested=turn.tick();task=event.task();stock=turn.observation().inventory();
       int stone=stock.getOrDefault("minecraft:cobblestone",0);
@@ -31,8 +37,9 @@ public class LightingBootstrapAudit {
     if(requested>=0)for(var frame:state.stack()) {
      if(frame.task() instanceof ProductionDomain.Acquire acquire && acquire.item().equals("minecraft:coal") && acquire.ancestors().contains("minecraft:cobblestone"))coalChoice=true;
      if(frame.id()==task && frame.task().getClass().getSimpleName().equals(activity) && resumed<0) {
-      if(turn.lighting().policyLight()<10)throw new AssertionError("Resumed work before restoring light");
-      resumed=turn.tick();
+      if(restored<requested || turn.lighting().policyLight()<light.enterBelow() || turn.lighting().after().stream().anyMatch(ProductionTape.LightingFrame::maintaining))
+       throw new AssertionError("Resumed work without a restored and still valid light episode");
+      resumed=turn.tick();resumedLight=turn.lighting().policyLight();
      }
     }
     for(var effect:turn.effects())if(effect.startsWith("Start[")) {
@@ -44,8 +51,9 @@ public class LightingBootstrapAudit {
   var outcome=replay.finish();
   if(outcome.kind()!=TaskKernel.ResultKind.SUCCEEDED || requested<0 || resumed<=requested || !coalChoice || coalBreaks<1 || smeltStarts!=0)
    throw new AssertionError("Missing coal supply and same-task lighting resumption");
-  System.out.println(gson.toJson(Map.of("exactReplayTurns",replay.turns(),"task",task,"activity",activity,"requestedTick",requested,"resumedTick",resumed,
+  var result=new LinkedHashMap<String,Object>(Map.of("exactReplayTurns",replay.turns(),"task",task,"activity",activity,"requestedTick",requested,"resumedTick",resumed,
    "inventoryAtRepair",stock,"coalBreaksDuringRepair",coalBreaks,"smeltStarts",smeltStarts,"outcome",outcome,
-   "scope","Exact replay, observed inventory and lighting lifecycle; no complete perception or independent physical-action audit.")));
+   "scope","Exact replay, observed inventory and lighting lifecycle; no complete perception or independent physical-action audit."));
+  result.put("restoredTick",restored);result.put("resumedLight",resumedLight);result.put("lightParameters",light);System.out.println(gson.toJson(result));
  }
 }

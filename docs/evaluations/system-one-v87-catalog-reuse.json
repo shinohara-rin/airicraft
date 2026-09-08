@@ -1,0 +1,137 @@
+{
+  "sourceCommit": "13fa72c",
+  "methodVersion": "reactive-production-v87",
+  "motorVersion": "production-motor-v15",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "tests": {
+    "systemOne": 233,
+    "evaluator": 38,
+    "pythonUnchangedPrevious": 50
+  },
+  "runs": [
+    {
+      "run": "eval-output/20260908-170206-116009-77882/01-system-one-lighting-bootstrap",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T09:03:27Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 78154,
+        "pid": 78088,
+        "requestedAt": "2026-09-08T09:03:23Z"
+      },
+      "elapsedTicks": 440,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:cobblestone:8",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v87",
+        "motorVersion": "production-motor-v15",
+        "motor": {
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1"
+      },
+      "coverage": "complete",
+      "audit": {
+        "inventoryAtRepair": {
+          "minecraft:cobblestone": 3,
+          "minecraft:oak_planks": 3,
+          "minecraft:oak_log": 1,
+          "minecraft:crafting_table": 1,
+          "minecraft:stick": 2,
+          "minecraft:wooden_pickaxe": 1
+        },
+        "coalBreaksDuringRepair": 2,
+        "smeltStarts": 0,
+        "activity": "Excavate",
+        "exactReplayTurns": 372,
+        "task": 3,
+        "resumedTick": 265,
+        "requestedTick": 101,
+        "scope": "Exact replay, observed inventory and lighting lifecycle; no complete perception or independent physical-action audit.",
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:cobblestone:8"
+        },
+        "restoredTick": 253,
+        "resumedLight": 9,
+        "lightParameters": {
+          "enterBelow": 7,
+          "resumeAt": 10,
+          "supplyCount": 8,
+          "allowanceTicks": 80,
+          "allowanceRadius": 4,
+          "repairTicks": 2400,
+          "repairRadius": 32
+        }
+      }
+    },
+    {
+      "run": "eval-output/20260908-170206-116009-77882/02-system-one-production",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T09:04:34Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 78388,
+        "pid": 78321,
+        "requestedAt": "2026-09-08T09:04:31Z"
+      },
+      "elapsedTicks": 812,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "runtimeFinal": {
+        "policyVersion": "observed-survival-v1",
+        "state": "SUCCEEDED",
+        "knowledgeVersion": "minecraft-recipe-display-v13",
+        "motor": {
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": ""
+        },
+        "motorVersion": "production-motor-v15",
+        "methodVersion": "reactive-production-v87",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "inventory_observed:minecraft:stone_pickaxe:1",
+        "runtime": "system_one"
+      },
+      "coverage": "complete",
+      "exactReplayTurns": 740
+    }
+  ],
+  "auditCorrection": "The initial bootstrap audit incorrectly required light 10 at the resumption tick. Recording shows restoration to light 11 at tick 253, then resumption at light 9 at 265 after return travel. Revised audit requires restoration to the recorded resumeAt threshold, then resumption at or above enterBelow with maintenance cleared; runtime policy is unchanged.",
+  "negativeControl": "Revised LightingBootstrapAudit rejects uninterrupted production.",
+  "originalRetry": "eval-output/20260908-170609-329851-78973/01-iron-pickaxe",
+  "limitations": [
+    "Original iron retry is pending.",
+    "No complete hidden-read/perception audit, frozen current-policy release, or game completion proof.",
+    "Supply cost search remains a bounded heuristic; reuse does not prove completeness for arbitrary modpack catalogs."
+  ]
+}
