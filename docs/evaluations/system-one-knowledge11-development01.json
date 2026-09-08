@@ -1,0 +1,111 @@
+{
+  "run": "eval-output/20260908-113002-730645-85092/01-iron-pickaxe-development-01",
+  "reportStatus": "PASSED",
+  "harnessStatus": "OK",
+  "elapsedTicks": 9250,
+  "exactReplayTurns": 9230,
+  "plannerTurns": 0,
+  "llmRecords": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T03:38:31Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 85293,
+    "pid": 85230,
+    "requestedAt": "2026-09-08T03:38:27Z"
+  },
+  "recording": {
+    "failure": "",
+    "finished": true,
+    "queuedRows": 0,
+    "complete": true,
+    "writtenRows": 9231
+  },
+  "runtimeFinal": {
+    "state": "SUCCEEDED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one",
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "run": "system-one-1",
+    "taskStack": "[]",
+    "methodVersion": "reactive-production-v71",
+    "motorVersion": "production-motor-v13",
+    "motor": {
+      "pathingActive": false,
+      "stopping": false,
+      "edgePlacement": "",
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": ""
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v11"
+  },
+  "commands": {
+    "Break": 190,
+    "CollectSmelt": 7,
+    "Craft": 17,
+    "Look": 43,
+    "Navigate": 239,
+    "Place": 16,
+    "StartSmelt": 7
+  },
+  "metrics": {
+    "travel": {
+      "horizontal_observed_blocks": 384.328,
+      "adjacent_same_life_segments": 9229,
+      "definition": "Sum of horizontal displacement between consecutive observed poses in the same life; excludes sample gaps and respawns, includes any same-life teleport."
+    },
+    "excavation": {
+      "break_commands_started": 190,
+      "blocks_destroyed": null,
+      "definition": "Attempts measure issued work; command success does not prove that the agent destroyed a block."
+    },
+    "survival": {
+      "vital_samples": 9230,
+      "minimum_observed_health": 14.0,
+      "observed_health_decrease": 6.0,
+      "lives_observed_dead": 0,
+      "burning_samples": 0,
+      "in_lava_samples": 0,
+      "definition": "Health decrease is the sum of adjacent same-life net decreases, not total damage; death count includes only lives observed at health <= 0."
+    },
+    "dark_exposure_allowance": {
+      "status": "recorded_policy_state",
+      "coverage": "complete",
+      "recorded_turns": 9230,
+      "missing_turns": 0,
+      "instances_observed": 0,
+      "allowance_state_samples": 0,
+      "active_exploration_state_samples": 0,
+      "expired_active_exploration_samples": 0,
+      "recent_instances": [],
+      "actual_dark_exposure_ticks": null,
+      "definition": "Snapshots describe policy state, not physical dark exposure. Active samples require an acting Explore leaf; suspended or returning allowances are excluded. Counts use post-decision state; deadline instances use both before and after state."
+    },
+    "perception_violations": {
+      "status": "unavailable",
+      "count": null,
+      "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+    },
+    "break_target_observations": {
+      "status": "complete",
+      "checked_breaks": 190,
+      "mismatched_breaks": 0,
+      "missing_evidence_breaks": 0,
+      "missing_input_turns": 0,
+      "reasons": {},
+      "unclassified_effects": 0,
+      "recent_problems": [],
+      "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+    }
+  },
+  "limits": [
+    "Fresh spawn differs from the previous failed run; this is not a controlled before/after seed comparison.",
+    "The dedicated mushroom fixture supplies controlled before/after evidence.",
+    "Full perception audit, frozen held-out release, cutover and full game completion remain open."
+  ]
+}
