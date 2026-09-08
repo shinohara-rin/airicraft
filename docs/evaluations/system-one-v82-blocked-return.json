@@ -1,0 +1,221 @@
+{
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 2588,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T07:27:20Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 52333,
+    "pid": 52274,
+    "requestedAt": "2026-09-08T07:27:17Z"
+  },
+  "run": "eval-output/20260908-152426-956497-52133/01-system-one-return-blocked",
+  "fixtureCommit": "c5d4eb70",
+  "runtimeCommit": "00d5a8e6",
+  "methodVersion": "reactive-production-v82",
+  "coverage": "complete",
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v14",
+    "methodVersion": "reactive-production-v82",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:raw_iron:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false
+    }
+  },
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "supplyAudit": {
+    "repairDeadline": 3012,
+    "returnStartedTick": 2128,
+    "continuedBeyondRepairDeadlineTick": -1,
+    "outward": [
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 68
+        },
+        "tick": 613,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 54
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 54
+        },
+        "tick": 679,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 38
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 38
+        },
+        "tick": 755,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 22
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 22
+        },
+        "tick": 831,
+        "target": {
+          "x": 0,
+          "y": 200,
+          "z": 15
+        }
+      }
+    ],
+    "interruptedDestination": {
+      "x": 0,
+      "y": 196,
+      "z": 68
+    },
+    "sameTaskResumedAt": 2452,
+    "exactReplayTurns": 2518,
+    "returning": [
+      {
+        "observedFeet": {
+          "x": -3,
+          "y": 199,
+          "z": 17
+        },
+        "tick": 2128,
+        "target": {
+          "x": 0,
+          "y": 199,
+          "z": 16
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 199,
+          "z": 16
+        },
+        "tick": 2144,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 30
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 30
+        },
+        "tick": 2220,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 46
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 46
+        },
+        "tick": 2339,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 62
+        }
+      },
+      {
+        "observedFeet": {
+          "x": 0,
+          "y": 196,
+          "z": 62
+        },
+        "tick": 2416,
+        "target": {
+          "x": 0,
+          "y": 196,
+          "z": 68
+        }
+      }
+    ],
+    "outcome": {
+      "kind": "SUCCEEDED",
+      "evidence": "inventory_observed:minecraft:raw_iron:1"
+    },
+    "scope": "Issued navigation, observed feet and exact lifecycle replay; no independent physics or hidden-read audit.",
+    "task": 3
+  },
+  "routeIntervention": {
+    "playerZ": 17,
+    "playerY": 199,
+    "playerX": -3,
+    "requestedAtRuntimeTick": 2126,
+    "kind": "blocked_return_route",
+    "barrierZ": 43,
+    "barrierY": 196,
+    "barrierX": 0
+  },
+  "wallAudit": {
+    "wall": [
+      0,
+      197,
+      43
+    ],
+    "firstObservedAfterInjectionTick": 2272,
+    "break": {
+      "startedTick": 2291,
+      "lastObservedTick": 2291,
+      "observedFeet": {
+        "x": 0,
+        "y": 196,
+        "z": 42
+      }
+    },
+    "observedEmptyTick": 2308,
+    "observedBeyondWallTick": 2325,
+    "scope": "Upper wall block cleared under Access; player then crossed the obstruction. Does not assert that both wall blocks were mined."
+  },
+  "visualReview": {
+    "image": "eval-output/20260908-152426-956497-52133/01-system-one-return-blocked/live-return-observation.png",
+    "observation": "Close stone face fills the frame; screenshot alone does not prove route traversal."
+  },
+  "limitations": [
+    "Full perception audit, current-policy iron integration and release remain open.",
+    "Earlier failed fixture run is retained; this retry changed fault timing, not agent policy."
+  ]
+}
