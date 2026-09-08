@@ -42,10 +42,12 @@ Artifacts:
 
 This is an adapter test using synthetic authorized observations. It complements the geometric sensor's paired-layout unit tests; it is not a paired autonomous playthrough, a modpack-wide audit, or proof that geometric sensing matches human vision. Additional excavation variants, lighting cases, and world-session cleanup remain separate gates in the implementation plan.
 
-## Recorded block-state reconstruction (v83, live proof pending)
+## Recorded block-state reconstruction (v83)
 
 `MinecraftScene` encodes the identified surface state as registry identity plus an immutable property map. `MinecraftSensor` publishes its recorded `Seen` memory through `ObservedTerrain.publishObserved`; it no longer keeps a parallel map of raw engine states. The decoder requires the exact active registry property set and valid serialized values, otherwise returning a barrier. Captured navigation views retain immutable decoded states. Production format 5 / stone format 4 preserve property changes and timestamp-only refreshes.
 
 The terrain probe now round-trips every registered state of slabs, stairs, logs, wall torches, water and air through JSON, checks invalid/missing properties, and checks that Baritone receives the reconstructed top slab while an earlier captured view retains the bottom slab. Its paired route/cost probe publishes its synthetic observations through the same reconstruction boundary. These are adapter tests, separate from the autonomous goal and from a complete hidden-read audit.
 
 This remains engine-assisted geometric sensing. Recording properties makes existing navigation inputs explicit; it does not prove that every registry property is visually distinguishable from the exposed face. The full perception-violation count remains unavailable.
+
+[Live proof](evaluations/system-one-v83-recorded-states.json): the serial terrain run `20260908-155032-853371-59624` passes all 110 registry-state round trips, malformed-state blocking, immutable captured-view and real Baritone lookup checks, plus unchanged paired-world movement/path results. The subsequent autonomous goal passes and all 357 recorded decisions replay exactly. Capture and client shutdown complete normally. This does not establish sustained integrated performance or close the broader perception audit. The initial attempt stopped responding during world startup and is retained as a capture failure.

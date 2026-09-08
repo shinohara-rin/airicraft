@@ -1,0 +1,85 @@
+{
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 16087,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T07:48:13Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 54444,
+    "pid": 54319,
+    "requestedAt": "2026-09-08T07:48:09Z"
+  },
+  "run": "eval-output/20260908-153346-786024-54130/01-iron-pickaxe",
+  "runtimeCommit": "00d5a8e6",
+  "launchCommit": "ea9e072",
+  "methodVersion": "reactive-production-v82",
+  "motorVersion": "production-motor-v14",
+  "knowledgeVersion": "minecraft-recipe-display-v13",
+  "coverage": "complete",
+  "runtimeFinal": {
+    "methodVersion": "reactive-production-v82",
+    "motorVersion": "production-motor-v14",
+    "motor": {
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": "",
+      "pathingActive": false,
+      "stopping": false,
+      "edgePlacement": ""
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "state": "FAILED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one",
+    "outcome": "lighting_allowance_revoked:repair_limit:retreat_failed",
+    "run": "system-one-1",
+    "taskStack": "[]"
+  },
+  "exactReplayTurns": 16066,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "failureSequence": {
+    "repairRequestedTick": 13213,
+    "repairDeadline": 15613,
+    "startSmeltTick": 14218,
+    "station": {
+      "x": 2,
+      "y": 69,
+      "z": 18
+    },
+    "feetAtStart": {
+      "x": 5,
+      "y": 66,
+      "z": 16
+    },
+    "feetAfterFallTick": 14220,
+    "feetAfterFall": {
+      "x": 5,
+      "y": 65,
+      "z": 16
+    },
+    "furnaceLastObservedTick": 14219,
+    "collectionAttemptTicks": [
+      14425,
+      14447,
+      14469,
+      14491
+    ],
+    "collectionFailures": "furnace_not_observed",
+    "collectionExhaustedTick": 14493,
+    "subsequentBehavior": "Alternatives sought birch wood and spruce logs; repeated Access children reported no_local_access_proposal. Repair expiry triggered retreat, which also failed access.",
+    "scope": "Exact decision replay plus recorded positions and motor outcomes. No independent visual proof of the fall or furnace contents."
+  },
+  "nextIssue": "CollectBatch retries unchanged collection after furnace_not_observed rather than reacquiring access to its existing batch. It then abandons the batch and re-enters ingredient acquisition. Root access/footing causes also need diagnosis.",
+  "limitations": [
+    "The failed repair was unfinished; it did not test ReturnWork deadline separation.",
+    "No claim that v83 recorded properties fix this production lifecycle issue.",
+    "Full perception audit, held-out release, cutover and autonomous game completion remain open."
+  ]
+}
