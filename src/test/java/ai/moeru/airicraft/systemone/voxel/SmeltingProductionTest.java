@@ -15,6 +15,56 @@ class SmeltingProductionTest {
 	private static final Pos FURNACE = new Pos(1, 1, 0);
 	private static ProductionKnowledge book(Smelt recipe, List<Fuel> fuels) { return new ProductionKnowledge("test", List.of(), List.of(), List.of(recipe), fuels); }
 
+	@Test void collectionRestoresAccessToTheExistingBatchWithoutReloadingIngredients() {
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of())),new Limits(16,16,1000,50));
+		var batch=new CollectBatch(IRON,FURNACE,0,300,0);var world=world(Map.of());
+		var first=kernel.advance(kernel.begin("s","r",batch,99),world,List.of(),100);
+		var collect=assertInstanceOf(Start.class,first.effects().getFirst());
+		var repair=kernel.advance(first.state(),world,List.of(new Finished(collect.token(),Outcome.failure("furnace_not_observed"))),101);
+		assertTrue(repair.state().outcome().isEmpty());
+		var movement=assertInstanceOf(Start.class,repair.effects().getFirst());
+		var move=assertInstanceOf(Navigate.class,movement.command());assertNotEquals(world.feet(),move.stance());
+		var retained=assertInstanceOf(CollectBatch.class,repair.state().stack().getFirst().task());
+		assertEquals(300,retained.deadline());assertEquals(FURNACE,retained.station());assertEquals(IRON,retained.recipe());
+		var feet=move.stance();var arrived=new StoneAcquisition.World(new Pose(feet.x()+.5,feet.y()+1.62,feet.z()+.5,0,0),feet,Map.of(),world.known());
+		var retry=kernel.advance(repair.state(),arrived,List.of(new Finished(movement.token(),Outcome.success("arrived"))),102);
+		var retried=assertInstanceOf(Start.class,retry.effects().getFirst());assertEquals(collect.command(),retried.command());
+		assertEquals(300,assertInstanceOf(CollectBatch.class,retry.state().stack().getLast().task()).deadline());
+		var inventory=new StoneAcquisition.World(arrived.eye(),arrived.feet(),Map.of("ingot",1),arrived.known());
+		var done=kernel.advance(retry.state(),inventory,List.of(new Finished(retried.token(),Outcome.success("collected"))),103);
+		assertEquals(ResultKind.SUCCEEDED,done.state().outcome().orElseThrow().kind());
+	}
+	@Test void collectionAccessExpiresAtTheOriginalDeadlineAndWaitsForRelease() {
+		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of())),new Limits(16,16,1000,50));
+		var world=world(Map.of());var batch=new CollectBatch(IRON,FURNACE,0,300,0);
+		var first=kernel.advance(kernel.begin("s","r",batch,99),world,List.of(),100);
+		var collect=assertInstanceOf(Start.class,first.effects().getFirst());
+		var repair=kernel.advance(first.state(),world,List.of(new Finished(collect.token(),Outcome.failure("furnace_not_observed"))),101);
+		var move=assertInstanceOf(Start.class,repair.effects().getFirst());
+		var expired=kernel.advance(repair.state(),world,List.of(),300);
+		assertEquals(List.of(new Stop<>(move.token())),expired.effects());assertTrue(expired.state().outcome().isEmpty());
+		var done=kernel.advance(expired.state(),world,List.of(new Released(move.token())),301);
+		assertTrue(done.effects().isEmpty());assertEquals(ResultKind.FAILED,done.state().outcome().orElseThrow().kind());
+	}
+
+	@Test void collectionCannotReplaceItsLostFurnaceWithAnotherObservedStation() {
+		var domain=new ProductionDomain(book(IRON,List.of()));var base=world(Map.of());var known=new HashMap<>(base.known());
+		known.put(FURNACE,new Seen("minecraft:air",true,true,false,15,101));
+		known.put(new Pos(0,1,1),new Seen("minecraft:furnace",false,true,true,15,101));
+		var changed=new StoneAcquisition.World(base.eye(),base.feet(),base.inventory(),known);
+		var task=new BatchAccess(IRON.station(),FURNACE,300,Set.of(base.feet()),Optional.empty());
+		var done=assertInstanceOf(Complete.class,domain.decide(new View<Task>(1,task,false,101,Optional.empty(),Optional.empty()),changed));
+		assertEquals("batch_station_lost",done.outcome().evidence());
+	}
+	@Test void collectionTerrainPreparationCannotExtendTheBatchDeadline() {
+		var domain=new ProductionDomain(book(IRON,List.of()));var base=world(Map.of());var stance=new Pos(-1,1,0);
+		var task=new BatchAccess(IRON.station(),FURNACE,300,Set.of(base.feet()),Optional.of(stance));
+		var failed=new View<Task>(1,task,false,250,Optional.of(Outcome.failure("observed_route_unavailable")),Optional.empty());
+		var child=assertInstanceOf(Child.class,domain.decide(failed,base));
+		assertEquals(300,assertInstanceOf(Access.class,child.child()).state().deadline());
+		assertEquals(task,assertInstanceOf(AfterAccess.class,child.continuation()).saved());
+	}
+
 	@Test void rejectedFurnaceReachRepositionsBeforeRetryingWithoutDiscardingTheRecipe() {
 		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600)))),new Limits(16,16,1000,50));
 		var world=world(Map.of("ore",1,"coal",1));

@@ -12,7 +12,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, RegainLight, ReturnWork, ResumeWork, Restored, Withdraw, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public sealed interface Task permits Mission, RegainLight, ReturnWork, ResumeWork, Restored, Withdraw, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, BatchAccess, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
 	public record Pickup(ItemPickup.State state) implements Task {}
 	public record AfterPickup(Gather saved, String entity) implements Task {}
 	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
@@ -58,6 +58,10 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	public record FinishSmeltStart(SmeltBatch request, Pos station, Pos stance, int before) implements Task {}
 	public record CollectBatch(Smelt recipe, Pos station, int before, long deadline, int attempts) implements Task {}
+	/** Access to one existing batch; never substitutes or manufactures another workstation. */
+	public record BatchAccess(String block, Pos station, long deadline, Set<Pos> rejected, Optional<Pos> approach) implements Task {
+		public BatchAccess { rejected=Set.copyOf(rejected); }
+	}
 	public record Explore(UndergroundSearch.Task search, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
 		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
 	}
@@ -278,6 +282,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			var route = new ArrayList<>(RouteMemory.append(repair.returning().route(),world.feet())); Collections.reverse(route);
 			return Optional.of(new Revision<>(frame.id(),new Withdraw("lighting_repair_budget_or_health",ReturnNavigation.State.begin(route)),"lighting_repair_revoked"));
 		}
+		for (var frame : branch) if (!survival.urgent(world) && unwrap(frame.task()) instanceof BatchAccess access && frame.tick() >= access.deadline())
+			return Optional.of(new Revision<>(frame.id(),new Abandon("smelting_access_deadline"),"smelting_access_deadline"));
 		for (var frame : branch) if (!survival.urgent(world) && unwrap(frame.task()) instanceof RegainLight recovery) {
 			if (light(world) >= lighting.parameters().resumeAt()) return Optional.of(new Revision<>(frame.id(),new Restored(recovery.saved()),"working_light_regained"));
 			if (frame.tick() >= recovery.deadline()) return Optional.of(new Revision<>(frame.id(),new Abandon("lighting_refuge_budget_exhausted"),"lighting_refuge_budget_exhausted"));
@@ -395,11 +401,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				var recipe = task.request().recipe();
 				yield new Sleep<>(new CollectBatch(recipe, task.station(), task.before(), view.tick() + recipe.ticks() + 200, 0), view.tick() + recipe.ticks());
 			}
+			case BatchAccess task -> batchAccess(view,task,world);
 			case CollectBatch task -> {
 				if (world.inventory().getOrDefault(task.recipe().output(), 0) >= task.before() + task.recipe().yield()) yield success("smelted_inventory_observed:" + task.recipe().output());
 				if (view.acting()) yield new Keep<>();
 				if (view.tick() < task.deadline() - 200) yield new Sleep<>(task, task.deadline() - 200);
 				if (view.tick() >= task.deadline() || task.attempts() >= 4) yield failure("smelting_collection_exhausted");
+				if (failedChild(view)) yield failure("smelting_access_unavailable:" + view.childResult().orElseThrow().evidence());
+				if (view.commandResult().filter(o -> o.kind()==ResultKind.FAILED && o.evidence().equals("furnace_not_observed")).isPresent())
+					yield new Child<>(task,new BatchAccess(task.recipe().station(),task.station(),task.deadline(),Set.of(world.feet()),Optional.empty()),"restore_smelting_access");
 				if (failed(view)) yield new Sleep<>(task, view.tick() + 20);
 				yield new Execute<>(new CollectBatch(task.recipe(), task.station(), task.before(), task.deadline(), task.attempts() + 1), new CollectSmelt(task.recipe(), task.station()));
 			}
@@ -541,6 +551,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			else if (task instanceof ResumeWork repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
 			else if (task instanceof ReturnWork repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
 			else if (task instanceof RegainLight repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
+			else if (task instanceof CollectBatch batch) RouteMemory.retain(cells,List.of(batch.station()));
+			else if (task instanceof BatchAccess batch) RouteMemory.retain(cells,List.of(batch.station()));
 			else if (task instanceof Withdraw retreat) RouteMemory.retain(cells,retreat.returning().route());
 			else if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
 			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
@@ -666,6 +678,28 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	static int light(World world) {
 		Seen cell = world.known().get(new Pos((int) Math.floor(world.eye().x()), (int) Math.floor(world.eye().y()), (int) Math.floor(world.eye().z())));
 		return cell == null ? 0 : cell.light();
+	}
+
+	private Decision<Task,VoxelCommand> batchAccess(View<Task> view,BatchAccess task,World world) {
+		if (view.acting()) return new Keep<>();
+		if (view.tick() >= task.deadline()) return failure("smelting_access_deadline");
+		var station=world.known().get(task.station());
+		if (station==null || !station.identified() || !station.blockId().equals(task.block())) return failure("batch_station_lost");
+		if (!task.rejected().contains(world.feet()) && usableStation(world.known(),world.eye(),task.station())) return success("smelting_access_restored");
+		if (needsAccess(view) && task.approach().isPresent() && survival.safeStance(world,task.approach().get())) {
+			var initial=TerrainAccess.State.afterFailedNavigation(world.feet(),task.approach().get(),view.tick());
+			var bounded=new TerrainAccess.State(initial.origin(),initial.goal(),Math.min(initial.deadline(),task.deadline()),initial.work(),initial.rejected(),initial.route(),initial.last(),initial.failedApproach());
+			return new Child<>(new AfterAccess(task),new Access(bounded,accessMaterials),"prepare_smelting_access");
+		}
+		var rejected=new HashSet<>(task.rejected());
+		if (view.commandResult().isPresent()) task.approach().ifPresent(rejected::add);
+		if (rejected.size() >= 5) return failure("smelting_access_stances_exhausted");
+		var stance=world.known().keySet().stream().filter(pos -> !rejected.contains(pos) && !pos.equals(world.feet()))
+			.filter(pos -> Math.abs(pos.y()-task.station().y()) <= 1 && StoneAcquisition.standable(world.known(),pos) && survival.safeStance(world,pos))
+			.filter(pos -> usableStation(world.known(),new Pose(pos.x()+.5,pos.y()+1.62,pos.z()+.5,0,0),task.station()))
+			.sorted(positionOrder(world.eye())).findFirst();
+		if (stance.isEmpty()) return failure("no_observed_smelting_access");
+		return new Execute<>(new BatchAccess(task.block(),task.station(),task.deadline(),rejected,stance),new Navigate(stance.get(),24,(int)Math.min(200,task.deadline()-view.tick())));
 	}
 
 	private Decision<Task, VoxelCommand> smelt(View<Task> view, SmeltBatch task, World world) {

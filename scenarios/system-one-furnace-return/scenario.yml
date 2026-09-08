@@ -1,0 +1,38 @@
+id: system-one-furnace-return
+name: Restore access to an existing furnace batch
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one iron ingot from the supplied raw iron and plank fuel. After the
+  furnace begins cooking, the evaluator moves the player seven blocks away.
+  Restore access to that furnace and collect the existing batch.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 2000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: restore_smelting_access
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:smelting_access_restored
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true
