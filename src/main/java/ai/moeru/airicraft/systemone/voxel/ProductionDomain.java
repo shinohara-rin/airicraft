@@ -12,7 +12,7 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, RegainLight, ResumeWork, Restored, Withdraw, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public sealed interface Task permits Mission, RegainLight, ReturnWork, ResumeWork, Restored, Withdraw, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
 	public record Pickup(ItemPickup.State state) implements Task {}
 	public record AfterPickup(Gather saved, String entity) implements Task {}
 	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
@@ -28,6 +28,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	public record Restored(Suspended saved) implements Task {}
 	public record ResumeWork(Suspended saved, ReturnNavigation.State returning, LightingPolicy.Repair repair,
 		Optional<Outcome> repaired, long deadline, Pos supplyOrigin, SurvivalPolicy.Vitals baseline) implements Task {}
+	/** Ordinary return travel after a repair; maintained conditions may interrupt it again. */
+	public record ReturnWork(Suspended saved, ReturnNavigation.State returning) implements Task {}
 	public record RegainLight(Suspended saved, ReturnNavigation.State returning, long deadline) implements Task {}
 	public record Withdraw(String reason, ReturnNavigation.State returning) implements Task {}
 	public record Abandon(String reason) implements Task {}
@@ -125,7 +127,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		boolean repairing = lightingRepairActive(branch);
 		for (var view : branch) if (unwrap(view.task()) instanceof ResumeWork repair) {
 			if (repair.repaired().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) policy = policy.failed(repair.repair());
-			if (view.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health())
+			if (repair.repaired().isEmpty() && (view.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health()))
 				policy = new LightingPolicy.State(true, Set.of(LightingPolicy.Repair.SUPPLY,LightingPolicy.Repair.PLACEMENT),
 					Optional.of(new LightingPolicy.Allowance(world.feet(),view.tick(),world.vitals().health(),world.vitals().life(),LightingPolicy.Validity.REPAIR_LIMIT,lighting.parameters().allowanceRadius(),LightingPolicy.Purpose.PROGRESS)));
 		}
@@ -184,6 +186,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			if (saved instanceof Gather g) saved = new Gather(g.rule(),g.count(),g.origin(),g.scans(),g.rejected(),g.visited(),null,g.drops(),Optional.empty(),g.discoveryClears(),g.rejectedDrops());
 			else if (saved instanceof Access a) { var t=a.state(); saved = new Access(new TerrainAccess.State(t.origin(),t.goal(),t.deadline(),t.work(),t.rejected(),t.route(),null,t.failedApproach()),a.clearable()); }
 			else if (saved instanceof Pickup p) { var t=p.state(); saved = new Pickup(new ItemPickup.State(t.target(),t.inventoryGoal(),t.tried(),new ItemPickup.Seeking(),t.work(),t.deadline())); }
+			else if (saved instanceof ReturnWork r) { var t=r.returning(); saved = new ReturnWork(r.saved(),new ReturnNavigation.State(t.route(),t.progress(),t.target(),t.rejected(),Optional.empty())); }
 			else if (saved instanceof Station t) saved = new Station(t.item(),t.reserved(),t.ancestors(),t.scans(),t.rejected(),null);
 		}
 		return new Suspended(saved,view.acting() ? Optional.empty() : view.commandResult(),view.childResult());
@@ -194,13 +197,16 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			// Publish the repair result to the mission observer before starting return work.
 			return new Keep<>(new ResumeWork(task.saved(),task.returning(),task.repair(),view.childResult(),task.deadline(),task.supplyOrigin(),task.baseline()));
 		}
+		return new Keep<>(new ReturnWork(task.saved(),task.returning()));
+	}
+	private Decision<Task,VoxelCommand> returnWork(View<Task> view, ReturnWork task, World world) {
 		if (view.acting()) return new Keep<>();
 		if (needsAccess(view) && task.returning().last().isPresent()) return access(task,task.returning().last().get(),world,view.tick(),accessMaterials);
 		var travel = ReturnNavigation.advance(task.returning(),world,view.commandResult());
 		if (travel instanceof ReturnNavigation.Arrived) return new Keep<>(new Restored(task.saved()));
-		if (travel instanceof ReturnNavigation.Unavailable unavailable) return failure("lighting_return_unavailable:"+unavailable.reason());
+		if (travel instanceof ReturnNavigation.Unavailable unavailable) return failure("work_return_unavailable:"+unavailable.reason());
 		var move=(ReturnNavigation.Move)travel;
-		return new Execute<>(new ResumeWork(task.saved(),move.state(),task.repair(),task.repaired(),task.deadline(),task.supplyOrigin(),task.baseline()),move.command());
+		return new Execute<>(new ReturnWork(task.saved(),move.state()),move.command());
 	}
 	private Decision<Task,VoxelCommand> regainLight(View<Task> view, RegainLight task, World world) {
 		if (view.acting()) return new Keep<>();
@@ -221,7 +227,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (light(world) >= lighting.parameters().resumeAt()) return true;
 		for (var view : branch) if (unwrap(view.task()) instanceof ResumeWork repair) {
 			Pos affected = affected(command,world.feet());
-			boolean travel = repair.repaired().isPresent() || branch.stream().map(v -> unwrap(v.task())).anyMatch(t -> t instanceof Resupply);
+			boolean travel = branch.stream().map(v -> unwrap(v.task())).anyMatch(t -> t instanceof Resupply);
 			if (travel) return repair.returning().route().stream().anyMatch(p -> travelDistance(p,affected) <= 6);
 			return travelDistance(repair.supplyOrigin(),affected) <= lighting.parameters().repairRadius();
 		}
@@ -268,7 +274,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (branch.stream().anyMatch(view -> view.task() instanceof AfterEscape && view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent())) {
 			return Optional.of(new Revision<>(root.id(), new Abandon("survival_escape_failed"), "survival_escape_failed"));
 		}
-		for (var frame : branch) if (!survival.urgent(world) && unwrap(frame.task()) instanceof ResumeWork repair && (frame.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health())) {
+		for (var frame : branch) if (!survival.urgent(world) && unwrap(frame.task()) instanceof ResumeWork repair && repair.repaired().isEmpty() && (frame.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health())) {
 			var route = new ArrayList<>(RouteMemory.append(repair.returning().route(),world.feet())); Collections.reverse(route);
 			return Optional.of(new Revision<>(frame.id(),new Withdraw("lighting_repair_budget_or_health",ReturnNavigation.State.begin(route)),"lighting_repair_revoked"));
 		}
@@ -339,6 +345,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				yield new Child<>(task, Acquire.root(task.item(), task.count()), "mission_inventory:" + task.item());
 			}
 			case Restored task -> decidePrepared(new View<>(view.id(),task.saved().task(),false,view.tick(),task.saved().command(),task.saved().child()),world);
+			case ReturnWork task -> returnWork(view,task,world);
 			case RegainLight task -> regainLight(view,task,world);
 			case ResumeWork task -> resumeWork(view,task,world);
 			case Withdraw task -> new Child<>(new AfterRetreat(task.reason()),new Retreat(task.returning()),"lighting_retreat");
@@ -532,6 +539,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			task = unwrap(task);
 			if (task instanceof Mission mission) RouteMemory.retain(cells,mission.light().route());
 			else if (task instanceof ResumeWork repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
+			else if (task instanceof ReturnWork repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
 			else if (task instanceof RegainLight repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
 			else if (task instanceof Withdraw retreat) RouteMemory.retain(cells,retreat.returning().route());
 			else if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
@@ -547,6 +555,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			task = unwrap(task);
 			if (task instanceof Mission mission) stances.addAll(mission.light().route());
 			else if (task instanceof ResumeWork repair) { stances.addAll(repair.returning().route()); stances.addAll(returnStances(List.of(repair.saved().task()))); }
+			else if (task instanceof ReturnWork repair) { stances.addAll(repair.returning().route()); stances.addAll(returnStances(List.of(repair.saved().task()))); }
 			else if (task instanceof RegainLight repair) { stances.addAll(repair.returning().route()); stances.addAll(returnStances(List.of(repair.saved().task()))); }
 			else if (task instanceof Withdraw retreat) stances.addAll(retreat.returning().route());
 			else if (task instanceof Explore explore) stances.addAll(explore.search().route());
@@ -617,7 +626,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Set<Pos> lightingSupportReservations(List<View<Task>> branch, World world) {
 		var reserved=new HashSet<Pos>();
 		for (var view:branch) {
-			Task task=unwrap(view.task()); if (task instanceof ResumeWork repair) task=unwrap(repair.saved().task());
+			Task task=unwrap(view.task());
+			while (task instanceof ResumeWork || task instanceof ReturnWork) task=unwrap(task instanceof ResumeWork repair ? repair.saved().task() : ((ReturnWork)task).saved().task());
 			if (task instanceof Gather gather) world.known().forEach((pos,seen) -> { if (seen.identified() && gather.rule().blocks().contains(seen.blockId())) reserved.add(pos); });
 			VoxelCommand pending=task instanceof Explore explore ? explore.search().last() : task instanceof Access access ? access.state().last() : task instanceof Excavate excavation ? excavation.state().last().orElse(null) : null;
 			if (pending instanceof Break broken) reserved.add(broken.target());

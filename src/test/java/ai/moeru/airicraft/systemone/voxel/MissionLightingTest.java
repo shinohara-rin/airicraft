@@ -16,6 +16,37 @@ class MissionLightingTest {
 	private static TaskKernel<Task,StoneAcquisition.World,VoxelCommand> kernel() {
 		return new TaskKernel<>(new ProductionDomain(BOOK),new Limits(16,24,5000,100));
 	}
+	@Test void completedRepairDoesNotExpireWhileReturningThroughWorkingLight() {
+		var route=new ArrayList<Pos>();for(int z=0;z<=16;z++)route.add(FEET.offset(0,0,z));
+		var saved=new Suspended(Acquire.root("log",1),Optional.empty(),Optional.empty());
+		var repair=new ResumeWork(saved,ReturnNavigation.State.begin(route),LightingPolicy.Repair.SUPPLY,Optional.of(Outcome.success("supplied")),9,FEET,SurvivalPolicy.Vitals.healthy());
+		var step=kernel().advance(branch(repair,new Ready<>(),WorkingLight.begin()),returnWorld(FEET,15),List.of(),10);
+		assertTrue(step.state().outcome().isEmpty(),"completed supply work must not abort return travel at the old repair deadline");
+		assertTrue(step.events().stream().noneMatch(e->e.detail().equals("lighting_repair_revoked")));
+	}
+	@Test void returnTravelCanBeInterruptedByNewDarknessAndResumeAfterRelease() {
+		var route=List.of(FEET,FEET.offset(1,0,0),FEET.offset(2,0,0));
+		var saved=new Suspended(Acquire.root("log",1),Optional.empty(),Optional.empty());
+		var task=new ReturnWork(saved,ReturnNavigation.State.begin(route));
+		var kernel=kernel();var first=kernel.advance(branch(task,new Ready<>(),WorkingLight.begin()),world(15,Map.of("minecraft:torch",2)),List.of(),1);
+		var travel=(Start<VoxelCommand>)first.effects().getFirst();
+		var dark=kernel.advance(first.state(),world(4,Map.of("minecraft:torch",2)),List.of(),2);
+		assertEquals(List.of(new Stop<>(travel.token())),dark.effects());
+		var stopped=(ResumeWork)dark.state().stack().getLast().task();
+		var returning=assertInstanceOf(ReturnWork.class,stopped.saved().task());
+		assertEquals(saved,returning.saved());assertTrue(returning.returning().last().isEmpty(),"interrupted navigation is not a failed waypoint");
+		var repair=kernel.advance(dark.state(),world(4,Map.of("minecraft:torch",2)),List.of(new Released(travel.token())),3);
+		var placement=(Start<VoxelCommand>)repair.effects().getFirst();assertInstanceOf(VoxelCommand.Place.class,placement.command());
+		var state=repair.state();List<Feedback> feedback=List.of(new Finished(placement.token(),Outcome.success("placed")));boolean resumed=false;
+		for(int tick=4;tick<14;tick++) {
+			var step=kernel.advance(state,world(10,Map.of("minecraft:torch",1)),feedback,tick);state=step.state();feedback=List.of();
+			for(var effect:step.effects())if(effect instanceof Start<VoxelCommand> start) {
+				assertEquals(travel.token().task(),start.token().task());assertEquals(travel.command(),start.command());resumed=true;
+			}
+			if(resumed)break;
+		}
+		assertTrue(resumed);
+	}
 	@Test void prospectiveDimRegionLimitPreservesTheInterruptedReturnTask() {
 		var result=kernel().advance(dimReturnBranch(),returnWorld(FEET,4),List.of(),10);
 		assertTrue(result.state().outcome().isEmpty(),"an out-of-region destination must request recovery, not fail the mission");
@@ -171,6 +202,8 @@ class MissionLightingTest {
 		var atExit=world(10,Map.of("minecraft:torch",8));
 		atExit=new StoneAcquisition.World(new Pose(.5,2.62,-1.5,0,30),entrance,atExit.inventory(),atExit.known());
 		var returned=kernel.advance(branch(resumed,new Ready<>(),initial.stack().getFirst().task() instanceof Mission m ? m.light():null),atExit,List.of(),5);
+		assertInstanceOf(ReturnWork.class,returned.state().stack().getLast().task());
+		returned=kernel.advance(returned.state(),atExit,List.of(),6);
 		assertEquals(FEET,assertInstanceOf(VoxelCommand.Navigate.class,((Start<?>)returned.effects().getFirst()).command()).stance());
 	}
 	@Test void repairDeadlineCancelsAStalledDependencyWithoutGrantingAnotherMotorOwner() {
