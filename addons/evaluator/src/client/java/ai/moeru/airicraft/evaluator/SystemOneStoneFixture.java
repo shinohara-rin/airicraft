@@ -31,7 +31,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-dim-coal-bootstrap", "system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-world-change")) return worldProbe.ready(client,tick,output);
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
@@ -61,7 +61,17 @@ final class SystemOneStoneFixture {
 				world.setTimeOfDay(6000);
 				player.changeGameMode(GameMode.SURVIVAL);
 				player.getInventory().clear();
-				if (scenario.equals("system-one-observed-processed-wood")) {
+				if (scenario.equals("system-one-dim-coal-bootstrap")) {
+					for (int dx=-2;dx<=2;dx++) for (int dz=-2;dz<=6;dz++) for (int y=198;y<=205;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
+					for (int dz=0;dz<=4;dz++) for (int y=200;y<=203;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+1),Blocks.DIRT.getDefaultState(),3);
+					var dimLight = Blocks.REDSTONE_WALL_TORCH.getDefaultState().with(net.minecraft.state.property.Properties.HORIZONTAL_FACING,net.minecraft.util.math.Direction.WEST);
+					for (int dz : new int[]{0,3}) world.setBlockState(new BlockPos(x,203,z+dz),dimLight,3);
+					world.setBlockState(new BlockPos(x,200,z+3),Blocks.COAL_ORE.getDefaultState(),3);
+					player.getInventory().setStack(0,new ItemStack(Items.WOODEN_PICKAXE));
+					player.getInventory().setStack(1,new ItemStack(Items.STICK));
+				}
+				else if (scenario.equals("system-one-observed-processed-wood")) {
 					world.setBlockState(new BlockPos(x, 200, z + 3), Blocks.STRIPPED_OAK_LOG.getDefaultState(), 3);
 				}
 				else if (scenario.equals("system-one-tree-indicator")) {

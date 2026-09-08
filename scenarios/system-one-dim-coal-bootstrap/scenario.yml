@@ -1,0 +1,39 @@
+id: system-one-dim-coal-bootstrap
+name: Bootstrap torches through a short dim coal search
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Craft four torches. The dim passage supplies one stick and a wooden
+  pickaxe, with coal initially occluded by soil. Torch production must
+  use its bounded reduced-light search without recursively requesting torches.
+goal:
+  kind: inventory_item
+  itemId: minecraft:torch
+  quantity: 4
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:torch
+    count: 4
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: search:minecraft:coal
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Break
+      targetBlock: minecraft:coal_ore
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

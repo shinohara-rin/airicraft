@@ -1,0 +1,163 @@
+{
+  "change": "An explicit geological search makes a recipe ingredient discoverable even when its harvest rule allows only observed targets. Actual observed inputs retain priority.",
+  "methodVersion": "reactive-production-v72",
+  "knowledgeVersion": "minecraft-recipe-display-v11",
+  "motorVersion": "production-motor-v13",
+  "tests": {
+    "systemOne": 199,
+    "evaluator": 38,
+    "python": 47,
+    "geologicalRankingRegression": "Failed with previous estimator after supplying a valid tool; passes with corrected estimator. Also verifies actual observed source wins over a prior."
+  },
+  "runs": {
+    "dimCoal": {
+      "run": "eval-output/20260908-114153-640973-88558/01-system-one-dim-coal-bootstrap",
+      "elapsedTicks": 223,
+      "exactReplayTurns": 156,
+      "harnessStatus": "OK",
+      "scenarioStatus": "PASSED",
+      "llmRecords": 0,
+      "clientExitCode": 0,
+      "recording": {
+        "finished": true,
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 157,
+        "failure": ""
+      },
+      "motorReleased": true,
+      "commands": {
+        "Break": 3,
+        "Craft": 1,
+        "Look": 1,
+        "Navigate": 4
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 3,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      }
+    },
+    "charcoal": {
+      "run": "eval-output/20260908-114558-407945-89703/01-system-one-charcoal",
+      "elapsedTicks": 584,
+      "exactReplayTurns": 516,
+      "harnessStatus": "OK",
+      "scenarioStatus": "PASSED",
+      "llmRecords": 0,
+      "clientExitCode": 0,
+      "recording": {
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 517,
+        "failure": "",
+        "finished": true
+      },
+      "motorReleased": true,
+      "commands": {
+        "Break": 1,
+        "CollectSmelt": 2,
+        "Craft": 1,
+        "Navigate": 1,
+        "StartSmelt": 2
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 1,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      }
+    },
+    "lighting": {
+      "run": "eval-output/20260908-114558-407945-89703/02-system-one-lighting",
+      "elapsedTicks": 301,
+      "exactReplayTurns": 227,
+      "harnessStatus": "OK",
+      "scenarioStatus": "PASSED",
+      "llmRecords": 0,
+      "clientExitCode": 0,
+      "recording": {
+        "writtenRows": 228,
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": ""
+      },
+      "motorReleased": true,
+      "commands": {
+        "Break": 6,
+        "Craft": 2,
+        "Look": 1,
+        "Navigate": 10,
+        "Place": 1
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 6,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      }
+    }
+  },
+  "allowanceAudit": {
+    "scope": "Active Explore work only. Does not establish maintenance on other tasks or audit sensor/motor hidden reads.",
+    "outcome": {
+      "kind": "SUCCEEDED",
+      "evidence": "inventory_observed:minecraft:torch:4"
+    },
+    "distinctAllowances": 1,
+    "confirmedBreaks": 1,
+    "observedDimExploreTicks": 20,
+    "exactReplayTurns": 156,
+    "evidence": [
+      {
+        "startedTick": 97,
+        "policyLight": 5,
+        "target": {
+          "x": 0,
+          "y": 201,
+          "z": 16
+        },
+        "allowance": {
+          "origin": {
+            "x": 0,
+            "y": 200,
+            "z": 15
+          },
+          "expiresAt": 177
+        }
+      },
+      {
+        "observedEmptyAt": 117,
+        "target": {
+          "x": 0,
+          "y": 201,
+          "z": 16
+        },
+        "finishedTick": 117
+      }
+    ]
+  },
+  "allowanceNegativeControl": "The complete, successfully replaying bright charcoal run is rejected by LightingAllowanceAudit for lacking reduced-light excavation.",
+  "limits": [
+    "The positive allowance proof covers active Explore work. Later harvesting, pickup, and crafting have no exploration allowance; maintenance across every task type remains unimplemented.",
+    "Full sensor/motor perception audit remains unavailable.",
+    "Current-policy integrated development and held-out gates remain unverified."
+  ]
+}

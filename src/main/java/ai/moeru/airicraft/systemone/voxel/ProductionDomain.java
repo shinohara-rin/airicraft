@@ -773,6 +773,8 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 			best = nearest.isPresent() ? SupplyEstimate.known(nearest.getAsDouble()) : indicator.isPresent()
 				? new SupplyEstimate(SupplyEvidence.INDICATED,indicator.getAsDouble()+10)
 				: harvest.discovery().searchMode() == SearchMode.LOCAL_SURVEY ? new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30) : SupplyEstimate.unavailable();
+			// Geological discovery is a separate method from surveying for an exposed harvest target.
+			if (searches.containsKey(item)) best = best.min(new SupplyEstimate(SupplyEvidence.DISCOVERY_REQUIRED, 30));
 		}
 		for (var recipe : recipes.getOrDefault(item, List.of())) best = best.min(recipeCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));
 		for (var recipe : smelting.getOrDefault(item, List.of())) best = best.min(smeltCost(recipe, costing, next, budget).scale(1.0 / recipe.yield()));

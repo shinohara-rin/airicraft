@@ -44,6 +44,29 @@ class HarvestSearchPolicyTest {
 		assertEquals("z-raw",assertInstanceOf(Acquire.class,step.state().stack().getFirst().task()).method());
 		assertInstanceOf(VoxelCommand.Look.class,assertInstanceOf(Start.class,step.effects().getFirst()).command());
 	}
+	@Test void anExplicitGeologicalSearchRemainsAnAvailableRecipeInput() {
+		var ore = new Harvest("ore", List.of("ore_block"), List.of("pick"), Technique.EXPOSED, Discovery.observedOnly());
+		var book = new ProductionKnowledge("geological-input", List.of(
+			new Recipe("a-surface", "product", 1, 2, List.of(new Cell(0,"raw"), new Cell(1,"raw"))),
+			new Recipe("z-geological", "product", 1, 2, List.of(new Cell(0,"ore")))),
+			List.of(ore, RAW), List.of(), List.of(),
+			List.of(new SearchPrior("ore", 0, 16, 16, List.of("stone"))),
+			new LightingPolicy.Parameters(7,10,8,80,4));
+		var kernel = new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book),StoneTape.LIMITS);
+		var base = world(false);
+		var observed = new StoneAcquisition.World(base.eye(),base.feet(),Map.of("pick",1),base.known());
+		var step = kernel.advance(kernel.begin("s","r",Acquire.root("product",1),0),observed,List.of(),1);
+		assertEquals("z-geological", assertInstanceOf(Acquire.class,step.state().stack().getFirst().task()).method());
+		assertTrue(step.state().stack().stream().anyMatch(frame -> frame.task() instanceof Explore));
+		assertFalse(step.state().stack().stream().anyMatch(frame -> frame.task() instanceof Gather),
+			"a location prior authorizes exploration; it does not identify an ore block");
+		var known = new HashMap<>(observed.known());
+		known.put(observed.feet().offset(0,0,1),new Seen("raw_block",false,true,true,15,1));
+		var exposed = new StoneAcquisition.World(observed.eye(),observed.feet(),observed.inventory(),known);
+		var withEvidence = kernel.advance(kernel.begin("s","r",Acquire.root("product",1),0),exposed,List.of(),1);
+		assertEquals("a-surface",assertInstanceOf(Acquire.class,withEvidence.state().stack().getFirst().task()).method(),
+			"an observed source takes precedence over a geological prior");
+	}
 	@Test void aVanishedObservedOnlyTargetDoesNotTurnIntoAnUnrelatedSurvey() {
 		var w=world(false);var task=new Gather(PROCESSED,1,w.feet(),0,Set.of(),Set.of(),null);
 		var result=new ProductionDomain(BOOK).decide(new View<>(1,task,false,1,Optional.empty(),Optional.empty()),w);
