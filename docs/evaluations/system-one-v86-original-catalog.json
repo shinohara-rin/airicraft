@@ -1,0 +1,37 @@
+{
+  "run": "eval-output/20260908-164759-794731-74515/01-iron-pickaxe",
+  "runtimeCommit": "35651084",
+  "methodVersion": "reactive-production-v86",
+  "harnessStatus": "INTERRUPTED",
+  "reportStatus": "RUNNING",
+  "interruption": "Agent stopped the reproduced catalog regression to test a correction; no terminal gameplay verdict.",
+  "harnessElapsedTicks": 12534,
+  "lastAddonElapsedTicks": 12574,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T08:59:46Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 74751,
+    "pid": 74686,
+    "requestedAt": "2026-09-08T08:59:42Z"
+  },
+  "captureCoverage": "incomplete",
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "diagnostic": {
+    "exactReplayPrefixThroughTick": 3552,
+    "input": "eval-output/20260908-164759-794731-74515/01-iron-pickaxe/cost-snapshot-tick3552.json.gz",
+    "uncompressedSha256": "69b8e036c4060bb0733de0407a1299e8af5cdec34230e15256fafe987b2cedf4",
+    "inventory": {
+      "minecraft:spruce_log": 3,
+      "minecraft:spruce_sapling": 1
+    },
+    "v86At256Nodes": "All wooden-pickaxe recipe estimates UNAVAILABLE; selected acacia by tie breaking.",
+    "diagnosticAt2048Nodes": "Stocked spruce route KNOWN with work 17.5; unobserved acacia DISCOVERY_REQUIRED or UNAVAILABLE. Larger limit used only as a diagnostic.",
+    "v87SameInput": "Selects spruce at unchanged production search limits, using decision-local completed estimates.",
+    "limits": "Snapshot comparison is a changed-policy decision check; it is not v87 replay of the original run."
+  }
+}
