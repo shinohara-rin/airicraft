@@ -1,0 +1,34 @@
+id: system-one-furnace-footing
+name: Reach supported footing before using a furnace
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: >-
+  Obtain one iron ingot from the supplied raw iron and plank fuel. The player
+  starts with partial edge contact beside a hole, with observed air beneath
+  the feet voxel. Move to an observed supported stance before loading the furnace.
+goal:
+  kind: inventory_item
+  itemId: minecraft:iron_ingot
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 2000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:iron_ingot
+    count: 1
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Navigate
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

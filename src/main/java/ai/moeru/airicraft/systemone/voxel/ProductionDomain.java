@@ -685,7 +685,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (view.tick() >= task.deadline()) return failure("smelting_access_deadline");
 		var station=world.known().get(task.station());
 		if (station==null || !station.identified() || !station.blockId().equals(task.block())) return failure("batch_station_lost");
-		if (!task.rejected().contains(world.feet()) && usableStation(world.known(),world.eye(),task.station())) return success("smelting_access_restored");
+		if (!task.rejected().contains(world.feet()) && StoneAcquisition.standable(world.known(),world.feet()) && usableStation(world.known(),world.eye(),task.station())) return success("smelting_access_restored");
 		if (needsAccess(view) && task.approach().isPresent() && survival.safeStance(world,task.approach().get())) {
 			var initial=TerrainAccess.State.afterFailedNavigation(world.feet(),task.approach().get(),view.tick());
 			var bounded=new TerrainAccess.State(initial.origin(),initial.goal(),Math.min(initial.deadline(),task.deadline()),initial.work(),initial.rejected(),initial.route(),initial.last(),initial.failedApproach());
@@ -913,6 +913,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		return new Child<>(new AfterAccess(saved), new Access(TerrainAccess.State.afterFailedNavigation(world.feet(), goal, tick), clearable), "prepare_observed_access");
 	}
 	private Optional<Pos> observedStation(World world, String block) {
+		if (!StoneAcquisition.standable(world.known(),world.feet())) return Optional.empty();
 		return world.known().entrySet().stream().filter(e -> e.getValue().identified() && e.getValue().blockId().equals(block) && usableStation(world.known(), world.eye(), e.getKey()))
 			.map(Map.Entry::getKey).sorted(positionOrder(world.eye())).findFirst();
 	}

@@ -192,7 +192,7 @@ class ProductionDomainTest {
 	}
 	@Test void stationSearchObservesBeforeManufacturingAndAcceptsANewlySeenTable() {
 		var domain = new ProductionDomain(BOOK);
-		var base = world(Map.of());
+		var base = supportedWorld(Map.of());
 		Task task = new Station("minecraft:crafting_table", Map.of("material", 2), Set.of("pick"), 0, Set.of(), null);
 		for (int scan = 0; scan < 4; scan++) {
 			var action = (Execute<Task, VoxelCommand>) domain.decide(view(task), base);
@@ -208,7 +208,7 @@ class ProductionDomainTest {
 		assertEquals("station_observed:minecraft:crafting_table", discovered.outcome().evidence());
 	}
 	@Test void stationReachDuringAnActiveApproachDoesNotCompleteTheTask() {
-		var base = world(Map.of());
+		var base = supportedWorld(Map.of());
 		var known = new HashMap<>(base.known());
 		known.put(new Pos(1,1,0), new Seen("minecraft:furnace", false, true, true, 15, 1));
 		var observed = new StoneAcquisition.World(base.eye(), base.feet(), base.inventory(), known);
@@ -366,12 +366,12 @@ class ProductionDomainTest {
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(new ProductionDomain(book), new Limits(16, 16, 500, 100));
 		var state = kernel.begin("session", "run", goal, 0);
 		var inventory = new HashMap<>(initial);
-		var known = new HashMap<>(world(initial).known());
-		Pose pose = world(initial).eye();
+		var known = new HashMap<>(supportedWorld(initial).known());
+		Pose pose = supportedWorld(initial).eye();
 		var commands = new ArrayList<VoxelCommand>(); var events = new ArrayList<Event>();
 		List<Feedback> feedback = List.of(); int maxDepth = 1;
 		for (int tick = 1; tick <= 100 && state.outcome().isEmpty(); tick++) {
-			var base = world(inventory);
+			var base = supportedWorld(inventory);
 			var step = kernel.advance(state, new StoneAcquisition.World(pose, base.feet(), inventory, known), feedback, tick);
 			state = step.state(); events.addAll(step.events()); maxDepth = Math.max(maxDepth, state.stack().size()); feedback = List.of();
 			for (var effect : step.effects()) {
@@ -393,6 +393,12 @@ class ProductionDomainTest {
 		}
 		assertTrue(state.outcome().isPresent(), "Production did not terminate");
 		return new Run(state.outcome().orElseThrow(), inventory, commands, events, maxDepth);
+	}
+	private static StoneAcquisition.World supportedWorld(Map<String,Integer> inventory) {
+		var base=world(inventory);var cells=new HashMap<>(base.known());
+		cells.put(base.feet(),new Seen("minecraft:air",true,true,false,15,0));
+		cells.put(base.feet().offset(0,-1,0),new Seen("minecraft:grass_block",false,true,true,15,0));
+		return new StoneAcquisition.World(base.eye(),base.feet(),inventory,cells);
 	}
 	private static StoneAcquisition.World world(Map<String, Integer> inventory) {
 		return new StoneAcquisition.World(new Pose(.5, 2.62, .5, 0, 45), new Pos(0, 1, 0), inventory,

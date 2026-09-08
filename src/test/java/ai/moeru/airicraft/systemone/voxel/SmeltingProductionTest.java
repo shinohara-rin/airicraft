@@ -15,6 +15,27 @@ class SmeltingProductionTest {
 	private static final Pos FURNACE = new Pos(1, 1, 0);
 	private static ProductionKnowledge book(Smelt recipe, List<Fuel> fuels) { return new ProductionKnowledge("test", List.of(), List.of(), List.of(recipe), fuels); }
 
+	@Test void aVisibleFurnaceDoesNotStartAWorkstationTransactionFromUnsupportedFeet() {
+		var domain=new ProductionDomain(book(IRON,List.of(new Fuel("coal",1600))));
+		var base=world(Map.of("ore",1,"coal",1));var known=new HashMap<>(base.known());
+		known.put(base.feet().offset(0,-1,0),new Seen("minecraft:air",true,true,false,15,1));
+		var falling=new StoneAcquisition.World(base.eye(),base.feet(),base.inventory(),known);
+		assertTrue(ObservedReach.visible(known,falling.eye(),FURNACE,4.3));
+		var batch=new SmeltBatch(IRON,Map.of(),Set.of(),Set.of(),"");
+		var prepare=assertInstanceOf(Child.class,domain.decide(view(batch),falling));
+		var station=assertInstanceOf(Station.class,prepare.child());
+		var approach=assertInstanceOf(Execute.class,domain.decide(view(station),falling));
+		var move=assertInstanceOf(Navigate.class,approach.command());
+		assertNotEquals(falling.feet(),move.stance());assertTrue(StoneAcquisition.standable(known,move.stance()));
+	}
+	@Test void batchAccessCannotDeclareRecoveryWhileThePlayerIsOverObservedAir() {
+		var domain=new ProductionDomain(book(IRON,List.of()));var base=world(Map.of());var known=new HashMap<>(base.known());
+		known.put(base.feet().offset(0,-1,0),new Seen("minecraft:air",true,true,false,15,1));
+		var falling=new StoneAcquisition.World(base.eye(),base.feet(),base.inventory(),known);
+		var task=new BatchAccess(IRON.station(),FURNACE,300,Set.of(),Optional.empty());
+		assertInstanceOf(Navigate.class,assertInstanceOf(Execute.class,domain.decide(view(task),falling)).command());
+	}
+
 	@Test void collectionRestoresAccessToTheExistingBatchWithoutReloadingIngredients() {
 		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(book(IRON,List.of())),new Limits(16,16,1000,50));
 		var batch=new CollectBatch(IRON,FURNACE,0,300,0);var world=world(Map.of());
