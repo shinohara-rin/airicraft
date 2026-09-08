@@ -136,6 +136,23 @@ public final class UndergroundSearch {
 			var next = nextArea(task, world, eligible);
 			if (next.isPresent()) return new Keep<>(next.get());
 		}
+		// Exhausting the local frontier does not exhaust branches passed on the way here.
+		// Keep the full route as visited/return evidence, but erase loops when selecting an ancestor.
+		var trail = new ArrayList<Pos>();
+		var indices = new HashMap<Pos,Integer>();
+		for (Pos pos : RouteMemory.append(task.route(), world.feet())) {
+			Integer index = indices.get(pos);
+			if (index != null) {
+				while (trail.size() > index + 1) indices.remove(trail.removeLast());
+			} else { indices.put(pos, trail.size()); trail.add(pos); }
+		}
+		for (int i = trail.size() - 2; i >= 0; i--) {
+			Pos previous = trail.get(i);
+			if (squared(previous, world.feet()) > 144 || Math.abs(previous.y() - world.feet().y()) > 12) break;
+			if (rejected.containsKey(previous) || !StoneAcquisition.standable(world.known(), previous)
+				|| !eligible.test(previous) || !eligible.test(previous.offset(0,-1,0)) || !eligible.test(previous.offset(0,1,0))) continue;
+			return action(task, world, steps, rejected, previous, null, new Navigate(previous, 12, 200));
+		}
 		return new Complete<>(Outcome.failure("no_observed_underground_step"));
 	}
 	/** Area changes require observed progress; a repair may already have consumed the movement receipt. */

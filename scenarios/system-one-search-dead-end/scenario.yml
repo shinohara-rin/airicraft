@@ -1,0 +1,36 @@
+id: system-one-search-dead-end
+name: Backtrack from a cave dead end to an unexplored branch
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Find raw iron beyond a side passage after the preferred forward passage reaches a dead end.
+goal:
+  kind: inventory_item
+  itemId: minecraft:raw_iron
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:raw_iron
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:resource_surface_observed:minecraft:raw_iron
+  - type: event_contains
+    eventType: system_one.motor_effect
+    payload:
+      commandType: Break
+      targetBlock: minecraft:iron_ore
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

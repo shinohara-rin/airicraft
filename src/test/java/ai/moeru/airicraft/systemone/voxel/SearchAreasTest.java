@@ -76,7 +76,13 @@ class SearchAreasTest {
 		for (var areas : List.of(List.of(origin),List.of(origin,origin.offset(128,0,0),origin.offset(256,0,0)))) {
 			var task = new UndergroundSearch.Task(PRIOR,List.of("minecraft:iron_ore"),origin,previous,0,67,Map.of(),Set.of(),Optional.of(feet),Optional.empty(),new VoxelCommand.Navigate(feet,12,200),List.of(origin,previous),UndergroundSearch.Preparation.EXCAVATING,areas);
 			var decision = search.decide(view(task),world);
-			if (areas.size()==3) { assertInstanceOf(Complete.class,decision); continue; }
+			if (areas.size()==3) {
+				var retreat = assertInstanceOf(Execute.class,decision);
+				assertEquals(new VoxelCommand.Navigate(previous,12,200),retreat.command());
+				var saved = (UndergroundSearch.Task)retreat.continuation();
+				assertEquals(areas,saved.areas()); assertEquals(68,saved.steps(),"backtracking does not renew an exhausted area allowance");
+				continue;
+			}
 			var next = (UndergroundSearch.Task)assertInstanceOf(Keep.class,decision).continuation().orElseThrow();
 			assertEquals(List.of(origin,feet),next.areas());
 			assertEquals(List.of(origin,previous,feet),next.route());

@@ -30,7 +30,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
 			if (isReturnScenario(scenario)) depleteReturnSupplies(client, tick);
@@ -152,6 +152,21 @@ final class SystemOneStoneFixture {
 						world.setBlockState(new BlockPos(x - 1, 200, z), Blocks.CRAFTING_TABLE.getDefaultState(), 3);
 						world.setBlockState(new BlockPos(x - 1, 201, z), Blocks.AIR.getDefaultState(), 3);
 					}
+				}
+				else if (scenario.equals("system-one-search-dead-end")) {
+					for (int dx=-2;dx<=7;dx++) for (int dz=-2;dz<=9;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
+					// The preferred forward passage ends after a side junction. Ore is behind the side branch's bend.
+					for (int dz=0;dz<=7;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					for (int dx=1;dx<=5;dx++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x+dx,y,z+3),Blocks.AIR.getDefaultState(),3);
+					for (int dz=1;dz<=3;dz++) for (int y=200;y<=202;y++) world.setBlockState(new BlockPos(x+5,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					var facing=net.minecraft.state.property.Properties.HORIZONTAL_FACING;
+					var light=Blocks.WALL_TORCH.getDefaultState().with(facing,net.minecraft.util.math.Direction.WEST);
+					for (int dz : new int[]{0,5,7}) world.setBlockState(new BlockPos(x,202,z+dz),light,3);
+					world.setBlockState(new BlockPos(x+3,202,z+3),light.with(facing,net.minecraft.util.math.Direction.SOUTH),3);
+					world.setBlockState(new BlockPos(x+5,202,z+1),light,3);
+					world.setBlockState(new BlockPos(x+5,200,z),Blocks.IRON_ORE.getDefaultState(),3);
+					player.getInventory().setStack(0,new ItemStack(Items.STONE_PICKAXE));
+					player.getInventory().setStack(1,new ItemStack(Items.TORCH,8));
 				}
 				else if (scenario.equals("system-one-search-radius")) {
 					for (int dx=-2;dx<=2;dx++) for (int dz=-2;dz<=86;dz++) for (int y=198;y<=204;y++) world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.BEDROCK.getDefaultState(),3);
