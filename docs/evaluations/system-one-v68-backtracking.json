@@ -1,0 +1,168 @@
+{
+  "policy": "reactive-production-v68",
+  "implementationCommit": "63a8ebab",
+  "scenario": "system-one-search-dead-end",
+  "runDirectory": "eval-output/20260908-085414-506691-41901/02-system-one-search-dead-end",
+  "scenarioOutcome": "PASSED",
+  "harnessOutcome": "OK",
+  "elapsedTicks": 279,
+  "plannerTurns": 0,
+  "recordingCoverage": "complete",
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T00:55:43Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 42214,
+    "pid": 42088,
+    "requestedAt": "2026-09-08T00:55:38Z"
+  },
+  "motor": {
+    "command": "",
+    "edgePlacement": "",
+    "stopping": false,
+    "pathingActive": false,
+    "crafting": "",
+    "smelting": "",
+    "releasePending": false,
+    "finishing": ""
+  },
+  "decisionReplay": {
+    "status": "verified",
+    "turns": 181,
+    "classSnapshot": "/private/tmp/airicraft-replay-v68",
+    "traceSha256": "dc706f45a9736038a3b5bbfc29890ddb541c7df2baec6e048953881de0c64b05"
+  },
+  "behaviorEvidence": {
+    "backtrackCommands": [
+      {
+        "tick": 197,
+        "from": [
+          0,
+          200,
+          22
+        ],
+        "to": [
+          0,
+          200,
+          21
+        ],
+        "steps": 7
+      },
+      {
+        "tick": 202,
+        "from": [
+          0,
+          200,
+          21
+        ],
+        "to": [
+          0,
+          200,
+          20
+        ],
+        "steps": 8
+      },
+      {
+        "tick": 208,
+        "from": [
+          0,
+          200,
+          20
+        ],
+        "to": [
+          0,
+          200,
+          19
+        ],
+        "steps": 9
+      },
+      {
+        "tick": 215,
+        "from": [
+          0,
+          200,
+          19
+        ],
+        "to": [
+          0,
+          200,
+          18
+        ],
+        "steps": 10
+      }
+    ],
+    "sideBranchEntry": {
+      "tick": 221,
+      "from": [
+        0,
+        200,
+        18
+      ],
+      "to": [
+        1,
+        200,
+        18
+      ],
+      "steps": 11
+    },
+    "extraction": "Offline exact replay; inspect each emitted Navigate with active Explore continuation, classify destination against retained visited route. Coordinates are recorded observations."
+  },
+  "limitations": [
+    "Targeted lit cave fixture only; development reliability remains unproven.",
+    "This replay verifies decisions and recorded observations, not a full hidden-read audit.",
+    "Visual review samples exported frames; final 20 requested ticks are absent from rendering."
+  ],
+  "llmCalls": {
+    "latestSequenceId": 0,
+    "records": 0,
+    "truncated": false
+  },
+  "breakTargetObservations": {
+    "status": "complete",
+    "checked_breaks": 1,
+    "mismatched_breaks": 0,
+    "missing_evidence_breaks": 0,
+    "missing_input_turns": 0,
+    "reasons": {},
+    "unclassified_effects": 0,
+    "recent_problems": [],
+    "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+  },
+  "perceptionViolations": {
+    "status": "unavailable",
+    "count": null,
+    "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+  },
+  "visualEvidence": {
+    "video": "eval-output/20260908-085414-506691-41901/02-system-one-search-dead-end/recording-render-no-gui/fpv.mp4",
+    "status": "rendered_and_sampled",
+    "viewedFrames": [
+      60,
+      95,
+      125,
+      160
+    ],
+    "frameCount": 160,
+    "fps": 20,
+    "size": [
+      640,
+      360
+    ],
+    "requestedGlobalTicks": [
+      29,
+      208
+    ],
+    "renderedGlobalTicks": [
+      29,
+      188
+    ],
+    "unsupportedPackets": {
+      "total": 82,
+      "chunkUnload": 78,
+      "playerPosition": 4
+    },
+    "observation": "Inspected frames show the bedrock passage and final block-breaking particles. Exact replay provides the four-step retreat and branch-entry chronology. Render omits the final 20 requested ticks; final inventory is established by evaluator/replay."
+  }
+}
