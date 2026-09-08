@@ -1,0 +1,45 @@
+{
+  "run": "eval-output/20260908-171648-987153-81374/01-iron-pickaxe",
+  "sourceCommit": "5a805a1a",
+  "methodVersion": "reactive-production-v88",
+  "harnessStatus": "OK",
+  "reportStatus": "PASSED",
+  "elapsedTicks": 12424,
+  "exactReplayTurns": 12407,
+  "coverage": "complete",
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T09:28:03Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 81606,
+    "pid": 81548,
+    "requestedAt": "2026-09-08T09:27:58Z"
+  },
+  "runtimeFinal": {
+    "motorVersion": "production-motor-v15",
+    "methodVersion": "reactive-production-v88",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED",
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false
+    }
+  },
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "limitation": "The first lighting interruption still captured a satisfied cobblestone ancestor while excavation owned movement. The run recovered and passed; this does not verify the v89 ancestor-completion ordering."
+}
