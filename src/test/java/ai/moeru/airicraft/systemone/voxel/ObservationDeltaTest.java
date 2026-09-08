@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ObservationDeltaTest {
 	private static final Gson GSON = new Gson();
 	private static final Pos A = new Pos(0, 4, 1), B = new Pos(1, 4, 1);
-	private static Seen seen(long tick) { return new Seen("stone", false, true, true, 12, tick, false, new Attachment(Set.of(VoxelCommand.Face.NORTH),false)); }
+	private static Seen seen(long tick) { return new Seen("stone", false, true, true, 12, tick, false, new Attachment(Set.of(VoxelCommand.Face.NORTH),false),Map.of("axis","y")); }
 	private static StoneAcquisition.World world(Map<Pos,Seen> known) {
 		return new StoneAcquisition.World(new Pose(0.5,5.62,0.5,0,0), new Pos(0,4,0), Map.of(), known);
 	}
@@ -36,6 +36,25 @@ class ObservationDeltaTest {
 			var after=world(Map.of(A,changed)); var delta=StoneTape.observation(before,after,2);
 			assertTrue(delta.refreshed().isEmpty()); assertEquals(List.of(new StoneTape.Cell(A,changed)),delta.changed());
 			assertEquals(after,StoneTape.reconstruct(delta,2,new HashMap<>(before.known())));
+		}
+	}
+	@Test void changedStatePropertyRequiresAFullCellAndSurvivesWireReconstruction() {
+		var before=world(Map.of(A,seen(1)));
+		var old=seen(2);
+		var rotated=new Seen(old.blockId(),old.empty(),old.identified(),old.fullSupport(),old.light(),2,old.clearForBody(),old.attachment(),Map.of("axis","x"));
+		var after=world(Map.of(A,rotated)); var delta=StoneTape.observation(before,after,2);
+		assertTrue(delta.refreshed().isEmpty()); assertEquals(1,delta.changed().size());
+		assertEquals(after,StoneTape.reconstruct(GSON.fromJson(GSON.toJson(delta),StoneTape.Observation.class),2,new HashMap<>(before.known())));
+	}
+	@Test void wirePropertiesCannotBeOmittedOrCoercedFromOtherJsonTypes() {
+		for (String encoded : List.of("null","[]","{\"axis\":1}","{\"axis\":true}","{\"axis\":null}")) {
+			var observation=GSON.toJsonTree(StoneTape.observation(null,world(Map.of(A,seen(1))),1)).getAsJsonObject();
+			var cell=observation.getAsJsonArray("changed").get(0).getAsJsonObject().getAsJsonObject("seen");
+			cell.add("properties",com.google.gson.JsonParser.parseString(encoded));
+			var row=new com.google.gson.JsonObject();row.add("observation",observation);
+			assertThrows(IllegalArgumentException.class,()->StoneTape.validateObservation(row));
+			cell.remove("properties");
+			assertThrows(IllegalArgumentException.class,()->StoneTape.validateObservation(row));
 		}
 	}
 	@Test void malformedRefreshesAreRejectedBeforeReconstructionMutatesMemory() {

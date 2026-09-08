@@ -21,8 +21,8 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
-	public static final int FORMAT_VERSION = 4;
-	public static final String METHOD_VERSION = "reactive-production-v82";
+	public static final int FORMAT_VERSION = 5;
+	public static final String METHOD_VERSION = "reactive-production-v83";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}

@@ -275,7 +275,7 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                     if rows:
                         problems.append("repeated_or_late_header")
                     header = row
-                    supported = (1, 2, 3, 4) if kind == "production_begin" else (1, 2, 3)
+                    supported = (1, 2, 3, 4, 5) if kind == "production_begin" else (1, 2, 3, 4)
                     if row.get("version", 1) not in supported:
                         raise ValueError("unsupported recording version")
                     tick = row["tick"]
@@ -317,6 +317,15 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                                     raise ValueError("invalid attachment faces")
                                 if not seen.get("identified") and (faces or attachment["centerUp"]):
                                     raise ValueError("unidentified cell grants attachment capability")
+                        properties_format = header is not None and header.get("version", 1) >= (5 if header["type"] == "production_begin" else 4)
+                        if properties_format:
+                            for cell in observation.get("changed", []):
+                                seen = cell["seen"]
+                                properties = seen.get("properties")
+                                if not isinstance(properties, dict) or any(not isinstance(value, str) for value in properties.values()):
+                                    raise ValueError("missing or invalid state properties")
+                                if not seen.get("identified") and properties:
+                                    raise ValueError("unidentified cell grants state properties")
                         if compact or failure_context or audit_breaks:
                             apply_observation_delta(known, observation, tick, compact)
                         current = observation["inventory"]

@@ -41,3 +41,11 @@ Artifacts:
 - `system-one-final.json`: goal outcome and released motor state.
 
 This is an adapter test using synthetic authorized observations. It complements the geometric sensor's paired-layout unit tests; it is not a paired autonomous playthrough, a modpack-wide audit, or proof that geometric sensing matches human vision. Additional excavation variants, lighting cases, and world-session cleanup remain separate gates in the implementation plan.
+
+## Recorded block-state reconstruction (v83, live proof pending)
+
+`MinecraftScene` encodes the identified surface state as registry identity plus an immutable property map. `MinecraftSensor` publishes its recorded `Seen` memory through `ObservedTerrain.publishObserved`; it no longer keeps a parallel map of raw engine states. The decoder requires the exact active registry property set and valid serialized values, otherwise returning a barrier. Captured navigation views retain immutable decoded states. Production format 5 / stone format 4 preserve property changes and timestamp-only refreshes.
+
+The terrain probe now round-trips every registered state of slabs, stairs, logs, wall torches, water and air through JSON, checks invalid/missing properties, and checks that Baritone receives the reconstructed top slab while an earlier captured view retains the bottom slab. Its paired route/cost probe publishes its synthetic observations through the same reconstruction boundary. These are adapter tests, separate from the autonomous goal and from a complete hidden-read audit.
+
+This remains engine-assisted geometric sensing. Recording properties makes existing navigation inputs explicit; it does not prove that every registry property is visually distinguishable from the exposed face. The full perception-violation count remains unavailable.

@@ -112,6 +112,6 @@ public final class SystemOneHost {
 			: Map.of("runtime", "system_one", "run", state.run(), "state", state.outcome().map(o -> o.kind().name()).orElse("RUNNING"),
 				"taskStack", state.stack().toString(), "outcome", state.outcome().map(Outcome::evidence).orElse(""),
 				"motor", motor.status(), "knowledgeVersion", knowledge.version(), "methodVersion", ProductionTape.METHOD_VERSION,
-				"policyVersion", "observed-survival-v1", "motorVersion", "production-motor-v14");
+				"policyVersion", "observed-survival-v1", "motorVersion", "production-motor-v15");
 	}
 }

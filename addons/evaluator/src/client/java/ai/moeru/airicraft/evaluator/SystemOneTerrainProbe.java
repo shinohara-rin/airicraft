@@ -56,12 +56,15 @@ final class SystemOneTerrainProbe {
 			require(ObservedTerrain.ENABLED, "System 1 terrain hooks are disabled");
 			verifyUnavailableChunk(client, output);
 			verifyAttachment(output);
+			verifyRecordedStates(client, output);
 			feet = client.player.getBlockPos();
 			Map<BlockPos, BlockState> known = new HashMap<>();
 			for (int x = -1; x <= 4; x++) for (int y = -1; y <= 2; y++) {
 				known.put(feet.add(x, y, 0), y == -1 ? Blocks.GRASS_BLOCK.getDefaultState() : Blocks.AIR.getDefaultState());
 			}
-			ObservedTerrain.publish(known);
+			var recorded = new HashMap<VoxelObservation.Pos,VoxelObservation.Seen>();
+			known.forEach((pos,state) -> recorded.put(new VoxelObservation.Pos(pos.getX(),pos.getY(),pos.getZ()), recordedState(state)));
+			ObservedTerrain.publishObserved(recorded);
 			change(client, Blocks.AIR.getDefaultState(), tick);
 			phase = Phase.EMPTY_WORLD;
 			return false;
@@ -93,6 +96,40 @@ final class SystemOneTerrainProbe {
 			phase = Phase.DONE;
 		}
 		return phase == Phase.DONE;
+	}
+
+	private static VoxelObservation.Seen recordedState(BlockState state) {
+		var value = new VoxelObservation.Seen(net.minecraft.registry.Registries.BLOCK.getId(state.getBlock()).toString(),
+			state.isAir(),true,false,15,1,state.isAir(),MinecraftScene.attachment(state),MinecraftScene.properties(state));
+		var gson = new GsonBuilder().create();
+		return gson.fromJson(gson.toJson(value),VoxelObservation.Seen.class);
+	}
+	private void verifyRecordedStates(MinecraftClient client, Path output) {
+		var samples = List.of(Blocks.STONE_SLAB,Blocks.OAK_STAIRS,Blocks.OAK_LOG,Blocks.WALL_TORCH,Blocks.WATER,Blocks.AIR);
+		int checked = 0;
+		for (var block : samples) for (var state : block.getStateManager().getStates()) {
+			require(ObservedTerrain.decode(recordedState(state)).equals(state),"Recorded properties changed navigation state: " + state);
+			checked++;
+		}
+		var slab = recordedState(Blocks.STONE_SLAB.getDefaultState());
+		var malformed = List.of(Map.<String,String>of(),Map.of("type","not_a_slab","waterlogged","false"),
+			Map.of("type","bottom","waterlogged","false","extra","value"));
+		for (var properties : malformed) require(ObservedTerrain.decode(new VoxelObservation.Seen(slab.blockId(),false,true,false,15,1,false,slab.attachment(),properties)).isOf(Blocks.BARRIER),"Incomplete or malformed state became passable");
+		require(ObservedTerrain.decode(new VoxelObservation.Seen("unregistered:block",false,true,false,15,1)).isOf(Blocks.BARRIER),"Unknown registry identity became terrain");
+		require(ObservedTerrain.decode(new VoxelObservation.Seen("minecraft:air",true,false,false,0,1)).isOf(Blocks.BARRIER),"Unidentified cell became terrain");
+		var pos = client.player.getBlockPos(); var valuePos = new VoxelObservation.Pos(pos.getX(),pos.getY(),pos.getZ());
+		ObservedTerrain.publishObserved(Map.of(valuePos,slab)); var captured = ObservedTerrain.capture();
+		var top = Blocks.STONE_SLAB.getDefaultState().with(net.minecraft.state.property.Properties.SLAB_TYPE,net.minecraft.block.enums.SlabType.TOP);
+		ObservedTerrain.publishObserved(Map.of(valuePos,recordedState(top)));
+		require(ObservedTerrain.get(pos).equals(top),"New recorded state was not published");
+		require(captured.get(pos.getX(),pos.getY(),pos.getZ()).equals(Blocks.STONE_SLAB.getDefaultState()),"Later observation mutated captured navigation revision");
+		var bsi = new BlockStateInterface(BaritoneAPI.getProvider().getPrimaryBaritone().getPlayerContext(),true);
+		require(bsi.get0(pos).equals(top),"Baritone did not consume the reconstructed recorded state");
+		ObservedTerrain.clear();
+		try { Files.writeString(output.resolve("recorded-state-probe.json"),new GsonBuilder().setPrettyPrinting().create().toJson(Map.of(
+			"status","PASSED","registryStatesRoundTripped",checked,"malformedStatesBlocked",malformed.size(),
+			"unknownIdentityBlocked",true,"unidentifiedBlocked",true,"capturedRevisionRetained",true,"baritoneConsumedRecordedTopSlab",true))); }
+		catch(IOException failure) { throw new java.io.UncheckedIOException(failure); }
 	}
 
 	private void verifyAttachment(Path output) {

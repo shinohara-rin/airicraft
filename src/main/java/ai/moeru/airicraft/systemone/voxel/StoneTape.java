@@ -23,7 +23,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 
 /** Versioned wire values for reproducing actual decision inputs, including negative motor feedback. */
 public final class StoneTape {
-	public static final int FORMAT_VERSION = 3;
+	public static final int FORMAT_VERSION = 4;
 	public static final String METHOD_VERSION = "local-stone-v14";
 	public static final Limits LIMITS = new Limits(16, 16, 72000, 2000);
 	private static final Gson GSON = new Gson();
@@ -79,7 +79,7 @@ public final class StoneTape {
 			current.footholds(), current.vitals(), current.drops(), refreshed);
 	}
 	private static Seen atTick(Seen seen, long tick) {
-		return new Seen(seen.blockId(), seen.empty(), seen.identified(), seen.fullSupport(), seen.light(), tick, seen.clearForBody(), seen.attachment());
+		return new Seen(seen.blockId(), seen.empty(), seen.identified(), seen.fullSupport(), seen.light(), tick, seen.clearForBody(), seen.attachment(), seen.properties());
 	}
 	/** Wire validation is separate from legacy standalone observation fixtures. */
 	static void validateObservation(JsonObject row) {
@@ -88,6 +88,12 @@ public final class StoneTape {
 		var object = observation.getAsJsonObject();
 		for (String field : List.of("changed", "removed", "refreshed"))
 			if (!object.has(field) || !object.get(field).isJsonArray()) throw new IllegalArgumentException("Missing observation delta " + field);
+		for (var cell : object.getAsJsonArray("changed")) {
+			var properties = cell.getAsJsonObject().getAsJsonObject("seen").get("properties");
+			if (properties == null || !properties.isJsonObject()) throw new IllegalArgumentException("Missing observation state properties");
+			for (var value : properties.getAsJsonObject().entrySet())
+				if (!value.getValue().isJsonPrimitive() || !value.getValue().getAsJsonPrimitive().isString()) throw new IllegalArgumentException("Invalid observation state property");
+		}
 	}
 	public static World reconstruct(Observation observation, long tick, Map<Pos, Seen> known) {
 		if (observation == null) { known.clear(); return null; }

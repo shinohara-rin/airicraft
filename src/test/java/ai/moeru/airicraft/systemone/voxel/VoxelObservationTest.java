@@ -14,6 +14,17 @@ class VoxelObservationTest {
 	private static final Pose EYE = new Pose(0.5, 2.5, 0.5, 0, 0);
 	private static final Sample AIR = new Sample("air", true, false, 15);
 
+	@Test void statePropertiesAreImmutableAndDoNotEscapeDarkness() {
+		var properties = new java.util.HashMap<>(java.util.Map.of("type","top","waterlogged","true"));
+		var sample = new Sample("slab",false,false,15,false,Attachment.none(),properties);
+		properties.clear();
+		var observed = observe(pos -> sample,EYE,LENS,1).values().iterator().next();
+		assertEquals(java.util.Map.of("type","top","waterlogged","true"),observed.properties());
+		assertThrows(UnsupportedOperationException.class,()->observed.properties().clear());
+		var dark = observe(pos -> new Sample("slab",false,false,0,false,Attachment.none(),sample.properties()),EYE,LENS,2);
+		assertTrue(dark.values().stream().allMatch(v -> v.properties().isEmpty() && !v.identified()));
+		assertThrows(IllegalArgumentException.class,()->new Seen("unknown",false,false,false,0,2,false,Attachment.none(),sample.properties()));
+	}
 	@Test void attachmentIsImmutableAndOnlyExposedForIdentifiedCells() {
 		var faces = new HashSet<>(Set.of(VoxelCommand.Face.NORTH));
 		var shape = new Attachment(faces,false); faces.clear();

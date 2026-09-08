@@ -20,14 +20,19 @@ public final class VoxelObservation {
 		public static Attachment fullCube() { return new Attachment(Set.of(Face.values()),true); }
 	}
 	/** fullSupport describes observed full-block collision geometry, not a hazard policy. */
-	public record Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody, Attachment attachment) {
-		public Sample { java.util.Objects.requireNonNull(attachment); }
+	public record Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody, Attachment attachment, Map<String,String> properties) {
+		public Sample { java.util.Objects.requireNonNull(attachment); properties = Map.copyOf(properties); }
+		public Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody, Attachment attachment) { this(blockId,empty,fullSupport,light,clearForBody,attachment,Map.of()); }
 		public Sample(String blockId, boolean empty, boolean fullSupport, int light, boolean clearForBody) { this(blockId,empty,fullSupport,light,clearForBody,fullSupport ? Attachment.fullCube() : Attachment.none()); }
 		public Sample(String blockId, boolean empty, boolean fullSupport, int light) { this(blockId, empty, fullSupport, light, empty); }
 	}
 	/** Body clearance is distinct from an empty voxel: a visible torch can be walked through. */
-	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody, Attachment attachment) {
-		public Seen { java.util.Objects.requireNonNull(attachment); }
+	public record Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody, Attachment attachment, Map<String,String> properties) {
+		public Seen {
+			java.util.Objects.requireNonNull(attachment); properties = Map.copyOf(properties);
+			if (!identified && !properties.isEmpty()) throw new IllegalArgumentException("Unidentified cell has state properties");
+		}
+		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody, Attachment attachment) { this(blockId,empty,identified,fullSupport,light,tick,clearForBody,attachment,Map.of()); }
 		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick, boolean clearForBody) { this(blockId,empty,identified,fullSupport,light,tick,clearForBody,identified && fullSupport ? Attachment.fullCube() : Attachment.none()); }
 		public Seen(String blockId, boolean empty, boolean identified, boolean fullSupport, int light, long tick) { this(blockId, empty, identified, fullSupport, light, tick, empty); }
 		public boolean traversable() { return empty || identified && clearForBody; }
@@ -69,7 +74,7 @@ public final class VoxelObservation {
 			Sample sample = scene.sample(pos);
 			int light = Math.max(sample.light(), previousLight);
 			boolean identified = sample.empty() || light >= lens.identificationLight();
-			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick, identified && sample.clearForBody(), identified ? sample.attachment() : Attachment.none());
+			Seen seen = new Seen(identified ? sample.blockId() : "unknown", sample.empty(), identified, identified && !sample.empty() && sample.fullSupport(), light, tick, identified && sample.clearForBody(), identified ? sample.attachment() : Attachment.none(), identified ? sample.properties() : Map.of());
 			visible.merge(pos, seen, (a, b) -> a.identified() && !b.identified() ? a : b);
 			// A noncolliding fixture sharing the eye voxel must not seal every outgoing ray.
 			// All subsequently occupied voxels still occlude, including other torches.

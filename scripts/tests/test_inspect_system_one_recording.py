@@ -204,6 +204,25 @@ class RecordingInspectionTest(unittest.TestCase):
             seen["attachment"] = {"fullFaces": ["NORTH"], "centerUp": False}
             self.assertEqual("incomplete", self.inspect(rows)["coverage"])
 
+    def test_state_formats_require_properties_without_coercion_or_dark_leaks(self):
+        for kind, version in [("production_begin", 5), ("begin", 4)]:
+            rows = self.break_rows()
+            rows[0].update(type=kind, version=version)
+            rows[1]["lighting"] = {"policyLight": 15, "before": [], "after": []}
+            rows[1]["observation"]["refreshed"] = []
+            seen = rows[1]["observation"]["changed"][0]["seen"]
+            seen["attachment"] = {"fullFaces": [], "centerUp": False}
+            seen["properties"] = {"axis": "y"}
+            self.assertEqual("complete", self.inspect(rows)["coverage"])
+            for invalid in [None, [], {"axis": 1}, {"axis": True}, {"axis": None}]:
+                seen["properties"] = invalid
+                self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+            del seen["properties"]
+            self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+            seen["properties"] = {"axis": "y"}
+            seen["identified"] = False
+            self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+
     def test_missing_turn_does_not_look_complete_even_with_matching_footer(self):
         rows = self.rows()
         rows[1].update(sequence=2, tick=6)

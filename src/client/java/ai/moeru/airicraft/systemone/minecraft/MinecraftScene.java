@@ -19,7 +19,6 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 /** One sensing pass: engine reads occur only at cells requested by the geometric lens. */
 public final class MinecraftScene implements VoxelObservation.Scene {
 	private final ClientWorld world;
-	private final Map<Pos, BlockState> sampled = new HashMap<>();
 	public MinecraftScene(ClientWorld world) { this.world = world; }
 	@Override public Sample sample(Pos pos) {
 		BlockPos p = new BlockPos(pos.x(), pos.y(), pos.z());
@@ -27,12 +26,11 @@ public final class MinecraftScene implements VoxelObservation.Scene {
 		var chunk = world.getChunkManager().getChunk(pos.x() >> 4, pos.z() >> 4, ChunkStatus.FULL, false);
 		if (chunk == null || world.isOutOfHeightLimit(p)) return new Sample("unknown", false, false, 0);
 		BlockState state = chunk.getBlockState(p);
-		sampled.put(pos, state);
 		// Static collision shapes do not query hidden neighbors.
 		boolean staticShape = !state.getBlock().hasDynamicBounds();
 		return new Sample(Registries.BLOCK.getId(state.getBlock()).toString(), state.isAir(),
 			staticShape && state.isFullCube(EmptyBlockView.INSTANCE, p), world.getLightLevel(p),
-			staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty(), attachment(state));
+			staticShape && state.getFluidState().isEmpty() && state.getCollisionShape(EmptyBlockView.INSTANCE, p).isEmpty(), attachment(state), properties(state));
 	}
 	/** Registry-defined attachment geometry of an identified block; never reads the surrounding world. */
 	public static Attachment attachment(BlockState state) {
@@ -42,5 +40,13 @@ public final class MinecraftScene implements VoxelObservation.Scene {
 		return new Attachment(faces,state.isSideSolid(EmptyBlockView.INSTANCE,BlockPos.ORIGIN,Direction.UP,SideShapeType.CENTER));
 	}
 
-	BlockState sampledState(Pos pos) { return sampled.get(pos); }
+	/** Complete registry state of an identified surface, recorded before navigation consumes it. */
+	public static Map<String,String> properties(BlockState state) {
+		var values = new HashMap<String,String>();
+		for (var property : state.getProperties()) values.put(property.getName(), propertyValue(state, property));
+		return Map.copyOf(values);
+	}
+	private static <T extends Comparable<T>> String propertyValue(BlockState state, net.minecraft.state.property.Property<T> property) {
+		return property.name(state.get(property));
+	}
 }

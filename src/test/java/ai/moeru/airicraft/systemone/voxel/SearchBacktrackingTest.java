@@ -18,8 +18,12 @@ class SearchBacktrackingTest {
 	@Test void recordedUnsupportedRidgeRetreatsToObservedFooting() throws IOException {
 		try (var reader = new InputStreamReader(new GZIPInputStream(Objects.requireNonNull(getClass().getResourceAsStream("/systemone/search-dead-end.json.gz"))))) {
 			var json = JsonParser.parseReader(reader).getAsJsonObject(); var gson = new Gson();
-			// Historical terrain fixture predates attachment sensing; it grants no fixture support.
-			for (var cell : json.getAsJsonObject("observation").getAsJsonArray("changed")) cell.getAsJsonObject().getAsJsonObject("seen").add("attachment",new com.google.gson.Gson().toJsonTree(Attachment.none()));
+			// Historical decision-only fixture lacks attachment/properties; no navigation reconstruction is claimed.
+			for (var cell : json.getAsJsonObject("observation").getAsJsonArray("changed")) {
+				var seen = cell.getAsJsonObject().getAsJsonObject("seen");
+				seen.add("attachment",new Gson().toJsonTree(Attachment.none()));
+				seen.add("properties",new JsonObject());
+			}
 			var o = gson.fromJson(json.get("observation"), StoneTape.Observation.class);
 			var known = new HashMap<Pos,Seen>(); o.changed().forEach(c -> known.put(c.pos(), c.seen()));
 			var world = new World(o.eye(),o.feet(),o.inventory(),known,o.footholds(),o.vitals(),o.drops());
