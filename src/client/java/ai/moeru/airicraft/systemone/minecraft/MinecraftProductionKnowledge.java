@@ -53,13 +53,13 @@ final class MinecraftProductionKnowledge {
 		var excavatable = List.copyOf(clearance);
 		var supports = List.of(new SupportMaterial("minecraft:cobblestone", "minecraft:cobblestone"), new SupportMaterial("minecraft:dirt", "minecraft:dirt"));
 		var searches = List.of(new SearchPrior("minecraft:raw_iron", 16, 64, 96, 3, excavatable, supports), new SearchPrior("minecraft:coal", 48, 48, 64, excavatable, supports));
-		// Surface access is independent of geological resource priors. Leaves can be
+		// Surface access is independent of geological resource priors. Tree blocks can be
 		// cleared to reach a tree or its drops, but observed footing remains protected.
 		var accessMaterials = new java.util.TreeSet<>(excavatable);
 		// Giant fungi are removable surface obstructions, not geological search indicators.
 		accessMaterials.addAll(List.of("minecraft:brown_mushroom_block", "minecraft:red_mushroom_block", "minecraft:mushroom_stem"));
-		for (var block : Registries.BLOCK) if (block.getDefaultState().isIn(BlockTags.LEAVES)) accessMaterials.add(Registries.BLOCK.getId(block).toString());
-		return new ProductionKnowledge("minecraft-recipe-display-v11", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+		for (var block : Registries.BLOCK) if (block.getDefaultState().isIn(BlockTags.LEAVES) || block.getDefaultState().isIn(BlockTags.LOGS)) accessMaterials.add(Registries.BLOCK.getId(block).toString());
+		return new ProductionKnowledge("minecraft-recipe-display-v12", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
 			SmeltingPlannerService.productionSmelts(client), fuels, searches, List.copyOf(accessMaterials), new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4), ai.moeru.airicraft.systemone.voxel.SurvivalPolicy.Parameters.minecraft());
 	}
 }

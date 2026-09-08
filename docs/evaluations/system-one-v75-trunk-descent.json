@@ -1,0 +1,278 @@
+{
+  "scenario": "system-one-trunk-descent",
+  "finalPolicy": "reactive-production-v75",
+  "knowledgeVersion": "minecraft-recipe-display-v12",
+  "motorVersion": "production-motor-v13",
+  "automatedTests": {
+    "systemOne": 202,
+    "evaluator": 38,
+    "python": 47
+  },
+  "runs": [
+    {
+      "run": "eval-output/20260908-122455-664995-1834/01-system-one-trunk-descent",
+      "version": "v73",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 488,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:26:25Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 2130,
+        "pid": 2062,
+        "requestedAt": "2026-09-08T04:26:21Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "recording": {
+        "failure": "",
+        "writtenRows": 418,
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true
+      },
+      "runtimeFinal": {
+        "outcome": "no_production_method:minecraft:cobblestone rejected=[harvest:minecraft:cobblestone]",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "FAILED",
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "motor": {
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": "",
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": ""
+        },
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v73",
+        "taskStack": "[]",
+        "run": "system-one-1"
+      },
+      "exactReplay": "Replay verified: 417 turns; Outcome[kind=FAILED, evidence=no_production_method:minecraft:cobblestone rejected=[harvest:minecraft:cobblestone]]",
+      "commands": {
+        "Break": 3,
+        "Navigate": 17
+      },
+      "inventory": {
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:dark_oak_log": 3
+      },
+      "finalPosition": {
+        "x": 1,
+        "y": 199,
+        "z": 15
+      },
+      "commandFailures": {
+        "observed_route_unavailable": 14
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 3,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "ccce67d79b510dc40cc2067b947b0f5751f5b9374ef48c867b73da1c12feecc6"
+    },
+    {
+      "run": "eval-output/20260908-123320-625945-4124/01-system-one-trunk-descent",
+      "version": "v74",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 487,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:34:44Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 4429,
+        "pid": 4337,
+        "requestedAt": "2026-09-08T04:34:40Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "recording": {
+        "complete": true,
+        "queuedRows": 0,
+        "finished": true,
+        "failure": "",
+        "writtenRows": 413
+      },
+      "runtimeFinal": {
+        "motorVersion": "production-motor-v13",
+        "methodVersion": "reactive-production-v74",
+        "taskStack": "[]",
+        "run": "system-one-1",
+        "outcome": "no_production_method:minecraft:cobblestone rejected=[harvest:minecraft:cobblestone]",
+        "runtime": "system_one",
+        "policyVersion": "observed-survival-v1",
+        "state": "FAILED",
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "motor": {
+          "releasePending": false,
+          "finishing": "",
+          "command": "",
+          "edgePlacement": "",
+          "stopping": false,
+          "pathingActive": false,
+          "crafting": "",
+          "smelting": ""
+        }
+      },
+      "exactReplay": "Replay verified: 412 turns; Outcome[kind=FAILED, evidence=no_production_method:minecraft:cobblestone rejected=[harvest:minecraft:cobblestone]]",
+      "commands": {
+        "Break": 3,
+        "Navigate": 17
+      },
+      "inventory": {
+        "minecraft:dark_oak_log": 3,
+        "minecraft:wooden_pickaxe": 1
+      },
+      "finalPosition": {
+        "x": 1,
+        "y": 199,
+        "z": 15
+      },
+      "commandFailures": {
+        "observed_route_unavailable": 14
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 3,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "7c9a7d7970ad8887ce7b23cfc999ed6ec7567c7e93a0d3c07c38183b2f7b49a5"
+    },
+    {
+      "run": "eval-output/20260908-124300-753277-7355/01-system-one-trunk-descent",
+      "version": "v75",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 901,
+      "plannerTurns": 0,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T04:44:40Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 7662,
+        "pid": 7591,
+        "requestedAt": "2026-09-08T04:44:36Z"
+      },
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "recording": {
+        "failure": "",
+        "finished": true,
+        "queuedRows": 0,
+        "complete": true,
+        "writtenRows": 836
+      },
+      "runtimeFinal": {
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:cobblestone:3",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v75",
+        "motorVersion": "production-motor-v13",
+        "motor": {
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false,
+          "smelting": ""
+        }
+      },
+      "exactReplay": "Replay verified: 835 turns; Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:cobblestone:3]",
+      "commands": {
+        "Break": 14,
+        "Navigate": 14
+      },
+      "inventory": {
+        "minecraft:cobblestone": 3,
+        "minecraft:dark_oak_log": 6,
+        "minecraft:wooden_pickaxe": 1
+      },
+      "finalPosition": {
+        "x": 0,
+        "y": 194,
+        "z": 18
+      },
+      "commandFailures": {
+        "observed_route_unavailable": 2
+      },
+      "breakObservationAudit": {
+        "status": "complete",
+        "checked_breaks": 14,
+        "mismatched_breaks": 0,
+        "missing_evidence_breaks": 0,
+        "missing_input_turns": 0,
+        "reasons": {},
+        "unclassified_effects": 0,
+        "recent_problems": [],
+        "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+      },
+      "perceptionAudit": {
+        "status": "unavailable",
+        "count": null,
+        "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+      },
+      "tapeSha256": "8e506972188d6f7128518fde47d7800267f625add53eddf5c8c3c7826bed9ddd"
+    }
+  ],
+  "changes": [
+    "Access clearance uses the registry log tag alongside surface foliage and fungi; geological search priors remain separate.",
+    "Search proposals account for their own opened cells and required return supports. A fast position-based pass and a history-aware fallback share the existing 512-expansion budget.",
+    "Proposals stop at the first unknown footing. Observed solid-surface frontiers outrank unsupported open-space hypotheses; movement still requires observed support.",
+    "A changed landing overshoot can recover the same observed stance while retaining the remaining route. Unchanged failed recovery and newly ineligible landing/support cannot repeat that recovery."
+  ],
+  "diagnosis": [
+    "The initial fully observed trunk simulation exposed incompatible support and clearance assumptions between successive steps.",
+    "v73 live cleared three top logs, then failed access; exact replay reproduced the failure.",
+    "v74 preserved the route across the first overshoot, but that route still hypothesized an unseen staircase outside the trunk. It failed again after observations exposed air.",
+    "v75 stopped proposals at the first unknown support and completed live with 835 replayed turns, six collected logs and three cobblestone."
+  ],
+  "limits": [
+    "The successful fixture does not prove live return to the top of this trunk. Unit simulation checks protected supports and one-block step heights.",
+    "No screenshot from the successful v75 run was captured; the earlier v74 failure screenshot was viewed.",
+    "Full hidden-read/perception audit remains unavailable.",
+    "Development-01 and shared access regressions require fresh runs under this policy."
+  ]
+}

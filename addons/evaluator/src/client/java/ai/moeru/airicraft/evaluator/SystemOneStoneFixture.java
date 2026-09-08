@@ -31,7 +31,7 @@ final class SystemOneStoneFixture {
 	}
 
 	boolean ready(MinecraftClient client, String scenario, long tick) {
-		if (!Set.of("system-one-dim-coal-bootstrap", "system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
+		if (!Set.of("system-one-trunk-descent", "system-one-dim-coal-bootstrap", "system-one-mushroom-obstruction", "system-one-observed-processed-wood", "system-one-remote-tool", "system-one-recording-overflow", "system-one-world-change", "system-one-search-dead-end", "system-one-furnace-reach", "system-one-tree-indicator", "system-one-target-change", "system-one-stone-low-canopy", "system-one-search-radius", "system-one-search-areas", "system-one-feedback-delivery", "system-one-stone", "system-one-stone-canopy", "system-one-terrain", "system-one-production", "system-one-production-discovery", "system-one-iron", "system-one-smelting", "system-one-station-stairs", "system-one-charcoal", "system-one-underground", "system-one-obscured-support", "system-one-cave-turn", "system-one-descent", "system-one-tool-wear", "system-one-harvest-approach", "system-one-log-pickup", "system-one-distant-approach", "system-one-pickup-step", "system-one-cave-gap", "system-one-edge-bridge", "system-one-return-route", "system-one-return-blocked", "system-one-remote-fuel", "system-one-survival-wait", "system-one-survival-mining", "system-one-death-recovery", "system-one-lighting", "system-one-lighting-exhaustion", "system-one-lighting-stairs", "system-one-lighting-low-ceiling").contains(scenario)) return true;
 		if (setupComplete) {
 			if (scenario.equals("system-one-world-change")) return worldProbe.ready(client,tick,output);
 			if (scenario.equals("system-one-target-change")) targetFault.tick(client, tick, output);
@@ -241,6 +241,14 @@ final class SystemOneStoneFixture {
 					var canopy = scenario.equals("system-one-mushroom-obstruction") ? Blocks.BROWN_MUSHROOM_BLOCK.getDefaultState()
 						: Blocks.SPRUCE_LEAVES.getDefaultState().with(net.minecraft.state.property.Properties.PERSISTENT,true);
 					for (int dx=-8;dx<=8;dx++) for (int dz=-8;dz<=8;dz++) if(dx!=0||dz!=0) world.setBlockState(new BlockPos(x+dx,201,z+dz),canopy,3);
+					player.getInventory().setStack(0,new ItemStack(Items.WOODEN_PICKAXE));
+				}
+				else if (scenario.equals("system-one-trunk-descent")) {
+					// A tall observed trunk offers a reversible staircase; the surrounding air does not.
+					for (int dx=-8;dx<=8;dx++) for (int dz=-8;dz<=8;dz++) for (int y=195;y<=199;y++)
+						world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.AIR.getDefaultState(),3);
+					for (int dx=0;dx<=1;dx++) for (int dz=0;dz<=1;dz++) for (int y=195;y<=199;y++)
+						world.setBlockState(new BlockPos(x+dx,y,z+dz),Blocks.DARK_OAK_LOG.getDefaultState(),3);
 					player.getInventory().setStack(0,new ItemStack(Items.WOODEN_PICKAXE));
 				}
 				else if (scenario.equals("system-one-stone-canopy")) {

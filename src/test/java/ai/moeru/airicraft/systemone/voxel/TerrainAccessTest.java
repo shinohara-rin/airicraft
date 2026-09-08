@@ -233,15 +233,65 @@ class TerrainAccessTest {
 		known.put(next,new Seen("unknown",false,false,false,0,2));
 		assertInstanceOf(Look.class,TerrainAccess.inspect(world(known,start,Set.of()),floor,Set.of("unknown"),p->true));
 	}
+	@Test void aDescentOvershootRecoversItsLandingWithoutLosingTheRemainingStaircase() {
+		Pos start = new Pos(0,4,0), landing = new Pos(0,3,1), next = new Pos(1,2,1), goal = new Pos(2,1,1);
+		var known = new HashMap<Pos,Seen>();
+		for (int y=3;y<=5;y++) known.put(new Pos(0,y,1),air());
+		known.put(landing.offset(0,-1,0),stone());
+		Pos overshoot = new Pos(0,3,2);
+		var move = new Navigate(landing,12,100);
+		var tail = List.of(new TerrainAccess.Edge(landing,next),new TerrainAccess.Edge(next,goal));
+		var route = new ArrayList<TerrainAccess.Edge>();route.add(new TerrainAccess.Edge(start,landing));route.addAll(tail);
+		var state = new TerrainAccess.State(start,goal,1000,4,Set.of(),route,move,Optional.empty());
+		var world = new StoneAcquisition.World(new Pose(.5,4.62,2.21,0,0),overshoot,Map.of(),known,Set.of(landing.offset(0,-1,0)));
+		var failed = Optional.of(Outcome.failure("observed_route_unavailable"));
+		var recovery = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(state,world,failed,30,CLEARABLE,p->true));
+		assertEquals(move,recovery.command()); assertEquals(1000,recovery.state().deadline());assertEquals(5,recovery.state().work());
+		assertEquals(tail,recovery.state().route().subList(1,recovery.state().route().size()));
+		var unchanged = TerrainAccess.advance(recovery.state(),world,failed,31,CLEARABLE,p->true);
+		assertFalse(unchanged instanceof TerrainAccess.Action action && action.command().equals(move),"an unchanged failure cannot repeat the landing recovery");
+		var hazardous = TerrainAccess.advance(state,world,failed,30,CLEARABLE,p->!p.equals(landing));
+		assertFalse(hazardous instanceof TerrainAccess.Action action && action.command().equals(move),"new hazards invalidate recovery");
+	}
+	@Test void unknownFootingEndsTheProposalUntilItsSupportIsObserved() {
+		Pos start = new Pos(0,4,0), next = new Pos(0,3,1), goal = new Pos(0,1,4);
+		var known = new HashMap<Pos,Seen>();
+		known.put(start,air());known.put(start.offset(0,1,0),air());known.put(start.offset(0,-1,0),stone());
+		known.put(next,stone());known.put(next.offset(0,1,0),air());known.put(next.offset(0,2,0),air());
+		var state = TerrainAccess.State.begin(start,goal,0);
+		var first = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(state,world(known,start,Set.of()),Optional.empty(),1,CLEARABLE,p->true));
+		assertEquals(new Break(next,"stone"),first.command());
+		assertEquals(List.of(new TerrainAccess.Edge(start,next)),first.state().route(),"no later step can rely on hypothetical support");
+		known.put(next,air());
+		var inspect = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(first.state(),world(known,start,Set.of()),Optional.of(Outcome.success("broken")),2,CLEARABLE,p->true));
+		assertInstanceOf(Look.class,inspect.command(),"clearing a surface does not prove support below it");
+		known.put(next.offset(0,-1,0),stone());
+		var enter = assertInstanceOf(TerrainAccess.Action.class,TerrainAccess.advance(inspect.state(),world(known,start,Set.of()),Optional.of(Outcome.success("observed")),3,CLEARABLE,p->true));
+		assertEquals(next,assertInstanceOf(Navigate.class,enter.command()).stance());
+	}
+	@Test void anObservedTrunkCanProvideOneBlockStepsWithoutDestroyingReturnFooting() {
+		var known = solid();
+		known.replaceAll((p,seen) -> p.y() <= 0 ? stone() : air());
+		for (int x=0;x<=1;x++) for (int z=0;z<=1;z++) for (int y=1;y<=5;y++)
+			known.put(new Pos(x,y,z),new Seen("log",false,true,true,15,1));
+		Pos start = new Pos(0,6,0), goal = new Pos(2,1,0);
+		assertInstanceOf(TerrainAccess.Unavailable.class,TerrainAccess.advance(TerrainAccess.State.begin(start,goal,0),
+			world(known,start,Set.of(start.offset(0,-1,0))),Optional.empty(),1,CLEARABLE,p->true));
+		var commands = run(known,start,goal,Set.of("stone","log"));
+		assertTrue(commands.stream().filter(Break.class::isInstance).map(Break.class::cast).anyMatch(b -> b.expectedBlock().equals("log")));
+	}
 	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal) {
+		return run(known,start,goal,CLEARABLE);
+	}
+	private static List<VoxelCommand> run(Map<Pos, Seen> known, Pos start, Pos goal, Set<String> clearable) {
 		var state = TerrainAccess.State.begin(start, goal, 0); Pos feet = start;
 		var protectedFloor = new HashSet<Pos>(); protectedFloor.add(start.offset(0, -1, 0));
 		var commands = new ArrayList<VoxelCommand>(); Optional<Outcome> feedback = Optional.empty();
 		for (int tick = 1; tick < 50; tick++) {
 			var world = world(known, feet, protectedFloor);
-			var result = TerrainAccess.advance(state, world, feedback, tick, CLEARABLE, p -> true);
+			var result = TerrainAccess.advance(state, world, feedback, tick, clearable, p -> true);
 			if (result instanceof TerrainAccess.Arrived) { assertEquals(goal, feet); return commands; }
-			var action = assertInstanceOf(TerrainAccess.Action.class, result); var command = action.command();
+			var action = assertInstanceOf(TerrainAccess.Action.class, result, "feet=" + feet + " commands=" + commands + " result=" + result); var command = action.command();
 			if (command instanceof Break broken) {
 				assertFalse(protectedFloor.contains(broken.target()));
 				assertTrue(ObservedReach.visible(known, world.eye(), broken.target(), 4.3));
