@@ -1,0 +1,125 @@
+{
+  "run": "eval-output/20260908-105813-695172-74307/01-iron-pickaxe",
+  "scenario": "iron-pickaxe",
+  "reportStatus": "PASSED",
+  "harnessStatus": "OK",
+  "elapsedTicks": 14816,
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T03:11:14Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 74494,
+    "pid": 74432,
+    "requestedAt": "2026-09-08T03:11:10Z"
+  },
+  "worldArchive": {
+    "exists": true,
+    "path": "/Users/rinshinohara/Repo/airicraft/scenarios/iron-pickaxe/world.zip",
+    "sha256": "bd73056d7b8f904a73931b02a6702570d193a16a3cf7ed87df24f68e711a49fe",
+    "sizeBytes": 9926484
+  },
+  "runtimeFinal": {
+    "methodVersion": "reactive-production-v71",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "inventory_observed:minecraft:iron_pickaxe:1",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "SUCCEEDED",
+    "knowledgeVersion": "minecraft-recipe-display-v10",
+    "motor": {
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": "",
+      "smelting": "",
+      "releasePending": false,
+      "finishing": "",
+      "command": ""
+    },
+    "motorVersion": "production-motor-v13"
+  },
+  "recording": {
+    "finished": true,
+    "failure": "",
+    "writtenRows": 14798,
+    "complete": true,
+    "queuedRows": 0
+  },
+  "decisionReplay": {
+    "turns": 14797,
+    "outcome": "Outcome[kind=SUCCEEDED, evidence=inventory_observed:minecraft:iron_pickaxe:1]",
+    "log": "/private/tmp/airicraft-v71-original-replay.log"
+  },
+  "coverage": "complete",
+  "commands": {
+    "Break": 266,
+    "CollectSmelt": 7,
+    "Craft": 24,
+    "Look": 472,
+    "Navigate": 323,
+    "Place": 23,
+    "StartSmelt": 7
+  },
+  "metrics": {
+    "travel": {
+      "horizontal_observed_blocks": 795.322,
+      "adjacent_same_life_segments": 14796,
+      "definition": "Sum of horizontal displacement between consecutive observed poses in the same life; excludes sample gaps and respawns, includes any same-life teleport."
+    },
+    "excavation": {
+      "break_commands_started": 266,
+      "blocks_destroyed": null,
+      "definition": "Attempts measure issued work; command success does not prove that the agent destroyed a block."
+    },
+    "survival": {
+      "vital_samples": 14797,
+      "minimum_observed_health": 20.0,
+      "observed_health_decrease": 0.0,
+      "lives_observed_dead": 0,
+      "burning_samples": 0,
+      "in_lava_samples": 0,
+      "definition": "Health decrease is the sum of adjacent same-life net decreases, not total damage; death count includes only lives observed at health <= 0."
+    },
+    "dark_exposure_allowance": {
+      "status": "recorded_policy_state",
+      "coverage": "complete",
+      "recorded_turns": 14797,
+      "missing_turns": 0,
+      "instances_observed": 0,
+      "allowance_state_samples": 0,
+      "active_exploration_state_samples": 0,
+      "expired_active_exploration_samples": 0,
+      "recent_instances": [],
+      "actual_dark_exposure_ticks": null,
+      "definition": "Snapshots describe policy state, not physical dark exposure. Active samples require an acting Explore leaf; suspended or returning allowances are excluded. Counts use post-decision state; deadline instances use both before and after state."
+    },
+    "perception_violations": {
+      "status": "unavailable",
+      "count": null,
+      "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+    },
+    "break_target_observations": {
+      "status": "complete",
+      "checked_breaks": 266,
+      "mismatched_breaks": 0,
+      "missing_evidence_breaks": 0,
+      "missing_input_turns": 0,
+      "reasons": {},
+      "unclassified_effects": 0,
+      "recent_problems": [],
+      "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."
+    }
+  },
+  "limits": [
+    "Full sensor/motor perception audit remains unavailable.",
+    "This run does not establish held-out reliability or general game completion.",
+    "External playback is under investigation; no visual review claimed for this run."
+  ],
+  "llmRecords": 0
+}
