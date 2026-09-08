@@ -1,0 +1,180 @@
+{
+  "sourceCommit": "b290cdac",
+  "methodVersion": "reactive-production-v76",
+  "automatedTests": {
+    "systemOne": 205,
+    "evaluator": 38,
+    "python": 47,
+    "failures": 0
+  },
+  "redRegression": "LightingRepairTest.observedHealthLossRevokesDarkWorkBeforeItsTimeBudgetAndWaitsForRelease failed against v75: pending command had no Stop after health loss.",
+  "runs": [
+    {
+      "run": "eval-output/20260908-131051-430804-17595/01-system-one-dim-coal-bootstrap",
+      "harnessStatus": "OK",
+      "reportStatus": "PASSED",
+      "elapsedTicks": 196,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T05:11:51Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 17846,
+        "pid": 17771,
+        "requestedAt": "2026-09-08T05:11:49Z"
+      },
+      "runtimeFinal": {
+        "motor": {
+          "releasePending": false,
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": "",
+          "finishing": ""
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "state": "SUCCEEDED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "inventory_observed:minecraft:torch:4",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v76",
+        "motorVersion": "production-motor-v13"
+      },
+      "coverage": "complete",
+      "exactReplayAndBehaviorAudit": {
+        "outcome": {
+          "kind": "SUCCEEDED",
+          "evidence": "inventory_observed:minecraft:torch:4"
+        },
+        "scope": "Active Explore work only. Does not establish maintenance on other tasks or audit sensor/motor hidden reads.",
+        "evidence": [
+          {
+            "allowance": {
+              "origin": {
+                "x": 0,
+                "y": 200,
+                "z": 15
+              },
+              "expiresAt": 172,
+              "observedHealth": 20.0,
+              "life": 0,
+              "validity": "ACTIVE"
+            },
+            "target": {
+              "x": 0,
+              "y": 201,
+              "z": 16
+            },
+            "policyLight": 5,
+            "startedTick": 92
+          },
+          {
+            "finishedTick": 110,
+            "observedEmptyAt": 110,
+            "target": {
+              "x": 0,
+              "y": 201,
+              "z": 16
+            },
+            "completionEvidence": "surface_observed_and_command_released"
+          }
+        ],
+        "exactReplayTurns": 124,
+        "observedDimExploreTicks": 17,
+        "confirmedBreaks": 1,
+        "distinctAllowances": 1
+      },
+      "tapeSha256": "a06d2a6638f2e41c42ef5060116b06f3875bcecf045c0b141e56dc852da245a8",
+      "commands": {
+        "Break": 3,
+        "Craft": 1,
+        "Navigate": 1
+      }
+    },
+    {
+      "run": "eval-output/20260908-131051-430804-17595/02-system-one-dim-health-loss",
+      "harnessStatus": "OK",
+      "reportStatus": "FAILED",
+      "elapsedTicks": 223,
+      "plannerTurns": 0,
+      "llmCallsLatestSequenceId": 0,
+      "llmCallsTruncated": false,
+      "clientExit": {
+        "finalReturnCode": 0,
+        "finishedAt": "2026-09-08T05:12:32Z",
+        "initialReturnCode": null,
+        "method": "BRIDGE",
+        "minecraftExited": true,
+        "minecraftProcessId": 18078,
+        "pid": 18010,
+        "requestedAt": "2026-09-08T05:12:29Z"
+      },
+      "runtimeFinal": {
+        "motor": {
+          "smelting": "",
+          "crafting": "",
+          "pathingActive": false,
+          "stopping": false,
+          "edgePlacement": "",
+          "command": "",
+          "finishing": "",
+          "releasePending": false
+        },
+        "knowledgeVersion": "minecraft-recipe-display-v12",
+        "state": "FAILED",
+        "policyVersion": "observed-survival-v1",
+        "runtime": "system_one",
+        "outcome": "no_production_method:minecraft:torch rejected=[minecraft:torch:4:2:[Cell[slot=0, item=minecraft:charcoal], Cell[slot=2, item=minecraft:stick]], minecraft:torch:4:2:[Cell[slot=0, item=minecraft:coal], Cell[slot=2, item=minecraft:stick]]]",
+        "run": "system-one-1",
+        "taskStack": "[]",
+        "methodVersion": "reactive-production-v76",
+        "motorVersion": "production-motor-v13"
+      },
+      "coverage": "complete",
+      "exactReplayAndBehaviorAudit": {
+        "releaseAcknowledgedTick": 110,
+        "observedInjuryTick": 109,
+        "outcome": {
+          "kind": "FAILED",
+          "evidence": "no_production_method:minecraft:torch rejected=[minecraft:torch:4:2:[Cell[slot=0, item=minecraft:charcoal], Cell[slot=2, item=minecraft:stick]], minecraft:torch:4:2:[Cell[slot=0, item=minecraft:coal], Cell[slot=2, item=minecraft:stick]]]"
+        },
+        "scope": "Injected active Explore injury only; no all-task lighting or full perception audit claim.",
+        "originalAllowanceDeadline": 184,
+        "healthBefore": 20.0,
+        "exactReplayTurns": 153,
+        "withdrawalRecorded": true,
+        "revocationReasonRecorded": true,
+        "healthAfter": 18.0
+      },
+      "tapeSha256": "e69d467744c85370919b9b835f09c357835535eb8bdac1b2507c144b0f8685d2",
+      "commands": {
+        "Break": 1,
+        "Look": 72
+      },
+      "intervention": {
+        "healthBefore": 20.0,
+        "kind": "health_loss_during_dim_search",
+        "requestedAtRuntimeTick": 104,
+        "healthAfter": 18.0
+      }
+    }
+  ],
+  "negativeControls": {
+    "healthyTapeRejectedByInjuryAudit": "Exception in thread \"main\" java.lang.AssertionError: Missing complete injury/release/withdrawal evidence",
+    "injuredTapeRejectedBySuccessfulExcavationAudit": "Exception in thread \"main\" java.lang.AssertionError: Missing successful reduced-light excavation evidence"
+  },
+  "limits": [
+    "The injury fixture deliberately fails its inventory goal. This is verified withdrawal behavior, not a successful production scenario or held-out pass.",
+    "The player was already at the remembered route origin: this verifies withdrawal completion without a travel leg, not physical retreat through a cave.",
+    "72 later Look commands are alternative recipe prerequisite searches outside Explore. All-task light maintenance and efficient terminal recovery remain open.",
+    "Full perception audit and new visual review are not claimed."
+  ]
+}

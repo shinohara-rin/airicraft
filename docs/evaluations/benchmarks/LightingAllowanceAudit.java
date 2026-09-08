@@ -33,14 +33,19 @@ public class LightingAllowanceAudit {
                 var world = StoneTape.reconstruct(turn.observation(),turn.tick(),known);
                 var state = (TaskKernel.State<?>) stateField.get(replay);
                 for (var reply : turn.feedback()) {
-                    if (!reply.kind().equals("finished")) continue;
+                    if (!Set.of("finished", "released").contains(reply.kind())) continue;
                     var work = starts.remove(reply.token());
-                    if (work == null || reply.outcome().kind() != TaskKernel.ResultKind.SUCCEEDED) continue;
+                    if (work == null) continue;
+                    boolean commandSucceeded = reply.kind().equals("finished") && reply.outcome().kind() == TaskKernel.ResultKind.SUCCEEDED;
+                    boolean searchObservedSurface = reply.kind().equals("released") && turn.events().stream().anyMatch(e ->
+                        e.task() == reply.token().task() && e.type().equals("task_ended") && e.detail().startsWith("SUCCEEDED:resource_surface_observed:"));
+                    if (!commandSucceeded && !searchObservedSurface) continue;
                     var now = world.known().get(work.command().target());
                     if (turn.tick() > work.allowance().expiresAt()) throw new AssertionError("Break completed beyond allowance deadline");
                     if (now == null || !now.empty() || now.tick() < work.startedTick()) throw new AssertionError("Break completion lacks an observed cleared cell");
                     confirmedBreaks++;
-                    evidence.add(Map.of("finishedTick",turn.tick(),"target",work.command().target(),"observedEmptyAt",now.tick()));
+                    evidence.add(Map.of("finishedTick",turn.tick(),"target",work.command().target(),"observedEmptyAt",now.tick(),
+                        "completionEvidence",commandSucceeded ? "command_finished" : "surface_observed_and_command_released"));
                 }
                 if (state.stack().isEmpty()) continue;
                 var leaf = state.stack().getLast();
