@@ -96,7 +96,7 @@ class TerrainAccessTest {
 		for (int y = 3; y <= 5; y++) known.put(new Pos(0,y,1), air());
 		var observed = world(known, start, Set.of(start.offset(0,-1,0)));
 		var search = new UndergroundSearch.Task(prior, harvest.blocks(), start, start, 0, 2, Map.of(), Set.of(), Optional.of(goal), Optional.empty(), new Navigate(goal,12,200));
-		var explore = new Explore(search, LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
+		var explore = new Explore(search, Map.of(), Set.of("ore"));
 		var failed = new View<Task>(3, explore, false, 1, Optional.of(Outcome.failure("observed_route_unavailable")), Optional.empty());
 		var repair = assertInstanceOf(Child.class, domain.decide(failed, observed));
 		var access = assertInstanceOf(Access.class, repair.child());

@@ -23,7 +23,7 @@ class ToolMaintenanceTest {
 		var kernel = new TaskKernel<Task, StoneAcquisition.World, VoxelCommand>(domain, new Limits(16, 16, 1000, 50));
 		var initialWorld = world(Map.of("pick", 1, "material", 3), FEET);
 		var search = new Explore(UndergroundSearch.Task.begin(PRIOR, List.of("ore_block"), initialWorld, Set.of()),
-			LightingPolicy.State.begin(), Map.of("material", 2), Set.of("ore"));
+			Map.of("material", 2), Set.of("ore"));
 		var first = kernel.advance(kernel.begin("s", "r", search, 0), initialWorld, List.of(), 1);
 		var original = start(first);
 		assertInstanceOf(Navigate.class, original.command());
@@ -51,7 +51,7 @@ class ToolMaintenanceTest {
 		var route=List.of(FEET,FEET.offset(1,0,0),feet);
 		var pending=feet.offset(0,0,1);
 		var search=new UndergroundSearch.Task(PRIOR,List.of("ore_block"),FEET,feet,0,2,Map.of(),Set.of(),Optional.of(pending),Optional.empty(),null,route);
-		var task=new Explore(search,LightingPolicy.State.begin(),Map.of("material",2),Set.of("ore"));
+		var task=new Explore(search,Map.of("material",2),Set.of("ore"));
 		var repair=assertInstanceOf(Child.class,domain.decide(view(task,Optional.empty()),world));
 		var outward=assertInstanceOf(Resupply.class,repair.child());
 		assertEquals(Map.of("material",2),outward.supply().reserved());
@@ -68,14 +68,14 @@ class ToolMaintenanceTest {
 		var domain = new ProductionDomain(BOOK);
 		var world = world(Map.of(), FEET);
 		var search = new Explore(UndergroundSearch.Task.begin(PRIOR, List.of("ore_block"), world, Set.of()),
-			LightingPolicy.State.begin(), Map.of(), Set.of("ore"));
+			Map.of(), Set.of("ore"));
 		var first = (Child<Task, VoxelCommand>) domain.decide(view(search, Optional.empty()), world);
 		assertEquals("pick", ((Acquire) first.child()).item());
 		var second = (Child<Task, VoxelCommand>) domain.decide(view(first.continuation(), Optional.of(Outcome.failure("unavailable"))), world);
 		assertEquals("other_pick", ((Acquire) second.child()).item());
 		var done = assertInstanceOf(Complete.class, domain.decide(view(second.continuation(), Optional.of(Outcome.failure("unavailable"))), world));
 		assertEquals("search_tool_replacement_exhausted:ore", done.outcome().evidence());
-		var cyclic = new Explore(search.search(), search.light(), Map.of(), Set.of("ore", "pick", "other_pick"));
+		var cyclic = new Explore(search.search(), Map.of(), Set.of("ore", "pick", "other_pick"));
 		assertInstanceOf(Complete.class, domain.decide(view(cyclic, Optional.empty()), world));
 	}
 

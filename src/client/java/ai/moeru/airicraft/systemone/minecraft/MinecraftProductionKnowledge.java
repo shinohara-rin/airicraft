@@ -59,7 +59,7 @@ final class MinecraftProductionKnowledge {
 		// Giant fungi are removable surface obstructions, not geological search indicators.
 		accessMaterials.addAll(List.of("minecraft:brown_mushroom_block", "minecraft:red_mushroom_block", "minecraft:mushroom_stem"));
 		for (var block : Registries.BLOCK) if (block.getDefaultState().isIn(BlockTags.LEAVES) || block.getDefaultState().isIn(BlockTags.LOGS)) accessMaterials.add(Registries.BLOCK.getId(block).toString());
-		return new ProductionKnowledge("minecraft-recipe-display-v12", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
-			SmeltingPlannerService.productionSmelts(client), fuels, searches, List.copyOf(accessMaterials), new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4), ai.moeru.airicraft.systemone.voxel.SurvivalPolicy.Parameters.minecraft());
+		return new ProductionKnowledge("minecraft-recipe-display-v13", CraftingOpportunityResolver.productionRecipes(client.player), harvests,
+			SmeltingPlannerService.productionSmelts(client), fuels, searches, List.copyOf(accessMaterials), new ai.moeru.airicraft.systemone.voxel.LightingPolicy.Parameters(7, 10, 8, 80, 4, 2400, 32), ai.moeru.airicraft.systemone.voxel.SurvivalPolicy.Parameters.minecraft());
 	}
 }

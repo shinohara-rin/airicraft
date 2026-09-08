@@ -22,7 +22,7 @@ import static ai.moeru.airicraft.systemone.voxel.VoxelObservation.*;
 /** Production missions record their complete immutable recipe/prior catalog once at the boundary. */
 public final class ProductionTape {
 	public static final int FORMAT_VERSION = 3;
-	public static final String METHOD_VERSION = "reactive-production-v76";
+	public static final String METHOD_VERSION = "reactive-production-v77";
 	private static final Gson GSON = new Gson();
 	public record Header(String type, int version, String methodVersion, ProductionKnowledge knowledge,
 		String session, String run, String item, int count, long tick, Limits limits, boolean mission, long life) {}
@@ -34,7 +34,7 @@ public final class ProductionTape {
 	}
 	/** Factual policy state, including suspended allowances; presence does not imply permission to act. */
 	public record LightingFrame(long task, String phase, boolean leaf, List<String> continuation,
-		boolean maintaining, List<LightingPolicy.Repair> failed, LightingPolicy.Allowance allowance) {}
+		boolean maintaining, List<LightingPolicy.Repair> failed, LightingPolicy.Allowance allowance, String activity, String activityPhase, boolean repairing) {}
 	public record LightingTrace(Integer policyLight, List<LightingFrame> before, List<LightingFrame> after) {}
 	public record Turn(String type, long sequence, long tick, StoneTape.Observation observation, List<StoneTape.Reply> feedback,
 		String cancellation, List<String> effects, List<Event> events, String outcome, LightingTrace lighting, List<SearchChange> search) {}
@@ -68,8 +68,8 @@ public final class ProductionTape {
 		var result = new HashMap<Long,Map<Pos,UndergroundSearch.Rejection>>();
 		for (var frame : state.stack()) {
 			Task task = frame.task();
-			while (task instanceof AfterEscape || task instanceof AfterAccess || task instanceof ResumeExplore)
-				task = task instanceof AfterEscape after ? after.saved() : task instanceof AfterAccess after ? after.saved() : ((ResumeExplore)task).saved();
+			while (task instanceof AfterEscape || task instanceof AfterAccess || task instanceof ResumeExplore || task instanceof ResumeWork || task instanceof Restored)
+				task = task instanceof AfterEscape after ? after.saved() : task instanceof AfterAccess after ? after.saved() : task instanceof ResumeWork repair ? repair.saved().task() : task instanceof Restored restored ? restored.saved().task() : ((ResumeExplore)task).saved();
 			if (task instanceof Explore explore) result.put(frame.id(),explore.search().rejected());
 		}
 		return result;
@@ -86,12 +86,16 @@ public final class ProductionTape {
 				if (task instanceof AfterEscape saved) { path.add("survival_repair"); task = saved.saved(); }
 				else if (task instanceof AfterAccess saved) { path.add("access_repair"); task = saved.saved(); }
 				else if (task instanceof ResumeExplore saved) { path.add("resupply_return"); task = saved.saved(); }
+				else if (task instanceof ResumeWork saved) { path.add("lighting_repair"); task = saved.saved().task(); }
+				else if (task instanceof Restored saved) { path.add("restored"); task = saved.saved().task(); }
 				else break;
 			}
-			if (task instanceof Explore explore) {
-				path.add("explore"); var light = explore.light();
+			if (task instanceof Mission mission) {
+				path.add("mission"); var light = mission.light().policy();
 				result.add(new LightingFrame(frame.id(), frame.phase().getClass().getSimpleName(), i == state.stack().size() - 1,
-					List.copyOf(path), light.maintaining(), light.failed().stream().sorted().toList(), light.allowance().orElse(null)));
+					List.copyOf(path), light.maintaining(), light.failed().stream().sorted().toList(), light.allowance().orElse(null),
+					state.stack().getLast().task().getClass().getSimpleName(),state.stack().getLast().phase().getClass().getSimpleName(),
+					state.stack().stream().anyMatch(v -> ProductionDomain.unwrap(v.task()) instanceof ResumeWork)));
 			}
 		}
 		return List.copyOf(result);

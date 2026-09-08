@@ -43,16 +43,19 @@ class SearchAreasTest {
 		var knowledge = new ProductionKnowledge("test",List.of(),List.of(new Harvest(PRIOR.item(),List.of("minecraft:iron_ore"),List.of("minecraft:stone_pickaxe"),Technique.EXPOSED)),
 			List.of(),List.of(),List.of(PRIOR),new LightingPolicy.Parameters(7,10,8,80,4));
 		var domain = new ProductionDomain(knowledge);
-		var explore = new ProductionDomain.Explore(arrived(List.of(ORIGIN)),LightingPolicy.State.begin(),Map.of(),Set.of(PRIOR.item()));
+		var explore = new ProductionDomain.Explore(arrived(List.of(ORIGIN)),Map.of(),Set.of(PRIOR.item()));
 		var keep = assertInstanceOf(Keep.class,domain.decide(new View<ProductionDomain.Task>(1,explore,false,2,Optional.of(Outcome.success("arrived")),Optional.empty()),world()));
 		var continued = assertInstanceOf(ProductionDomain.Explore.class,keep.continuation().orElseThrow());
 		assertEquals(List.of(ORIGIN,FEET),continued.search().areas());
 		var dim = new HashMap<>(world().known());
 		dim.replaceAll((p,s) -> new Seen(s.blockId(),s.empty(),s.identified(),s.fullSupport(),0,3,s.clearForBody()));
 		var dark = new StoneAcquisition.World(world().eye(),FEET,Map.of("minecraft:stone_pickaxe",1),dim);
-		var repair = assertInstanceOf(Child.class,domain.decide(new View<ProductionDomain.Task>(1,continued,false,3,Optional.empty(),Optional.empty()),dark));
-		var suspended = assertInstanceOf(ProductionDomain.ResumeExplore.class,repair.continuation());
-		assertEquals(continued.search(),suspended.saved().search());
+		var mission = new ProductionDomain.Mission(PRIOR.item(),1,0,0,new ProductionDomain.WorkingLight(LightingPolicy.State.begin(),continued.search().route()));
+		var branch = List.of(new View<ProductionDomain.Task>(1,mission,false,3,Optional.empty(),Optional.empty()),new View<ProductionDomain.Task>(2,continued,false,3,Optional.empty(),Optional.empty()));
+		var observed=domain.observe(branch,dark);
+		var repair=domain.interrupt(List.of(new View<>(1,observed.getFirst(),false,3,Optional.empty(),Optional.empty()),branch.getLast()),dark).orElseThrow();
+		var suspended = assertInstanceOf(ProductionDomain.ResumeWork.class,repair.continuation());
+		assertEquals(continued,suspended.saved().task());
 		assertEquals(continued.search().route(),suspended.returning().route());
 	}
 

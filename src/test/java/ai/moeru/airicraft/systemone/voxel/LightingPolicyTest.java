@@ -40,7 +40,7 @@ class LightingPolicyTest {
 		assertEquals(Validity.HEALTH_LOSS, injured.state().allowance().orElseThrow().validity());
 		var stillRevoked = policy.assess(injured.state(), 8, 8, true, ORIGIN, 4, new SurvivalPolicy.Vitals(3, 20, false, false));
 		assertEquals(Action.RETREAT, stillRevoked.action());
-		assertEquals(81, stillRevoked.state().allowance().orElseThrow().expiresAt());
+		assertEquals(2401, stillRevoked.state().allowance().orElseThrow().expiresAt());
 		assertFalse(policy.permits(stillRevoked.state().allowance().orElseThrow(), ORIGIN, 4));
 		assertEquals(State.begin(), policy.assess(stillRevoked.state(), 10, 8, true, ORIGIN, 5, new SurvivalPolicy.Vitals(3, 20, false, false)).state());
 	}

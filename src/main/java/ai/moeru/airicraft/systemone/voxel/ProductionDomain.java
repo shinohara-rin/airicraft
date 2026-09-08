@@ -12,12 +12,23 @@ import ai.moeru.airicraft.systemone.voxel.StoneAcquisition.World;
 
 /** Reactive production. Recipes provide alternatives; the task kernel owns every dependency and command. */
 public final class ProductionDomain implements TaskKernel.Domain<ProductionDomain.Task, World, VoxelCommand> {
-	public sealed interface Task permits Mission, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
+	public sealed interface Task permits Mission, ResumeWork, Restored, Withdraw, Abandon, Escape, AfterEscape, Acquire, Excavate, Gather, Pickup, AfterPickup, Station, SmeltBatch, FinishSmeltStart, CollectBatch, Explore, ResumeExplore, Resupply, PlaceLight, Retreat, AfterRetreat, Access, AfterAccess {}
 	public record Pickup(ItemPickup.State state) implements Task {}
 	public record AfterPickup(Gather saved, String entity) implements Task {}
 	public record Access(TerrainAccess.State state, Set<String> clearable) implements Task { public Access { clearable = Set.copyOf(clearable); } }
 	public record AfterAccess(Task saved) implements Task {}
-	public record Mission(String item, int count, long life, int deaths) implements Task {}
+	public record WorkingLight(LightingPolicy.State policy, List<Pos> route) {
+		public WorkingLight { route = List.copyOf(route); }
+		public static WorkingLight begin() { return new WorkingLight(LightingPolicy.State.begin(), List.of()); }
+	}
+	public record Mission(String item, int count, long life, int deaths, WorkingLight light) implements Task {
+		public Mission(String item, int count, long life, int deaths) { this(item,count,life,deaths,WorkingLight.begin()); }
+	}
+	public record Suspended(Task task, Optional<Outcome> command, Optional<Outcome> child) {}
+	public record Restored(Suspended saved) implements Task {}
+	public record ResumeWork(Suspended saved, ReturnNavigation.State returning, LightingPolicy.Repair repair,
+		Optional<Outcome> repaired, long deadline, Pos supplyOrigin, SurvivalPolicy.Vitals baseline) implements Task {}
+	public record Withdraw(String reason, ReturnNavigation.State returning) implements Task {}
 	public record Abandon(String reason) implements Task {}
 	public record Escape(Pos origin, Set<Pos> rejected, Optional<Pos> last, long deadline) implements Task {
 		public Escape { rejected = Set.copyOf(rejected); }
@@ -44,13 +55,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 	public record FinishSmeltStart(SmeltBatch request, Pos station, Pos stance, int before) implements Task {}
 	public record CollectBatch(Smelt recipe, Pos station, int before, long deadline, int attempts) implements Task {}
-	public record Explore(UndergroundSearch.Task search, LightingPolicy.State light, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
+	public record Explore(UndergroundSearch.Task search, Map<String, Integer> reserved, Set<String> ancestors) implements Task {
 		public Explore { reserved = Map.copyOf(reserved); ancestors = Set.copyOf(ancestors); }
 	}
-	public sealed interface SearchRepair permits LightRepair, ToolRepair {}
-	public record LightRepair(LightingPolicy.Repair kind) implements SearchRepair {}
-	public record ToolRepair(String tool, Set<String> rejected) implements SearchRepair { public ToolRepair { rejected = Set.copyOf(rejected); } }
-	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, SearchRepair repair) implements Task {}
+	public record ToolRepair(String tool, Set<String> rejected) { public ToolRepair { rejected = Set.copyOf(rejected); } }
+	public record ResumeExplore(Explore saved, ReturnNavigation.State returning, ToolRepair repair) implements Task {}
 	public record Resupply(Acquire supply, ReturnNavigation.State outward) implements Task {}
 	public record PlaceLight(Set<Pos> rejected, Optional<Pos> last) implements Task { public PlaceLight { rejected = Set.copyOf(rejected); } }
 	public record Retreat(ReturnNavigation.State returning) implements Task {}
@@ -81,6 +90,125 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		lighting = new LightingPolicy(knowledge.lighting());
 		survival = new SurvivalPolicy(knowledge.survival());
 	}
+	private static Mission mission(Task task) {
+		while (task instanceof AfterEscape after) task = after.saved();
+		return task instanceof Mission mission ? mission : null;
+	}
+	private static Task replaceMission(Task task, Mission next) {
+		if (task instanceof AfterEscape after) return new AfterEscape(replaceMission(after.saved(),next),after.command(),after.child());
+		return next;
+	}
+	static Task unwrap(Task task) {
+		while (true) {
+			if (task instanceof AfterEscape after) task = after.saved();
+			else if (task instanceof AfterAccess after) task = after.saved();
+			else if (task instanceof Restored restored) task = restored.saved().task();
+			else return task;
+		}
+	}
+	private static boolean lightingRepairActive(List<View<Task>> branch) {
+		return branch.stream().map(v -> unwrap(v.task())).anyMatch(t -> t instanceof ResumeWork || t instanceof Withdraw || t instanceof Retreat || t instanceof AfterRetreat || t instanceof Escape);
+	}
+	private boolean maySupply(List<View<Task>> branch, Mission mission) {
+		return !mission.item().equals("minecraft:torch") && branch.stream().map(v -> unwrap(v.task()))
+			.noneMatch(t -> t instanceof Acquire acquire && (acquire.item().equals("minecraft:torch") || acquire.ancestors().contains("minecraft:torch")));
+	}
+	@Override public List<Task> observe(List<View<Task>> branch, World world) {
+		var tasks = new ArrayList<>(branch.stream().map(View::task).toList());
+		Mission mission = mission(tasks.getFirst());
+		if (world == null || mission == null || !world.vitals().alive() || world.vitals().life() != mission.life()) return tasks;
+		var policy = mission.light().policy();
+		boolean repairing = lightingRepairActive(branch);
+		for (var view : branch) if (unwrap(view.task()) instanceof ResumeWork repair) {
+			if (repair.repaired().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent()) policy = policy.failed(repair.repair());
+			if (view.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health())
+				policy = new LightingPolicy.State(true, Set.of(LightingPolicy.Repair.SUPPLY,LightingPolicy.Repair.PLACEMENT),
+					Optional.of(new LightingPolicy.Allowance(world.feet(),view.tick(),world.vitals().health(),world.vitals().life(),LightingPolicy.Validity.REPAIR_LIMIT,lighting.parameters().allowanceRadius(),LightingPolicy.Purpose.PROGRESS)));
+		}
+		policy = repairing ? lighting.observe(policy,light(world),world.vitals()) : lighting.assess(policy,light(world),world.inventory().getOrDefault("minecraft:torch",0),maySupply(branch,mission),world.feet(),branch.getLast().tick(),world.vitals()).state();
+		var route = mission.light().route();
+		if (!repairing && !policy.maintaining()) route = List.of(world.feet());
+		else if (route.isEmpty() || StoneAcquisition.standable(world.known(),world.feet())) route = RouteMemory.append(route,world.feet());
+		var updated = new Mission(mission.item(),mission.count(),mission.life(),mission.deaths(),new WorkingLight(policy,route));
+		tasks.set(0,replaceMission(tasks.getFirst(),updated));
+		return tasks;
+	}
+	@Override public Optional<Interruption<Task>> interrupt(List<View<Task>> branch, World world) {
+		var urgent = survivalInterruption(branch,world);
+		return urgent.isPresent() ? urgent : lightingInterruption(branch,world);
+	}
+	private static String lightingReason(LightingPolicy.State policy) {
+		return policy.allowance().filter(a -> a.validity() != LightingPolicy.Validity.ACTIVE)
+			.map(a -> "lighting_allowance_revoked:" + a.validity().name().toLowerCase(Locale.ROOT)).orElse("lighting_allowance_exhausted");
+	}
+	private boolean lightingBlocked(Mission mission, World world, long tick) {
+		return mission.light().policy().allowance().filter(a -> !lighting.permits(a,world.feet(),tick)).isPresent()
+			&& light(world) < lighting.parameters().resumeAt();
+	}
+	private Optional<Interruption<Task>> lightingInterruption(List<View<Task>> branch, World world) {
+		if (world == null || !world.vitals().alive() || survival.urgent(world) || branch.size() < 2 || lightingRepairActive(branch)) return Optional.empty();
+		Mission mission = mission(branch.getFirst().task());
+		if (mission == null) return Optional.empty();
+		var leaf = branch.getLast(); Task task = unwrap(leaf.task());
+		// Cursor/furnace transactions drain at their existing bounded completion boundary.
+		if (atomicInventory(leaf)) return Optional.empty();
+		var assessment = lighting.assess(mission.light().policy(),light(world),world.inventory().getOrDefault("minecraft:torch",0),maySupply(branch,mission),world.feet(),leaf.tick(),world.vitals());
+		if (assessment.action() == LightingPolicy.Action.CONTINUE || assessment.action() == LightingPolicy.Action.REDUCED_LIGHT_PROGRESS) return Optional.empty();
+		var route = RouteMemory.append(mission.light().route(),world.feet());
+		if (assessment.action() == LightingPolicy.Action.RETREAT) {
+			if (route.getFirst().equals(world.feet())) return Optional.empty();
+			var outward = new ArrayList<>(route); Collections.reverse(outward);
+			return Optional.of(new Interruption<>(new AfterRetreat(lightingReason(assessment.state())),new Retreat(ReturnNavigation.State.begin(outward)),"lighting_retreat"));
+		}
+		var repair = assessment.action() == LightingPolicy.Action.SUPPLY ? LightingPolicy.Repair.SUPPLY : LightingPolicy.Repair.PLACEMENT;
+		var reserved = Map.<String,Integer>of(); var ancestors = Set.<String>of();
+		for (var view : branch) if (unwrap(view.task()) instanceof Acquire acquire) { reserved = acquire.reserved(); ancestors = ancestry(acquire); }
+		var supply = new Acquire("minecraft:torch",lighting.parameters().supplyCount(),reserved,ancestors,Set.of(),"");
+		boolean local = repair == LightingPolicy.Repair.PLACEMENT || craftableFromInventory(supply,world);
+		Task child = repair == LightingPolicy.Repair.PLACEMENT ? new PlaceLight(Set.of(),Optional.empty()) : supplyTask(supply,route,world);
+		var resume = new ResumeWork(suspend(leaf),ReturnNavigation.State.begin(route),repair,Optional.empty(),leaf.tick()+lighting.parameters().repairTicks(),local ? world.feet() : route.getFirst(),world.vitals());
+		return Optional.of(new Interruption<>(resume,child,"lighting_"+repair.name().toLowerCase(Locale.ROOT)));
+	}
+	private static boolean atomicInventory(View<Task> view) { Task task=unwrap(view.task()); return view.acting() && (task instanceof Acquire || task instanceof FinishSmeltStart || task instanceof CollectBatch); }
+	private static Suspended suspend(View<Task> view) {
+		if (view.task() instanceof Restored restored) return restored.saved();
+		Task saved = view.task();
+		if (view.acting()) {
+			if (saved instanceof Gather g) saved = new Gather(g.rule(),g.count(),g.origin(),g.scans(),g.rejected(),g.visited(),null,g.drops(),Optional.empty(),g.discoveryClears(),g.rejectedDrops());
+			else if (saved instanceof Access a) { var t=a.state(); saved = new Access(new TerrainAccess.State(t.origin(),t.goal(),t.deadline(),t.work(),t.rejected(),t.route(),null,t.failedApproach()),a.clearable()); }
+			else if (saved instanceof Pickup p) { var t=p.state(); saved = new Pickup(new ItemPickup.State(t.target(),t.inventoryGoal(),t.tried(),new ItemPickup.Seeking(),t.work(),t.deadline())); }
+			else if (saved instanceof Station t) saved = new Station(t.item(),t.reserved(),t.ancestors(),t.scans(),t.rejected(),null);
+		}
+		return new Suspended(saved,view.acting() ? Optional.empty() : view.commandResult(),view.childResult());
+	}
+	private Decision<Task,VoxelCommand> resumeWork(View<Task> view, ResumeWork task, World world) {
+		if (task.repaired().isEmpty()) {
+			if (view.childResult().isEmpty()) return new Keep<>();
+			// Publish the repair result to the mission observer before starting return work.
+			return new Keep<>(new ResumeWork(task.saved(),task.returning(),task.repair(),view.childResult(),task.deadline(),task.supplyOrigin(),task.baseline()));
+		}
+		if (view.acting()) return new Keep<>();
+		if (needsAccess(view) && task.returning().last().isPresent()) return access(task,task.returning().last().get(),world,view.tick(),accessMaterials);
+		var travel = ReturnNavigation.advance(task.returning(),world,view.commandResult());
+		if (travel instanceof ReturnNavigation.Arrived) return new Keep<>(new Restored(task.saved()));
+		if (travel instanceof ReturnNavigation.Unavailable unavailable) return failure("lighting_return_unavailable:"+unavailable.reason());
+		var move=(ReturnNavigation.Move)travel;
+		return new Execute<>(new ResumeWork(task.saved(),move.state(),task.repair(),task.repaired(),task.deadline(),task.supplyOrigin(),task.baseline()),move.command());
+	}
+	private boolean repairAllows(List<View<Task>> branch, World world, VoxelCommand command) {
+		if (light(world) >= lighting.parameters().resumeAt()) return true;
+		for (var view : branch) if (unwrap(view.task()) instanceof ResumeWork repair) {
+			Pos affected = affected(command,world.feet());
+			boolean travel = repair.repaired().isPresent() || branch.stream().map(v -> unwrap(v.task())).anyMatch(t -> t instanceof Resupply);
+			if (travel) return repair.returning().route().stream().anyMatch(p -> travelDistance(p,affected) <= 6);
+			return travelDistance(repair.supplyOrigin(),affected) <= lighting.parameters().repairRadius();
+		}
+		Mission mission=mission(branch.getFirst().task());
+		return mission == null || lightingRepairActive(branch) || mission.light().policy().allowance().filter(a -> !lighting.permits(a,affected(command,world.feet()),branch.getLast().tick())).isEmpty();
+	}
+	private static Pos affected(VoxelCommand command, Pos feet) {
+		return command instanceof Navigate n ? n.stance() : command instanceof Break b ? b.target() : command instanceof Place p ? p.destination() : command instanceof EdgePlace p ? p.placement().destination() : feet;
+	}
 	@Override public Optional<Outcome> completion(Task root, World world) {
 		if (world == null || !world.vitals().alive() || survival.urgent(world)) return Optional.empty();
 		while (root instanceof AfterEscape after) root = after.saved();
@@ -90,7 +218,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		}
 		return Optional.empty();
 	}
-	@Override public Optional<Interruption<Task>> interrupt(List<View<Task>> branch, World world) {
+	private Optional<Interruption<Task>> survivalInterruption(List<View<Task>> branch, World world) {
 		if (world == null || !survival.urgent(world) || branch.stream().anyMatch(v -> v.task() instanceof Escape || v.task() instanceof AfterEscape || v.task() instanceof Abandon)) return Optional.empty();
 		var leaf = branch.getLast();
 		var command = leaf.acting() ? Optional.of(Outcome.cancelled("survival_interruption")) : leaf.commandResult();
@@ -118,6 +246,14 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		if (branch.stream().anyMatch(view -> view.task() instanceof AfterEscape && view.childResult().filter(o -> o.kind() != ResultKind.SUCCEEDED).isPresent())) {
 			return Optional.of(new Revision<>(root.id(), new Abandon("survival_escape_failed"), "survival_escape_failed"));
 		}
+		for (var frame : branch) if (!survival.urgent(world) && unwrap(frame.task()) instanceof ResumeWork repair && (frame.tick() >= repair.deadline() || world.vitals().health() < repair.baseline().health())) {
+			var route = new ArrayList<>(RouteMemory.append(repair.returning().route(),world.feet())); Collections.reverse(route);
+			return Optional.of(new Revision<>(frame.id(),new Withdraw("lighting_repair_budget_or_health",ReturnNavigation.State.begin(route)),"lighting_repair_revoked"));
+		}
+		Mission maintained = mission(root.task());
+		if (maintained != null && !lightingRepairActive(branch) && !atomicInventory(branch.getLast()) && lightingBlocked(maintained,world,branch.getLast().tick())
+			&& !maintained.light().route().isEmpty() && maintained.light().route().getFirst().equals(world.feet()))
+			return Optional.of(new Revision<>(root.id(),new Abandon(lightingReason(maintained.light().policy())+":refuge_unavailable"),"lighting_no_refuge"));
 		var leaf = branch.getLast();
 		VoxelCommand pending = leaf.task() instanceof Gather gather ? gather.last()
 			: leaf.task() instanceof Pickup pickup ? ItemPickup.command(pickup.state())
@@ -154,7 +290,15 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	@Override public Decision<Task, VoxelCommand> decide(List<View<Task>> branch, World world) {
 		if (world == null) return new Keep<>();
 		var protectedWorld = SupportReservations.protect(world, returnStances(branch.stream().map(View::task).toList()));
+		var maintenance = lightingInterruption(branch, protectedWorld);
+		if (maintenance.isPresent()) {
+			var request = maintenance.orElseThrow();
+			return new Child<>(request.continuation(), request.child(), request.reason());
+		}
+		Mission mission = mission(branch.getFirst().task());
+		if (mission != null && !lightingRepairActive(branch) && !atomicInventory(branch.getLast()) && lightingBlocked(mission, world, branch.getLast().tick())) return failure(lightingReason(mission.light().policy())+":refuge_unavailable");
 		var result = decidePrepared(branch.getLast(), protectedWorld);
+		if (result instanceof Execute<Task, VoxelCommand> action && !repairAllows(branch, protectedWorld, action.command())) return failure("lighting_repair_region_exhausted");
 		if (result instanceof Execute<Task, VoxelCommand> action && action.command() instanceof Break broken && protectedWorld.footholds().contains(broken.target())) return failure("reserved_support");
 		return result;
 	}
@@ -165,6 +309,9 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 				if (view.childResult().isPresent()) yield new Complete<>(view.childResult().get());
 				yield new Child<>(task, Acquire.root(task.item(), task.count()), "mission_inventory:" + task.item());
 			}
+			case Restored task -> decidePrepared(new View<>(view.id(),task.saved().task(),false,view.tick(),task.saved().command(),task.saved().child()),world);
+			case ResumeWork task -> resumeWork(view,task,world);
+			case Withdraw task -> new Child<>(new AfterRetreat(task.reason()),new Retreat(task.returning()),"lighting_retreat");
 			case Abandon task -> failure(task.reason());
 			case Escape task -> escape(view, task, world);
 			case AfterEscape task -> {
@@ -287,7 +434,7 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 					if (tool == null) return failure("search_tool_alternatives_exhausted:" + task.item());
 					return new Child<>(selected(task, "tool:" + tool), dependency(task, tool, 1, productionReserve), "search_tool_required:" + tool);
 				}
-				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), LightingPolicy.State.begin(), productionReserve, ancestry(task)), searchId);
+				return new Child<>(selected(task, searchId), new Explore(UndergroundSearch.Task.begin(search, rule.blocks(), world, observed), productionReserve, ancestry(task)), searchId);
 			}
 		}
 		if (harvesting.containsKey(task.item()) && !task.failed().contains(harvestId) && harvestAvailable(harvesting.get(task.item()), world)) {
@@ -338,45 +485,25 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	}
 
 	private Decision<Task, VoxelCommand> explore(View<Task> view, Explore task, World world) {
-		var assessment = lighting.assess(task.light(), light(world), world.inventory().getOrDefault("minecraft:torch", 0), !task.ancestors().contains("minecraft:torch"), world.feet(), view.tick(), world.vitals());
-		Explore next = new Explore(task.search(), assessment.state(), task.reserved(), task.ancestors());
-		if (assessment.action() == LightingPolicy.Action.SUPPLY || assessment.action() == LightingPolicy.Action.PLACE) {
-			var repair = assessment.action() == LightingPolicy.Action.SUPPLY ? LightingPolicy.Repair.SUPPLY : LightingPolicy.Repair.PLACEMENT;
-			Task child = repair == LightingPolicy.Repair.SUPPLY
-				? new Acquire("minecraft:torch", lighting.parameters().supplyCount(), task.reserved(), task.ancestors(), Set.of(), "")
-				: new PlaceLight(Set.of(), Optional.empty());
-			if (child instanceof Acquire supply) child = supplyTask(supply, next.search().route(), world);
-			return new Child<>(new ResumeExplore(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), new LightRepair(repair)), child, "lighting_" + repair.name().toLowerCase(Locale.ROOT));
-		}
-		if (assessment.action() == LightingPolicy.Action.RETREAT) {
-			String reason = assessment.state().allowance().filter(a -> a.validity() != LightingPolicy.Validity.ACTIVE)
-				.map(a -> "lighting_allowance_revoked:" + a.validity().name().toLowerCase(Locale.ROOT)).orElse("lighting_allowance_exhausted");
-			return leaveSearch(next, reason, world);
-		}
 		var tools = harvesting.get(task.search().prior().item()).tools();
 		if (!tools.isEmpty() && tools.stream().noneMatch(tool -> world.inventory().getOrDefault(tool, 0) > 0)) {
-			return replaceSearchTool(next, ReturnNavigation.State.begin(RouteMemory.append(next.search().route(), world.feet())), Set.of(), world);
+			return replaceSearchTool(task, ReturnNavigation.State.begin(RouteMemory.append(task.search().route(), world.feet())), Set.of(), world);
 		}
-		if (needsAccess(view) && task.search().last() instanceof Navigate move) {
-			return access(next, move.stance(), world, view.tick(), new HashSet<>(task.search().prior().excavatable()));
-		}
+		if (needsAccess(view) && task.search().last() instanceof Navigate move) return access(task, move.stance(), world, view.tick(), new HashSet<>(task.search().prior().excavatable()));
 		var decision = underground.decide(new View<>(view.id(), task.search(), view.acting(), view.tick(), view.commandResult(), view.childResult()), world, task.reserved(), pos -> !survival.nearHazard(world, pos));
-		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) {
-			Pos affected = action.command() instanceof Navigate move ? move.stance() : action.command() instanceof Break broken ? broken.target() : action.command() instanceof Place placed ? placed.destination() : action.command() instanceof EdgePlace edge ? edge.placement().destination() : world.feet();
-			if (assessment.state().allowance().filter(a -> !lighting.permits(a, affected, view.tick())).isPresent()) return leaveSearch(next, "lighting_region_exhausted", world);
-			return new Execute<>(new Explore(action.continuation(), assessment.state(), task.reserved(), task.ancestors()), action.command());
-		}
+		if (decision instanceof Execute<UndergroundSearch.Task, VoxelCommand> action) return new Execute<>(new Explore(action.continuation(), task.reserved(), task.ancestors()), action.command());
 		if (decision instanceof Complete<UndergroundSearch.Task, VoxelCommand> completed) return new Complete<>(completed.outcome());
-		if (decision instanceof Keep<UndergroundSearch.Task, VoxelCommand> keep && keep.continuation().isPresent()) {
-			return new Keep<>(new Explore(keep.continuation().get(), assessment.state(), task.reserved(), task.ancestors()));
-		}
-		return new Keep<>(next);
+		if (decision instanceof Keep<UndergroundSearch.Task, VoxelCommand> keep && keep.continuation().isPresent()) return new Keep<>(new Explore(keep.continuation().get(),task.reserved(),task.ancestors()));
+		return new Keep<>();
 	}
 	public static Set<Pos> retainedCells(List<Task> branch) {
 		var cells = new HashSet<Pos>();
 		for (Task task : branch) {
-			while (task instanceof AfterEscape || task instanceof AfterAccess) task = task instanceof AfterEscape after ? after.saved() : ((AfterAccess) task).saved();
-			if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
+			task = unwrap(task);
+			if (task instanceof Mission mission) RouteMemory.retain(cells,mission.light().route());
+			else if (task instanceof ResumeWork repair) { RouteMemory.retain(cells,repair.returning().route()); cells.addAll(retainedCells(List.of(repair.saved().task()))); }
+			else if (task instanceof Withdraw retreat) RouteMemory.retain(cells,retreat.returning().route());
+			else if (task instanceof Explore explore) RouteMemory.retain(cells, explore.search().route());
 			else if (task instanceof ResumeExplore resume) RouteMemory.retain(cells, resume.returning().route());
 			else if (task instanceof Resupply supply) RouteMemory.retain(cells, supply.outward().route());
 			else if (task instanceof Retreat retreat) RouteMemory.retain(cells, retreat.returning().route());
@@ -386,8 +513,11 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 	private static Set<Pos> returnStances(List<Task> branch) {
 		var stances = new HashSet<Pos>();
 		for (Task task : branch) {
-			while (task instanceof AfterEscape || task instanceof AfterAccess) task = task instanceof AfterEscape after ? after.saved() : ((AfterAccess)task).saved();
-			if (task instanceof Explore explore) stances.addAll(explore.search().route());
+			task = unwrap(task);
+			if (task instanceof Mission mission) stances.addAll(mission.light().route());
+			else if (task instanceof ResumeWork repair) { stances.addAll(repair.returning().route()); stances.addAll(returnStances(List.of(repair.saved().task()))); }
+			else if (task instanceof Withdraw retreat) stances.addAll(retreat.returning().route());
+			else if (task instanceof Explore explore) stances.addAll(explore.search().route());
 			else if (task instanceof ResumeExplore resume) stances.addAll(resume.returning().route());
 			else if (task instanceof Resupply supply) stances.addAll(supply.outward().route());
 			else if (task instanceof Retreat retreat) stances.addAll(retreat.returning().route());
@@ -422,20 +552,12 @@ public final class ProductionDomain implements TaskKernel.Domain<ProductionDomai
 		var move = (ReturnNavigation.Move) travel;
 		return new Execute<>(new Resupply(task.supply(), move.state()), move.command());
 	}
-	private Decision<Task, VoxelCommand> leaveSearch(Explore task, String reason, World world) {
-		var route = new ArrayList<>(RouteMemory.append(task.search().route(), world.feet())); Collections.reverse(route);
-		return new Child<>(new AfterRetreat(reason), new Retreat(ReturnNavigation.State.begin(route)), "lighting_retreat");
-	}
 	private Decision<Task, VoxelCommand> resumeExplore(View<Task> view, ResumeExplore task, World world) {
 		if (needsAccess(view) && task.returning().last().isPresent()) return access(task, task.returning().last().get(), world, view.tick(), new HashSet<>(task.saved().search().prior().excavatable()));
 		Explore saved = task.saved();
 		if (failedChild(view)) {
-			if (task.repair() instanceof ToolRepair tool) {
-				var rejected = new HashSet<>(tool.rejected()); rejected.add(tool.tool());
-				return replaceSearchTool(saved, task.returning(), rejected, world);
-			}
-			var repair = (LightRepair) task.repair();
-			saved = new Explore(saved.search(), saved.light().failed(repair.kind()), saved.reserved(), saved.ancestors());
+			var tool = task.repair(); var rejected = new HashSet<>(tool.rejected()); rejected.add(tool.tool());
+			return replaceSearchTool(saved, task.returning(), rejected, world);
 		}
 		if (view.acting()) return new Keep<>();
 		var returning = ReturnNavigation.advance(task.returning(), world, view.commandResult());

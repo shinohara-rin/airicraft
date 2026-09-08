@@ -13,6 +13,9 @@ public final class TaskKernel<T, O, C> {
 		Decision<T, C> decide(View<T> task, O observation);
 		/** Domain constraints may depend on suspended parents as well as the active leaf. */
 		default Decision<T, C> decide(List<View<T>> branch, O observation) { return decide(branch.getLast(), observation); }
+		/** Refresh observed domain state, including waiting parents, once per input tick.
+		 * Preserve task order/count; changing work or ownership requires an ordinary decision. */
+		default List<T> observe(List<View<T>> branch, O observation) { return branch.stream().map(View::task).toList(); }
 		/** Observe the root goal even while a prerequisite is acting or waiting. */
 		default Optional<Outcome> completion(T root, O observation) { return Optional.empty(); }
 		/** Urgent domain work is checked even during passive waits; the continuation revalidates interrupted work. */
@@ -138,6 +141,13 @@ public final class TaskKernel<T, O, C> {
 		if (cancellation.isPresent() || tick >= state.deadline()) {
 			turn.endRun(cancellation.map(Outcome::cancelled).orElseGet(() -> Outcome.failure("tick_budget_exhausted")));
 			return turn.finish();
+		}
+		var observedBranch = turn.stack.stream().map(frame -> new View<>(frame.id(), frame.task(), frame.phase() instanceof Acting<T>, tick, frame.commandResult(), frame.childResult())).toList();
+		var observedTasks = domain.observe(observedBranch, observation);
+		if (observedTasks.size() != turn.stack.size()) throw new IllegalArgumentException("Observation cannot change the task branch");
+		for (int i = 0; i < observedTasks.size(); i++) {
+			var frame = turn.stack.get(i);
+			turn.stack.set(i, new Frame<>(frame.id(), observedTasks.get(i), frame.phase(), frame.commandResult(), frame.childResult()));
 		}
 		if (!state.ending()) {
 			Optional<Outcome> completion = domain.completion(turn.stack.getFirst().task(), observation);

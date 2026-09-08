@@ -349,6 +349,56 @@ class TaskKernelTest {
 		assertEquals("new_work", start(changed).command());
 		assertEquals(1, changed.state().stack().size());
 	}
+	@Test void observingWaitingParentsPreservesOwnershipAndFeedsFreshStateToInterruptions() {
+		record Observed(String work,int reading) {}
+		var domain = new Domain<Observed,Integer,String>() {
+			public List<Observed> observe(List<View<Observed>> branch,Integer input) {
+				return branch.stream().map(v -> new Observed(v.task().work(),input)).toList();
+			}
+			public Optional<Interruption<Observed>> interrupt(List<View<Observed>> branch,Integer input) {
+				if (branch.size()==2 && branch.getFirst().task().reading()==2) return Optional.of(new Interruption<>(new Observed("resume",input),new Observed("repair",input),"condition"));
+				return Optional.empty();
+			}
+			public Decision<Observed,String> decide(View<Observed> view,Integer input) {
+				if (view.task().work().equals("mission")) return new Child<>(view.task(),new Observed("work",input),"dependency");
+				return view.acting() ? new Keep<>() : new Execute<>(view.task(),view.task().work());
+			}
+		};
+		var kernel=new TaskKernel<>(domain,LIMITS);
+		var first=kernel.advance(kernel.begin("s","r",new Observed("mission",0),0),1,List.of(),1);
+		var running=(Start<String>)first.effects().getFirst();
+		var stopped=kernel.advance(first.state(),2,List.of(),2);
+		assertEquals(2,stopped.state().stack().getFirst().task().reading());
+		assertEquals(List.of(new Stop<>(running.token())),stopped.effects());
+		var pending=kernel.advance(stopped.state(),3,List.of(),3);
+		assertEquals(3,pending.state().stack().getFirst().task().reading());
+		assertEquals(stopped.state().stack().getLast().phase(),pending.state().stack().getLast().phase());
+		assertEquals(first.state().deadline(),pending.state().deadline());
+		assertEquals(first.state().nextAttempt(),pending.state().nextAttempt());
+		assertTrue(pending.effects().isEmpty());
+		var repaired=kernel.advance(pending.state(),4,List.of(new Released(running.token())),4);
+		assertEquals("repair",((Start<?>)repaired.effects().getFirst()).command());
+	}
+	@Test void observingAPassiveWaitDoesNotWakeItOrConsumeACommand() {
+		var domain=new Domain<Integer,Integer,String>() {
+			public List<Integer> observe(List<View<Integer>> branch,Integer input) { return List.of(input); }
+			public Decision<Integer,String> decide(View<Integer> view,Integer input) { return new Sleep<>(view.task(),50); }
+		};
+		var kernel=new TaskKernel<>(domain,LIMITS);
+		var sleeping=kernel.advance(kernel.begin("s","r",0,0),1,List.of(),1);
+		var observed=kernel.advance(sleeping.state(),2,List.of(),2);
+		assertEquals(2,observed.state().stack().getFirst().task());
+		assertEquals(sleeping.state().stack().getFirst().phase(),observed.state().stack().getFirst().phase());
+		assertTrue(observed.effects().isEmpty()); assertEquals(sleeping.state().nextAttempt(),observed.state().nextAttempt());
+	}
+	@Test void observationCannotAddOrRemoveTaskFrames() {
+		var domain=new Domain<String,String,String>() {
+			public List<String> observe(List<View<String>> branch,String input) { return List.of(); }
+			public Decision<String,String> decide(View<String> view,String input) { return new Keep<>(); }
+		};
+		var kernel=new TaskKernel<>(domain,LIMITS);
+		assertThrows(IllegalArgumentException.class,() -> kernel.advance(kernel.begin("s","r","goal",0),"",List.of(),1));
+	}
 	@SuppressWarnings("unchecked")
 	private static Start<String> start(Step<String, String> step) {
 		assertEquals(1, step.effects().size());

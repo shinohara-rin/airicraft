@@ -1,0 +1,35 @@
+id: system-one-lighting-gather
+name: Maintain working light during gathering
+metadata:
+  minecraftVersion: 1.21.8
+  airicraftVersion: dev
+worldArchive: ../iron-pickaxe/world.zip
+frozen: true
+prompt: Obtain one coal. The evaluator removes the chamber light after coal mining begins. Restore working light and resume the interrupted task.
+goal:
+  kind: inventory_item
+  itemId: minecraft:coal
+  quantity: 1
+budget:
+  maxPlannerTurns: 0
+  maxElapsedTicks: 4000
+  maxElapsedMillis: 0
+  heartbeatIntervalTicks: 80
+checks:
+  - type: inventory_contains
+    itemId: minecraft:coal
+    count: 1
+  - type: event_contains
+    eventType: system_one.task_suspended
+    payload:
+      detail: lighting_placement
+  - type: event_contains
+    eventType: system_one.task_resumed
+    payload:
+      detail: SUCCEEDED:working_light_observed
+evidence:
+  includePlannerJournal: true
+  includeDebugTimeline: true
+  includeRecentEvents: true
+  includeTaskState: true
+  includeWorldSnapshot: true

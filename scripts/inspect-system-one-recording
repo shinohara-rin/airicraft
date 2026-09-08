@@ -27,6 +27,8 @@ class RecordingMetrics:
         self.task_outcomes = Counter()
         self.lighting_turns = self.allowance_samples = self.active_allowance_samples = self.expired_active_samples = 0
         self.allowance_instances = set()
+        self.active_mission_tasks = Counter()
+        self.expired_mission_samples = 0
         self.recent_allowances = deque(maxlen=8)
 
     def lighting(self, tick, trace):
@@ -49,6 +51,9 @@ class RecordingMetrics:
             if frame["leaf"] and frame["phase"] == "Acting" and frame["continuation"] == ["explore"]:
                 self.active_allowance_samples += 1
                 self.expired_active_samples += tick >= allowance["expiresAt"]
+            if "mission" in frame["continuation"] and frame.get("activityPhase") == "Acting" and not frame.get("repairing", False):
+                self.active_mission_tasks[frame["activity"]] += 1
+                self.expired_mission_samples += tick >= allowance["expiresAt"]
 
     def lighting_report(self, coverage, turns):
         if not self.lighting_turns:
@@ -59,9 +64,11 @@ class RecordingMetrics:
             "instances_observed": len(self.allowance_instances), "allowance_state_samples": self.allowance_samples,
             "active_exploration_state_samples": self.active_allowance_samples,
             "expired_active_exploration_samples": self.expired_active_samples,
+            "active_mission_samples_by_task": dict(sorted(self.active_mission_tasks.items())),
+            "expired_active_mission_samples": self.expired_mission_samples,
             "recent_instances": list(self.recent_allowances),
             "actual_dark_exposure_ticks": None,
-            "definition": "Snapshots describe policy state, not physical dark exposure. Active samples require an acting Explore leaf; suspended or returning allowances are excluded. Counts use post-decision state; deadline instances use both before and after state.",
+            "definition": "Snapshots describe policy state, not physical dark exposure. Legacy exploration samples require an acting Explore leaf. Mission samples classify the acting task while excluding repair branches; expired samples may include an inventory transaction draining before interruption. Counts use post-decision state; deadline instances use both before and after state.",
         }
 
     def observe(self, tick, observation):

@@ -112,10 +112,10 @@ class ProductionTapeTest {
 		var world = new StoneAcquisition.World(new Pose(.5,2.62,.5,0,0), origin, Map.of(), Map.of());
 		var prior = new ProductionKnowledge.SearchPrior("ore",2,4,20,List.of("stone"));
 		var light = new LightingPolicy.State(true, Set.of(LightingPolicy.Repair.PLACEMENT, LightingPolicy.Repair.SUPPLY), Optional.of(LightingPolicy.Allowance.begin(origin,80,SurvivalPolicy.Vitals.healthy())));
-		var explore = new Explore(UndergroundSearch.Task.begin(prior,List.of("ore"),world,Set.of()),light,Map.of(),Set.of());
+		var explore = new Mission("ore",1,0,0,new WorkingLight(light,List.of(origin)));
 		var kernel = new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>(new ProductionDomain(new ProductionKnowledge("test",List.of(),List.of())),StoneTape.LIMITS);
 		var before = kernel.begin("session","run",explore,0);
-		Task saved = new AfterEscape(new AfterAccess(new ResumeExplore(explore,ReturnNavigation.State.begin(List.of(origin)),new LightRepair(LightingPolicy.Repair.SUPPLY))),Optional.empty(),Optional.empty());
+		Task saved = new AfterEscape(new AfterAccess(new Restored(new Suspended(explore,Optional.empty(),Optional.empty()))),Optional.empty(),Optional.empty());
 		var after = new State<Task>("session","run",List.of(
 			new Frame<>(1,saved,new WaitingChild<>(2,"repair"),Optional.empty(),Optional.empty()),
 			new Frame<>(2,Acquire.root("torch",8),new Ready<>(),Optional.empty(),Optional.empty())),3,1,72000,20,Optional.empty());
@@ -123,7 +123,7 @@ class ProductionTapeTest {
 		assertTrue(trace.before().getFirst().leaf());
 		var suspended = trace.after().getFirst();
 		assertFalse(suspended.leaf()); assertEquals("WaitingChild",suspended.phase());
-		assertEquals(List.of("survival_repair","access_repair","resupply_return","explore"),suspended.continuation());
+		assertEquals(List.of("survival_repair","access_repair","restored","mission"),suspended.continuation());
 		assertEquals(80,suspended.allowance().expiresAt());
 		assertEquals(List.of(LightingPolicy.Repair.SUPPLY,LightingPolicy.Repair.PLACEMENT),suspended.failed());
 	}
@@ -139,9 +139,9 @@ class ProductionTapeTest {
 		var feet=new Pos(0,1,0);var target=new Pos(0,1,1);
 		var world=new StoneAcquisition.World(new Pose(.5,2.62,.5,0,0),feet,Map.of(),Map.of());
 		var prior=new ProductionKnowledge.SearchPrior("ore",1,4,20,List.of("stone"));
-		var empty=new Explore(UndergroundSearch.Task.begin(prior,List.of("ore"),world,Set.of()),LightingPolicy.State.begin(),Map.of(),Set.of());
+		var empty=new Explore(UndergroundSearch.Task.begin(prior,List.of("ore"),world,Set.of()),Map.of(),Set.of());
 		var evidence=UndergroundSearch.rejection(world,target,UndergroundSearch.RejectionReason.UNRESOLVED_OBSERVATION);
-		var rejected=new Explore(new UndergroundSearch.Task(prior,List.of("ore"),feet,feet,0,0,Map.of(target,evidence),Set.of(),Optional.empty(),Optional.empty(),null),empty.light(),Map.of(),Set.of());
+		var rejected=new Explore(new UndergroundSearch.Task(prior,List.of("ore"),feet,feet,0,0,Map.of(target,evidence),Set.of(),Optional.empty(),Optional.empty(),null),Map.of(),Set.of());
 		var kernel=new TaskKernel<Task,StoneAcquisition.World,VoxelCommand>((view,observation)->new Keep<>(),StoneTape.LIMITS);
 		var before=kernel.begin("s","r",empty,0);var after=kernel.begin("s","r",rejected,0);
 		var changes=ProductionTape.searchChanges(before,after);

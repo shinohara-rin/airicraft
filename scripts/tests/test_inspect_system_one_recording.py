@@ -165,6 +165,19 @@ class RecordingInspectionTest(unittest.TestCase):
         self.assertEqual(1, metrics["expired_active_exploration_samples"])
         self.assertIsNone(metrics["actual_dark_exposure_ticks"])
 
+    def test_mission_allowance_records_gathering_without_counting_repair_work(self):
+        rows = self.rows()
+        rows[0]["version"] = 2
+        frame = {"task": 1, "phase": "WaitingChild", "leaf": False, "continuation": ["mission"],
+                 "activity": "Gather", "activityPhase": "Acting", "repairing": False,
+                 "allowance": {"origin": {"x": 0, "y": 2, "z": 0}, "expiresAt": 100}}
+        rows[1]["lighting"] = {"policyLight": 3, "before": [], "after": [frame]}
+        metrics = self.inspect(rows)["metrics"]["dark_exposure_allowance"]
+        self.assertEqual({"Gather": 1}, metrics["active_mission_samples_by_task"])
+        frame["repairing"] = True
+        metrics = self.inspect(rows)["metrics"]["dark_exposure_allowance"]
+        self.assertEqual({}, metrics["active_mission_samples_by_task"])
+
     def test_new_format_requires_lighting_evidence_and_empty_is_a_recorded_zero(self):
         rows = self.rows()
         rows[0]["version"] = 2
