@@ -1,0 +1,179 @@
+{
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 3715,
+  "plannerTurns": 0,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T08:10:17Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 64617,
+    "pid": 64551,
+    "requestedAt": "2026-09-08T08:10:13Z"
+  },
+  "run": "eval-output/20260908-160619-845589-64412/01-iron-pickaxe",
+  "runtimeCommit": "e54c4007",
+  "launchCommit": "8de22df",
+  "methodVersion": "reactive-production-v84",
+  "coverage": "complete",
+  "exactReplayTurns": 3693,
+  "runtimeFinal": {
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "motor": {
+      "smelting": "",
+      "releasePending": false,
+      "finishing": "",
+      "command": "",
+      "edgePlacement": "",
+      "stopping": false,
+      "pathingActive": false,
+      "crafting": ""
+    },
+    "motorVersion": "production-motor-v15",
+    "methodVersion": "reactive-production-v84",
+    "taskStack": "[]",
+    "run": "system-one-1",
+    "outcome": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "runtime": "system_one",
+    "policyVersion": "observed-survival-v1",
+    "state": "FAILED"
+  },
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "firstLightingRepair": {
+    "tick": 1049,
+    "task": 6,
+    "feet": {
+      "x": -8,
+      "y": 66,
+      "z": 20
+    },
+    "inventory": {
+      "minecraft:spruce_planks": 3,
+      "minecraft:stick": 2,
+      "minecraft:crafting_table": 1,
+      "minecraft:dirt": 8,
+      "minecraft:cobblestone": 3,
+      "minecraft:wooden_pickaxe": 1
+    },
+    "policyLight": 6
+  },
+  "earlySupplyChain": [
+    {
+      "tick": 1404,
+      "task": 29,
+      "detail": "smelting:minecraft:charcoal",
+      "inventory": {
+        "minecraft:spruce_log": 2,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:stick": 2,
+        "minecraft:dirt": 8,
+        "minecraft:crafting_table": 1,
+        "minecraft:spruce_planks": 3
+      }
+    },
+    {
+      "tick": 1404,
+      "task": 34,
+      "detail": "smelting_station",
+      "inventory": {
+        "minecraft:spruce_log": 2,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:stick": 2,
+        "minecraft:dirt": 8,
+        "minecraft:crafting_table": 1,
+        "minecraft:spruce_planks": 3
+      }
+    },
+    {
+      "tick": 1412,
+      "task": 35,
+      "detail": "station_item_required",
+      "inventory": {
+        "minecraft:spruce_log": 2,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:stick": 2,
+        "minecraft:dirt": 8,
+        "minecraft:crafting_table": 1,
+        "minecraft:spruce_planks": 3
+      }
+    },
+    {
+      "tick": 1412,
+      "task": 36,
+      "detail": "ingredient:minecraft:cobblestone",
+      "inventory": {
+        "minecraft:spruce_log": 2,
+        "minecraft:cobblestone": 3,
+        "minecraft:wooden_pickaxe": 1,
+        "minecraft:stick": 2,
+        "minecraft:dirt": 8,
+        "minecraft:crafting_table": 1,
+        "minecraft:spruce_planks": 3
+      }
+    }
+  ],
+  "firstFailures": [
+    {
+      "tick": 1412,
+      "task": 37,
+      "detail": "FAILED:dependency_cycle:minecraft:cobblestone"
+    },
+    {
+      "tick": 1412,
+      "task": 38,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1412,
+      "task": 39,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1412,
+      "task": 40,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1412,
+      "task": 41,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1412,
+      "task": 42,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1412,
+      "task": 43,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    },
+    {
+      "tick": 1413,
+      "task": 44,
+      "detail": "FAILED:no_production_method:minecraft:blackstone rejected=[]"
+    }
+  ],
+  "failureCounts": {
+    "dependency_cycle": 18,
+    "no_production_method": 195,
+    "station_supply_failed": 6,
+    "smelting_prerequisite_failed": 6,
+    "item_pickup_stance_unobserved": 1,
+    "harvest_search_exhausted": 1,
+    "lighting_repair_budget_or_health": 1,
+    "search_tool_alternatives_exhausted": 1
+  },
+  "diagnosis": "Early torch repair entered charcoal production, then needed a furnace; furnace acquisition encountered the suspended cobblestone ancestry. Source smeltCost ranks only the smelting input plus fixed work, omitting furnace and fuel prerequisites. Recipe alternatives repeatedly rediscovered unavailable workstation prerequisites.",
+  "limitations": [
+    "A missing-prerequisite cost model is established; no fix or successful integrated retry is claimed.",
+    "The earlier fall/collection failure and v85 workstation footing fix are separate issues.",
+    "Full perception audit, held-out release, cutover and game completion remain open."
+  ]
+}
