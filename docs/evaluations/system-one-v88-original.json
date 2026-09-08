@@ -41,5 +41,11 @@
   "plannerTurns": 0,
   "llmCallsLatestSequenceId": 0,
   "llmCallsTruncated": false,
-  "limitation": "The first lighting interruption still captured a satisfied cobblestone ancestor while excavation owned movement. The run recovered and passed; this does not verify the v89 ancestor-completion ordering."
+  "limitation": "The first lighting interruption still captured a satisfied cobblestone ancestor while excavation owned movement. The run recovered and passed; this does not verify the v89 ancestor-completion ordering.",
+  "recorderArchive": {
+    "bytes": 45570918,
+    "entries": 7,
+    "zipCrcBadEntry": null,
+    "scope": "Storage integrity checked; visual playback not checked."
+  }
 }
