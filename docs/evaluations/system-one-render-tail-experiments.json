@@ -1,0 +1,36 @@
+{
+  "captureRun": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool",
+  "rendererCommit": "024891d",
+  "isolatedCheckout": "/private/tmp/airicraft-recorder-render-diagnosis",
+  "experiments": [
+    {
+      "output": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-short-tail",
+      "initialTailSeek": "totalReplayTicks - 20",
+      "instrumentation": false,
+      "rendererExitCode": 0,
+      "frames": 857,
+      "uniquePngHashes": 841,
+      "lastReplayTick": 859
+    },
+    {
+      "output": "eval-output/20260908-103240-128262-68045/01-system-one-remote-tool/recording-render-full-tail-control",
+      "initialTailSeek": "totalReplayTicks",
+      "instrumentation": false,
+      "rendererExitCode": 0,
+      "frames": 877,
+      "uniquePngHashes": 857,
+      "lastReplayTick": 879
+    }
+  ],
+  "viewedControlFrames": {
+    "401": "Player view on the surface above the remote tunnel.",
+    "651": "Player view back inside the narrow tunnel."
+  },
+  "conclusions": [
+    "Diagnostic camera mixins and frame logging are not necessary for moving playback.",
+    "The uninstrumented full-tail request again accepted coverage ending at replay tick 879, 20 ticks before the 899-tick source tail.",
+    "The isolated source checkout is restored clean after both experiments. No renderer fix was committed.",
+    "Earlier clean renders froze with 897 frames; this clean render moves with 877. The tail/rewind relationship remains a hypothesis, not a proved cause.",
+    "Partial moving playback does not prove complete timeline alignment or success-state visibility."
+  ]
+}
