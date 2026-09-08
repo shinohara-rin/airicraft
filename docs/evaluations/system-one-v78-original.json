@@ -1,0 +1,89 @@
+{
+  "sourceCommit": "688ecb4d",
+  "methodVersion": "reactive-production-v78",
+  "run": "eval-output/20260908-135744-599076-30254/01-iron-pickaxe",
+  "harnessStatus": "OK",
+  "reportStatus": "FAILED",
+  "elapsedTicks": 16120,
+  "plannerTurns": 0,
+  "llmCallsLatestSequenceId": 0,
+  "llmCallsTruncated": false,
+  "clientExit": {
+    "finalReturnCode": 0,
+    "finishedAt": "2026-09-08T06:12:04Z",
+    "initialReturnCode": null,
+    "method": "BRIDGE",
+    "minecraftExited": true,
+    "minecraftProcessId": 30498,
+    "pid": 30409,
+    "requestedAt": "2026-09-08T06:12:00Z"
+  },
+  "runtimeFinal": {
+    "outcome": "no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "run": "system-one-1",
+    "taskStack": "[]",
+    "methodVersion": "reactive-production-v78",
+    "motorVersion": "production-motor-v13",
+    "motor": {
+      "edgePlacement": "",
+      "command": "",
+      "finishing": "",
+      "releasePending": false,
+      "smelting": "",
+      "crafting": "",
+      "pathingActive": false,
+      "stopping": false
+    },
+    "knowledgeVersion": "minecraft-recipe-display-v13",
+    "state": "FAILED",
+    "policyVersion": "observed-survival-v1",
+    "runtime": "system_one"
+  },
+  "coverage": "complete",
+  "exactReplayTurns": 16095,
+  "commands": {
+    "Break": 318,
+    "CollectSmelt": 8,
+    "Craft": 24,
+    "Look": 11,
+    "Navigate": 337,
+    "Place": 32,
+    "StartSmelt": 8
+  },
+  "inventory": {
+    "minecraft:stone_pickaxe": 1,
+    "minecraft:diorite": 21,
+    "minecraft:spruce_planks": 2,
+    "minecraft:wheat_seeds": 1,
+    "minecraft:andesite": 13,
+    "minecraft:dirt": 30,
+    "minecraft:granite": 18,
+    "minecraft:torch": 6,
+    "minecraft:cobblestone": 195
+  },
+  "diagnosis": {
+    "leafTorchAttempts": [
+      733,
+      734,
+      735,
+      736
+    ],
+    "ticks": [
+      15875,
+      15937,
+      15999,
+      16061
+    ],
+    "failure": "placement_timeout",
+    "terminalSearchFailureTick": 16147,
+    "terminalSearchFailure": "lighting_repair_region_exhausted",
+    "rootOutcome": "FAILED: no_production_method:minecraft:iron_pickaxe rejected=[minecraft:iron_pickaxe:1:3:[Cell[slot=0, item=minecraft:iron_ingot], Cell[slot=1, item=minecraft:iron_ingot], Cell[slot=2, item=minecraft:iron_ingot], Cell[slot=4, item=minecraft:stick], Cell[slot=7, item=minecraft:stick]]]",
+    "attachmentCorrection": "v79 records and checks attachment support separately from collision support",
+    "stillOpen": "Prospective dim-region rejection still fails the resumed search rather than scheduling recovery. Navigation still receives unrecorded raw block-state properties."
+  },
+  "perceptionAudit": {
+    "status": "unavailable",
+    "count": null,
+    "reason": "Decision replay and trace coverage do not audit sensor or motor hidden reads."
+  }
+}

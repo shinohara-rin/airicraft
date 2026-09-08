@@ -275,7 +275,7 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                     if rows:
                         problems.append("repeated_or_late_header")
                     header = row
-                    supported = (1, 2, 3) if kind == "production_begin" else (1, 2)
+                    supported = (1, 2, 3, 4) if kind == "production_begin" else (1, 2, 3)
                     if row.get("version", 1) not in supported:
                         raise ValueError("unsupported recording version")
                     tick = row["tick"]
@@ -305,6 +305,18 @@ def inspect_recording(path, failure_context=False, audit_breaks=False):
                     metrics.lighting(tick, row.get("lighting"))
                     if observation:
                         compact = header is not None and header.get("version", 1) >= (3 if header["type"] == "production_begin" else 2)
+                        attachment_format = header is not None and header.get("version", 1) >= (4 if header["type"] == "production_begin" else 3)
+                        if attachment_format:
+                            for cell in observation.get("changed", []):
+                                seen = cell["seen"]
+                                attachment = seen.get("attachment")
+                                if not isinstance(attachment, dict) or type(attachment.get("centerUp")) is not bool:
+                                    raise ValueError("missing or invalid attachment capability")
+                                faces = attachment.get("fullFaces")
+                                if not isinstance(faces, list) or any(face not in ("UP", "NORTH", "SOUTH", "WEST", "EAST") for face in faces) or len(set(faces)) != len(faces):
+                                    raise ValueError("invalid attachment faces")
+                                if not seen.get("identified") and (faces or attachment["centerUp"]):
+                                    raise ValueError("unidentified cell grants attachment capability")
                         if compact or failure_context or audit_breaks:
                             apply_observation_delta(known, observation, tick, compact)
                         current = observation["inventory"]

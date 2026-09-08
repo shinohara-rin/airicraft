@@ -187,6 +187,23 @@ class RecordingInspectionTest(unittest.TestCase):
         self.assertEqual("complete", report["coverage"])
         self.assertEqual(0, report["metrics"]["dark_exposure_allowance"]["instances_observed"])
 
+    def test_attachment_formats_require_recorded_capabilities(self):
+        for kind, version in [("production_begin", 4), ("begin", 3)]:
+            rows = self.break_rows()
+            rows[0].update(type=kind, version=version)
+            rows[1]["lighting"] = {"policyLight": 15, "before": [], "after": []}
+            rows[1]["observation"]["refreshed"] = []
+            seen = rows[1]["observation"]["changed"][0]["seen"]
+            seen["attachment"] = {"fullFaces": ["NORTH"], "centerUp": False}
+            self.assertEqual("complete", self.inspect(rows)["coverage"])
+            for invalid in [None, {}, {"fullFaces": ["INVALID"], "centerUp": False},
+                            {"fullFaces": [], "centerUp": 1}]:
+                seen["attachment"] = invalid
+                self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+            seen["identified"] = False
+            seen["attachment"] = {"fullFaces": ["NORTH"], "centerUp": False}
+            self.assertEqual("incomplete", self.inspect(rows)["coverage"])
+
     def test_missing_turn_does_not_look_complete_even_with_matching_footer(self):
         rows = self.rows()
         rows[1].update(sequence=2, tick=6)
