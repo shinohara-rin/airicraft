@@ -129,7 +129,69 @@ class RecordingMetrics:
         }
 
 
-def inspect_recording(path, failure_context=False):
+class BreakObservationAudit:
+    """Check recorded target identity and time; not visibility or engine read authority."""
+
+    COMMAND = re.compile(r"command=Break\[target=Pos\[x=(-?\d+), y=(-?\d+), z=(-?\d+)\], expectedBlock=([^\]]+)\]\]$")
+
+    def __init__(self):
+        self.checked = self.mismatched = self.missing = 0
+        self.missing_input_turns = 0
+        self.unclassified_effects = 0
+        self.reasons = Counter()
+        self.examples = deque(maxlen=12)
+
+    def observe(self, observation):
+        if observation is not None and not all(isinstance(observation.get(k), list) for k in ("changed", "removed")):
+            self.missing_input_turns += 1
+
+    def check(self, tick, effect, observation, known):
+        match = self.COMMAND.search(effect)
+        evidence = {"tick": tick}
+        if not match:
+            reason, missing = "unparsed_break_command", True
+        elif observation is None or not all(isinstance(observation.get(k), list) for k in ("changed", "removed")):
+            reason, missing = "missing_observation_input", True
+        elif self.missing_input_turns:
+            reason, missing = "incomplete_observation_history", True
+        else:
+            target = tuple(int(match[i]) for i in (1, 2, 3))
+            expected = match[4]
+            seen = known.get(target)
+            evidence.update(target=dict(zip(("x", "y", "z"), target)), expected_block=expected)
+            if seen is None:
+                reason, missing = "unknown_target", False
+            elif (not isinstance(seen.get("blockId"), str) or type(seen.get("identified")) is not bool
+                  or type(seen.get("empty")) is not bool or type(seen.get("tick")) is not int):
+                reason, missing = "missing_observation_fields", True
+            else:
+                evidence.update(observed_block=seen["blockId"], observed_at=seen["tick"])
+                missing = False
+                if not seen["identified"] or seen["empty"]:
+                    reason = "target_not_identified_occupied"
+                elif seen["blockId"] != expected:
+                    reason = "target_identity_mismatch"
+                elif seen["tick"] > tick:
+                    reason = "future_observation"
+                else:
+                    self.checked += 1
+                    return
+        self.reasons[reason] += 1
+        self.missing += missing
+        self.mismatched += not missing
+        self.checked += not missing
+        self.examples.append({**evidence, "reason": reason})
+
+    def report(self, coverage):
+        return {"status": "complete" if coverage == "complete" and not self.missing and not self.missing_input_turns and not self.unclassified_effects else "partial",
+                "checked_breaks": self.checked, "mismatched_breaks": self.mismatched,
+                "missing_evidence_breaks": self.missing, "missing_input_turns": self.missing_input_turns, "reasons": dict(self.reasons),
+                "unclassified_effects": self.unclassified_effects,
+                "recent_problems": list(self.examples),
+                "scope": "Recorded target identity and observation time only. Does not audit line of sight, light, physical reach, support reservations, sensor reads, or motor reads."}
+
+
+def inspect_recording(path, failure_context=False, audit_breaks=False):
     report = {"recording": str(path), "coverage": "incomplete", "decision_replay": "not_checked"}
     rows = turns = 0
     tick = None
@@ -150,6 +212,7 @@ def inspect_recording(path, failure_context=False):
     known = {}
     command_history = deque(maxlen=12)
     metrics = RecordingMetrics()
+    break_audit = BreakObservationAudit() if audit_breaks else None
 
     def context(observation):
         if not observation:
@@ -202,11 +265,15 @@ def inspect_recording(path, failure_context=False):
                     tick = row["tick"]
                     observation = row.get("observation")
                     metrics.observe(tick, observation)
+                    if break_audit is not None:
+                        break_audit.observe(observation)
+                    if observation is None:
+                        known.clear()
                     if header and header.get("type") == "production_begin" and header.get("version", 1) >= 2 and row.get("lighting") is None:
                         problems.append(f"missing_lighting_state_at_turn:{turns}")
                     metrics.lighting(tick, row.get("lighting"))
                     if observation:
-                        if failure_context:
+                        if failure_context or audit_breaks:
                             for change in observation.get("changed", []):
                                 known[tuple(change["pos"][axis] for axis in ("x", "y", "z"))] = change["seen"]
                             for removed in observation.get("removed", []):
@@ -224,6 +291,10 @@ def inspect_recording(path, failure_context=False):
                         if match:
                             commands[match[1]] += 1
                             command_history.append({"tick": tick, "effect": effect[:512], "truncated": len(effect) > 512})
+                            if break_audit is not None and match[1] == "Break":
+                                break_audit.check(tick, effect, observation, known)
+                        elif break_audit is not None and not effect.startswith("Stop["):
+                            break_audit.unclassified_effects += 1
                     for event in row["events"]:
                         event_kind, detail, task = event["type"], event["detail"], event["task"]
                         metrics.event(event_kind, detail)
@@ -266,6 +337,8 @@ def inspect_recording(path, failure_context=False):
                                      "counts": dict(search_counts), "recent_changes": list(search_changes)},
                   failed_tasks=failed_tasks, recent_inventory_changes=list(recent))
     report["metrics"] = metrics.report(report["coverage"], turns, commands)
+    if break_audit is not None:
+        report["metrics"]["break_target_observations"] = break_audit.report(report["coverage"])
     return report
 
 
@@ -273,8 +346,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recording", type=Path)
     parser.add_argument("--failure-context", action="store_true", help="Include the first failed task's observed local cells, inventory, and recent commands.")
+    parser.add_argument("--audit-break-observations", action="store_true", help="Check each break's recorded target identity and observation tick; does not audit hidden reads.")
     args = parser.parse_args()
-    report = inspect_recording(args.recording, args.failure_context)
+    report = inspect_recording(args.recording, args.failure_context, args.audit_break_observations)
     print(json.dumps(report, indent=2))
     return 0 if report["coverage"] == "complete" else 2
 

@@ -10,7 +10,7 @@ inspect_recording = runpy.run_path(str(Path(__file__).resolve().parents[1] / "in
 
 
 class RecordingInspectionTest(unittest.TestCase):
-    def inspect(self, rows, truncate=False, failure_context=False):
+    def inspect(self, rows, truncate=False, failure_context=False, audit_breaks=False):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "record.jsonl.gz"
             with gzip.open(path, "wt") as stream:
@@ -18,7 +18,82 @@ class RecordingInspectionTest(unittest.TestCase):
                     stream.write(json.dumps(row) + "\n")
             if truncate:
                 path.write_bytes(path.read_bytes()[:-8])
-            return inspect_recording(path, failure_context)
+            return inspect_recording(path, failure_context, audit_breaks)
+
+    def break_rows(self):
+        rows = self.rows()
+        rows[1]["observation"].update(changed=[{"pos": {"x": 1, "y": 2, "z": 0},
+                                             "seen": {"blockId": "stone", "identified": True, "empty": False, "tick": 4}}], removed=[])
+        rows[1]["effects"] = ["Start[token=t, command=Break[target=Pos[x=1, y=2, z=0], expectedBlock=stone]]"]
+        return rows
+
+    def test_break_audit_reconstructs_memory_without_claiming_hidden_read_coverage(self):
+        header, first, _ = self.break_rows()
+        first.update(effects=[], outcome="")
+        second = copy.deepcopy(first)
+        second.update(sequence=2, tick=6, effects=self.break_rows()[1]["effects"], outcome="done")
+        second["observation"]["changed"] = []
+        report = self.inspect([header, first, second, {"type": "end", "rows": 3}], audit_breaks=True)
+        audit = report["metrics"]["break_target_observations"]
+        self.assertEqual(("complete", 1, 0), (audit["status"], audit["checked_breaks"], audit["mismatched_breaks"]))
+        self.assertEqual("unavailable", report["metrics"]["perception_violations"]["status"])
+        second["observation"]["removed"] = [{"x": 1, "y": 2, "z": 0}]
+        audit = self.inspect([header, first, second, {"type": "end", "rows": 3}], audit_breaks=True)["metrics"]["break_target_observations"]
+        self.assertEqual({"unknown_target": 1}, audit["reasons"])
+
+    def test_break_audit_flags_identity_identification_and_future_observations(self):
+        for field, value, reason in [("blockId", "iron", "target_identity_mismatch"),
+                                     ("identified", False, "target_not_identified_occupied"),
+                                     ("empty", True, "target_not_identified_occupied"),
+                                     ("tick", 9, "future_observation")]:
+            with self.subTest(field=field):
+                rows = self.break_rows()
+                rows[1]["observation"]["changed"][0]["seen"][field] = value
+                audit = self.inspect(rows, audit_breaks=True)["metrics"]["break_target_observations"]
+                self.assertEqual(1, audit["mismatched_breaks"])
+                self.assertEqual({reason: 1}, audit["reasons"])
+
+    def test_break_audit_missing_or_unparsed_evidence_is_not_a_clean_zero(self):
+        for missing in ("changed", "observation", "command", "tick"):
+            rows = self.break_rows()
+            if missing == "changed": rows[1]["observation"].pop("changed")
+            elif missing == "observation": rows[1]["observation"] = None
+            elif missing == "tick": rows[1]["observation"]["changed"][0]["seen"].pop("tick")
+            else: rows[1]["effects"] = ["Start[token=t, command=Break[unknown syntax]]"]
+            audit = self.inspect(rows, audit_breaks=True)["metrics"]["break_target_observations"]
+            self.assertEqual("partial", audit["status"])
+            self.assertEqual(1, audit["missing_evidence_breaks"])
+        audit = self.inspect(self.break_rows(), truncate=True, audit_breaks=True)["metrics"]["break_target_observations"]
+        self.assertEqual("partial", audit["status"])
+
+    def test_break_audit_cannot_reconstruct_missing_earlier_observations(self):
+        header, first, _ = self.break_rows()
+        second = copy.deepcopy(first)
+        second.update(sequence=2, tick=6)
+        second["observation"]["changed"] = []
+        first.update(effects=[], outcome="")
+        first["observation"].pop("changed")
+        audit = self.inspect([header, first, second, {"type": "end", "rows": 3}], audit_breaks=True)["metrics"]["break_target_observations"]
+        self.assertEqual("partial", audit["status"])
+        self.assertEqual(1, audit["missing_evidence_breaks"])
+        self.assertEqual(0, audit["mismatched_breaks"])
+        self.assertEqual({"incomplete_observation_history": 1}, audit["reasons"])
+
+    def test_break_audit_does_not_reuse_cells_across_absent_world_or_ignore_unknown_effects(self):
+        header, first, _ = self.break_rows()
+        first.update(effects=[], outcome="")
+        missing = copy.deepcopy(first)
+        missing.update(sequence=2, tick=6, observation=None)
+        later = copy.deepcopy(first)
+        later.update(sequence=3, tick=7, effects=self.break_rows()[1]["effects"], outcome="done")
+        later["observation"]["changed"] = []
+        audit = self.inspect([header, first, missing, later, {"type": "end", "rows": 4}], audit_breaks=True)["metrics"]["break_target_observations"]
+        self.assertEqual({"unknown_target": 1}, audit["reasons"])
+        rows = self.break_rows()
+        rows[1]["effects"] = ["Start[unrecognized command format]"]
+        audit = self.inspect(rows, audit_breaks=True)["metrics"]["break_target_observations"]
+        self.assertEqual("partial", audit["status"])
+        self.assertEqual(1, audit["unclassified_effects"])
 
     def rows(self):
         return [
