@@ -397,6 +397,85 @@ champions as seeds under `--hard`, patience 100.
   ~1.5 hearts; the residual ~2.7 HP is the odd unavoidable hit, not a
   policy failure mode.
 
+#### Round 6: new primitives + nether scenarios + search upgrades (me11)
+
+Requested additions: a backstep primitive, per-mob count of hits the
+*player* has landed (not mob HP), shield-swap timing features, more
+scenario variety including Nether combat, and a look at improving the
+search method itself.
+
+New policy surface:
+
+- `backstep` move mode: retreats directly away from the target when
+  closer than `range + slack`, optionally sprinting — a disengage
+  primitive distinct from `flee`/`orbit`/`kite`.
+- `playerHits` per entity: `SimRuntime` counts every recorded damage
+  source whose attacker is a `ServerPlayerEntity`, exposed on each
+  observed entity. Drives focus-fire selection via `hitsNearest`/
+  `hitsSum` features and the `mostHits` target picker (mob with most
+  player hits, distance tiebreak) — lets rules finish off already-
+  damaged mobs without exposing mob HP.
+- `useTicks` on the player observation: consecutive ticks the active
+  item has been in use, so rules can express shield-swap timing
+  (e.g. raise/drop the shield after N ticks).
+- `hostile` in observations now also covers `Monster`-implementing
+  entities — hoglins and piglins are not `HostileEntity` subclasses,
+  so nether mobs were invisible to type/hostile filters without it.
+
+Scenario expansion (`optimize_cmaes.py` helpers, shared by all
+optimizers): `NETHER_MOB_POOL` — zombified piglin, blaze (the ranged
+pressure), wither skeleton, hoglin, piglin. `random_scenario` takes a
+`pool` override and `random_terrain` a `nether` flag that adds
+`lava_pool` terrain, swaps stone for netherrack, and allows lava walls.
+`optimize_mapelites.py --netherfrac` sets the fraction of eval
+scenarios drawn from the nether pool (me11: 0.3). Ghast excluded
+(flying AoE, unreachable by melee); magma_cube excluded because split
+offspring are untracked entities that would trigger
+`ALL_MOBS_CLEARED` while babies are still alive.
+
+Search upgrades (`optimize_mapelites.py`):
+
+- `--screen N` (racing): evaluate each candidate on only the first N
+  scenarios of the eval set, rank by a batch-normalized objective sum,
+  and skip the full eval for the bottom 40% — ~27% eval savings spent
+  on more generations instead.
+- Blend crossover: for two parents with positionally aligned rules,
+  lerps the numeric act constants (range/slack/sprint/attack params)
+  rather than only swapping whole rules.
+- Dead-rule pruning: truncates the rule list after the first
+  unconditional rule (everything after it can never fire) — applied to
+  every generated child.
+- `--memetic N`: every N generations, one constant-jittered child of
+  each top cell's elite (ranked by kills+clear+survived) is injected —
+  local parameter polish inside the structural search.
+
+me11: resumed the me10 grid (130 programs) + 5 polished champions as
+seeds, `--hard --netherfrac 0.3 --cell2 ticks --screen 4 --memetic 40`,
+patience 100.
+
+Results (597 gens to the patience-100 stop, HV 113k -> 166.7k on the
+training set — still stepwise, last structural jump ~gen 491; final eval
+on 24 fresh hard+nether scenarios, baseline
+`[3.21, -15.03, .67, .67, -183]`):
+
+- The nether mobs hit noticeably harder than the overworld pool — the
+  same baseline drops from ~87% clear on me10's set to 67% here and
+  takes 15 damage instead of ~11, so cross-run HV/frontier numbers are
+  not comparable; only within-report comparisons are paired.
+- 4/20 front members dominate the baseline, e.g.
+  `[4.125, -5.65, .96, .96, -173]` — kills +29%, 2.7x less damage, and
+  faster. Archive champion `[5.29, -6.48, 1.0, 1.0, -232]` tops every
+  pick criterion at once (max kills, max clear, max survival).
+- Honest negative: none of the round's new primitives reached the
+  front. The archive uses them (backstep x2, hitsNearest x6, useTicks
+  x2 of 141 grid elites) but the final Pareto front is still all
+  shield/hold/approach/zigzag structures — the gains came from the
+  widened scenario diversity plus the search upgrades, not the new
+  attack/disengage vocabulary.
+- Degenerate audit: 0/20 stall elites on the front (the ticks-binning
+  keeps working); the two slowest entries (~390-527 ticks) are legit
+  slow-but-unscathed niches, not flee loops — they still kill mobs.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.

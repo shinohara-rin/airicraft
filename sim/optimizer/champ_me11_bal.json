@@ -1,0 +1,83 @@
+{
+ "rules": [
+  {
+   "when": {
+    "op": "gt",
+    "f": "usingItem",
+    "v": 0.5
+   },
+   "act": {
+    "mode": "kite",
+    "target": "type:creeper",
+    "attack": "ready",
+    "attackRange": 5.27,
+    "range": 1.6,
+    "slack": 0.49,
+    "sprintBeyond": 6.94
+   }
+  },
+  {
+   "when": {
+    "op": "not",
+    "arg": {
+     "op": "not",
+     "arg": {
+      "op": "gt",
+      "f": "food",
+      "v": 11
+     }
+    }
+   },
+   "act": {
+    "mode": "approach",
+    "target": "targeting",
+    "attack": "always",
+    "attackRange": 5.08,
+    "range": 1.87,
+    "slack": 0.87,
+    "use": "off"
+   }
+  },
+  {
+   "when": {
+    "op": "gt",
+    "f": "usingItem",
+    "v": 0.5
+   },
+   "act": {
+    "mode": "kite",
+    "target": "nearest",
+    "attack": "ready",
+    "attackRange": 3.39,
+    "range": 1.33,
+    "slack": 0.41,
+    "sprintBeyond": 5.85
+   }
+  },
+  {
+   "when": {
+    "op": "or",
+    "args": [
+     {
+      "op": "ge",
+      "f": "mobCount",
+      "v": 1.9,
+      "r": 2.0
+     },
+     {
+      "op": "lt",
+      "f": "selfHp",
+      "v": 7.4
+     }
+    ]
+   },
+   "act": {
+    "mode": "hold",
+    "target": "type:zombie",
+    "attack": "ready",
+    "attackRange": 0.66,
+    "sprintBeyond": 5.16
+   }
+  }
+ ]
+}
