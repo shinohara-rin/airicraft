@@ -25,8 +25,8 @@ import java.util.List;
  * {"op":"is","f":"nearestType","v":"skeleton"} substring type checks.
  * Count features take an optional radius arg "r".
  * Actions resolve a target entity ("nearest"|"lowestHp"|"ranged"|"melee"|
- * "farthest"|"centroid") and a movement mode ("approach"|"flee"|"orbit"|
- * "kite"|"hold") plus an attack rule ("ready"|"always"|"never").
+ * "farthest"|"centroid"|"mostHits") and a movement mode ("approach"|"flee"|
+ * "orbit"|"kite"|"hold"|"backstep") plus an attack rule ("ready"|"always"|"never").
  */
 public final class AstPolicy implements CombatPolicy {
 	private JsonArray rules = new JsonArray();
@@ -147,6 +147,9 @@ public final class AstPolicy implements CombatPolicy {
 				case "aimingCount" -> countAiming(r);
 				case "offhandPct" -> player.has("offhandPct") ? player.get("offhandPct").getAsDouble() : 1;
 				case "usingItem" -> player.has("usingItem") && player.get("usingItem").getAsBoolean() ? 1 : 0;
+				case "useTicks" -> player.has("useTicks") ? player.get("useTicks").getAsDouble() : 0;
+				case "hitsNearest" -> hits(nearest);
+				case "hitsSum" -> hitsSum(r);
 				case "selfHp" -> player.get("health").getAsDouble();
 				case "cooldown" -> player.get("lastAttackedTicks").getAsInt();
 				case "cdFrac" -> player.get("attackCooldown").getAsDouble();
@@ -201,6 +204,32 @@ public final class AstPolicy implements CombatPolicy {
 				if (e.has("aiming") && e.get("aiming").getAsBoolean()) n++;
 			}
 			return n;
+		}
+
+		double hits(JsonObject e) {
+			return e != null && e.has("playerHits") ? e.get("playerHits").getAsDouble() : 0;
+		}
+
+		double hitsSum(double r) {
+			double n = 0;
+			for (JsonObject e : hostiles) {
+				if (e.get("dist").getAsDouble() >= r) continue;
+				n += hits(e);
+			}
+			return n;
+		}
+
+		JsonObject mostHits() {
+			JsonObject best = null;
+			double bh = -1;
+			for (JsonObject e : hostiles) {
+				double h = hits(e);
+				if (h > bh || (h == bh && dist(e) < dist(best))) {
+					bh = h;
+					best = e;
+				}
+			}
+			return best;
 		}
 	}
 
@@ -260,6 +289,7 @@ public final class AstPolicy implements CombatPolicy {
 			return e != null ? e : v.nearest;
 		}
 		return switch (target) {
+			case "mostHits" -> v.mostHits() != null ? v.mostHits() : v.nearest;
 			case "lowestHp" -> v.lowestHp;
 			case "ranged" -> v.ranged != null ? v.ranged : v.nearest;
 			case "melee" -> v.melee != null ? v.melee : v.nearest;
@@ -343,6 +373,14 @@ public final class AstPolicy implements CombatPolicy {
 							dx * strafeSign * 0.7 + dz * 0.4);
 				} else {
 					b.moveDir(-dz * strafeSign, dx * strafeSign);
+				}
+			}
+			case "backstep" -> {
+				// steady retreat while facing the target — trades distance for
+				// attack readiness, unlike flee (sprints away disengaged)
+				if (tdist < range + slack) {
+					b.moveDir(-dx, -dz);
+					b.sprint(act.has("sprint") && act.get("sprint").getAsBoolean());
 				}
 			}
 			case "hold" -> { /* no move */ }

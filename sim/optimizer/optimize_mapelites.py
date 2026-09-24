@@ -12,6 +12,7 @@ Evaluation reuses optimize_cmaes infra; variation reuses optimize_gp's GP ops.
 """
 
 import argparse
+import copy
 import json
 import sys
 import time
@@ -22,8 +23,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from optimize_cmaes import (  # noqa: E402
     Sim, call, metrics_of, METRIC_NAMES, HV_REF, HV_IDEAL,
-    _nd_fronts, _crowding, hypervolume, random_scenario, random_terrain)
+    _nd_fronts, _crowding, hypervolume, random_scenario, random_terrain,
+    NETHER_MOB_POOL)
 import optimize_gp as gp  # noqa: E402
+from optimize_polish import (  # noqa: E402
+    genome_of, apply_genome, mutate_genome)
 
 KILL_BINS = np.arange(9)            # kills mean 0..7 (clipped)
 TAKEN_EDGES = [2, 4, 6, 9, 13, 18, 25]  # damage-taken bin edges -> 8 bins
@@ -72,6 +76,14 @@ def main():
                     help="harder eval scenarios: 4-9 mobs in a tighter ring")
     ap.add_argument("--seed_file", nargs="*", default=[],
                     help="extra program JSON files injected into the seed pool")
+    ap.add_argument("--netherfrac", type=float, default=0.0,
+                    help="fraction of eval scenarios drawn from the nether pool")
+    ap.add_argument("--screen", type=int, default=0,
+                    help="racing: screen kids on N scenarios before the full "
+                         "eval set; bottom 40% never gets the full eval")
+    ap.add_argument("--memetic", type=int, default=0,
+                    help="every N gens inject constant-jittered variants of "
+                         "the best cell elites (local parameter polish)")
     ap.add_argument("--out", default=str(Path(__file__).parent / "results_me"))
     args = ap.parse_args()
 
@@ -87,12 +99,16 @@ def main():
     def sample_eval_set(r, n):
         out = []
         for _ in range(n):
+            nether = r.random() < args.netherfrac
             if args.hard:
-                scen = random_scenario(r, min_r=5.5, max_r=8.0,
-                                       min_n=4, max_n=9)
+                scen = random_scenario(
+                    r, min_r=5.5, max_r=8.0, min_n=4, max_n=9,
+                    pool=NETHER_MOB_POOL if nether else None)
             else:
-                scen = random_scenario(r)
-            terr = random_terrain(r, avoid_pts=[(dx, dz) for _t, dx, dz in scen])
+                scen = random_scenario(
+                    r, pool=NETHER_MOB_POOL if nether else None)
+            terr = random_terrain(r, avoid_pts=[(dx, dz) for _t, dx, dz in scen],
+                                  nether=nether)
             out.append((scen, terr))
         return out
 
@@ -119,6 +135,35 @@ def main():
                     acc[i] += metrics_of(s)
             objs[c0:c0 + len(chunk)] = acc / max(n_done, 1)
         return objs
+
+    def dead_prune(prog):
+        """Rules after an unconditional one can never fire — truncate there."""
+        for i, r in enumerate(prog["rules"][:-1]):
+            w = r.get("when")
+            if w is None or (isinstance(w, dict) and w.get("op") == "true"):
+                prog = copy.deepcopy(prog)
+                prog["rules"] = prog["rules"][:i + 1]
+                return prog
+        return prog
+
+    def blend_acts(pa, pb, rng):
+        """Numeric uniform crossover: child keeps pa's structure; each act's
+        numeric constants are lerped against pb's aligned rule."""
+        child = copy.deepcopy(pa)
+        for ra, rb in zip(child["rules"], pb["rules"]):
+            aa, ab = ra["act"], rb["act"]
+            for k in set(aa) & set(ab):
+                va, vb = aa[k], ab[k]
+                if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
+                    v = float(rng.random()) * va + (1 - float(rng.random())) * vb
+                    aa[k] = int(round(v)) if isinstance(va, int) else round(v, 2)
+        return child
+
+    def screen_rank(objs):
+        """Batch-normalized objective sum — triage ranking only; the archive
+        still stores raw objective vectors."""
+        sd = objs.std(0) + 1e-9
+        return ((objs - objs.mean(0)) / sd).sum(1)
 
     grid = {}  # (ki,ti) -> list[(program, obj)]
 
@@ -165,17 +210,23 @@ def main():
             kids = []
             while len(kids) < args.pop:
                 u = rng.random()
-                if u < 0.15 or not occupied():
-                    kids.append(gp.prune(gp.rand_program(rng)))
+                if u < 0.12 or not occupied():
+                    kids.append(dead_prune(gp.prune(gp.rand_program(rng))))
                     continue
                 occ = occupied()
-                if u < 0.35 and len(occ) >= 2:
+                if u < 0.28 and len(occ) >= 2:
                     # crossover elites from two different cells
                     ca, cb = occ[int(rng.integers(0, len(occ)))], occ[int(rng.integers(0, len(occ)))]
                     pa = grid[ca][int(rng.integers(0, len(grid[ca])))][0]
                     pb = grid[cb][int(rng.integers(0, len(grid[cb])))][0]
                     ka, kb = gp.crossover(pa, pb, rng)
-                    kids += [gp.prune(ka), gp.prune(kb)]
+                    kids += [dead_prune(gp.prune(ka)), dead_prune(gp.prune(kb))]
+                elif u < 0.42 and len(occ) >= 2:
+                    # numeric blend: pa's structure x pb's constants
+                    ca, cb = occ[int(rng.integers(0, len(occ)))], occ[int(rng.integers(0, len(occ)))]
+                    pa = grid[ca][int(rng.integers(0, len(grid[ca])))][0]
+                    pb = grid[cb][int(rng.integers(0, len(grid[cb])))][0]
+                    kids.append(dead_prune(gp.prune(blend_acts(pa, pb, rng))))
                 else:
                     # mutate a random cell elite; cells holding fewer elites
                     # (sparser niches) get more emission — novelty pressure
@@ -184,10 +235,29 @@ def main():
                     ci = int(rng.choice(len(occ), p=weights))
                     cell = occ[ci]
                     parent = grid[cell][int(rng.integers(0, len(grid[cell])))][0]
-                    kids.append(gp.prune(gp.mutate(parent, rng)))
+                    kids.append(dead_prune(gp.prune(gp.mutate(parent, rng))))
             kids = kids[:args.pop]
+            if args.memetic and gen % args.memetic == args.memetic - 1:
+                # local polish: one constant-jittered child from the best
+                # elite of each top cell (by kills+clear+survived)
+                scored = sorted(
+                    occupied(),
+                    key=lambda c: max(o[0] + o[2] + o[3] for _p, o in grid[c]),
+                    reverse=True)
+                for c in scored[:args.pop // 3]:
+                    elite = max(grid[c],
+                                key=lambda po: po[1][0] + po[1][2] + po[1][3])[0]
+                    kids.append(dead_prune(gp.prune(apply_genome(
+                        elite, mutate_genome(genome_of(elite), rng)))))
             eval_set = sample_eval_set(
                 np.random.default_rng(args.seed * 7919 + gen + 3000), args.nscen)
+            if args.screen and len(kids) > 1 and args.nscen > args.screen:
+                # racing: cheap screen on the first N scenarios (shared CRN
+                # prefix), full eval only for the top 60%
+                small = eval_pop(kids, eval_set[:args.screen])
+                keep = np.argsort(-screen_rank(small))[
+                    :max(1, int(np.ceil(len(kids) * 0.6)))]
+                kids = [kids[i] for i in keep]
             kid_objs = eval_pop(kids, eval_set)
             for p, o in zip(kids, kid_objs):
                 insert(p, o)

@@ -17,6 +17,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
 
 /**
  * Per-server sim runtime: arenas, running episodes, tick hooks driven by the
@@ -31,6 +32,8 @@ public final class SimRuntime {
 	private final Map<String, Episode> episodes = new ConcurrentHashMap<>();
 	/** Last damage source seen per entity (all living entities, keyed by uuid). */
 	private static final Map<UUID, DamageSource> LAST_DAMAGE = new ConcurrentHashMap<>();
+	/** Player-landed hit count per entity (mobs spawned fresh each episode). */
+	private static final Map<UUID, Integer> PLAYER_HITS = new ConcurrentHashMap<>();
 	private final Path episodeLogDir;
 	private long serverTick;
 	private int episodeSeq;
@@ -82,6 +85,7 @@ public final class SimRuntime {
 
 	public static void onEntityDeath(LivingEntity entity, DamageSource source) {
 		LAST_DAMAGE.remove(entity.getUuid());
+		PLAYER_HITS.remove(entity.getUuid());
 		SimRuntime rt = instance;
 		if (rt == null) {
 			return;
@@ -93,15 +97,24 @@ public final class SimRuntime {
 
 	public static void recordDamageSource(LivingEntity entity, DamageSource source) {
 		LAST_DAMAGE.put(entity.getUuid(), source);
+		if (source.getAttacker() instanceof ServerPlayerEntity) {
+			PLAYER_HITS.merge(entity.getUuid(), 1, Integer::sum);
+		}
 	}
 
 	public static DamageSource lastDamageSource(UUID entityId) {
 		return LAST_DAMAGE.get(entityId);
 	}
 
+	/** Times the (sim) player has landed a hit on this entity this episode. */
+	public static int playerHitCount(UUID entityId) {
+		return PLAYER_HITS.getOrDefault(entityId, 0);
+	}
+
 	/** Drops attribution state — called on arena resets between batches. */
 	public static void clearDamageSources() {
 		LAST_DAMAGE.clear();
+		PLAYER_HITS.clear();
 	}
 
 	/**

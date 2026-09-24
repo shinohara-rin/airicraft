@@ -26,17 +26,20 @@ from optimize_cmaes import (  # noqa: E402
 
 NUM_FEATURES = ["nearestDist", "rangedDist", "meleeDist", "farthestDist",
                 "nearestHp", "lowestHp", "selfHp", "cooldown", "cdFrac",
-                "mobHpSum", "usingItem", "offhandPct", "food"]
+                "mobHpSum", "usingItem", "useTicks", "offhandPct", "food",
+                "hitsNearest"]
 # radius-arg features (take "r"): counts plus creeperFuse (max fuse 0..1 in r)
 COUNT_FEATURES = ["mobCount", "meleeCount", "rangedCount", "targetingCount",
-                  "litCreeperCount", "aimingCount", "creeperFuse"]
+                  "litCreeperCount", "aimingCount", "creeperFuse", "hitsSum"]
 COMPARE_OPS = ["lt", "le", "gt", "ge"]
 TYPE_CHECKS = ["nearestType", "rangedType", "meleeType", "lowestHpType"]
-TYPES = ["zombie", "skeleton", "creeper", "spider"]
-MODES = ["approach", "flee", "orbit", "kite", "hold"]
+TYPES = ["zombie", "skeleton", "creeper", "spider", "zombified_piglin",
+         "blaze", "wither_skeleton", "magma_cube", "piglin"]
+MODES = ["approach", "flee", "orbit", "kite", "hold", "backstep"]
 TARGETS = ["nearest", "lowestHp", "ranged", "melee", "farthest",
-           "centroid", "targeting",
-           "type:zombie", "type:skeleton", "type:creeper", "type:spider"]
+           "centroid", "targeting", "mostHits",
+           "type:zombie", "type:skeleton", "type:creeper", "type:spider",
+           "type:zombified_piglin", "type:blaze", "type:wither_skeleton"]
 ATTACKS = ["ready", "always", "never"]
 
 MAX_RULES = 6
@@ -58,6 +61,8 @@ def rconst(rng, feature):
         return round(float(rng.uniform(0.2, 1.0)), 2)
     if feature in ("creeperFuse", "offhandPct"):
         return round(float(rng.uniform(0.1, 0.9)), 2)
+    if feature == "useTicks":
+        return int(rng.integers(2, 40))
     if feature == "food":
         return int(rng.integers(2, 20))
     return round(float(rng.uniform(1, 7)), 1)  # counts

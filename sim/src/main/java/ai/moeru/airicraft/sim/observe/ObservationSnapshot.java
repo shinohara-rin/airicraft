@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.sim.observe;
 
+import ai.moeru.airicraft.sim.SimRuntime;
 import ai.moeru.airicraft.sim.fake.FakePlayerEntity;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -12,6 +13,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.entity.mob.HostileEntity;
 import net.minecraft.entity.mob.MobEntity;
+import net.minecraft.entity.mob.Monster;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.RangedWeaponItem;
 import net.minecraft.server.world.ServerWorld;
@@ -57,6 +59,7 @@ public final class ObservationSnapshot {
 		o.addProperty("forwardSpeed", p.forwardSpeed);
 		o.addProperty("sidewaysSpeed", p.sidewaysSpeed);
 		o.addProperty("usingItem", p.isUsingItem());
+		o.addProperty("useTicks", p.isUsingItem() ? p.getItemUseTime() : 0);
 		o.addProperty("sprinting", p.isSprinting());
 		o.addProperty("mainHand", p.getMainHandStack().getItem().toString());
 		o.addProperty("offHand", p.getOffHandStack().getItem().toString());
@@ -85,10 +88,14 @@ public final class ObservationSnapshot {
 		o.add("vel", vec(e.getVelocity()));
 		o.addProperty("dist", Math.sqrt(e.squaredDistanceTo(player)));
 		o.addProperty("tracked", trackedMobs.contains(e.getUuid()));
-		o.addProperty("hostile", e instanceof HostileEntity);
+		// HostileEntity covers zombies/skeletons/etc.; Monster catches nether
+		// combatants like hoglins and piglins which are not HostileEntity
+		// subclasses but implement the hostile marker interface.
+		o.addProperty("hostile", e instanceof HostileEntity || e instanceof Monster);
 		if (e instanceof LivingEntity living) {
 			o.addProperty("health", living.getHealth());
 			o.addProperty("maxHealth", living.getMaxHealth());
+			o.addProperty("playerHits", SimRuntime.playerHitCount(e.getUuid()));
 		}
 		if (e instanceof MobEntity mob) {
 			o.addProperty("targetingPlayer", mob.getTarget() == player);

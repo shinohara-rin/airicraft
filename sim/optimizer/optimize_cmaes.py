@@ -45,18 +45,25 @@ ARENA_SIZE = 20
 ARENA_SPACING = 64
 
 MOB_POOL = [("zombie", 0.42), ("skeleton", 0.20), ("creeper", 0.16), ("spider", 0.22)]
+# Nether composition. Ghast is excluded (flying + AoE fireballs unreachable
+# by melee); blaze supplies the ranged pressure, piglin mixes melee/crossbow.
+NETHER_MOB_POOL = [("zombified_piglin", 0.30), ("blaze", 0.18),
+                   ("wither_skeleton", 0.20), ("hoglin", 0.14),
+                   ("piglin", 0.18)]
 
 
-def random_scenario(rng, min_r=5.5, max_r=9.0, min_n=3, max_n=7):
+def random_scenario(rng, min_r=5.5, max_r=9.0, min_n=3, max_n=7, pool=None):
     """Sample one spawn layout: mob type mix x formation x radius.
 
     Formations: ring (surround), arc (one-sided), cluster (single group),
     pincer (two opposite groups). Every offset is clamped to radius >= 5.5
-    so the spawn-distance rule never trips.
+    so the spawn-distance rule never trips. `pool` overrides MOB_POOL
+    (e.g. NETHER_MOB_POOL for nether fights).
     """
     n = rng.integers(min_n, max_n + 1)
-    types = [t for t, _w in MOB_POOL]
-    weights = np.array([w for _t, w in MOB_POOL])
+    pool = MOB_POOL if pool is None else pool
+    types = [t for t, _w in pool]
+    weights = np.array([w for _t, w in pool])
     weights = weights / weights.sum()
     pick = rng.choice(types, size=n, p=weights)
     pattern = rng.choice(["ring", "arc", "cluster", "pincer"])
@@ -125,11 +132,12 @@ def scenario_desc(scenario):
     return "+".join(f"{v}{k[0]}" for k, v in sorted(counts.items()))
 
 
-def random_terrain(rng, avoid_pts=(), floor_dy=-1):
+def random_terrain(rng, avoid_pts=(), floor_dy=-1, nether=False):
     """Sample terrain features as (block_id, [(dx,dy,dz),...]) groups, offsets
     relative to arena center. dy is relative to player-spawn y (floor = -1).
 
     Kinds: pillars, wall segments, mounds, 1-deep water pools, cobweb patches.
+    nether=True swaps water pools for lava pools and stone for netherrack.
     Features are kept >=2m from the player spawn and >=1.5m from every point in
     avoid_pts (mob spawn offsets) so they never block spawning.
     """
@@ -144,7 +152,10 @@ def random_terrain(rng, avoid_pts=(), floor_dy=-1):
         return all(math.hypot(px - ax, pz - az) >= 1.8 for ax, az in avoid_pts)
 
     for _ in range(n_feat):
-        kind = rng.choice(["pillar", "wall", "mound", "water_pool", "cobweb"])
+        kind = rng.choice(["pillar", "wall", "mound", "water_pool",
+                           "lava_pool", "cobweb"] if nether
+                          else ["pillar", "wall", "mound", "water_pool",
+                                "cobweb"])
         a = rng.uniform(0, 2 * math.pi)
         r = rng.uniform(3.0, 8.0)
         cx, cz = r * math.cos(a), r * math.sin(a)
@@ -160,7 +171,8 @@ def random_terrain(rng, avoid_pts=(), floor_dy=-1):
                 px, pz = (cx + k, cz) if horiz else (cx, cz + k)
                 if far(px, pz):
                     pts += [(round(px), dy, round(pz)) for dy in range(0, 2)]
-            groups.append(("minecraft:stone", pts)) if pts else None
+            groups.append(("minecraft:netherrack" if nether
+                           else "minecraft:stone", pts)) if pts else None
             continue
         elif kind == "mound":
             for ox in (-0.5, 0.5):
@@ -168,7 +180,7 @@ def random_terrain(rng, avoid_pts=(), floor_dy=-1):
                     px, pz = cx + ox, cz + oz
                     if far(px, pz):
                         pts.append((round(px), 0, round(pz)))
-        elif kind == "water_pool":
+        elif kind in ("water_pool", "lava_pool"):
             w = int(rng.integers(2, 4))
             for ox in range(w):
                 for oz in range(w):
@@ -185,7 +197,9 @@ def random_terrain(rng, avoid_pts=(), floor_dy=-1):
         if not pts:
             continue
         block = ("minecraft:water" if kind == "water_pool"
+                 else "minecraft:lava" if kind == "lava_pool"
                  else "minecraft:cobweb" if kind == "cobweb"
+                 else "minecraft:netherrack" if nether
                  else "minecraft:stone")
         groups.append((block, pts))
     return groups
