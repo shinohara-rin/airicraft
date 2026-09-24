@@ -148,7 +148,8 @@ will use. `configure` applies optimizer-supplied tunables (`params` in
 `baseline-melee` is a hand-tuned melee script (approach/orbit/flee-centroid +
 cooldown-gated attack) exposing 8 tunables: `engageDistance`, `engageSlack`,
 `sprintBeyond`, `crowdRadius`, `crowdThreshold`, `attackRange`,
-`minLastAttackTicks`, `strafeFlipTicks`. `idle` does nothing.
+`minLastAttackTicks`, `strafeFlipTicks`. `idle` does nothing. `net` is a
+pure-Java MLP whose weights arrive per episode in `params.net` (round 7).
 
 ## Optimizer (`sim/optimizer/`)
 
@@ -526,6 +527,41 @@ Remaining failure modes on clean data (96 episodes):
    time-out safely (0-10 damage, shield up) but leave one mob;
    `fast` never times out because it dies first. The tradeoff axis is
    exactly the Pareto shape the front already showed.
+
+#### Round 7: neural policy (`net`) vs the rule grammar
+
+Question: can a continuous policy learn beyond the AST grammar's ceiling?
+`NetPolicy.java` is a pure-Java MLP configured per episode via `params.net`
+(`{"layout":"v1","layers":[{"shape":[in,out],"w","b"}]}`). Inputs = 15
+global features (hp, cooldown, lastAttacked, offhand%, hostiles, nearest
+dist, creeper fuse/aiming/targeting counts ...) + 4 nearest-hostile slots x
+14 per-entity features (dist, dx/dz/dy, health, targeting, fuse, playerHits,
+type flags) = 71; outputs = moveDir x/y, per-slot target logits (argmax ->
+`lookEntity`), attack, shield up/down, sprint, jump = 10. Hidden (48,24)
+tanh, 4882 params. Same observation and intent surface as the AST policies —
+legality still enforced by the executor.
+
+`optimize_net.py`: BC warm start cloning the me11 champions' trajectories
+(`traj_me11/`, 22,356 ticks; move MSE + target-slot cross-entropy + 4 binary
+heads), then NSGA-style ES over the weight vector (uniform-mask crossover or
+mean blend + sparse sigma=0.08 jitter over ~35% of weights), same
+multi-objective eval harness, champs re-run for pairing.
+
+net1 (400 gens): training HV 544 -> 11,213 with the usual plateau-then-jump
+shape — but the fresh 24-scenario front collapsed. Best member
+`[1.58, -8.99, .08, .71, -452]`; **zero members dominate baseline
+`[3.21, -14.78, .58, .71, -236]` or any me11 champion**; most of the
+28-member front is near-degenerate survival (kills~=0, survived~1, ~600t).
+The logged HV was inflated by a bug in `optimize_net.py` itself:
+`select()` kept *every* candidate (pool grew +12/gen to ~150, gen time
+13s->210s) and each member's score stayed frozen from the single eval draw
+that first measured it — lucky draws accumulated as fake elites and parents
+were effectively selected on stale noise.
+
+Fix: fixed-mu selection (`order[:args.pop]`) + parents re-evaluated every
+generation on the same fresh scenario draw as the kids (CRN pairing —
+relative rankings stay fair, lucky scores can no longer persist). net2
+re-runs from the same BC weights under the corrected selection.
 
 ## Verified end-to-end
 

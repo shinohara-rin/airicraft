@@ -342,12 +342,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     hist_path = out / "history.jsonl"
 
-    parent_objs = eval_pop(parents, sample_eval_set(
-        np.random.default_rng(args.seed + 1), args.nscen))
     best_hv, stale = -1.0, 0
 
     def select(px, po):
-        """non-dominated rank + crowding -> survivor indices"""
+        """non-dominated rank + crowding -> survivor indices (fixed mu)"""
         fronts = _nd_fronts(po)
         rank = np.empty(len(px), int)
         crowd = np.zeros(len(px))
@@ -358,7 +356,7 @@ def main():
             for i, c in zip(fr, cd):
                 crowd[i] = c
         order = np.lexsort((-crowd, rank))
-        return order[:len(px)]
+        return order[:args.pop]
 
     with open(hist_path, "a") as hf:
         for gen in range(args.gens):
@@ -375,6 +373,9 @@ def main():
                 kids.append(child)
             eval_set = sample_eval_set(
                 np.random.default_rng(args.seed * 7919 + gen + 3000), args.nscen)
+            # parents re-scored on the same fresh draw as kids: no frozen lucky
+            # scores, and CRN pairing makes the comparison fair
+            parent_objs = eval_pop(parents, eval_set)
             kid_objs = eval_pop(kids, eval_set)
 
             pool_x = parents + kids
