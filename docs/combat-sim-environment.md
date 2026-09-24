@@ -476,6 +476,57 @@ on 24 fresh hard+nether scenarios, baseline
   keeps working); the two slowest entries (~390-527 ticks) are legit
   slow-but-unscathed niches, not flee loops — they still kill mobs.
 
+#### Round 6b: champion trajectory analysis → failure-mode taxonomy
+
+Re-ran the 4 champions (clear/dom/fast/pol26) over 24 fresh
+hard+nether scenarios keeping every per-tick JSONL
+(`traj_collect.py`, logs under `traj_me11/`). First pass immediately
+surfaced an **environment bug**, not just policy failures:
+
+- **hoglin/piglin → zoglin/zombified_piglin conversion.** Nether mobs
+  spawned in the overworld zombify after ~300 ticks, which swaps the
+  tracked combatant for a fresh *untracked* entity. Consequences seen
+  in the logs: kills stop being credited, `remainingMobs` can hit 0
+  while a hostile zoglin horde still beats on the player (false
+  clear), wanderers beyond the reset margin (+12) accumulate across
+  episodes — one obs snapshot showed ~70 stray zoglins — and their
+  hits still count in `damageTaken`. Fix: `SpawnService` now sets
+  `setImmuneToZombification(true)` on `HoglinEntity` /
+  `AbstractPiglinEntity` spawns. Verified: hoglin survives 350+ ticks
+  unchanged; zero zoglins in any post-fix trajectory. Post-fix run
+  totals: deaths 24 -> 17, pol26 avg damage 8.9 -> 6.0.
+
+Remaining failure modes on clean data (96 episodes):
+
+1. **Melee dogpile burst — the main death cause.** Deaths are swarm
+   out-DPS, not a single threat: damage-window attribution always
+   shows 3-5 mob types hitting (wither_skeleton + hoglin are the heavy
+   hitters; wither DoT ignores the shield, hoglin knockback launches
+   out of frontal block). `fast` dies early (t42-203) on 10/24 — it
+   dives into the pack without shield discipline. Scenario s21
+   (hoglin, 2x wither_skeleton, 2x piglin, blaze @ tight radius) kills
+   all four champions. Shield-up at death in most cases — the
+   perma-shield meta handles arrows, not multi-angle melee.
+2. **Blaze vertical/wander out-of-reach — every remaining timeout.**
+   `left=1` survivors are almost always a blaze either hovering ~2
+   blocks above the sword band (4-5m 3D dist, dy≈2) or drifting past
+   the 20m obs radius entirely (player holds empty hostile list,
+   attacks nothing). Pure-melee cannot close it; the policy turtles
+   under shield forever — a real mechanic limit, not an env bug.
+   Options: accept the timeout cost, give ranged loadout slots, or cap
+   spawn heights.
+3. **Passive-piglin fixation — the subtler timeout.** The final
+   survivor is sometimes a piglin that never aggro'd
+   (`targetingPlayer:false`, 2-10hp, 2-5m away): the policy fixates on
+   the unreachable blaze (`sprint:true` toward it, `attack:false`)
+   and never cleans up the free kill standing next to it — a
+   target-priority failure, expressible as a rule gap ("finish the
+   passive mob in reach before chasing the distant one").
+4. **Death-by-omission vs death-by-commitment.** `clear`/`dom`
+   time-out safely (0-10 damage, shield up) but leave one mob;
+   `fast` never times out because it dies first. The tradeoff axis is
+   exactly the Pareto shape the front already showed.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.

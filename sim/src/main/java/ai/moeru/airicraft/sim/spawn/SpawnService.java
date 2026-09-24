@@ -7,6 +7,8 @@ import java.util.List;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.SpawnReason;
+import net.minecraft.entity.mob.AbstractPiglinEntity;
+import net.minecraft.entity.mob.HoglinEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.world.ServerWorld;
@@ -45,6 +47,15 @@ public final class SpawnService {
 			throw new IllegalArgumentException("no empty space at spawn position " + pos);
 		}
 		world.spawnNewEntityAndPassengers(entity);
+		// Nether mobs zombify in the overworld, which swaps them for a fresh
+		// untracked entity — the fight then keeps dealing damage that can never
+		// be cleared or credited. Pin spawned combatants to their original form.
+		if (entity instanceof HoglinEntity hoglin) {
+			hoglin.setImmuneToZombification(true);
+		}
+		if (entity instanceof AbstractPiglinEntity piglin) {
+			piglin.setImmuneToZombification(true);
+		}
 		arena.trackMob(entity);
 		if (targetPlayer && entity instanceof MobEntity mob && !arena.players().isEmpty()) {
 			mob.setTarget(arena.players().get(0));
