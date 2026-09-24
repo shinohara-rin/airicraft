@@ -9,6 +9,7 @@ public final class Policies {
 	private static final Map<String, Supplier<CombatPolicy>> REGISTRY = Map.of(
 			"baseline-melee", BaselineMeleePolicy::new,
 			"ast", AstPolicy::new,
+			"net", NetPolicy::new,
 			"idle", IdlePolicy::new);
 
 	private Policies() {}
