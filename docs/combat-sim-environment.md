@@ -715,3 +715,23 @@ dom-always. `champ_sel1.npy` + `programs_sel.json` ship deployable.
   optimizer's job (CMA-ES over tunables, then AST mutation).
 - PvP (fake player vs fake player), terrain variety, and loadout randomization
   are the next environment features.
+
+### Selector sel2 (family-balanced curriculum): MoE ceiling confirmed
+
+Family audit showed different champs win different families (ranged/nether:
+champ_11; melee: me9_26) — so a selector COULD in principle beat every
+single program. sel2 trained on a family-uniform mix (`--familymix`,
+4 pools: standard/ranged/melee/nether), 500-iter PPO-EMA. Final eval
+(same fresh 24-scen set): sel2 [3.77k,-5.1t,.75c,.92s] vs me11_dom
+[3.84k,-5.2t,.85c,.94s] — still not surpassed. Per-family: melee clear
+.984 hits the family-expert ceiling (me9_26 .984) but nether collapsed
+(.31 vs .48) — per-tick free switching doesn't reliably reach the
+family oracle.
+
+Verdict on the neuro-symbolic chapter: hybrid < selector < me11_dom.
+The mixture ceiling is the best program in the pool; me11_dom stands as
+the champion of the current representation+grammar. Surpassing it needs
+richer primitives (continuous target scoring, shield timing, backstep)
+or the PvP regime, not more mixture machinery.
+
+`champ_sel1.npy`, `champ_sel2.npy`, `programs_sel.json` ship deployable.
