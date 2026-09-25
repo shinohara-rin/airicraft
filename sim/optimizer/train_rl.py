@@ -199,7 +199,13 @@ def main():
     ap.add_argument("--gamma", type=float, default=0.998)
     ap.add_argument("--lam", type=float, default=0.95)
     ap.add_argument("--clip", type=float, default=0.2)
-    ap.add_argument("--ent", type=float, default=0.003)
+    ap.add_argument("--ent", type=float, default=0.003,
+                    help="entropy coef for the move (Gaussian) head")
+    ap.add_argument("--entb", type=float, default=0.0005,
+                    help="entropy coef for discrete heads — kept low so flags commit")
+    ap.add_argument("--margin", type=float, default=0.15,
+                    help="flag-logit commit margin; 0 disables margin shaping")
+    ap.add_argument("--marginw", type=float, default=0.02)
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--mb", type=int, default=512)
     ap.add_argument("--netherfrac", type=float, default=0.3)
@@ -255,6 +261,7 @@ def main():
         return s
 
     eval_rng = np.random.default_rng(args.seed * 7919 + 50000)
+    best_key = None
 
     for it in range(1, args.iters + 1):
         t0 = time.time()
@@ -409,16 +416,20 @@ def main():
                     pol_loss = -torch.min(s1, s2).mean()
                     v = val(X[b])
                     v_loss = 0.5 * ((v - Ret[b]) ** 2).mean()
-                    ent = (move_d.entropy().sum(-1).mean()
-                           + tgt_d.entropy().mean()
-                           + flag_d.entropy().sum(-1).mean())
-                    loss = pol_loss + v_loss - args.ent * ent
+                    entm = move_d.entropy().sum(-1).mean()
+                    entb = (tgt_d.entropy().mean()
+                            + flag_d.entropy().sum(-1).mean())
+                    loss = pol_loss + v_loss - args.ent * entm - args.entb * entb
+                    if args.margin > 0:
+                        fl = y[:, 2 + K:2 + K + 4]
+                        loss = loss + args.marginw * torch.relu(
+                            args.margin - fl.abs()).mean()
                     opt.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(
                         list(pol.parameters()) + list(val.parameters()), 0.5)
                     opt.step()
-                    pl += pol_loss.item(); vl += v_loss.item(); el += ent.item()
+                    pl += pol_loss.item(); vl += v_loss.item(); el += (entm + entb).item()
                     nb += 1
             pl /= nb; vl /= nb; el /= nb
         else:
@@ -474,6 +485,13 @@ def main():
             hist.write(json.dumps(line) + "\n"); hist.flush()
             print(f"[eval {it}] {np.round(vec, 3).tolist()}"
                   + ("  [DEGENERATE?]" if deg else ""), flush=True)
+            # deployment-keyed best tracking: kills first, then clear/survived
+            key = (round(float(vec[0]), 3), round(float(vec[2]), 3),
+                   round(float(vec[3]), 3), round(float(vec[4]), 3))
+            if not deg and (best_key is None or key > best_key):
+                best_key = key
+                np.save(out / "pol_best.npy", pol.flat())
+                print(f"  [best] {key}", flush=True)
             call("POST", "/v1/tick", {"mode": "freeze"})
 
     print("[done]", flush=True)

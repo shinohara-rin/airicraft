@@ -563,6 +563,42 @@ generation on the same fresh scenario draw as the kids (CRN pairing —
 relative rankings stay fair, lucky scores can no longer persist). net2
 re-runs from the same BC weights under the corrected selection.
 
+#### Round 8: direct RL — per-tick external stepping + PPO
+
+ES on the weight vector proved noise-dominated at this eval budget, so
+policy improvement moved to real RL while keeping the exact deployment
+contract (same 71→48→24→10 MLP, same `params.net` hand-off).
+
+- `external` policy (`ExternalPolicy.java`): `decide()` returns a
+  `volatile Intent` stashed via `/v1/step`; an intent persists across
+  ticks until replaced (frame-skip semantics).
+- `POST /v1/step {intents:{arena:intent}, ticks:N}`: stashes intents,
+  bursts N world ticks on the server thread via `SimTickGate.step()`
+  (same mechanism as `sprint` but restores the ambient FREEZE mode),
+  then returns per-arena `{tick, kills, damageTaken, damageDealt, done,
+  obs|score}`. `{ticks:0}` refreshes obs without ticking.
+- `train_rl.py`: PPO over 12 vectorized arenas — Normal move head,
+  masked-Categorical target slot, Bernoulli flags; per-env GAE +
+  transition-level trajectory (correct bootstrapping at episode and
+  materialization boundaries). Reward: `10·dkills + 0.1·ddealt
+  − 0.3·dtaken − 0.05·dticks + {clear:+6, died:−50, TIMEOUT:−15}` —
+  training signal only; evaluation stays multi-objective.
+- Periodic eval stops live episodes, runs `params.net` deployment rollouts
+  on a fresh hard+nether set (deterministic decode — thresholding `>0`),
+  flags degenerate vectors, re-freezes the gate, and saves
+  `pol_best.npy` whenever the deterministic vector improves.
+
+**Rollout-vs-eval turtle pathology** (the central RL finding so far):
+sampled-action rollouts clear ~60% while the deployed deterministic
+policy flees (kills ~0, survived ~0.9, ~600t timeouts). Diagnosis: the
+flag logits sit just below the decode threshold (attack logit ≈ −0.4 →
+sampled ~40%, deployed 0%) and entropy *rises* — ambiguity pays in
+expectation while the mean action is worthless. This is a commitment
+problem, not a reward problem. Mitigation: split entropy (move head
+0.003 exploratory vs discrete heads 0.0005 sharpening) + a small hinge
+loss pushing flag logits past ±0.15, plus deployment-keyed best-
+checkpoint tracking.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.
