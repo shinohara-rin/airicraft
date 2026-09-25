@@ -617,6 +617,46 @@ net only loses the speed axis. Still below the evolved rule champions
 ES-era gap to baseline but rule-programs remain the state of the art
 on this task. `champ_rl5.npy` ships deployable via `params.net`.
 
+#### Round 9: representation close-up (K=6 slots + 20-tick frame-stack) + neuro-symbolic hybrid
+
+Two gaps separated the net from the rule champions: **memory** (rules get
+rule-ordering/hysteresis for free; the MLP reacts per tick) and **pack
+coverage** (4 hostile slots vs the rules' full 9-mob view). Net v2/v3 closes
+both: 6 distance-sorted hostile slots and a 20-tick frame stack (~1s of
+history — covers skeleton draw ~20t and most attack cooldowns), 99→1980-dim
+input, mirrored encoders in `NetPolicy.java` / `optimize_net.py`.
+
+BC corpus rebuilt wide: all 17 champion AST programs × 20 hard+nether
+scenarios → 82,613 ticks in `traj_v2/`; `bc_v20.npy` warm-starts both the
+pure-neural and hybrid runs.
+
+**Neuro-symbolic hybrid** (user-directed): the net supplies only the
+continuous fields (moveDir + lookEntity); the discrete flags (attack, shield,
+sprint, jump) come from `champ_me11_dom`'s rules. `HybridPolicy` composes
+them at deploy time (`params {net, ast}`); `ExternalPolicy` composes the same
+way during training (`--ast` flag on `train_rl.py` posts only move+look
+intents). Instant payoff: eval hit champ-tier within 10 iters — AST flags
+carry the fight while the net learns where to move and what to aim at.
+
+**Result (hyb1 500 iters + hyb2 500 iters warm-continued, lr 1e-4→5e-5):**
+saturated. Fresh 24-scenario eval (same seed for both):
+
+```
+[hyb1_best] kills 3.52  taken -5.99  clear .708  survived .922  ticks -290
+[hyb2_best] kills 3.48  taken -6.41  clear .740  survived .901  ticks -251
+[me11_dom ] kills 4.03  taken -5.87  clear .823  survived .917  ticks -223
+[baseline ] kills 2.84  taken -14.68 clear .578  survived .609  ticks -178
+```
+
+The hybrid beats baseline on 4/5 axes (half the damage, +30pt survival) but
+stays below the flag donor itself — the rule grammar's `type:mob` target
+switching out-selects the net's argmax-over-slots. A second 500-iter run at
+halved lr produced a statistically identical vector: the move+target learning
+is saturated at this flag donor's ceiling. Pure-neural rl6 (same v3
+representation, full 12-out action space) was still ~0 kills at iter 60 —
+identical early phase to rl5, killed early to free arenas for the hybrid;
+rl7 reruns it for 800 iters to get past the entropy-collapse phase.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.
