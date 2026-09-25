@@ -4,8 +4,10 @@ import ai.moeru.airicraft.sim.arena.Arena;
 import ai.moeru.airicraft.sim.episode.Episode;
 import ai.moeru.airicraft.sim.fake.FakePlayerEntity;
 import ai.moeru.airicraft.sim.input.ActionProfile;
+import ai.moeru.airicraft.sim.input.Intent;
 import ai.moeru.airicraft.sim.observe.ObservationSnapshot;
 import ai.moeru.airicraft.sim.policy.CombatPolicy;
+import ai.moeru.airicraft.sim.policy.ExternalPolicy;
 import ai.moeru.airicraft.sim.policy.Policies;
 import ai.moeru.airicraft.sim.spawn.SpawnService;
 import ai.moeru.airicraft.sim.tick.SimTickGate;
@@ -105,6 +107,10 @@ public final class SimHttpControl {
 		server.createContext("/v1/tick", ex -> respond(ex, () -> {
 			JsonObject body = body(ex);
 			return tick(body, mc);
+		}));
+		server.createContext("/v1/step", ex -> respond(ex, () -> {
+			JsonObject body = body(ex);
+			return step(body, mc);
 		}));
 		server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
 		server.start();
@@ -280,6 +286,96 @@ public final class SimHttpControl {
 		}
 		o.addProperty("mode", SimTickGate.mode().name());
 		return o;
+	}
+
+	/**
+	 * One synchronized RL step across all running external-policy episodes:
+	 * stash the posted intents, run N gated ticks (world returns to the ambient
+	 * gate mode afterwards, normally FREEZE), then report each arena's
+	 * post-tick observation + score deltas + done flag in one response.
+	 */
+	private static JsonObject step(JsonObject body, MinecraftServer mc) {
+		if (body.has("intents")) {
+			JsonObject intents = body.getAsJsonObject("intents");
+			run(mc, () -> {
+				for (String arenaName : intents.keySet()) {
+					Episode e = findRunningEpisode(arenaName);
+					if (e != null && e.policy() instanceof ExternalPolicy xp) {
+						xp.set(parseIntent(intents.getAsJsonObject(arenaName)));
+					}
+				}
+				return null;
+			});
+		}
+		int n = body.has("ticks") ? body.get("ticks").getAsInt() : 1;
+		try {
+			SimTickGate.step(mc, n).get(60, TimeUnit.SECONDS);
+		} catch (Exception e) {
+			throw new IllegalStateException("step failed: " + e.getMessage(), e);
+		}
+		return run(mc, () -> {
+			JsonObject out = new JsonObject();
+			for (Episode e : SimRuntime.get().episodes()) {
+				JsonObject eo = new JsonObject();
+				eo.addProperty("id", e.id());
+				eo.addProperty("tick", e.tick());
+				eo.addProperty("kills", e.kills());
+				eo.addProperty("damageTaken", e.damageTaken());
+				eo.addProperty("damageDealt", e.damageDealt());
+				boolean done = e.state() != Episode.State.RUNNING;
+				eo.addProperty("done", done);
+				if (done) {
+					eo.add("score", e.scoreJson());
+				} else {
+					eo.add("obs", e.buildObs());
+				}
+				out.add(e.arena().name(), eo);
+			}
+			return out;
+		});
+	}
+
+	private static Episode findRunningEpisode(String arenaName) {
+		for (Episode e : SimRuntime.get().episodes()) {
+			if (e.state() == Episode.State.RUNNING && e.arena().name().equals(arenaName)) {
+				return e;
+			}
+		}
+		return null;
+	}
+
+	private static Intent parseIntent(JsonObject j) {
+		Intent.Builder b = Intent.builder();
+		if (j.has("lookEntity")) {
+			b.lookEntity(j.get("lookEntity").getAsInt());
+		}
+		if (j.has("lookPos")) {
+			JsonArray a = j.getAsJsonArray("lookPos");
+			b.lookPos(a.get(0).getAsDouble(), a.get(1).getAsDouble(), a.get(2).getAsDouble());
+		}
+		if (j.has("moveDir")) {
+			JsonArray a = j.getAsJsonArray("moveDir");
+			b.moveDir(a.get(0).getAsDouble(), a.get(1).getAsDouble());
+		}
+		if (j.has("jump")) {
+			b.jump(j.get("jump").getAsBoolean());
+		}
+		if (j.has("sprint")) {
+			b.sprint(j.get("sprint").getAsBoolean());
+		}
+		if (j.has("sneak")) {
+			b.sneak(j.get("sneak").getAsBoolean());
+		}
+		if (j.has("attack")) {
+			b.attack(j.get("attack").getAsBoolean());
+		}
+		if (j.has("useHand")) {
+			b.useHand(j.get("useHand").getAsString());
+		}
+		if (j.has("stopUsing")) {
+			b.stopUsing(j.get("stopUsing").getAsBoolean());
+		}
+		return b.build();
 	}
 
 	// ---- helpers ----

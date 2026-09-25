@@ -89,6 +89,32 @@ public final class Episode {
 		return lastObs;
 	}
 
+	public Arena arena() {
+		return arena;
+	}
+
+	public CombatPolicy policy() {
+		return policy;
+	}
+
+	public int kills() {
+		return kills;
+	}
+
+	public double damageTaken() {
+		return damageTaken;
+	}
+
+	public double damageDealt() {
+		return damageDealt;
+	}
+
+	/** Fresh observation of the current world state (post-tick), same shape preTick produces. */
+	public JsonObject buildObs() {
+		FakePlayerEntity player = arena.players().get(0);
+		return ObservationSnapshot.build(arena.world(), player, mobUuids(), obsRadius, tick);
+	}
+
 	public Path logPath() {
 		return logPath;
 	}

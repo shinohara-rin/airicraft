@@ -70,4 +70,36 @@ public final class SimTickGate {
 		});
 		return future;
 	}
+
+	/**
+	 * Like {@link #sprint} but restores the ambient mode (usually FREEZE) after
+	 * the batch instead of RUN — used by the per-tick step API so the world
+	 * stays paused between external decisions.
+	 */
+	public static synchronized CompletableFuture<Integer> step(MinecraftServer server, int ticks) {
+		if (mode == Mode.SPRINT) {
+			return CompletableFuture.failedFuture(new IllegalStateException("sprint already running"));
+		}
+		final Mode restore = mode;
+		mode = Mode.SPRINT;
+		CompletableFuture<Integer> future = new CompletableFuture<>();
+		server.execute(() -> {
+			int done = 0;
+			try {
+				for (; done < ticks; done++) {
+					server.tick(() -> false);
+				}
+				future.complete(done);
+			} catch (Throwable t) {
+				future.completeExceptionally(t);
+			} finally {
+				synchronized (SimTickGate.class) {
+					if (mode == Mode.SPRINT) {
+						mode = restore;
+					}
+				}
+			}
+		});
+		return future;
+	}
 }
