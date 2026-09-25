@@ -17,6 +17,7 @@ every round before).
 import argparse
 import json
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +31,8 @@ from optimize_cmaes import (  # noqa: E402
     call, Sim, random_scenario, random_terrain, NETHER_MOB_POOL,
     metrics_of, METRIC_NAMES, MAX_TICKS)
 from optimize_net import (  # noqa: E402
-    encode, hostiles_of, spec_of, pack, unpack, SIZES, INPUT, K)
+    encode, hostiles_of, spec_of, pack, unpack, stack_encode,
+    SIZES, INPUT, K, STACK)
 
 RUN_DIR = Path(__file__).resolve().parent.parent / "run" / "sim-server"
 EP_DIR = RUN_DIR / "sim" / "episodes"
@@ -123,6 +125,7 @@ class Env:
         self.done_seen = False
         self.traj = []
         self.ep_scores = []
+        self.hist = deque(maxlen=STACK)   # recent encodes for frame-stack
 
     def reset_phase1(self):
         """Reset arena + spawn a fresh scenario. No world ticks happen here;
@@ -156,6 +159,7 @@ class Env:
         self.obs = None
         self.need_reset = False
         self.done_seen = False
+        self.hist.clear()
 
     def finish_transition(self, a):
         """Fold a step response into acc + close/mark the trajectory tail.
@@ -176,6 +180,7 @@ class Env:
             self.delete_log()
         elif not a["done"]:
             self.obs = a["obs"]
+            self.hist.append(encode(a["obs"]))
         return r
 
     def delete_log(self):
@@ -248,6 +253,9 @@ def main():
     for e in envs:
         if e.name in init:
             e.obs = init[e.name].get("obs")
+            if e.obs is not None:
+                e.hist.clear()
+                e.hist.append(encode(e.obs))
 
     hist = open(out / "history.jsonl", "a")
 
@@ -276,7 +284,7 @@ def main():
             idx = [i for i, e in enumerate(envs)
                    if not e.need_reset and e.obs is not None]
             if idx:
-                xs = torch.tensor(np.stack([encode(envs[i].obs) for i in idx]),
+                xs = torch.tensor(np.stack([stack_encode(envs[i].hist) for i in idx]),
                                   dtype=torch.float32)
                 with torch.no_grad():
                     y = pol(xs)
@@ -361,6 +369,8 @@ def main():
                     a = obs0.get(e.name)
                     if a is not None and not a["done"]:
                         e.obs = a.get("obs")
+                        if e.obs is not None:
+                            e.hist.append(encode(e.obs))
 
         # ------------------------------------------------ GAE + PPO update
         flat = []
@@ -370,8 +380,8 @@ def main():
             if n == 0:
                 continue
             with torch.no_grad():
-                boot = 0.0 if (tr[-1]["done"] or e.obs is None) else float(
-                    val(torch.tensor(encode(e.obs), dtype=torch.float32)))
+                boot = 0.0 if (tr[-1]["done"] or not e.hist) else float(
+                    val(torch.tensor(stack_encode(e.hist), dtype=torch.float32)))
             lastgae = 0.0
             for t in reversed(range(n)):
                 nonterm = 0.0 if tr[t]["done"] else 1.0

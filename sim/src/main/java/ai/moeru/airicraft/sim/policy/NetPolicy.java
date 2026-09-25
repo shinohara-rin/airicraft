@@ -4,8 +4,10 @@ import ai.moeru.airicraft.sim.input.Intent;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -15,27 +17,33 @@ import java.util.List;
  * and maps outputs to one tick of semantic intent.
  *
  * <pre>{@code
- * params = {"net": {"layout": "v1", "layers": [
+ * params = {"net": {"layout": "v2", "layers": [
  *   {"w": [out][in] flattened row-major, "b": [out]}, ...
  * ]}}
  * </pre>
  *
- * Input layout v1: GLOBAL (G) + K nearest hostile slots (F each).
+ * Input layout v2: STACK frames of (GLOBAL (G) + K nearest hostile slots
+ * (F each)) — a short history gives the feed-forward net temporal context
+ * (cooldown rhythm, approach vectors) the rule champions get for free from
+ * their rule ordering. Missing history pads by repeating the oldest frame.
  * Output heads: move direction (atan2 of 2 outputs), target slot scores (K),
  * attack, shield, sprint, jump — each a sigmoid/logit.
  * tanh on hidden layers; the executor still enforces all legality limits.
  */
 public final class NetPolicy implements CombatPolicy {
 	// ---- input layout ----------------------------------------------------
-	static final int K = 4;            // hostile entity slots, sorted by dist
+	static final int K = 6;            // hostile entity slots, sorted by dist
 	static final int F = 14;           // per-slot features
 	static final int G = 15;           // global features
-	static final int INPUT = G + K * F;
+	static final int FRAME = G + K * F; // one encoded frame
+	static final int STACK = 3;        // frame history fed to the net
+	static final int INPUT = FRAME * STACK;
 	static final int OUTPUT = 2 + K + 4; // moveXY(2) + target scores(K) + atk/shield/sprint/jump(4)
 
 	private List<double[][]> w;   // per layer: out x in
 	private List<double[]> b;     // per layer: out
 	private boolean ready;
+	private final Deque<double[]> frames = new ArrayDeque<>(STACK);
 
 	private static boolean isRanged(String type) {
 		return type.contains("skeleton") || type.contains("stray")
@@ -50,6 +58,7 @@ public final class NetPolicy implements CombatPolicy {
 
 	@Override
 	public void reset() {
+		frames.clear();
 	}
 
 	@Override
@@ -95,9 +104,9 @@ public final class NetPolicy implements CombatPolicy {
 		return Math.max(lo, Math.min(hi, v));
 	}
 
-	/** Encode obs into the fixed input vector (layout v1). */
+	/** Encode obs into one fixed feature frame (99 dims). */
 	static double[] encode(JsonObject obs) {
-		double[] x = new double[INPUT];
+		double[] x = new double[FRAME];
 		JsonObject player = obs.getAsJsonObject("player");
 		JsonArray entities = obs.getAsJsonArray("entities");
 
@@ -197,7 +206,20 @@ public final class NetPolicy implements CombatPolicy {
 		if (!ready) {
 			return Intent.IDLE;
 		}
-		double[] x = encode(obs);
+		frames.addLast(encode(obs));
+		while (frames.size() > STACK) {
+			frames.pollFirst();
+		}
+		double[] x = new double[INPUT];
+		int fi = STACK - frames.size();
+		for (double[] f : frames) {
+			System.arraycopy(f, 0, x, fi * FRAME, FRAME);
+			fi++;
+		}
+		// missing history at the front pads with the oldest frame
+		for (int i = 0; i < STACK - frames.size(); i++) {
+			System.arraycopy(frames.peekFirst(), 0, x, i * FRAME, FRAME);
+		}
 		double[] y = forward(x);
 
 		JsonObject player = obs.getAsJsonObject("player");

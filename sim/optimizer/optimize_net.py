@@ -34,9 +34,11 @@ import optimize_gp as gp  # noqa: E402
 
 # ------------------------------------------------------------- net layout --
 
-K, F, G = 4, 14, 15
-INPUT = G + K * F              # 71
-HID = (48, 24)
+K, F, G = 6, 14, 15
+FRAME = G + K * F              # one encoded frame, 99 dims
+STACK = 3                       # frame history fed to the net
+INPUT = FRAME * STACK           # 297
+HID = (96, 48)
 OUTPUT = 2 + K + 4             # moveXY, target scores, atk/shield/sprint/jump = 10
 SIZES = (INPUT,) + HID + (OUTPUT,)
 
@@ -64,7 +66,7 @@ def spec_of(vec):
         layers.append({"shape": [int(n_in), int(n_out)],
                        "w": np.round(w, 5).tolist(),
                        "b": np.round(b, 5).tolist()})
-    return {"layout": "v1", "layers": layers}
+    return {"layout": "v2", "layers": layers}
 
 
 def forward(vec, x):
@@ -102,7 +104,7 @@ def clip(v, lo, hi):
 
 
 def encode(obs):
-    x = np.zeros(INPUT)
+    x = np.zeros(FRAME)
     p = obs["player"]
     hs = hostiles_of(obs)
     px, pz = p["pos"]["x"], p["pos"]["z"]
@@ -154,6 +156,16 @@ def encode(obs):
     return x
 
 
+def stack_encode(hist):
+    """hist: list of up-to-STACK encodes (oldest first). Concatenates into the
+    net input, padding the front by repeating the oldest frame — mirrors
+    NetPolicy's deque."""
+    h = list(hist)[-STACK:]
+    while len(h) < STACK:
+        h.insert(0, h[0])
+    return np.concatenate(h)
+
+
 # ------------------------------------------------------------- imitation --
 
 def imitate(traj_dir, seed=0, epochs=60, lr=0.01):
@@ -167,6 +179,7 @@ def imitate(traj_dir, seed=0, epochs=60, lr=0.01):
     X, Ym, Yt, Yb = [], [], [], []
     n_ticks = 0
     for f in sorted(Path(traj_dir).glob("*.jsonl")):
+        hist = []
         for line in open(f):
             r = json.loads(line)
             if r.get("type") != "tick" or "intent" not in r:
@@ -175,7 +188,9 @@ def imitate(traj_dir, seed=0, epochs=60, lr=0.01):
             hs = hostiles_of(obs)
             if not hs:
                 continue
-            x = encode(obs)
+            frame = encode(obs)
+            hist.append(frame)
+            x = stack_encode(hist)
             n_ticks += 1
             X.append(x)
             md = it.get("moveDir") or [0.0, 0.0]
