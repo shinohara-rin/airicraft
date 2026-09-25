@@ -735,3 +735,35 @@ richer primitives (continuous target scoring, shield timing, backstep)
 or the PvP regime, not more mixture machinery.
 
 `champ_sel1.npy`, `champ_sel2.npy`, `programs_sel.json` ship deployable.
+
+### Net v4 pointer-head (ptr1): a real negative result
+
+Hypothesis: the AST grammar's edge is per-entity target *selection* — so give
+the net a pointer-style head: shared trunk (1980→96→48), then a per-slot
+scorer `score_k = ptr(cat(ctx, slot_k_feats))` that prices each hostile slot
+on its own 14 features plus global context (the neural analog of `target:`
+clauses), with separate move/flag heads off the ctx. `--ptr` mode in
+`train_rl.py`, `"layout":"ptr"` in `NetPolicy` (spec = {layers, ptr, heads}).
+
+ptr1: 500-iter PPO-EMA, `--ptr --init bc_v20` (trunk warm-start only) +
+`--familymix`. Sampled play reaches ~55% clears, but deterministic EMA eval
+converged slowly (ptr head adds 6-way target entropy on top of the flags):
+eval500 [1.68k, .30c]. CRN final eval on a fresh 24-scen familymix set:
+
+| policy | kills | taken | clear | surv | ticks |
+|---|---|---|---|---|---|
+| ptr1_best | 0.83 | -7.7 | .208 | .750 | -390 |
+| baseline | 2.54 | -14.3 | .667 | .667 | -151 |
+| me11_dom | 3.54 | -4.8 | .792 | .917 | -201 |
+
+me11_dom strictly dominates ptr1_best on 12/24 scenarios. The pointer head
+*hurt* convergence vs flat champ_rl5 (~3.0 kills): an untrained ptr scorer
+injects near-uniform target noise into every step, and the 196k-param model
+needs far more than 500 iters. Degenerate audit: not a turtle (fights, just
+poorly).
+
+Lesson: transplanting the grammar's *form* (per-entity scoring) without its
+*content* (which entities the rules actually prefer) doesn't transfer. A
+follow-up could distill the AST champs' target choices into the ptr scorer
+as pre-training before RL — the scorer learns WHAT the rules select, not
+just HOW selection is shaped.
