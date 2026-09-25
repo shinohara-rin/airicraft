@@ -657,6 +657,26 @@ representation, full 12-out action space) was still ~0 kills at iter 60 —
 identical early phase to rl5, killed early to free arenas for the hybrid;
 rl7 reruns it for 800 iters to get past the entropy-collapse phase.
 
+**Result (rl7, 800 iters, warm start bc_v20, lr 1e-4):** climbed to
+rl5-tier (eval-290 [3.21 kills, .611 clear]) then drifted toward survival
+— TIMEOUT share rose to ~30%, 10/192 final rollouts were zero-kill
+non-deaths. Fresh 24-scen eval of `champ_rl7.npy`:
+
+```
+[rl7_best ] kills 2.12  taken -15.68 clear .411  survived .531  ticks -236
+[hyb1_best] kills 3.52  taken -5.99  clear .708  survived .922  ticks -290
+[me11_dom ] kills 4.03  taken -5.87  clear .823  survived .917  ticks -223
+[baseline ] kills 2.84  taken -14.68 clear .578  survived .609  ticks -178
+```
+
+Pure neural converged *below* baseline; the hybrid is the current
+non-rule champion (beats baseline 4/5 axes, best damage avoidance
+overall). The residual gap to me11_dom is target selection — the AST
+grammar's conditioned `type:mob` switching beats argmax-over-slots.
+Next step queued: selector-style hybrid (net picks which of the 17 champ
+programs runs each tick — mixture-of-experts over the full evolved
+grammar). `champ_hyb1.npy` + `champ_rl7.npy` ship deployable.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.
