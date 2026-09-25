@@ -45,6 +45,14 @@ public final class NetPolicy implements CombatPolicy {
 	private boolean ready;
 	private final Deque<double[]> frames = new ArrayDeque<>(STACK);
 
+	// "ptr" layout: trunk -> ctx; per-slot head scores each hostile's 14 feats
+	// (pointer-style target selection, the neural analog of the AST target
+	// grammar); separate move/flag heads over ctx.
+	private List<double[][]> ptrW;
+	private List<double[]> ptrB;
+	private List<double[][]> headW;   // [move 48->2, flags 48->4]
+	private List<double[]> headB;
+
 	private static boolean isRanged(String type) {
 		return type.contains("skeleton") || type.contains("stray")
 				|| type.contains("pillager") || type.contains("witch")
@@ -76,26 +84,78 @@ public final class NetPolicy implements CombatPolicy {
 		b = new ArrayList<>();
 		for (JsonElement le : layers) {
 			JsonObject l = le.getAsJsonObject();
-			JsonArray wArr = l.getAsJsonArray("w");
-			JsonArray bArr = l.getAsJsonArray("b");
-			JsonArray shape = l.getAsJsonArray("shape"); // [in, out]
-			int in = shape.get(0).getAsInt();
-			int out = shape.get(1).getAsInt();
-			double[][] wm = new double[out][in];
-			for (int o = 0; o < out; o++) {
-				JsonArray row = wArr.get(o).getAsJsonArray();
-				for (int i = 0; i < in; i++) {
-					wm[o][i] = row.get(i).getAsDouble();
-				}
-			}
-			double[] bv = new double[out];
-			for (int o = 0; o < out; o++) {
-				bv[o] = bArr.get(o).getAsDouble();
-			}
-			w.add(wm);
-			b.add(bv);
+			w.add(readW(l));
+			b.add(readB(l));
 		}
 		ready = !w.isEmpty();
+		if (spec.has("ptr")) {
+			ptrW = new ArrayList<>();
+			ptrB = new ArrayList<>();
+			for (JsonElement le : spec.getAsJsonArray("ptr")) {
+				JsonObject l = le.getAsJsonObject();
+				ptrW.add(readW(l));
+				ptrB.add(readB(l));
+			}
+		}
+		if (spec.has("heads")) {
+			headW = new ArrayList<>();
+			headB = new ArrayList<>();
+			for (JsonElement le : spec.getAsJsonArray("heads")) {
+				JsonObject l = le.getAsJsonObject();
+				headW.add(readW(l));
+				headB.add(readB(l));
+			}
+		}
+	}
+
+	private static double[][] readW(JsonObject l) {
+		JsonArray wArr = l.getAsJsonArray("w");
+		JsonArray shape = l.getAsJsonArray("shape"); // [in, out]
+		int in = shape.get(0).getAsInt();
+		int out = shape.get(1).getAsInt();
+		double[][] wm = new double[out][in];
+		for (int o = 0; o < out; o++) {
+			JsonArray row = wArr.get(o).getAsJsonArray();
+			for (int i = 0; i < in; i++) {
+				wm[o][i] = row.get(i).getAsDouble();
+			}
+		}
+		return wm;
+	}
+
+	private static double[] readB(JsonObject l) {
+		JsonArray bArr = l.getAsJsonArray("b");
+		JsonArray shape = l.getAsJsonArray("shape");
+		double[] bv = new double[shape.get(1).getAsInt()];
+		for (int o = 0; o < bv.length; o++) {
+			bv[o] = bArr.get(o).getAsDouble();
+		}
+		return bv;
+	}
+
+	private static double[] applyNet(List<double[][]> lw, List<double[]> lb,
+			double[] x, boolean tanhLast) {
+		double[] a = x;
+		for (int li = 0; li < lw.size(); li++) {
+			double[][] wm = lw.get(li);
+			double[] bv = lb.get(li);
+			double[] o = new double[wm.length];
+			for (int r = 0; r < wm.length; r++) {
+				double s = bv[r];
+				double[] row = wm[r];
+				for (int c = 0; c < row.length; c++) {
+					s += row[c] * a[c];
+				}
+				o[r] = s;
+			}
+			if (tanhLast || li < lw.size() - 1) {
+				for (int r = 0; r < o.length; r++) {
+					o[r] = Math.tanh(o[r]);
+				}
+			}
+			a = o;
+		}
+		return a;
 	}
 
 	// ----------------------------------------------------------- encoding --
@@ -201,8 +261,8 @@ public final class NetPolicy implements CombatPolicy {
 
 	// ------------------------------------------------------------- decide --
 
-	/** Push obs onto the frame stack and run the forward pass. null if unconfigured. */
-	double[] forwardStack(JsonObject obs) {
+	/** Push obs onto the frame stack; returns the stacked input. null if unconfigured. */
+	double[] stackInput(JsonObject obs) {
 		if (!ready) {
 			return null;
 		}
@@ -220,15 +280,16 @@ public final class NetPolicy implements CombatPolicy {
 		for (int i = 0; i < STACK - frames.size(); i++) {
 			System.arraycopy(frames.peekFirst(), 0, x, i * FRAME, FRAME);
 		}
-		return forward(x);
+		return x;
 	}
 
 	/** SelectorPolicy: argmax over the first nPrograms outputs. -1 if unconfigured. */
 	int pickProgram(JsonObject obs, int nPrograms) {
-		double[] y = forwardStack(obs);
-		if (y == null) {
+		double[] x = stackInput(obs);
+		if (x == null) {
 			return -1;
 		}
+		double[] y = forward(x);
 		int best = 0;
 		for (int i = 1; i < nPrograms && i < y.length; i++) {
 			if (y[i] > y[best]) {
@@ -240,9 +301,35 @@ public final class NetPolicy implements CombatPolicy {
 
 	@Override
 	public Intent decide(JsonObject obs) {
-		double[] y = forwardStack(obs);
-		if (y == null) {
+		double[] x = stackInput(obs);
+		if (x == null) {
 			return Intent.IDLE;
+		}
+		double[] mv;
+		double[] flagOut;
+		double[] tgtScores = new double[K];
+		if (ptrW != null && headW != null && headW.size() == 2) {
+			// pointer layout: tanh(trunk) ctx, per-slot scores, separate heads
+			double[] ctx = applyNet(w, b, x, true);
+			// the latest frame is obs's own encoding: slot feats at [G + kF, G + kF + F)
+			double[] frame = frames.peekLast();
+			for (int k = 0; k < K; k++) {
+				double[] in = new double[ctx.length + F];
+				System.arraycopy(ctx, 0, in, 0, ctx.length);
+				System.arraycopy(frame, G + k * F, in, ctx.length, F);
+				tgtScores[k] = applyNet(ptrW, ptrB, in, false)[0];
+			}
+			List<double[][]> mw = new ArrayList<>(); mw.add(headW.get(0));
+			List<double[]> mb = new ArrayList<>(); mb.add(headB.get(0));
+			mv = applyNet(mw, mb, ctx, false);
+			List<double[][]> fw = new ArrayList<>(); fw.add(headW.get(1));
+			List<double[]> fb = new ArrayList<>(); fb.add(headB.get(1));
+			flagOut = applyNet(fw, fb, ctx, false);
+		} else {
+			double[] y = forward(x);
+			mv = new double[]{y[0], y[1]};
+			System.arraycopy(y, 2, tgtScores, 0, K);
+			flagOut = new double[]{y[2 + K], y[2 + K + 1], y[2 + K + 2], y[2 + K + 3]};
 		}
 
 		JsonObject player = obs.getAsJsonObject("player");
@@ -266,8 +353,8 @@ public final class NetPolicy implements CombatPolicy {
 		int ti = 0;
 		double best = Double.NEGATIVE_INFINITY;
 		for (int k = 0; k < K && k < hostiles.size(); k++) {
-			if (y[2 + k] > best) {
-				best = y[2 + k];
+			if (tgtScores[k] > best) {
+				best = tgtScores[k];
 				ti = k;
 			}
 		}
@@ -275,12 +362,12 @@ public final class NetPolicy implements CombatPolicy {
 
 		Intent.Builder bld = Intent.builder()
 				.lookEntity(target.get("id").getAsInt())
-				.moveDir(y[0], y[1])
-				.attack(y[2 + K] > 0)
-				.sprint(y[2 + K + 2] > 0)
-				.jump(y[2 + K + 3] > 0 && player.has("onGround")
+				.moveDir(mv[0], mv[1])
+				.attack(flagOut[0] > 0)
+				.sprint(flagOut[2] > 0)
+				.jump(flagOut[3] > 0 && player.has("onGround")
 						&& player.get("onGround").getAsBoolean());
-		if (y[2 + K + 1] > 0) {
+		if (flagOut[1] > 0) {
 			bld.useHand("off");
 		} else {
 			bld.stopUsing(true);

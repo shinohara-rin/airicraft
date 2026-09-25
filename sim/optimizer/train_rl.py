@@ -32,7 +32,7 @@ from optimize_cmaes import (  # noqa: E402
     metrics_of, METRIC_NAMES, MAX_TICKS)
 from optimize_net import (  # noqa: E402
     encode, hostiles_of, spec_of, pack, unpack, stack_encode,
-    SIZES, INPUT, K, STACK)
+    SIZES, INPUT, K, STACK, F, G, FRAME)
 
 RUN_DIR = Path(__file__).resolve().parent.parent / "run" / "sim-server"
 EP_DIR = RUN_DIR / "sim" / "episodes"
@@ -76,11 +76,77 @@ class Value(nn.Module):
         return self.net(x).squeeze(-1)
 
 
+class PolicyPtr(nn.Module):
+    """Pointer-head policy: shared trunk -> ctx(48); per-slot scorer
+    scores each hostile's 14 feats against ctx (weight-shared across slots,
+    the neural analog of the AST target grammar); separate move/flag heads.
+
+    forward() returns the same (B, 2+K+4) layout as Policy so the PPO loop
+    needs no changes. Slot feats are sliced from the latest stacked frame
+    (positions [G+k*F, G+k*F+F) of frame STACK-1)."""
+
+    def __init__(self, hid=(96, 48), ptr_hid=16):
+        super().__init__()
+        self.h1 = nn.Linear(INPUT, hid[0])
+        self.h2 = nn.Linear(hid[0], hid[1])
+        self.p1 = nn.Linear(hid[1] + F, ptr_hid)
+        self.p2 = nn.Linear(ptr_hid, 1)
+        self.mvH = nn.Linear(hid[1], 2)
+        self.flH = nn.Linear(hid[1], 4)
+        self.log_std = nn.Parameter(torch.full((2,), -1.0))
+
+    def forward(self, x):
+        ctx = torch.tanh(self.h2(torch.tanh(self.h1(x))))
+        latest = x[:, (STACK - 1) * FRAME:(STACK - 1) * FRAME + FRAME]
+        sf = latest[:, G:G + K * F].reshape(-1, K, F)          # (B,K,14)
+        ctxk = ctx.unsqueeze(1).expand(-1, K, -1)              # (B,K,48)
+        sc = self.p2(torch.tanh(self.p1(
+            torch.cat([ctxk, sf], dim=-1)))).squeeze(-1)       # (B,K)
+        return torch.cat([self.mvH(ctx), sc, self.flH(ctx)], dim=-1)
+
+    def flat(self):
+        parts = []
+        for l in (self.h1, self.h2, self.p1, self.p2, self.mvH, self.flH):
+            parts += [l.weight.detach().cpu().numpy().ravel(),
+                      l.bias.detach().cpu().numpy().ravel()]
+        return np.concatenate(parts)
+
+    def load_trunk(self, vec):
+        """Warm-start h1/h2 from a flat vec whose first two layers share dims."""
+        hid = unpack_sized(vec, SIZES)
+        for (w, b), l in zip(hid[:2], (self.h1, self.h2)):
+            l.weight.data = torch.tensor(w, dtype=torch.float32)
+            l.bias.data = torch.tensor(b, dtype=torch.float32)
+
+
+PTR_SIZES = [(1980, 96), (96, 48), (62, 16), (16, 1), (48, 2), (48, 4)]
+
+
+def spec_of_ptr(vec):
+    off, layers = 0, []
+    for (n_in, n_out) in PTR_SIZES:
+        nw, nb = n_in * n_out, n_out
+        w = vec[off:off + nw].reshape(n_out, n_in)
+        b = vec[off + nw:off + nw + nb]
+        layers.append({"shape": [n_in, n_out],
+                       "w": np.round(w, 5).tolist(),
+                       "b": np.round(b, 5).tolist()})
+        off += nw + nb
+    return {"layout": "ptr", "layers": layers[:2],
+            "ptr": layers[2:4], "heads": layers[4:6]}
+
+
 # -------------------------------------------------------------- actions --
 
 AST = None  # champ program for neuro-symbolic hybrid mode (--ast)
 SEL = None      # --sel: list of champ programs; net picks one per tick
 SEL_SIZES = None
+PTR = False     # --ptr: PolicyPtr pointer-head policy
+FAMILYMIX = False  # --familymix: balance scenario pools uniformly
+FAM_POOLS = {"standard": None,
+             "ranged": [("skeleton", 0.65), ("zombie", 0.20), ("creeper", 0.15)],
+             "melee": [("zombie", 0.55), ("spider", 0.30), ("creeper", 0.15)],
+             "nether": NETHER_MOB_POOL}
 
 
 def unpack_sized(vec, sizes):
@@ -169,12 +235,17 @@ class Env:
         Spawn occasionally 500s on collision ("no empty space"); resample the
         scenario a few times like the batch runner tolerates."""
         for _try in range(6):
-            nether = self.rng.random() < self.netherfrac
+            if FAMILYMIX:
+                fam = list(FAM_POOLS)[self.rng.integers(len(FAM_POOLS))]
+                pool = FAM_POOLS[fam]
+                nether = fam == "nether"
+            else:
+                nether = self.rng.random() < self.netherfrac
+                pool = NETHER_MOB_POOL if nether else None
             scen = random_scenario(
                 self.rng, min_r=5.5, max_r=8.0, min_n=4, max_n=9,
-                pool=NETHER_MOB_POOL if nether else None) if self.hard \
-                else random_scenario(self.rng,
-                                     pool=NETHER_MOB_POOL if nether else None)
+                pool=pool) if self.hard \
+                else random_scenario(self.rng, pool=pool)
             terr = random_terrain(self.rng,
                                   avoid_pts=[(dx, dz) for _t, dx, dz in scen],
                                   nether=nether)
@@ -266,6 +337,15 @@ def main():
                     help="JSON list of champ programs: selector MoE — the net "
                          "outputs N-way scores picking which program runs each "
                          "tick; inherits each champ's full intent")
+    ap.add_argument("--familymix", action="store_true",
+                    help="balance resets uniformly over scenario families "
+                         "(standard/ranged/melee/nether) so the selector sees "
+                         "the family distinctions it must learn")
+    ap.add_argument("--ptr", action="store_true",
+                    help="pointer-head policy: per-slot target scorer "
+                         "(slot feats + global ctx) instead of positional "
+                         "target logits — the neural analog of AST's "
+                         "conditioned target grammar")
     args = ap.parse_args()
 
     if args.ast:
@@ -276,6 +356,12 @@ def main():
         SEL = json.loads(Path(args.sel).read_text())
         SEL_SIZES = (INPUT, 96, 48, len(SEL))
         print(f"[sel] {len(SEL)} programs; selector head {SEL_SIZES}", flush=True)
+    if args.familymix:
+        global FAMILYMIX
+        FAMILYMIX = True
+    if args.ptr:
+        global PTR
+        PTR = True
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -290,11 +376,13 @@ def main():
         sim.setup_arena(name)
     call("POST", "/v1/step", {"ticks": 10})
 
-    pol = Policy(SIZES if SEL is None else SEL_SIZES)
+    pol = PolicyPtr() if PTR else Policy(SIZES if SEL is None else SEL_SIZES)
     val = Value()
     if args.init:
         iv = np.load(args.init)
-        if SEL is not None:
+        if PTR:
+            pol.load_trunk(iv)
+        elif SEL is not None:
             # hidden layers are shared with the 12-out BC champion: reuse
             # them and leave the fresh 48->NPROG selector head at init
             hid = unpack_sized(iv, SIZES)
@@ -326,9 +414,15 @@ def main():
     def sample_eval_set(r, n):
         s = []
         for _ in range(n):
-            nether = r.random() < args.netherfrac
+            if FAMILYMIX:
+                fam = list(FAM_POOLS)[r.integers(len(FAM_POOLS))]
+                pool = FAM_POOLS[fam]
+                nether = fam == "nether"
+            else:
+                nether = r.random() < args.netherfrac
+                pool = NETHER_MOB_POOL if nether else None
             scen = random_scenario(r, min_r=5.5, max_r=8.0, min_n=4, max_n=9,
-                                   pool=NETHER_MOB_POOL if nether else None)
+                                   pool=pool)
             terr = random_terrain(r, avoid_pts=[(dx, dz) for _t, dx, dz in scen],
                                   nether=nether)
             s.append((scen, terr))
@@ -568,7 +662,10 @@ def main():
             # churning live weights: averaged iterates smooth PPO oscillation
             eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_eval_set(eval_rng, args.neval)
-            if SEL is not None:
+            if PTR:
+                params = [{"net": spec_of_ptr(eval_flat)} for _ in arenas]
+                epol = "net"
+            elif SEL is not None:
                 params = [{"net": spec_of_sized(eval_flat, SEL_SIZES),
                            "programs": SEL} for _ in arenas]
                 epol = "selector"
