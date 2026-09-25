@@ -301,7 +301,11 @@ public final class SimHttpControl {
 				for (String arenaName : intents.keySet()) {
 					Episode e = findRunningEpisode(arenaName);
 					if (e != null && e.policy() instanceof ExternalPolicy xp) {
-						xp.set(parseIntent(intents.getAsJsonObject(arenaName)));
+						JsonObject ji = intents.getAsJsonObject(arenaName);
+						xp.set(parseIntent(ji));
+						if (ji.has("program")) {
+							xp.setProgram(ji.get("program").getAsInt());
+						}
 					}
 				}
 				return null;

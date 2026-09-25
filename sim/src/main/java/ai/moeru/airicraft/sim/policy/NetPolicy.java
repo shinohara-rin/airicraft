@@ -201,10 +201,10 @@ public final class NetPolicy implements CombatPolicy {
 
 	// ------------------------------------------------------------- decide --
 
-	@Override
-	public Intent decide(JsonObject obs) {
+	/** Push obs onto the frame stack and run the forward pass. null if unconfigured. */
+	double[] forwardStack(JsonObject obs) {
 		if (!ready) {
-			return Intent.IDLE;
+			return null;
 		}
 		frames.addLast(encode(obs));
 		while (frames.size() > STACK) {
@@ -220,7 +220,30 @@ public final class NetPolicy implements CombatPolicy {
 		for (int i = 0; i < STACK - frames.size(); i++) {
 			System.arraycopy(frames.peekFirst(), 0, x, i * FRAME, FRAME);
 		}
-		double[] y = forward(x);
+		return forward(x);
+	}
+
+	/** SelectorPolicy: argmax over the first nPrograms outputs. -1 if unconfigured. */
+	int pickProgram(JsonObject obs, int nPrograms) {
+		double[] y = forwardStack(obs);
+		if (y == null) {
+			return -1;
+		}
+		int best = 0;
+		for (int i = 1; i < nPrograms && i < y.length; i++) {
+			if (y[i] > y[best]) {
+				best = i;
+			}
+		}
+		return best;
+	}
+
+	@Override
+	public Intent decide(JsonObject obs) {
+		double[] y = forwardStack(obs);
+		if (y == null) {
+			return Intent.IDLE;
+		}
 
 		JsonObject player = obs.getAsJsonObject("player");
 		JsonArray entities = obs.getAsJsonArray("entities");

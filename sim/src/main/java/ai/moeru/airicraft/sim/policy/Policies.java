@@ -11,6 +11,7 @@ public final class Policies {
 			"ast", AstPolicy::new,
 			"net", NetPolicy::new,
 			"hybrid", HybridPolicy::new,
+			"selector", SelectorPolicy::new,
 			"external", ExternalPolicy::new,
 			"idle", IdlePolicy::new);
 

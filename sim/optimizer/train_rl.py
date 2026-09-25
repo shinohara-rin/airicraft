@@ -41,10 +41,11 @@ EP_DIR = RUN_DIR / "sim" / "episodes"
 # ----------------------------------------------------------------- model --
 
 class Policy(nn.Module):
-    def __init__(self):
+    def __init__(self, sizes=SIZES):
         super().__init__()
+        self.sizes = sizes
         self.layers = nn.ModuleList(
-            [nn.Linear(a, b) for a, b in zip(SIZES[:-1], SIZES[1:])])
+            [nn.Linear(a, b) for a, b in zip(sizes[:-1], sizes[1:])])
         self.log_std = nn.Parameter(torch.full((2,), -1.0))
 
     def forward(self, x):
@@ -78,6 +79,29 @@ class Value(nn.Module):
 # -------------------------------------------------------------- actions --
 
 AST = None  # champ program for neuro-symbolic hybrid mode (--ast)
+SEL = None      # --sel: list of champ programs; net picks one per tick
+SEL_SIZES = None
+
+
+def unpack_sized(vec, sizes):
+    off, out = 0, []
+    for n_in, n_out in zip(sizes[:-1], sizes[1:]):
+        nw, nb = n_in * n_out, n_out
+        w = vec[off:off + nw].reshape(n_out, n_in)
+        b = vec[off + nw:off + nw + nb]
+        out.append((w, b))
+        off += nw + nb
+    return out
+
+
+def spec_of_sized(vec, sizes):
+    layers = []
+    for (w, b), (n_in, n_out) in zip(unpack_sized(vec, sizes),
+                                    zip(sizes[:-1], sizes[1:])):
+        layers.append({"shape": [int(n_in), int(n_out)],
+                       "w": np.round(w, 5).tolist(),
+                       "b": np.round(b, 5).tolist()})
+    return {"layout": "sel", "layers": layers}
 
 
 def act_to_intent(obs, move, target_idx, flags):
@@ -164,7 +188,9 @@ class Env:
     def start(self):
         body = {"arena": self.name, "policy": "external",
                 "maxTicks": MAX_TICKS, "obsRadius": 20.0}
-        if AST is not None:
+        if SEL is not None:
+            body["params"] = {"programs": SEL}
+        elif AST is not None:
             body["params"] = {"ast": AST}
         ep = call("POST", "/v1/episode", body)
         self.ep_id = ep.get("id")
@@ -236,11 +262,20 @@ def main():
     ap.add_argument("--ast", default=None,
                     help="champ AST JSON: neuro-symbolic hybrid — net supplies "
                          "move+target only, flags come from the AST program")
+    ap.add_argument("--sel", default=None,
+                    help="JSON list of champ programs: selector MoE — the net "
+                         "outputs N-way scores picking which program runs each "
+                         "tick; inherits each champ's full intent")
     args = ap.parse_args()
 
     if args.ast:
         global AST
         AST = json.loads(Path(args.ast).read_text())
+    if args.sel:
+        global SEL, SEL_SIZES
+        SEL = json.loads(Path(args.sel).read_text())
+        SEL_SIZES = (INPUT, 96, 48, len(SEL))
+        print(f"[sel] {len(SEL)} programs; selector head {SEL_SIZES}", flush=True)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -255,10 +290,19 @@ def main():
         sim.setup_arena(name)
     call("POST", "/v1/step", {"ticks": 10})
 
-    pol = Policy()
+    pol = Policy(SIZES if SEL is None else SEL_SIZES)
     val = Value()
     if args.init:
-        pol.load_flat(np.load(args.init))
+        iv = np.load(args.init)
+        if SEL is not None:
+            # hidden layers are shared with the 12-out BC champion: reuse
+            # them and leave the fresh 48->NPROG selector head at init
+            hid = unpack_sized(iv, SIZES)
+            for (w, b), l in zip(hid[:-1], pol.layers[:-1]):
+                l.weight.data = torch.tensor(w, dtype=torch.float32)
+                l.bias.data = torch.tensor(b, dtype=torch.float32)
+        else:
+            pol.load_flat(iv)
         print(f"[init] warm from {args.init}", flush=True)
     opt = torch.optim.Adam(list(pol.parameters()) + list(val.parameters()), lr=args.lr)
 
@@ -310,25 +354,36 @@ def main():
                     y = pol(xs)
                     v = val(xs)
                 n_valid = [min(len(hostiles_of(envs[i].obs)), K) for i in idx]
-                std = torch.exp(pol.log_std)
-                move_d = Normal(y[:, 0:2], std.expand_as(y[:, 0:2]))
-                tgt_logits = y[:, 2:2 + K].clone()
-                for r_i, nv in enumerate(n_valid):
-                    tgt_logits[r_i, nv:] = -1e9
-                tgt_d = Categorical(logits=tgt_logits)
-                flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
-                mv = move_d.sample()
-                tg = tgt_d.sample()
-                fg = flag_d.sample()
-                hasT = torch.tensor([n > 0 for n in n_valid], dtype=torch.bool)
-                logp = (move_d.log_prob(mv).sum(-1)
-                        + torch.where(hasT, tgt_d.log_prob(tg),
-                                      torch.zeros(len(idx)))
-                        + flag_d.log_prob(fg).sum(-1))
+                if SEL is not None:
+                    prog_d = Categorical(logits=y[:, :len(SEL)])
+                    pg = prog_d.sample()
+                    mv = torch.zeros(len(idx), 2)
+                    tg = torch.zeros(len(idx), dtype=torch.long)
+                    fg = torch.zeros(len(idx), 4)
+                    logp = prog_d.log_prob(pg)
+                else:
+                    std = torch.exp(pol.log_std)
+                    move_d = Normal(y[:, 0:2], std.expand_as(y[:, 0:2]))
+                    tgt_logits = y[:, 2:2 + K].clone()
+                    for r_i, nv in enumerate(n_valid):
+                        tgt_logits[r_i, nv:] = -1e9
+                    tgt_d = Categorical(logits=tgt_logits)
+                    flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
+                    mv = move_d.sample()
+                    tg = tgt_d.sample()
+                    fg = flag_d.sample()
+                    hasT = torch.tensor([n > 0 for n in n_valid], dtype=torch.bool)
+                    logp = (move_d.log_prob(mv).sum(-1)
+                            + torch.where(hasT, tgt_d.log_prob(tg),
+                                          torch.zeros(len(idx)))
+                            + flag_d.log_prob(fg).sum(-1))
                 intents = {}
                 for j, i in enumerate(idx):
-                    intents[envs[i].name] = act_to_intent(
-                        envs[i].obs, mv[j], tg[j], fg[j])
+                    if SEL is not None:
+                        intents[envs[i].name] = {"program": int(pg[j])}
+                    else:
+                        intents[envs[i].name] = act_to_intent(
+                            envs[i].obs, mv[j], tg[j], fg[j])
                 try:
                     resp = call("POST", "/v1/step", {"intents": intents, "ticks": 1})
                 except RuntimeError as e:
@@ -341,8 +396,12 @@ def main():
                         continue
                     r = e.finish_transition(a)
                     e.traj.append({"x": xs[j].numpy(), "mv": mv[j].numpy(),
-                                   "tgt": tg[j].item(), "flg": fg[j].numpy(),
-                                   "hasT": bool(hasT[j]), "nv": n_valid[j],
+                                   "tgt": (int(pg[j]) if SEL is not None
+                                           else tg[j].item()),
+                                   "flg": fg[j].numpy(),
+                                   "hasT": (True if SEL is not None
+                                            else bool(hasT[j])),
+                                   "nv": n_valid[j],
                                    "logp": logp[j].item(), "v": v[j].item(),
                                    "r": r, "done": a["done"]})
                     if a["done"]:
@@ -432,28 +491,34 @@ def main():
                 for s in range(0, n, args.mb):
                     b = perm[s:s + args.mb]
                     y = pol(X[b])
-                    tgt_logits = y[:, 2:2 + K].clone()
-                    for r_i in range(len(b)):
-                        tgt_logits[r_i, Nv[b][r_i]:] = -1e9
-                    move_d = Normal(y[:, 0:2],
-                                    torch.exp(pol.log_std).expand_as(y[:, 0:2]))
-                    tgt_d = Categorical(logits=tgt_logits)
-                    flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
-                    lp = (move_d.log_prob(Mv[b]).sum(-1)
-                          + torch.where(Ht[b], tgt_d.log_prob(Tg[b]),
-                                        torch.zeros(len(b)))
-                          + flag_d.log_prob(Fg[b]).sum(-1))
+                    if SEL is not None:
+                        prog_d = Categorical(logits=y[:, :len(SEL)])
+                        lp = prog_d.log_prob(Tg[b])
+                        entm = torch.zeros(1)
+                        entb = prog_d.entropy().mean()
+                    else:
+                        tgt_logits = y[:, 2:2 + K].clone()
+                        for r_i in range(len(b)):
+                            tgt_logits[r_i, Nv[b][r_i]:] = -1e9
+                        move_d = Normal(y[:, 0:2],
+                                        torch.exp(pol.log_std).expand_as(y[:, 0:2]))
+                        tgt_d = Categorical(logits=tgt_logits)
+                        flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
+                        lp = (move_d.log_prob(Mv[b]).sum(-1)
+                              + torch.where(Ht[b], tgt_d.log_prob(Tg[b]),
+                                            torch.zeros(len(b)))
+                              + flag_d.log_prob(Fg[b]).sum(-1))
+                        entm = move_d.entropy().sum(-1).mean()
+                        entb = (tgt_d.entropy().mean()
+                                + flag_d.entropy().sum(-1).mean())
                     ratio = torch.exp(lp - OldL[b])
                     s1 = ratio * Adv[b]
                     s2 = torch.clamp(ratio, 1 - args.clip, 1 + args.clip) * Adv[b]
                     pol_loss = -torch.min(s1, s2).mean()
                     v = val(X[b])
                     v_loss = 0.5 * ((v - Ret[b]) ** 2).mean()
-                    entm = move_d.entropy().sum(-1).mean()
-                    entb = (tgt_d.entropy().mean()
-                            + flag_d.entropy().sum(-1).mean())
                     loss = pol_loss + v_loss - args.ent * entm - args.entb * entb
-                    if args.margin > 0:
+                    if args.margin > 0 and SEL is None:
                         fl = y[:, 2 + K:2 + K + 4]
                         loss = loss + args.marginw * torch.relu(
                             args.margin - fl.abs()).mean()
@@ -503,18 +568,24 @@ def main():
             # churning live weights: averaged iterates smooth PPO oscillation
             eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_eval_set(eval_rng, args.neval)
-            if AST is not None:
+            if SEL is not None:
+                params = [{"net": spec_of_sized(eval_flat, SEL_SIZES),
+                           "programs": SEL} for _ in arenas]
+                epol = "selector"
+            elif AST is not None:
                 params = [{"net": spec_of(eval_flat), "ast": AST}
                           for _ in arenas]
+                epol = "hybrid"
             else:
                 params = [{"net": spec_of(eval_flat)} for _ in arenas]
+                epol = "net"
             acc = np.zeros(len(METRIC_NAMES))
             n_done = 0
             for scen, terr in es:
                 try:
                     scores = sim.run_batch(params, scen,
                                            terrains=[terr] * len(arenas),
-                                           policy="hybrid" if AST is not None else "net")
+                                           policy=epol)
                     n_done += 1
                     for s2 in scores:
                         acc += metrics_of(s2)
