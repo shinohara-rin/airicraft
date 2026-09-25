@@ -673,9 +673,32 @@ Pure neural converged *below* baseline; the hybrid is the current
 non-rule champion (beats baseline 4/5 axes, best damage avoidance
 overall). The residual gap to me11_dom is target selection — the AST
 grammar's conditioned `type:mob` switching beats argmax-over-slots.
-Next step queued: selector-style hybrid (net picks which of the 17 champ
-programs runs each tick — mixture-of-experts over the full evolved
-grammar). `champ_hyb1.npy` + `champ_rl7.npy` ship deployable.
+`champ_hyb1.npy` + `champ_rl7.npy` ship deployable.
+
+### Selector MoE (sel1): net picks which champ program runs each tick
+
+`SelectorPolicy` + external `{program:k}` intents + `train_rl.py --sel`:
+the net (1980→96→48→17) scores all 17 champ programs per tick and the
+argmax program supplies the whole intent — inheriting the evolved
+grammar's target switching, the piece the flat hybrid lacked.
+
+500-iter PPO-EMA (bc_v20 hidden-layer warm start), entropy 2.83→1.8
+(specialized onto ~3 programs). Fresh 24-scen × 8 (N=192) final eval:
+
+| policy | kills | -taken | clear | survived | -ticks |
+|---|---|---|---|---|---|
+| me11_dom | 4.25 | -5.8 | .84 | .92 | -225 |
+| sel1_best | 4.15 | -8.9 | .72 | .81 | -252 |
+| hyb1_best | 3.79 | -6.5 | .75 | .87 | -264 |
+| baseline | 3.22 | -13.6 | .67 | .73 | -191 |
+
+Selector > flat hybrid (+0.4 kills, target switching helped) but still
+below me11_dom on 4/5 axes. Structural reason: in this pool me11_dom is
+already the strongest single program on hard scenarios — a mixture with
+weaker experts can only approach the best program's ceiling, not exceed
+it. Selector value would show on scenario mixes where different experts
+specialize; at uniform-hard difficulty it converges back toward
+dom-always. `champ_sel1.npy` + `programs_sel.json` ship deployable.
 
 ## Verified end-to-end
 
