@@ -206,6 +206,8 @@ def main():
     ap.add_argument("--margin", type=float, default=0.15,
                     help="flag-logit commit margin; 0 disables margin shaping")
     ap.add_argument("--marginw", type=float, default=0.02)
+    ap.add_argument("--ema", type=float, default=0.995,
+                    help="EMA decay for the eval/averaged policy; 0 disables")
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--mb", type=int, default=512)
     ap.add_argument("--netherfrac", type=float, default=0.3)
@@ -262,6 +264,7 @@ def main():
 
     eval_rng = np.random.default_rng(args.seed * 7919 + 50000)
     best_key = None
+    ema_flat = pol.flat() if args.ema > 0 else None
 
     for it in range(1, args.iters + 1):
         t0 = time.time()
@@ -453,6 +456,8 @@ def main():
               f"vl={vl:.3f} ent={el:.3f} dt={dt:.1f}s", flush=True)
 
         np.save(out / "pol_latest.npy", pol.flat())
+        if ema_flat is not None:
+            ema_flat = args.ema * ema_flat + (1.0 - args.ema) * pol.flat()
 
         if it % args.evalevery == 0:
             # stop live episodes so eval sprints don't corrupt bookkeeping
@@ -464,8 +469,11 @@ def main():
                         pass
                     e.need_reset = True
                     e.delete_log()
+            # evaluate the EMA-averaged policy (deployment candidate), not the
+            # churning live weights: averaged iterates smooth PPO oscillation
+            eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_eval_set(eval_rng, args.neval)
-            params = [{"net": spec_of(pol.flat())} for _ in arenas]
+            params = [{"net": spec_of(eval_flat)} for _ in arenas]
             acc = np.zeros(len(METRIC_NAMES))
             n_done = 0
             for scen, terr in es:
@@ -490,7 +498,7 @@ def main():
                    round(float(vec[3]), 3), round(float(vec[4]), 3))
             if not deg and (best_key is None or key > best_key):
                 best_key = key
-                np.save(out / "pol_best.npy", pol.flat())
+                np.save(out / "pol_best.npy", eval_flat)
                 print(f"  [best] {key}", flush=True)
             call("POST", "/v1/tick", {"mode": "freeze"})
 
