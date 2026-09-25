@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class OpenAiCompatibleChatClient {
 	private static final Gson GSON = new Gson();
@@ -33,6 +34,7 @@ public final class OpenAiCompatibleChatClient {
 	private final AgentObservability observability;
 	private final PlannerToolRegistry toolRegistry;
 	private final String cacheKey;
+	private final AtomicReference<ProtocolState> protocolState = new AtomicReference<>(new ProtocolState(0, false));
 	private final HttpClient httpClient = HttpClient.newBuilder()
 		.version(HttpClient.Version.HTTP_1_1)
 		.build();
@@ -77,7 +79,7 @@ public final class OpenAiCompatibleChatClient {
 
 		URI uri;
 		try {
-			uri = buildUri();
+			uri = buildUri("chat/completions");
 		}
 		catch (LlmBackendException exception) {
 			observability.recordFailure(Context.current(), exception.failureType().name(), exception.getMessage(), exception);
@@ -85,18 +87,19 @@ public final class OpenAiCompatibleChatClient {
 		}
 
 		String requestBody = GSON.toJson(buildRequestPayload(conversation, options));
+		ProtocolState sessionProtocol = protocolState.get();
+		if (options.plannerTools() && sessionProtocol.anthropicMessages()) {
+			return completeAnthropic(conversation, requestBody, preview);
+		}
 		HttpResponse<String> response = sendHttpRequest(uri, conversation, requestBody, options.plannerTools(), preview);
+		if (options.plannerTools() && response.statusCode() == 400) {
+			Airicraft.LOGGER.info("Planner HTTP 400; trying Anthropic-compatible Messages for this session");
+			LlmCallResult<String> fallback = completeAnthropic(conversation, requestBody, preview);
+			protocolState.compareAndSet(sessionProtocol, new ProtocolState(sessionProtocol.epoch(), true));
+			return fallback;
+		}
 		if (response.statusCode() >= 400) {
-			String message = providerErrorMessage(response.statusCode(), response.body());
-			long retryAfter = response.statusCode() == 429
-				? retryAfterMillis(response.headers().firstValue("Retry-After").orElse(null), java.time.Instant.now()) : 0L;
-			observability.recordFailure(
-				Context.current(),
-				LlmFailureType.PROVIDER_ERROR.name(),
-				message,
-				null
-			);
-			throw new LlmBackendException(LlmFailureType.PROVIDER_ERROR, message, null, retryAfter);
+			throw providerError(response);
 		}
 		return LlmCallResult.of(
 			response.body(),
@@ -105,6 +108,43 @@ public final class OpenAiCompatibleChatClient {
 			responseModel(response.body()).orElse(config.model()),
 			requestBody
 		);
+	}
+
+	void resetProtocolMode() {
+		protocolState.updateAndGet(previous -> new ProtocolState(previous.epoch() + 1, false));
+	}
+
+	private record ProtocolState(long epoch, boolean anthropicMessages) {
+	}
+
+	private LlmCallResult<String> completeAnthropic(LlmConversation conversation, String chatRequestBody,
+		java.util.function.Consumer<String> preview) throws LlmBackendException {
+		String requestBody;
+		URI uri;
+		try {
+			requestBody = AnthropicMessagesCodec.requestBody(chatRequestBody);
+			uri = buildUri("messages");
+		} catch (JsonParseException | IllegalStateException exception) {
+			throw new LlmBackendException(LlmFailureType.PARSE_ERROR, "Cannot translate planner request to Messages", exception);
+		}
+		HttpResponse<String> response = sendHttpRequest(uri, conversation, requestBody, false, preview, true);
+		if (response.statusCode() >= 400) throw providerError(response);
+		String normalized;
+		try {
+			normalized = AnthropicMessagesCodec.chatCompletionResponse(response.body());
+		} catch (JsonParseException | IllegalStateException exception) {
+			throw new LlmBackendException(LlmFailureType.PARSE_ERROR, "Cannot translate Messages response", exception);
+		}
+		return LlmCallResult.of(normalized, parseUsage(normalized), response.statusCode(),
+			responseModel(normalized).orElse(config.model()), requestBody);
+	}
+
+	private LlmBackendException providerError(HttpResponse<String> response) {
+		String message = providerErrorMessage(response.statusCode(), response.body());
+		long retryAfter = response.statusCode() == 429
+			? retryAfterMillis(response.headers().firstValue("Retry-After").orElse(null), java.time.Instant.now()) : 0L;
+		observability.recordFailure(Context.current(), LlmFailureType.PROVIDER_ERROR.name(), message, null);
+		return new LlmBackendException(LlmFailureType.PROVIDER_ERROR, message, null, retryAfter);
 	}
 
 	static long retryAfterMillis(String header, java.time.Instant now) {
@@ -123,12 +163,12 @@ public final class OpenAiCompatibleChatClient {
 		}
 	}
 
-	private URI buildUri() throws LlmBackendException {
+	private URI buildUri(String path) throws LlmBackendException {
 		try {
 			String baseUrl = config.providerBaseUrl().endsWith("/")
 				? config.providerBaseUrl().substring(0, config.providerBaseUrl().length() - 1)
 				: config.providerBaseUrl();
-			return URI.create(baseUrl + "/chat/completions");
+			return URI.create(baseUrl + "/" + path);
 		}
 		catch (IllegalArgumentException exception) {
 			throw new LlmBackendException(LlmFailureType.PROVIDER_UNAVAILABLE, "Invalid LLM provider URL", exception);
@@ -136,6 +176,11 @@ public final class OpenAiCompatibleChatClient {
 	}
 
 	private HttpResponse<String> sendHttpRequest(URI uri, LlmConversation conversation, String requestBody, boolean streaming, java.util.function.Consumer<String> preview) throws LlmBackendException {
+		return sendHttpRequest(uri, conversation, requestBody, streaming, preview, false);
+	}
+
+	private HttpResponse<String> sendHttpRequest(URI uri, LlmConversation conversation, String requestBody, boolean streaming,
+		java.util.function.Consumer<String> preview, boolean anthropic) throws LlmBackendException {
 		observability.recordLlmRequest(
 			Context.current(),
 			TraceSanitizer.inferProviderName(config.providerBaseUrl()),
@@ -156,8 +201,10 @@ public final class OpenAiCompatibleChatClient {
 			.uri(uri)
 			.timeout(Duration.ofMillis(config.requestTimeoutMillis()))
 			.header("Content-Type", "application/json");
+		if (anthropic) requestBuilder.header("anthropic-version", "2023-06-01");
 		if (config.apiKey() != null && !config.apiKey().isBlank()) {
-			requestBuilder.header("Authorization", "Bearer " + config.apiKey());
+			if (anthropic) requestBuilder.header("x-api-key", config.apiKey());
+			else requestBuilder.header("Authorization", "Bearer " + config.apiKey());
 		}
 		HttpRequest httpRequest = requestBuilder
 			.POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
