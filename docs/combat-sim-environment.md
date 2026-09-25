@@ -599,6 +599,24 @@ problem, not a reward problem. Mitigation: split entropy (move head
 loss pushing flag logits past ±0.15, plus deployment-keyed best-
 checkpoint tracking.
 
+**Result (rl5, 500 iters, warm start from rl3b best, lr 1e-4):** the
+commitment fixes got the deployed policy fighting, but PPO weight churn
+kept oscillating the deterministic eval (0.25↔3.35 kills). Treating an
+EMA of the weights (decay 0.995) as the deployment candidate — SWA-style
+averaged iterates — collapsed the oscillation into a stable, improving
+policy. Fresh 24-scenario hard+nether eval of `champ_rl5.npy`:
+
+```
+[champ_rl5] kills 3.04  taken -7.55  clear .583  survived .958  ticks -350
+[baseline ] kills 3.21  taken -14.78 clear .583  survived .708  ticks -236
+```
+
+Baseline kill/clear parity at half the damage and +25pt survival; the
+net only loses the speed axis. Still below the evolved rule champions
+(me11_dom dominates it on every axis) — the neural policy closed the
+ES-era gap to baseline but rule-programs remain the state of the art
+on this task. `champ_rl5.npy` ships deployable via `params.net`.
+
 ## Verified end-to-end
 
 - Fake player joins, moves under its own physics, looks, and kills mobs.
