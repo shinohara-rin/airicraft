@@ -36,10 +36,10 @@ import optimize_gp as gp  # noqa: E402
 
 K, F, G = 6, 14, 15
 FRAME = G + K * F              # one encoded frame, 99 dims
-STACK = 3                       # frame history fed to the net
-INPUT = FRAME * STACK           # 297
+STACK = 20                      # frame history fed to the net (~1s)
+INPUT = FRAME * STACK           # 1980
 HID = (96, 48)
-OUTPUT = 2 + K + 4             # moveXY, target scores, atk/shield/sprint/jump = 10
+OUTPUT = 2 + K + 4             # moveXY, target scores, atk/shield/sprint/jump = 12
 SIZES = (INPUT,) + HID + (OUTPUT,)
 
 

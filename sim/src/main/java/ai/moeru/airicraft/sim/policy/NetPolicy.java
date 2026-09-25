@@ -36,7 +36,7 @@ public final class NetPolicy implements CombatPolicy {
 	static final int F = 14;           // per-slot features
 	static final int G = 15;           // global features
 	static final int FRAME = G + K * F; // one encoded frame
-	static final int STACK = 3;        // frame history fed to the net
+	static final int STACK = 20;       // frame history fed to the net (~1s)
 	static final int INPUT = FRAME * STACK;
 	static final int OUTPUT = 2 + K + 4; // moveXY(2) + target scores(K) + atk/shield/sprint/jump(4)
 
