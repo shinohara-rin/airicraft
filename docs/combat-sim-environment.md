@@ -767,3 +767,31 @@ Lesson: transplanting the grammar's *form* (per-entity scoring) without its
 follow-up could distill the AST champs' target choices into the ptr scorer
 as pre-training before RL — the scorer learns WHAT the rules select, not
 just HOW selection is shaped.
+
+### ptr2 (distilled pointer head): partial transfer, still short
+
+ptr1's diagnosis held: the ptr scorer started untrained, injecting
+near-uniform target noise into every gradient step. Fix: distill the AST
+champs' actual target *choices* into the scorer first — 94,751 labeled
+ticks from expert trajectories (`intent.lookEntity` → dist-sorted hostile
+slot index), cross-entropy over the 6 slots, BC-warm trunk. Pretrain reach
+60.9% choice agreement (random ~17%).
+
+ptr2: 500-iter PPO-EMA, `--ptr --initfull distilled_ptr.npy --familymix`.
+Same CRN fresh 24-scen set as ptr1:
+
+| policy | kills | taken | clear | surv | ticks |
+|---|---|---|---|---|---|
+| ptr2_best | 2.04 | -10.3 | .500 | .792 | -333 |
+| ptr1_best | 0.92 | -8.3 | .125 | .833 | -464 |
+| baseline | 2.62 | -14.7 | .667 | .708 | -169 |
+| me11_dom | 3.88 | -6.3 | .792 | .958 | -242 |
+
+Distillation ~2.2x'd kills and put the net within reach of baseline
+(dominates ptr1 on 7/24, baseline on 2/24). But me11_dom still dominates
+ptr2 on 9/24 — target *content* transferred, but the champs' situational
+flag logic (when to shield, when to disengage) is what the ptr head still
+lacks and what separates 2.0 from 3.9 kills. Distill flags too (the AST
+act's attack/use outputs are recorded per tick in intent) for ptr3, or
+accept that grammar-level decisions stay in the symbolic layer (hybrid
+remains the structurally right answer at this budget).

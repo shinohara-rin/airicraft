@@ -118,6 +118,19 @@ class PolicyPtr(nn.Module):
             l.weight.data = torch.tensor(w, dtype=torch.float32)
             l.bias.data = torch.tensor(b, dtype=torch.float32)
 
+    def load_full(self, vec):
+        """Load a complete ptr-layout flat vec (PTR_SIZES order)."""
+        off = 0
+        for (n_in, n_out), l in zip(
+                PTR_SIZES,
+                (self.h1, self.h2, self.p1, self.p2, self.mvH, self.flH)):
+            nw, nb = n_in * n_out, n_out
+            l.weight.data = torch.tensor(
+                vec[off:off + nw].reshape(n_out, n_in), dtype=torch.float32)
+            l.bias.data = torch.tensor(
+                vec[off + nw:off + nw + nb], dtype=torch.float32)
+            off += nw + nb
+
 
 PTR_SIZES = [(1980, 96), (96, 48), (62, 16), (16, 1), (48, 2), (48, 4)]
 
@@ -327,6 +340,9 @@ def main():
     ap.add_argument("--mb", type=int, default=512)
     ap.add_argument("--netherfrac", type=float, default=0.3)
     ap.add_argument("--init", default=None, help="flat .npy warm start")
+    ap.add_argument("--initfull", default=None,
+                    help="ptr only: load a complete ptr-layout flat vec "
+                         "(trunk+ptr+heads), e.g. distilled_ptr.npy")
     ap.add_argument("--evalevery", type=int, default=10)
     ap.add_argument("--neval", type=int, default=12)
     ap.add_argument("--out", default=str(Path(__file__).parent / "results_rl"))
@@ -392,6 +408,9 @@ def main():
         else:
             pol.load_flat(iv)
         print(f"[init] warm from {args.init}", flush=True)
+    if args.initfull and PTR:
+        pol.load_full(np.load(args.initfull))
+        print(f"[init] full ptr load from {args.initfull}", flush=True)
     opt = torch.optim.Adam(list(pol.parameters()) + list(val.parameters()), lr=args.lr)
 
     envs = [Env(n, np.random.default_rng(args.seed * 977 + i),
