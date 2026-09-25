@@ -10,6 +10,7 @@ public final class Policies {
 			"baseline-melee", BaselineMeleePolicy::new,
 			"ast", AstPolicy::new,
 			"net", NetPolicy::new,
+			"hybrid", HybridPolicy::new,
 			"external", ExternalPolicy::new,
 			"idle", IdlePolicy::new);
 

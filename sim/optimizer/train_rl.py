@@ -77,19 +77,29 @@ class Value(nn.Module):
 
 # -------------------------------------------------------------- actions --
 
+AST = None  # champ program for neuro-symbolic hybrid mode (--ast)
+
+
 def act_to_intent(obs, move, target_idx, flags):
-    """Sampled action -> intent JSON, mirroring NetPolicy.decide."""
+    """Sampled action -> intent JSON, mirroring NetPolicy.decide.
+
+    In --ast mode the discrete flags come from the server-side AST program
+    (ExternalPolicy composes them), so only move + look are posted.
+    """
     hs = hostiles_of(obs)
     intent = {"moveDir": [float(np.clip(move[0], -1, 1)),
-                          float(np.clip(move[1], -1, 1))],
-              "attack": bool(flags[0]), "sprint": bool(flags[2]),
-              "jump": bool(flags[3] and obs["player"].get("onGround", False))}
+                          float(np.clip(move[1], -1, 1))]}
+    if AST is None:
+        intent["attack"] = bool(flags[0])
+        intent["sprint"] = bool(flags[2])
+        intent["jump"] = bool(flags[3] and obs["player"].get("onGround", False))
     if hs:
         intent["lookEntity"] = int(hs[min(int(target_idx), len(hs) - 1)]["id"])
-    if flags[1]:
-        intent["useHand"] = "off"
-    else:
-        intent["stopUsing"] = True
+    if AST is None:
+        if flags[1]:
+            intent["useHand"] = "off"
+        else:
+            intent["stopUsing"] = True
     return intent
 
 
@@ -152,8 +162,11 @@ class Env:
                     print(f"  [warn] {self.name} reset failed x6: {e}", flush=True)
 
     def start(self):
-        ep = call("POST", "/v1/episode", {"arena": self.name, "policy": "external",
-                                          "maxTicks": MAX_TICKS, "obsRadius": 20.0})
+        body = {"arena": self.name, "policy": "external",
+                "maxTicks": MAX_TICKS, "obsRadius": 20.0}
+        if AST is not None:
+            body["params"] = {"ast": AST}
+        ep = call("POST", "/v1/episode", body)
         self.ep_id = ep.get("id")
         self.acc = {"kills": 0, "dealt": 0.0, "taken": 0.0, "tick": 0}
         self.obs = None
@@ -220,7 +233,14 @@ def main():
     ap.add_argument("--evalevery", type=int, default=10)
     ap.add_argument("--neval", type=int, default=12)
     ap.add_argument("--out", default=str(Path(__file__).parent / "results_rl"))
+    ap.add_argument("--ast", default=None,
+                    help="champ AST JSON: neuro-symbolic hybrid — net supplies "
+                         "move+target only, flags come from the AST program")
     args = ap.parse_args()
+
+    if args.ast:
+        global AST
+        AST = json.loads(Path(args.ast).read_text())
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -483,14 +503,18 @@ def main():
             # churning live weights: averaged iterates smooth PPO oscillation
             eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_eval_set(eval_rng, args.neval)
-            params = [{"net": spec_of(eval_flat)} for _ in arenas]
+            if AST is not None:
+                params = [{"net": spec_of(eval_flat), "ast": AST}
+                          for _ in arenas]
+            else:
+                params = [{"net": spec_of(eval_flat)} for _ in arenas]
             acc = np.zeros(len(METRIC_NAMES))
             n_done = 0
             for scen, terr in es:
                 try:
                     scores = sim.run_batch(params, scen,
                                            terrains=[terr] * len(arenas),
-                                           policy="net")
+                                           policy="hybrid" if AST is not None else "net")
                     n_done += 1
                     for s2 in scores:
                         acc += metrics_of(s2)
