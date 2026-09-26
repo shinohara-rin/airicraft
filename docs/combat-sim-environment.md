@@ -795,3 +795,63 @@ lacks and what separates 2.0 from 3.9 kills. Distill flags too (the AST
 act's attack/use outputs are recorded per tick in intent) for ptr3, or
 accept that grammar-level decisions stay in the symbolic layer (hybrid
 remains the structurally right answer at this budget).
+
+### Multi-run sweep (ptr2b / ptr3): budget helps, full BC hurts
+
+Three more runs before concluding (one shared tick gate -> strictly
+sequential):
+
+- **ptr2b** (control): same target-only distill init, 1000 iters, envs 8,
+  seed 43. Tests budget+seed sensitivity of ptr2.
+- **ptr3** (full BC): distill target + flags + moveDir together (94,751
+  ticks), then 500-iter PPO-EMA. Found and fixed two label bugs first:
+  flag bit order written as [attack,sprint,jump,use] vs the deployed
+  decode order [attack,use,sprint,jump], and the shield label reading
+  nonexistent `use`/`shield` keys instead of `useHand=="off"` (was always
+  0). Reached 52.6% target agreement under the harder multi-task loss.
+- Consolidated CRN eval (`eval_policies.py`): every candidate over the
+  SAME fresh 24-scen familymix set (seed 7777), one Sim, arenas set up
+  once. Mean metric vectors:
+
+| policy | kills | taken | clear | surv | ticks |
+|---|---|---|---|---|---|
+| baseline | 3.58 | -15.5 | .500 | .583 | -225 |
+| me11_dom | 4.46 | -6.5 | .750 | .875 | -256 |
+| bc_v20 (pure BC) | 0.08 | -19.4 | .000 | .292 | -244 |
+| rl7 (flat RL) | 2.38 | -14.0 | .458 | .708 | -296 |
+| hyb1 (net move + AST flags) | 3.13 | -9.0 | .458 | .750 | -315 |
+| sel1 (MoE selector over 17 champs) | 4.88 | -7.6 | .708 | .917 | -281 |
+| ptr1 | 0.83 | -8.2 | .125 | .875 | -509 |
+| ptr2 | 1.58 | -11.6 | .208 | .792 | -422 |
+| ptr2b | 2.50 | -6.7 | .125 | .958 | -548 |
+| ptr3 (full distill) | 1.79 | -18.6 | .167 | .333 | -249 |
+
+Strict domination on mean vectors: me11_dom dominates rl7/hyb1/ptr1/ptr2;
+sel1 dominates rl7/hyb1/ptr1/ptr2; baseline dominates bc_v20 and ptr3.
+Per-scenario dominance wins: me11_dom vs sel1 4-5, vs ptr3 9-0; sel1 vs
+baseline 6-1.
+
+Read of the evidence:
+
+1. **Budget still matters**: doubling ptr2's budget (ptr2b) lifted kills
+   1.58 -> 2.50, taken -11.6 -> -6.7, survived .79 -> .96 — the ptr line
+   has not saturated, but even at 2x budget its clear rate (.125) is 6x
+   below me11_dom's. Neural keeps closing, slowly, at ~2x cost per iter.
+2. **Full BC distillation is harmful**: ptr3 copied the experts'
+   aggression (sprint-in, attack-on) without their defensive timing, so
+   it face-tanks — worst damage taken of any RL net (-18.6) and it is the
+   only RL net dominated by the flat baseline. Distilling *what* to aim
+   at transfers; distilling *when* to defend does not (the flag labels
+   are context-conditional in ways this head can't express).
+3. **The selector is the real contender**: sel1 (a tiny net choosing per
+   tick among 17 evolved champs) posts the highest kills of any policy
+   (4.88) and edges me11_dom 5-4 on per-scenario domination — but still
+   not strictly dominant (worse taken, slower). The competence still
+   lives in the AST library; the net is a router.
+4. **Degenerate audit**: no turtles in this set — every high-survival
+   policy (ptr2b .958, sel1 .917) also has real kills. ptr3 dies fast
+   instead; opposite failure mode.
+5. Verdict on the pure-neural direction at this budget: the ptr head +
+   distilled targets is the right shape, but flag/macro logic remains
+   the rules' edge. The pragmatic ceiling today is sel1 — symbolic
+   library + neural arbitration.
