@@ -167,6 +167,11 @@ public final class AiricraftCliMain {
 		CommandLine vision = root.getSubcommands().get("vision");
 		vision.addSubcommand(new VisionDescribeCommand(context));
 
+		root.addSubcommand("dataset", new UsageCommand(out, "airicraft dataset", "Vision dataset capture commands"));
+		CommandLine dataset = root.getSubcommands().get("dataset");
+		dataset.addSubcommand(new DatasetCaptureCommand(context));
+		dataset.addSubcommand(new DatasetStatusCommand(context));
+
 		root.addSubcommand("map", new UsageCommand(out, "airicraft map", "Map integration commands"));
 		CommandLine map = root.getSubcommands().get("map");
 		map.addSubcommand(new MapStatusCommand(context));
@@ -2255,6 +2260,94 @@ public final class AiricraftCliMain {
 		}
 		catch (NumberFormatException exception) {
 			throw new CliUsageException(commandPath, "invalid_arguments", "Color must be a 6-digit RGB hex value");
+		}
+	}
+
+	@Command(name = "capture", mixinStandardHelpOptions = true, description = "Capture a labeled first-person frame for the vision dataset.")
+	private static final class DatasetCaptureCommand extends BaseCommand {
+		@Option(names = "--label", description = "Free-form label stored with the capture.")
+		private String label;
+
+		@Option(names = "--yaw", description = "Snap the camera to this yaw (-180..180) before capturing.")
+		private Double yaw;
+
+		@Option(names = "--pitch", description = "Snap the camera to this pitch (-90..90) before capturing.")
+		private Double pitch;
+
+		@Option(names = "--look-at", description = "Snap the camera toward this world position, as x,y,z.")
+		private String lookAt;
+
+		@Option(names = "--stride-px", description = "Label grid cell size in output pixels (1-64).")
+		private Integer stridePx;
+
+		@Option(names = "--reach", description = "Raycast reach in blocks (0-256).")
+		private Double reach;
+
+		@Option(names = "--region-radius", description = "Horizontal half-extent of the dumped voxel region (0-64).")
+		private Integer regionRadius;
+
+		@Option(names = "--region-below", description = "Region extent below the camera block.")
+		private Integer regionBelow;
+
+		@Option(names = "--region-above", description = "Region extent above the camera block.")
+		private Integer regionAbove;
+
+		@Option(names = "--no-region", description = "Skip the voxel region dump.")
+		private boolean noRegion;
+
+		@Option(names = "--no-entities", description = "Skip the entity dump.")
+		private boolean noEntities;
+
+		@Option(names = "--output-dir", description = "Dataset root directory; defaults to <gameDir>/airicraft/dataset.")
+		private String outputDir;
+
+		private DatasetCaptureCommand(CliContext context) {
+			super(context, "dataset capture");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			Map<String, Object> body = new LinkedHashMap<>();
+			if (label != null) body.put("label", label);
+			if (yaw != null) body.put("yaw", yaw);
+			if (pitch != null) body.put("pitch", pitch);
+			if (lookAt != null) {
+				String[] parts = lookAt.split(",");
+				if (parts.length != 3) {
+					throw new CliUsageException(commandPath(), "invalid_arguments", "--look-at must be x,y,z");
+				}
+				List<Double> coords = new ArrayList<>();
+				for (String part : parts) {
+					try {
+						coords.add(Double.parseDouble(part.trim()));
+					}
+					catch (NumberFormatException exception) {
+						throw new CliUsageException(commandPath(), "invalid_arguments", "--look-at must be x,y,z");
+					}
+				}
+				body.put("lookAt", coords);
+			}
+			if (stridePx != null) body.put("stridePx", stridePx);
+			if (reach != null) body.put("reach", reach);
+			if (regionRadius != null) body.put("regionRadius", regionRadius);
+			if (regionBelow != null) body.put("regionBelow", regionBelow);
+			if (regionAbove != null) body.put("regionAbove", regionAbove);
+			if (noRegion) body.put("includeRegion", false);
+			if (noEntities) body.put("includeEntities", false);
+			if (outputDir != null) body.put("outputDir", outputDir);
+			return transport().post("/v1/dataset/capture", body);
+		}
+	}
+
+	@Command(name = "status", mixinStandardHelpOptions = true, description = "Inspect dataset capture status.")
+	private static final class DatasetStatusCommand extends BaseCommand {
+		private DatasetStatusCommand(CliContext context) {
+			super(context, "dataset status");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().get("/v1/dataset/status");
 		}
 	}
 

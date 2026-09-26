@@ -21,6 +21,7 @@
 		"ClientPlayerInteractionManagerAccessor",
 		"ClientPlayerEntityAccessor",
 		"CraftingResultSlotMixin",
+		"GameRendererAccessor",
 		"GameRendererMixin",
 		"GameRendererPauseMixin",
 		"IndigoTerrainRenderContextMixin",

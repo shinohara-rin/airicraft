@@ -51,6 +51,7 @@ public final class ClientRuntimeController {
 	private final HighlightManager highlightManager = new HighlightManager();
 	private final FirstPersonScreenshotService screenshotService = new FirstPersonScreenshotService();
 	private final WorldCameraService worldCameraService = new WorldCameraService(screenshotService);
+	private final ai.moeru.airicraft.dataset.DatasetCaptureService datasetCaptureService = new ai.moeru.airicraft.dataset.DatasetCaptureService();
 	private final ClientTickDebugRuntime clientTickDebugRuntime = new ClientTickDebugRuntime(screenshotService);
 	private final BaritoneFacade baritoneFacade = new LiveBaritoneFacade();
 	private final CameraController cameraController;
@@ -96,7 +97,8 @@ public final class ClientRuntimeController {
 			cameraController,
 			BridgeDiscoveryFile.createDefault(),
 			debugDashboardServer::statusPayload,
-			automaticPlaytest::statusPayload
+			automaticPlaytest::statusPayload,
+			this::datasetCaptureService
 		);
 	}
 
@@ -195,6 +197,10 @@ public final class ClientRuntimeController {
 		return clientTickDebugRuntime;
 	}
 
+	public ai.moeru.airicraft.dataset.DatasetCaptureService datasetCaptureService() {
+		return datasetCaptureService;
+	}
+
 	public void onClientStarted(MinecraftClient client) {
 		currentAgentRuntime().onClientStarted(client);
 		dashboardObservationCollector.startSession("client_started", currentAgentRuntime());
@@ -215,6 +221,7 @@ public final class ClientRuntimeController {
 		dashboardObservationCollector.worldLeft();
 		if (!automaticPlaytest.captureReady()) clientTickDebugRuntime.reset("world_left", "The world closed during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		datasetCaptureService.failActiveCapture("capture_failed", "Dataset capture was interrupted");
 		currentAgentRuntime().onWorldLeave();
 		cameraController.clear();
 		highlightManager.clear();
@@ -375,10 +382,11 @@ public final class ClientRuntimeController {
 		return plannerDebugOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
 	}
 
-	public void onFirstPersonFrameRendered() {
+	public void onFirstPersonFrameRendered(net.minecraft.client.render.RenderTickCounter tickCounter) {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client != null) {
 			screenshotService.onWorldRendered(client);
+			datasetCaptureService.onWorldRendered(client, tickCounter);
 			try {
 				dashboardObservationCollector.onRenderedFrame(client, currentAgentRuntime());
 			}
@@ -408,6 +416,7 @@ public final class ClientRuntimeController {
 		automaticPlaytest.worldLeft("runtime_reloaded");
 		clientTickDebugRuntime.reset("runtime_reloaded", "Airicraft reloaded during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		datasetCaptureService.failActiveCapture("capture_failed", "Dataset capture was interrupted");
 		cameraController.clear();
 		cameraController.updateDefaultLerpTicks(nextConfig.cameraLerpDefaultTicks());
 		EmbodiedAgentRuntime previousRuntime = currentAgentRuntime();
@@ -437,6 +446,8 @@ public final class ClientRuntimeController {
 		automaticPlaytest.worldLeft("client_stopping");
 		if (!automaticPlaytest.captureReady()) clientTickDebugRuntime.reset("client_stopping", "The client stopped during a client tick debug capture");
 		screenshotService.failActiveCapture("capture_failed", "Screenshot capture was interrupted");
+		datasetCaptureService.failActiveCapture("capture_failed", "Dataset capture was interrupted");
+		datasetCaptureService.shutdown();
 		plannerDebugOverlay.setMode(PlannerDebugOverlayMode.OFF);
 		currentAgentRuntime().shutdown();
 		cameraController.clear();

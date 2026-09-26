@@ -18,6 +18,6 @@ public class GameRendererMixin {
 		)
 	)
 	private void airicraft$captureFirstPersonFrame(RenderTickCounter tickCounter, CallbackInfo ci) {
-		AiricraftClient.runtimeController().onFirstPersonFrameRendered();
+		AiricraftClient.runtimeController().onFirstPersonFrameRendered(tickCounter);
 	}
 }

@@ -126,6 +126,8 @@
 - `airicraft highlights list`
 - `airicraft highlights clear --highlight-id <id>`
 - `airicraft highlights clear-all`
+- `airicraft dataset capture [--label <text>] [--yaw <deg>] [--pitch <deg>] [--look-at <x,y,z>] [--stride-px <n>] [--reach <n>] [--region-radius <n>] [--region-below <n>] [--region-above <n>] [--no-region] [--no-entities] [--output-dir <path>]`
+- `airicraft dataset status`
 - `airicraft help [command...]`
 
 ## CLI Output Contract
@@ -158,6 +160,10 @@
 - `GET /v1/focus`
 - `GET /v1/world-snapshot`
 - `GET|POST|DELETE /v1/highlights`
+- `POST /v1/dataset/capture`
+- `GET /v1/dataset/status`
+
+- Dataset captures write `frame.png` + `meta.json` + `labels.json.gz` + `region.json.gz` + `entities.json` per capture under `<gameDir>/airicraft/dataset` (relative `--output-dir` resolves against the game dir), indexed by `captures.jsonl`; `scripts/generate-spatial-qa` turns them into spatial-QA train/eval JSONL. See `docs/vision-dataset.md`.
 
 ## Behavior Notes
 

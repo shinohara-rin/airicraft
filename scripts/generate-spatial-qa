@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Generate spatial-QA training examples from airicraft dataset captures.
+
+Reads capture directories produced by `airicraft dataset capture` (each with
+frame.png + meta.json + labels.json.gz + region.json.gz + entities.json) and
+emits machine-checkable QA pairs plus per-patch labels for vision-model
+training. Stdlib only.
+
+Usage:
+    scripts/generate-spatial-qa --input <dataset-root-or-capture-dir>... --out <dir>
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import math
+import random
+import sys
+from pathlib import Path
+
+ANSWER_SKY = "sky"
+ANSWER_NOTHING = "nothing"
+
+
+# --- capture loading -------------------------------------------------------
+
+def load_json(path: Path):
+    with open(path, "rt", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def load_json_gz(path: Path):
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def is_capture_dir(path: Path) -> bool:
+    return (path / "meta.json").is_file() and (path / "labels.json.gz").is_file()
+
+
+def find_capture_dirs(inputs: list[Path]) -> list[Path]:
+    dirs: list[Path] = []
+    for root in inputs:
+        if is_capture_dir(root):
+            dirs.append(root)
+            continue
+        if (root / "captures.jsonl").is_file() or root.is_dir():
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and is_capture_dir(child):
+                    dirs.append(child)
+    return dirs
+
+
+def load_capture(directory: Path) -> dict:
+    meta = load_json(directory / "meta.json")
+    labels = load_json_gz(directory / "labels.json.gz")
+    region_path = directory / "region.json.gz"
+    entities_path = directory / "entities.json"
+    return {
+        "id": meta["captureId"],
+        "dir": str(directory),
+        "meta": meta,
+        "cells": labels["cells"],
+        "stride": labels["stridePx"],
+        "reach": labels["reach"],
+        "region": load_json_gz(region_path)["cells"] if region_path.exists() else None,
+        "entities": load_json(entities_path)["entities"] if entities_path.exists() else [],
+    }
+
+
+# --- geometry ---------------------------------------------------------------
+
+def basis_from(yaw_deg: float, pitch_deg: float):
+    yaw = math.radians(yaw_deg)
+    pitch = math.radians(pitch_deg)
+    cos_p = math.cos(pitch)
+    forward = (-math.sin(yaw) * cos_p, -math.sin(pitch), math.cos(yaw) * cos_p)
+    right_raw = (
+        forward[1] * 0 - forward[2] * 1,
+        forward[2] * 0 - forward[0] * 0,
+        forward[0] * 1 - forward[1] * 0,
+    )
+    if sum(c * c for c in right_raw) < 1e-10:
+        right = (-math.cos(yaw), 0.0, -math.sin(yaw))
+    else:
+        right = right_raw
+    rl = math.sqrt(sum(c * c for c in right))
+    right = (right[0] / rl, right[1] / rl, right[2] / rl)
+    up = (
+        right[1] * forward[2] - right[2] * forward[1],
+        right[2] * forward[0] - right[0] * forward[2],
+        right[0] * forward[1] - right[1] * forward[0],
+    )
+    return right, up, forward
+
+
+def egocentric_offset(meta: dict, world_pos):
+    eye = meta["camera"]
+    dx = world_pos[0] - eye["x"]
+    dy = world_pos[1] - eye["y"]
+    dz = world_pos[2] - eye["z"]
+    right, up, forward = basis_from(meta["camera"]["yaw"], meta["camera"]["pitch"])
+    return (
+        dx * forward[0] + dy * forward[1] + dz * forward[2],
+        dx * right[0] + dy * right[1] + dz * right[2],
+        dx * up[0] + dy * up[1] + dz * up[2],
+    )
+
+
+def cell_center(cell: dict):
+    return cell["x"] + cell["w"] / 2.0, cell["y"] + cell["h"] / 2.0
+
+
+def block_label(cell: dict) -> str:
+    return cell.get("blockId") or cell.get("entityType") or "unknown"
+
+
+def friendly(block_id: str) -> str:
+    return block_id.split(":", 1)[-1].replace("_", " ")
+
+
+def block_cell_pos(cell: dict):
+    return (cell["blockX"], cell["blockY"], cell["blockZ"])
+
+
+# --- QA emission ------------------------------------------------------------
+
+QUESTIONS = {
+    "block_at_pixel": [
+        "What block is at pixel ({px}, {py}) in the image?",
+        "At image position ({px}, {py}), which block do you see?",
+    ],
+    "entity_at_pixel": [
+        "What entity is at pixel ({px}, {py}) in the image?",
+    ],
+    "point_to": [
+        "Point to the nearest {name} in the image.",
+        "Where is the closest {name}? Give the pixel coordinates.",
+    ],
+    "egocentric_offset": [
+        "The {name} at pixel ({px}, {py}) is how many blocks forward, right, and up from you?",
+    ],
+    "distance_to": [
+        "How many blocks away is the {name} at pixel ({px}, {py})?",
+    ],
+    "depth_compare": [
+        "Which is closer to you: the {name_a} at ({ax}, {ay}) or the {name_b} at ({bx}, {by})?",
+    ],
+    "left_right": [
+        "In the image, is the {name_a} at ({ax}, {ay}) to the left or right of the {name_b} at ({bx}, {by})?",
+    ],
+    "above_below": [
+        "In the image, is the {name_a} at ({ax}, {ay}) above or below the {name_b} at ({bx}, {by})?",
+    ],
+    "count_visible": [
+        "How many {name} blocks are visible in the image?",
+    ],
+    "entity_count": [
+        "How many {name} are visible in the image?",
+    ],
+    "line_of_sight": [
+        "Is there a clear line of sight from the camera to the block at world position ({x}, {y}, {z})?",
+    ],
+}
+
+
+def pick(rng: random.Random, options):
+    return options[rng.randrange(len(options))]
+
+
+def emit(examples: list, capture: dict, qtype: str, question: str, answer, meta: dict):
+    examples.append({
+        "captureId": capture["id"],
+        "type": qtype,
+        "image": f"{Path(capture['dir']).name}/frame.png",
+        "question": question,
+        "answer": answer,
+        "meta": meta,
+    })
+
+
+def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -> list[dict]:
+    examples: list[dict] = []
+    cells = capture["cells"]
+    block_cells = [c for c in cells if c["kind"] == "block"]
+    entity_cells = [c for c in cells if c["kind"] == "entity"]
+    sky_cells = [c for c in cells if c["kind"] == "sky"]
+
+    # block_at_pixel / entity_at_pixel / sky
+    pool = block_cells[:]
+    rng.shuffle(pool)
+    for cell in pool[:max_per_type]:
+        px, py = cell_center(cell)
+        emit(examples, capture, "block_at_pixel",
+             pick(rng, QUESTIONS["block_at_pixel"]).format(px=int(px), py=int(py)),
+             cell["blockId"],
+             {"pixel": [int(px), int(py)], "blockPos": list(block_cell_pos(cell))})
+    pool = entity_cells[:]
+    rng.shuffle(pool)
+    for cell in pool[:max_per_type]:
+        px, py = cell_center(cell)
+        emit(examples, capture, "entity_at_pixel",
+             pick(rng, QUESTIONS["entity_at_pixel"]).format(px=int(px), py=int(py)),
+             cell["entityType"],
+             {"pixel": [int(px), int(py)], "entityId": cell.get("entityId")})
+    pool = sky_cells[:]
+    rng.shuffle(pool)
+    for cell in pool[: max(2, max_per_type // 4)]:
+        px, py = cell_center(cell)
+        emit(examples, capture, "block_at_pixel",
+             pick(rng, QUESTIONS["block_at_pixel"]).format(px=int(px), py=int(py)),
+             ANSWER_SKY,
+             {"pixel": [int(px), int(py)]})
+
+    # point_to: nearest cell per block id / entity type
+    by_block: dict[str, list[dict]] = {}
+    for cell in block_cells:
+        by_block.setdefault(cell["blockId"], []).append(cell)
+    candidates = [(bid, min(cs, key=lambda c: c["depth"])) for bid, cs in by_block.items() if len(cs) >= 3]
+    rng.shuffle(candidates)
+    for bid, cell in candidates[:max_per_type]:
+        px, py = cell_center(cell)
+        emit(examples, capture, "point_to",
+             pick(rng, QUESTIONS["point_to"]).format(name=friendly(bid)),
+             [int(px), int(py)],
+             {"blockId": bid, "blockPos": list(block_cell_pos(cell)), "distance": cell["depth"]})
+
+    # egocentric_offset / distance_to
+    pool = [c for c in block_cells if c.get("depth")]
+    rng.shuffle(pool)
+    for cell in pool[:max_per_type]:
+        px, py = cell_center(cell)
+        pos = (cell["blockX"] + 0.5, cell["blockY"] + 0.5, cell["blockZ"] + 0.5)
+        fwd, right, up = egocentric_offset(capture["meta"], pos)
+        parts = []
+        if abs(fwd) >= 0.5:
+            parts.append(f"{abs(round(fwd))} block(s) {'forward' if fwd >= 0 else 'backward'}")
+        if abs(right) >= 0.5:
+            parts.append(f"{abs(round(right))} block(s) {'right' if right >= 0 else 'left'}")
+        if abs(up) >= 0.5:
+            parts.append(f"{abs(round(up))} block(s) {'up' if up >= 0 else 'down'}")
+        answer = ", ".join(parts) if parts else "right at you"
+        emit(examples, capture, "egocentric_offset",
+             pick(rng, QUESTIONS["egocentric_offset"]).format(
+                 name=friendly(cell["blockId"]), px=int(px), py=int(py)),
+             answer,
+             {"blockPos": list(block_cell_pos(cell)),
+              "forward": round(fwd, 3), "right": round(right, 3), "up": round(up, 3)})
+        emit(examples, capture, "distance_to",
+             pick(rng, QUESTIONS["distance_to"]).format(
+                 name=friendly(cell["blockId"]), px=int(px), py=int(py)),
+             round(cell["depth"], 1),
+             {"blockPos": list(block_cell_pos(cell))})
+
+    # pairwise relations: depth_compare / left_right / above_below
+    pair_pool = [c for c in block_cells if c.get("depth")]
+    rng.shuffle(pair_pool)
+    emitted_lr = emitted_ab = emitted_dc = 0
+    for i in range(0, len(pair_pool) - 1):
+        a, b = pair_pool[i], pair_pool[i + 1]
+        if a["blockId"] == b["blockId"]:
+            continue
+        ax, ay = cell_center(a)
+        bx, by = cell_center(b)
+        name_a, name_b = friendly(a["blockId"]), friendly(b["blockId"])
+        if emitted_dc < max_per_type and abs(a["depth"] - b["depth"]) >= 1.5:
+            closer = a if a["depth"] < b["depth"] else b
+            emit(examples, capture, "depth_compare",
+                 pick(rng, QUESTIONS["depth_compare"]).format(
+                     name_a=name_a, ax=int(ax), ay=int(ay), name_b=name_b, bx=int(bx), by=int(by)),
+                 friendly(closer["blockId"]),
+                 {"depthA": a["depth"], "depthB": b["depth"]})
+            emitted_dc += 1
+        if emitted_lr < max_per_type and abs(ax - bx) >= 32:
+            emit(examples, capture, "left_right",
+                 pick(rng, QUESTIONS["left_right"]).format(
+                     name_a=name_a, ax=int(ax), ay=int(ay), name_b=name_b, bx=int(bx), by=int(by)),
+                 "left" if ax < bx else "right",
+                 {"pixelA": [int(ax), int(ay)], "pixelB": [int(bx), int(by)]})
+            emitted_lr += 1
+        if emitted_ab < max_per_type and abs(ay - by) >= 32:
+            emit(examples, capture, "above_below",
+                 pick(rng, QUESTIONS["above_below"]).format(
+                     name_a=name_a, ax=int(ax), ay=int(ay), name_b=name_b, bx=int(bx), by=int(by)),
+                 "above" if ay < by else "below",
+                 {"pixelA": [int(ax), int(ay)], "pixelB": [int(bx), int(by)]})
+            emitted_ab += 1
+        if emitted_dc >= max_per_type and emitted_lr >= max_per_type and emitted_ab >= max_per_type:
+            break
+
+    # count_visible: distinct block positions per id
+    for bid, cs in by_block.items():
+        distinct = {block_cell_pos(c) for c in cs}
+        count = len(distinct)
+        if count < 1 or count > 20:
+            continue
+        emit(examples, capture, "count_visible",
+             pick(rng, QUESTIONS["count_visible"]).format(name=friendly(bid)),
+             count,
+             {"blockId": bid})
+        if sum(1 for e in examples if e["type"] == "count_visible") >= max_per_type:
+            break
+
+    # entity_count
+    entity_counts: dict[str, int] = {}
+    for cell in entity_cells:
+        entity_counts[cell["entityType"]] = entity_counts.get(cell["entityType"], 0) + 1
+    for etype in list(entity_counts)[:max_per_type]:
+        emit(examples, capture, "entity_count",
+             pick(rng, QUESTIONS["entity_count"]).format(name=friendly(etype)),
+             entity_counts[etype],
+             {"entityType": etype})
+
+    # line_of_sight (region LOS mask)
+    region = capture["region"]
+    if region:
+        visible = [c for c in region if c.get("viewVisible") and not c.get("air")]
+        hidden = [c for c in region if c.get("loaded") and not c.get("viewVisible") and not c.get("air")]
+        rng.shuffle(visible)
+        rng.shuffle(hidden)
+        for cell, expected in [(c, True) for c in visible[:max_per_type]] + [(c, False) for c in hidden[:max_per_type]]:
+            emit(examples, capture, "line_of_sight",
+                 pick(rng, QUESTIONS["line_of_sight"]).format(x=cell["x"], y=cell["y"], z=cell["z"]),
+                 "yes" if expected else "no",
+                 {"blockPos": [cell["x"], cell["y"], cell["z"]], "blockId": cell.get("id")})
+
+    return examples
+
+
+# --- patch labels ------------------------------------------------------------
+
+def patch_labels(capture: dict, patch_size: int) -> list[dict]:
+    width = capture["meta"]["image"]["width"]
+    height = capture["meta"]["image"]["height"]
+    cells = capture["cells"]
+    labels: list[dict] = []
+    for row, y0 in enumerate(range(0, height, patch_size)):
+        for col, x0 in enumerate(range(0, width, patch_size)):
+            px1 = min(x0 + patch_size, width)
+            py1 = min(y0 + patch_size, height)
+            members = [
+                c for c in cells
+                if c["x"] < px1 and c["x"] + c["w"] > x0 and c["y"] < py1 and c["y"] + c["h"] > y0
+            ]
+            if not members:
+                continue
+            counts: dict[tuple, int] = {}
+            for c in members:
+                key = (c["kind"], c.get("blockId") or c.get("entityType") or "")
+                counts[key] = counts.get(key, 0) + 1
+            (kind, subject), _ = max(counts.items(), key=lambda item: item[1])
+            center_cell = min(
+                members,
+                key=lambda c: abs(c["x"] + c["w"] / 2 - (x0 + px1) / 2) + abs(c["y"] + c["h"] / 2 - (y0 + py1) / 2),
+            )
+            entry = {
+                "captureId": capture["id"],
+                "image": f"{Path(capture['dir']).name}/frame.png",
+                "patch": {"row": row, "col": col, "x0": x0, "y0": y0, "w": px1 - x0, "h": py1 - y0},
+                "kind": kind,
+                "subject": subject or None,
+            }
+            if kind == "block" and center_cell.get("blockX") is not None:
+                entry["blockPos"] = [center_cell["blockX"], center_cell["blockY"], center_cell["blockZ"]]
+                entry["distance"] = center_cell.get("depth")
+            elif kind == "entity":
+                entry["entityType"] = center_cell.get("entityType")
+                entry["distance"] = center_cell.get("depth")
+            labels.append(entry)
+    return labels
+
+
+# --- driver ------------------------------------------------------------------
+
+def split_captures(captures: list[dict], eval_fraction: float, rng: random.Random):
+    order = captures[:]
+    rng.shuffle(order)
+    eval_count = max(1, round(len(order) * eval_fraction)) if len(order) > 1 else 0
+    eval_ids = {c["id"] for c in order[:eval_count]}
+    return eval_ids
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Generate spatial QA pairs from airicraft dataset captures")
+    parser.add_argument("--input", required=True, nargs="+", type=Path,
+                        help="Dataset root dir(s) containing captures.jsonl, or capture dir(s)")
+    parser.add_argument("--out", required=True, type=Path, help="Output directory for train.jsonl/eval.jsonl")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--eval-fraction", type=float, default=0.1)
+    parser.add_argument("--patch-size", type=int, default=32)
+    parser.add_argument("--max-per-type-per-capture", type=int, default=8)
+    args = parser.parse_args(argv)
+
+    capture_dirs = find_capture_dirs(args.input)
+    if not capture_dirs:
+        print("error: no capture directories found under --input", file=sys.stderr)
+        return 2
+
+    rng = random.Random(args.seed)
+    captures = [load_capture(d) for d in capture_dirs]
+    eval_ids = split_captures(captures, args.eval_fraction, rng)
+
+    train: list[dict] = []
+    ev: list[dict] = []
+    patches: list[dict] = []
+    for capture in captures:
+        examples = generate_for_capture(capture, rng, args.max_per_type_per_capture)
+        target = ev if capture["id"] in eval_ids else train
+        split = "eval" if capture["id"] in eval_ids else "train"
+        for example in examples:
+            example["split"] = split
+            target.append(example)
+        patches.extend(patch_labels(capture, args.patch_size))
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "train.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in train), encoding="utf-8")
+    (args.out / "eval.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in ev), encoding="utf-8")
+    (args.out / "patch_labels.jsonl").write_text(
+        "".join(json.dumps(e) + "\n" for e in patches), encoding="utf-8")
+
+    type_counts: dict[str, int] = {}
+    for e in train + ev:
+        type_counts[e["type"]] = type_counts.get(e["type"], 0) + 1
+    summary = {
+        "captures": len(captures),
+        "evalCaptures": len(eval_ids),
+        "trainExamples": len(train),
+        "evalExamples": len(ev),
+        "patchLabels": len(patches),
+        "examplesByType": type_counts,
+    }
+    (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(summary))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
