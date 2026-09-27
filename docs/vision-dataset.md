@@ -64,9 +64,9 @@ exists in world data). Rays pass through such sections entirely, so a cell
 labels what the pixel shows, not what the world contains.
 
 If the camera eye block suffocates the player (`shouldSuffocate` — e.g. a
-`/tp` landing inside terrain), the capture is skipped: the response is
-`skipped: true` with `skipReason: camera_inside_block` and no files are
-written.
+`/tp` landing inside terrain) or the eye is inside a fluid
+(`camera_submerged`), the capture is skipped: the response is
+`skipped: true` with `skipReason` set and no files are written.
 
 ## `region.json.gz`
 

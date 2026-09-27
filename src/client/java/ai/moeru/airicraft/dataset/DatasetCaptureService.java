@@ -208,8 +208,13 @@ public final class DatasetCaptureService {
 
 			CaptureOptions options = job.options();
 			BlockPos eyePos = BlockPos.ofFloored(view.cameraPos().x(), view.cameraPos().y(), view.cameraPos().z());
-			if (client.world.getBlockState(eyePos).shouldSuffocate(client.world, eyePos)) {
+			var eyeState = client.world.getBlockState(eyePos);
+			if (eyeState.shouldSuffocate(client.world, eyePos)) {
 				skip(job, "camera_inside_block");
+				return;
+			}
+			if (!eyeState.getFluidState().isEmpty()) {
+				skip(job, "camera_submerged");
 				return;
 			}
 			LabelData labels = labeler.label(
