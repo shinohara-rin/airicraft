@@ -11,6 +11,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Feed-forward neural policy for continuous-structure search. The optimizer
@@ -56,6 +57,15 @@ public final class NetPolicy implements CombatPolicy {
 	private List<double[]> b;     // per layer: out
 	private boolean ready;
 	private final Deque<double[]> frames = new ArrayDeque<>(STACK);
+
+	// sampling mode (params.sample:true): actions are drawn from the policy
+	// distributions instead of thresholded, and the exact sampled action plus
+	// its log-prob under the deployed weights is exposed via sampledAction()
+	// for offline PPO/GRPO ratio recomputation.
+	private boolean sample;
+	private double[] mvStd = new double[]{Math.exp(-1.0), Math.exp(-1.0)};
+	private final Random rng = new Random();
+	private JsonObject lastSampled;
 
 	// "ptr" layout: trunk -> ctx; per-slot head scores each hostile's 14 feats
 	// (pointer-style target selection, the neural analog of the AST target
@@ -104,12 +114,23 @@ public final class NetPolicy implements CombatPolicy {
 	}
 
 	@Override
+	public JsonObject sampledAction() {
+		return lastSampled;
+	}
+
+	@Override
 	public void configure(JsonObject params) {
+		sample = params.has("sample") && params.get("sample").getAsBoolean();
 		JsonElement net = params.get("net");
 		if (net == null || !net.isJsonObject()) {
 			return;
 		}
 		JsonObject spec = net.getAsJsonObject();
+		if (spec.has("logStd")) {
+			JsonArray ls = spec.getAsJsonArray("logStd");
+			mvStd = new double[]{Math.exp(ls.get(0).getAsDouble()),
+					Math.exp(ls.get(1).getAsDouble())};
+		}
 		if (spec.has("layout") && "egt".equals(spec.get("layout").getAsString())) {
 			configureEgt(spec);
 			return;
@@ -616,6 +637,7 @@ public final class NetPolicy implements CombatPolicy {
 
 	@Override
 	public Intent decide(JsonObject obs) {
+		lastSampled = null;
 		if (egtReady) {
 			return decideEgt(obs);
 		}
@@ -663,14 +685,25 @@ public final class NetPolicy implements CombatPolicy {
 			hostiles.add(e);
 		}
 		if (hostiles.isEmpty()) {
+			if (sample) {
+				lastSampled = sampleAction(mv, tgtScores, 0, flagOut);
+				return decodeIntent(lastSampled, null, player);
+			}
 			return Intent.IDLE;
 		}
 		hostiles.sort(Comparator.comparingDouble(e -> e.get("dist").getAsDouble()));
 
+		int nLive = Math.min(K, hostiles.size());
+		if (sample) {
+			lastSampled = sampleAction(mv, tgtScores, nLive, flagOut);
+			return decodeIntent(lastSampled, hostiles, player);
+		}
+		lastSampled = null;
+
 		// target: argmax over slot scores (falls back to nearest beyond K)
 		int ti = 0;
 		double best = Double.NEGATIVE_INFINITY;
-		for (int k = 0; k < K && k < hostiles.size(); k++) {
+		for (int k = 0; k < nLive; k++) {
 			if (tgtScores[k] > best) {
 				best = tgtScores[k];
 				ti = k;
@@ -693,10 +726,120 @@ public final class NetPolicy implements CombatPolicy {
 		return bld.build();
 	}
 
+	// ----------------------------------------------------------- sampling --
+
+	private static double sigmoid(double x) {
+		return 1.0 / (1.0 + Math.exp(-x));
+	}
+
+	/**
+	 * Draw a joint action from the policy distributions and compute its logp:
+	 * mv ~ Normal(mean, mvStd) per dim, flags ~ Bernoulli(sigmoid(logit)),
+	 * target ~ Categorical(softmax over live slot scores). The record keeps the
+	 * RAW samples (pre legality gating) so a replayer can recompute the same
+	 * logp under updated weights.
+	 */
+	private JsonObject sampleAction(double[] mv, double[] scores, int nLive,
+			double[] flagOut) {
+		double lp = 0.0;
+		double[] a = new double[2];
+		for (int i = 0; i < 2; i++) {
+			a[i] = mv[i] + mvStd[i] * rng.nextGaussian();
+			double z = (a[i] - mv[i]) / mvStd[i];
+			lp += -0.5 * z * z - Math.log(mvStd[i]) - 0.9189385332046727; // log sqrt(2pi)
+		}
+		int ti = -1;
+		if (nLive > 0) {
+			double mx = Double.NEGATIVE_INFINITY;
+			for (int k = 0; k < nLive; k++) {
+				if (scores[k] > mx) mx = scores[k];
+			}
+			double sum = 0;
+			double[] p = new double[nLive];
+			for (int k = 0; k < nLive; k++) {
+				p[k] = Math.exp(scores[k] - mx);
+				sum += p[k];
+			}
+			double u = rng.nextDouble() * sum;
+			double acc = 0;
+			ti = nLive - 1;
+			for (int k = 0; k < nLive; k++) {
+				acc += p[k];
+				if (u <= acc) {
+					ti = k;
+					break;
+				}
+			}
+			lp += Math.log(p[ti] / sum);
+		}
+		int[] fl = new int[4];
+		for (int i = 0; i < 4; i++) {
+			double p = sigmoid(flagOut[i]);
+			fl[i] = rng.nextDouble() < p ? 1 : 0;
+			lp += Math.log(fl[i] == 1 ? p : 1.0 - p);
+		}
+		return sampledJson(a, ti, fl, lp);
+	}
+
+	private static JsonObject sampledJson(double[] mv, int tgt, int[] fl,
+			double lp) {
+		JsonObject s = new JsonObject();
+		JsonArray a = new JsonArray();
+		a.add(mv[0]); a.add(mv[1]);
+		s.add("mv", a);
+		s.addProperty("tgt", tgt);
+		if (fl != null) {
+			JsonArray f = new JsonArray();
+			for (int v : fl) f.add(v);
+			s.add("flags", f);
+		}
+		s.addProperty("logp", lp);
+		return s;
+	}
+
+	/** Decode a sampled action record into the same Intent shape as argmax. */
+	private Intent decodeIntent(JsonObject sm, List<JsonObject> hostiles,
+			JsonObject player) {
+		JsonArray mvA = sm.getAsJsonArray("mv");
+		JsonArray flA = sm.getAsJsonArray("flags");
+		boolean atk = flA != null && flA.get(0).getAsInt() == 1;
+		boolean use = flA != null && flA.get(1).getAsInt() == 1;
+		boolean spr = flA != null && flA.get(2).getAsInt() == 1;
+		boolean jmp = flA != null && flA.get(3).getAsInt() == 1;
+		Intent.Builder bld = Intent.builder()
+				.moveDir(mvA.get(0).getAsDouble(), mvA.get(1).getAsDouble())
+				.attack(atk)
+				.sprint(spr)
+				.jump(jmp && player.has("onGround")
+						&& player.get("onGround").getAsBoolean());
+		int ti = sm.get("tgt").getAsInt();
+		if (hostiles != null && ti >= 0) {
+			bld.lookEntity(hostiles.get(Math.min(ti, hostiles.size() - 1))
+					.get("id").getAsInt());
+		}
+		if (use) {
+			bld.useHand("off");
+		} else {
+			bld.stopUsing(true);
+		}
+		return bld.build();
+	}
+
 	private Intent decideEgt(JsonObject obs) {
 		List<JsonObject> hostiles = hostilesOf(obs);
 		double[] y = forwardEgt(obs, hostiles);   // also advances the GRU state
 		JsonObject player = obs.getAsJsonObject("player");
+		int n = Math.min(EK, hostiles.size());
+		if (sample) {
+			double[] mv = {y[0], y[1]};
+			double[] scores = new double[EK];
+			System.arraycopy(y, 2, scores, 0, EK);
+			double[] fl = new double[4];
+			System.arraycopy(y, 2 + EK, fl, 0, 4);
+			lastSampled = sampleAction(mv, scores, n, fl);
+			return decodeIntent(lastSampled, n > 0 ? hostiles : null, player);
+		}
+		lastSampled = null;
 		Intent.Builder bld = Intent.builder()
 				.moveDir(y[0], y[1])
 				.attack(y[2 + EK] > 0)
@@ -706,7 +849,7 @@ public final class NetPolicy implements CombatPolicy {
 		if (!hostiles.isEmpty()) {
 			int ti = 0;
 			double best = Double.NEGATIVE_INFINITY;
-			for (int k = 0; k < EK && k < hostiles.size(); k++) {
+			for (int k = 0; k < n; k++) {
 				if (y[2 + k] > best) {
 					best = y[2 + k];
 					ti = k;

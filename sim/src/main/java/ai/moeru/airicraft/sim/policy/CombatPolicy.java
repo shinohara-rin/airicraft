@@ -18,4 +18,12 @@ public interface CombatPolicy {
 	default void configure(JsonObject params) {}
 
 	Intent decide(JsonObject observation);
+
+	/**
+	 * The sampled action produced by the last {@link #decide} call when the
+	 * policy runs in sampling mode ({@code params.sample:true}), or null. Used
+	 * by the episode recorder to log the exact action that entered the world —
+	 * the RL trainer replays obs + this record to recompute logprobs.
+	 */
+	default JsonObject sampledAction() { return null; }
 }

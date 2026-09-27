@@ -277,6 +277,7 @@ def spec_of_egt(vec):
         "heads": [layer(d["mvw"], d["mvb"]),
                   layer(d["flw"], d["flb"]),
                   layer(d["vw"], d["vb"])],
+        "logStd": np.round(d["log_std"], 5).tolist(),
     }
 
 

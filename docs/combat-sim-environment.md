@@ -922,3 +922,85 @@ fresh familymix eval batches):
   not architecture: GRPO (group baseline removes the noisy critic),
   server-side sprint rollouts for ~10x sample throughput, or fixed-
   episode-count evaluation to break the sampled/deterministic gap.
+
+### grpo — server-side sampled rollouts + group baseline (commit TODO)
+
+Motivation: kill the two walls found by egt1 at once — critic distortion
+(noisy value net in a high-variance multi-family env) and the ~60s/iter
+`/v1/step` external loop that capped PPO at ~3M env-steps.
+
+- **Server-side sampling**: `NetPolicy` gained a `sample` mode — every
+  tick it draws the action from the exact deployed distribution
+  (Gaussian move, softmax target over live slots, Bernoulli flags),
+  executes it, and writes the raw sample + its own logp into the episode
+  JSONL (`"sampled": {mv, tgt, flags, logp}`). Episodes run under sprint
+  mode end-to-end server-side — no per-tick HTTP. Iteration time
+  ~3-9s for 12 arenas (~10-20x the external-step loop).
+- **Exactness check**: Java ships `logStd` in the spec; the trainer
+  replays each episode under the *5-decimal-rounded* deployed weights,
+  reproduces the 3-tick obs-delay warmup (obs_0 decided on 4x), and the
+  Java↔Python per-tick logp diff is 0.0000 — the PPO ratio is computed
+  against the true behavior logp.
+- **GRPO**: no critic. Per-iteration the 12 arenas are split into
+  `--groups` same-scenario groups (G=4 rollouts each); advantage =
+  (episode scalar return − group mean) / group std, broadcast to all
+  ticks. Scenario difficulty (nether >> melee) is absorbed by the group
+  baseline for free — the thing the value net kept failing to learn.
+  Update is PPO clip on logp ratios (mv-Normal + target-Categorical +
+  flag-Bernoulli) + entropy bonus + flag-logit margin term.
+- Reward is the same shaping as train_rl (`10kills + 0.1dealt − 0.3taken
+  − 0.05ticks + {6 clear, −50 died, −15 timeout}`) as an *episode* scalar
+  (training signal only; evaluation stays the 5-dim Pareto vector).
+
+**grpo1 run** (`train_grpo.py --envs 12 --groups 3 --iters 500
+--initempty champ_egt1.npy`, ~45 min): eval climbed 1.4 → best
+[2.94k, −4.1, .42, 1.0, −448t] @iter 300, plateau ~2.5-2.9 kills to 500.
+
+Final eval (seed-7777 fresh 24-scen familymix, same set as all runs;
+[kills, −taken, clear, survived, −ticks]):
+
+| policy | kills | taken | clear | survived | ticks |
+|---|---|---|---|---|---|
+| sel1 | 4.46 | -9.5 | .667 | .833 | -269 |
+| me11_dom | 4.38 | -4.4 | .833 | .958 | -246 |
+| hyb1 | 3.29 | -5.9 | .542 | 1.0 | -379 |
+| baseline | 3.25 | -15.1 | .542 | .625 | -214 |
+| ptr2b | 2.88 | -7.4 | .25 | .875 | -488 |
+| ptr2 | 2.00 | -12.3 | .25 | .75 | -421 |
+| **grpo1** | **1.71** | **-3.5** | **.167** | **1.0** | **-534** |
+| rl7 | 1.71 | -15.8 | .292 | .458 | -220 |
+| ptr3 | 1.42 | -18.5 | .125 | .292 | -228 |
+| ptr1 | 0.92 | -9.2 | .083 | .833 | -496 |
+| bc_v20 | 0.08 | -19.1 | 0 | .333 | -297 |
+| egt_best (earlier set) | 1.46 | -7.4 | .333 | .917 | -426 |
+
+Reading it honestly:
+
+- **The safety column is the neural best ever**: survived = 1.0 across
+  all 24 scenarios (0 deaths) and −3.5 damage taken beats even me11_dom's
+  −4.4. When grpo1 engages, it wins hard fights — per-scenario it clears
+  5-6 nether kills at single-digit damage, comparable to the champs'
+  best rows.
+- **But it is bimodal**: ~half the eval scenarios end 0-kill 600t
+  timeouts with ~0 damage taken — the deterministic-deploy stall pattern
+  persists, now in *half* the scenarios instead of near-total (egt1).
+  Degenerate audit flag: partial stall, not clean fighting. Per-scenario
+  dominance: vs ptr1 7-3, rl7 2-1, ptr2 5-1; loses to me11_dom 0-9,
+  sel1 0-3, hyb1 2-5.
+- **vs ptr2b (PPO/external-step, 1000 iters)**: ptr2b wins kills
+  (2.88 vs 1.71), grpo1 wins taken/survived (−3.5/1.0 vs −7.4/.875) —
+  genuine Pareto split, not domination either way. In this budget GRPO
+  bought safety-column dominance but not kill-column parity.
+- **Mechanism guess**: group-normalized episode return is risk-seeking-
+  neutral — with a −50 death penalty in the reward, an all-or-nothing
+  fight (clear +46 / die −50) has *lower* group-relative advantage than
+  the safe 0-damage timeout once a scenario looks hard. GRPO faithfully
+  optimizes that: it learned "fight the fights you can win, stonewall
+  the rest". The stall isn't a bug GRPO fixed or failed to fix — it's
+  the reward surface's own local optimum made precise.
+- Net effect of the rollout+GRPO pair: throughput unlocked (~500 iters in
+  45 min), the *quality ceiling* when engaged is visibly higher than any
+  pure neural so far, and the sampled-vs-deterministic gap shrank but did
+  not close. The stall/die asymmetry in the scalar reward is the next
+  lever (e.g. milder death penalty + stronger per-kill terms, or a
+  fixed-eval horizon), not more capacity.

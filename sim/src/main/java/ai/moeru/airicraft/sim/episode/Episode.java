@@ -241,6 +241,10 @@ public final class Episode {
 			line.addProperty("t", tick);
 			line.add("obs", obs);
 			line.add("intent", intentJson(intent));
+			JsonObject sm = policy.sampledAction();
+			if (sm != null) {
+				line.add("sampled", sm);
+			}
 			writer.write(line + "\n");
 		} catch (IOException e) {
 			state = State.FAILED;
