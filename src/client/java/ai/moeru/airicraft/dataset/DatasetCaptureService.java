@@ -22,7 +22,6 @@ import ai.moeru.airicraft.mixin.client.GameRendererAccessor;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LightType;
 import org.joml.Matrix4f;
@@ -46,7 +45,6 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -69,8 +67,9 @@ public final class DatasetCaptureService {
 	private static final int MAX_STRIDE_PX = 64;
 	private static final double DARK_LUMINANCE = 20.0D;
 	private static final long CHUNK_SETTLE_TIMEOUT_MS = 10_000L;
-	private static final int READY_RADIUS_SECTIONS = 3;
-	private static final int READY_RADIUS_SECTIONS_Y = 2;
+	private static final long MIN_SETTLE_MS = 350L;
+	private static final double CAMERA_SETTLE_DISTANCE = 8.0D;
+	private static final int STABLE_FRAMES_REQUIRED = 5;
 	private static final double MAX_REACH = 256.0D;
 	private static final int MAX_REGION_RADIUS = 64;
 	private static final int MAX_REGION_CELLS = 4_000_000;
@@ -87,6 +86,8 @@ public final class DatasetCaptureService {
 	});
 
 	private CaptureJob activeJob;
+	private long lastBuiltSignature = Long.MIN_VALUE;
+	private int stableFrames;
 	private long captureCounter;
 	private long completedCaptures;
 	private long skippedCaptures;
@@ -114,6 +115,8 @@ public final class DatasetCaptureService {
 			}
 			job = new CaptureJob(options, new CompletableFuture<>());
 			activeJob = job;
+			stableFrames = 0;
+			lastBuiltSignature = Long.MIN_VALUE;
 		}
 
 		snapCamera(client, options, cameraController);
@@ -152,7 +155,17 @@ public final class DatasetCaptureService {
 			if (activeJob == null || activeJob.phase() != CapturePhase.PENDING) {
 				return;
 			}
-			if (!worldSettled(client)
+			long signature = builtSignature(client);
+			boolean settled;
+			if (signature == lastBuiltSignature) {
+				stableFrames++;
+			}
+			else {
+				stableFrames = 0;
+				lastBuiltSignature = signature;
+			}
+			settled = worldSettled(client, activeJob, stableFrames);
+			if (!settled
 					&& System.currentTimeMillis() - activeJob.requestedAtMs() < CHUNK_SETTLE_TIMEOUT_MS) {
 				return;
 			}
@@ -170,42 +183,36 @@ public final class DatasetCaptureService {
 	}
 
 	/**
-	 * Whether every world section overlapping the capture volume around the
-	 * camera either has a built chunk mesh or is genuinely empty/unloaded.
-	 * After a teleport the frame is captured before nearby chunks finish
-	 * meshing; waiting a few frames keeps holes out of the image.
+	 * Whether the rendered chunk mesh set has stopped changing. After a
+	 * teleport the frame is captured while nearby sections still queue for
+	 * meshing; once the built-mesh signature is stable for a few frames the
+	 * image contains everything the renderer will draw. Occlusion-culled
+	 * sections never appear in the built set, so per-section mesh checks
+	 * would wait forever — stability is the honest signal.
 	 */
-	private static boolean worldSettled(MinecraftClient client) {
-		Camera camera = client.gameRenderer.getCamera();
-		Vec3d pos = camera != null && camera.isReady() ? camera.getPos() : client.player.getEyePos();
-		int cx = ChunkSectionPos.getSectionCoord(pos.getX());
-		int cy = ChunkSectionPos.getSectionCoord(pos.getY());
-		int cz = ChunkSectionPos.getSectionCoord(pos.getZ());
-		Set<Long> rendered = DatasetViewLabeler.renderedSections(client);
-		int y0 = Math.max(client.world.getBottomSectionCoord(), cy - READY_RADIUS_SECTIONS_Y);
-		int y1 = Math.min(client.world.getTopSectionCoord() - 1, cy + READY_RADIUS_SECTIONS_Y);
-		for (int sx = cx - READY_RADIUS_SECTIONS; sx <= cx + READY_RADIUS_SECTIONS; sx++) {
-			for (int sz = cz - READY_RADIUS_SECTIONS; sz <= cz + READY_RADIUS_SECTIONS; sz++) {
-				if (!client.world.isChunkLoaded(sx, sz)) {
-					return false;
-				}
-				var sections = client.world.getChunk(sx, sz).getSectionArray();
-				for (int sy = y0; sy <= y1; sy++) {
-					int index = client.world.sectionCoordToIndex(sy);
-					if (index < 0 || index >= sections.length) {
-						continue;
-					}
-					var section = sections[index];
-					if (section == null || section.isEmpty()) {
-						continue;
-					}
-					if (!rendered.contains(ChunkSectionPos.asLong(sx, sy, sz))) {
-						return false;
-					}
-				}
-			}
+	private static boolean worldSettled(MinecraftClient client, CaptureJob job, int stableFrames) {
+		if (System.currentTimeMillis() - job.requestedAtMs() < MIN_SETTLE_MS) {
+			return false;
 		}
-		return true;
+		if (stableFrames < STABLE_FRAMES_REQUIRED) {
+			return false;
+		}
+		Camera camera = client.gameRenderer.getCamera();
+		if (camera == null || !camera.isReady()) {
+			return false;
+		}
+		return client.player != null
+			&& camera.getPos().distanceTo(client.player.getEyePos()) <= CAMERA_SETTLE_DISTANCE;
+	}
+
+	private static long builtSignature(MinecraftClient client) {
+		long signature = 1469598103934665603L;
+		for (var chunk : client.worldRenderer.getBuiltChunks()) {
+			var data = chunk.getCurrentRenderData();
+			signature = (signature ^ chunk.getSectionPos()) * 1099511628211L;
+			signature = (signature ^ (data != null && data.hasData() ? 1 : 0)) * 1099511628211L;
+		}
+		return signature;
 	}
 
 	private void renderCapture(MinecraftClient client, CaptureJob job, RenderTickCounter tickCounter) {

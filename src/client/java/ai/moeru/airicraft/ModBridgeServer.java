@@ -97,7 +97,7 @@ public final class ModBridgeServer {
 	private static final long CODEX_TOOL_DEFAULT_TIMEOUT_MILLIS = 120_000L;
 	private static final long CODEX_TOOL_MAX_TIMEOUT_MILLIS = 300_000L;
 	private static final long CLIENT_TICK_DEBUG_TIMEOUT_MILLIS = 10_000L;
-	private static final long DATASET_CAPTURE_TIMEOUT_MILLIS = 30_000L;
+	private static final long DATASET_CAPTURE_TIMEOUT_MILLIS = 60_000L;
 
 	private final Supplier<HighlightManager> highlightManagerSupplier;
 	private final Supplier<EmbodiedAgentRuntime> agentRuntimeSupplier;

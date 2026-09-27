@@ -63,6 +63,14 @@ invisible on the captured frame (the pixels show sky/clouds while the block
 exists in world data). Rays pass through such sections entirely, so a cell
 labels what the pixel shows, not what the world contains.
 
+Before capturing, the service also waits for chunk meshes to settle: it
+holds the request until the renderer's built-chunk signature is unchanged
+for 5 consecutive frames (min 350 ms, camera must match the player eye
+position within 8 blocks, hard timeout 10 s — occlusion-culled sections
+never get meshes, so per-section completeness cannot be a condition). The
+wait time is recorded as `stats.settleWaitMs`; after a long `/tp` expect
+roughly 5–10 s, repeated captures at the same spot ~0.5 s.
+
 If the camera eye block suffocates the player (`shouldSuffocate` — e.g. a
 `/tp` landing inside terrain) or the eye is inside a fluid
 (`camera_submerged`), the capture is skipped: the response is

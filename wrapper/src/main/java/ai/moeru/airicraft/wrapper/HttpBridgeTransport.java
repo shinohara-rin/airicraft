@@ -18,6 +18,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 	private static final Duration JOIN_REQUEST_TIMEOUT = Duration.ofSeconds(15);
 	private static final Duration RELOAD_REQUEST_TIMEOUT = Duration.ofSeconds(10);
 	private static final Duration SCREENSHOT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
+	private static final Duration DATASET_CAPTURE_REQUEST_TIMEOUT = Duration.ofSeconds(75);
 	private static final Duration VISION_REQUEST_TIMEOUT = Duration.ofSeconds(20);
 	private static final Duration DEBUG_COMPACTION_REQUEST_TIMEOUT = Duration.ofSeconds(45);
 	private static final Duration AGENT_TOOL_REQUEST_TIMEOUT = Duration.ofSeconds(305);
@@ -84,6 +85,7 @@ final class HttpBridgeTransport implements MinecraftTransport {
 		return switch (path) {
 			case "/v1/reload" -> RELOAD_REQUEST_TIMEOUT;
 			case "/v1/camera/screenshot", "/v1/map/image" -> SCREENSHOT_REQUEST_TIMEOUT;
+			case "/v1/dataset/capture" -> DATASET_CAPTURE_REQUEST_TIMEOUT;
 			case "/v1/vision/describe" -> VISION_REQUEST_TIMEOUT;
 			case "/v1/worlds/join", "/v1/servers/join", "/v1/evaluation/run" -> JOIN_REQUEST_TIMEOUT;
 			case "/v1/agent/debug/compact" -> DEBUG_COMPACTION_REQUEST_TIMEOUT;
