@@ -41,13 +41,32 @@ file `captures.jsonl` at its root is appended once per capture.
 cells). Each cell is `kind: block|entity|sky|padding` plus, for blocks,
 `blockX/Y/Z`, `blockId`, `stateKey` (`minecraft:oak_log[axis=y]`), and `depth`
 (ray distance); for entities, `entityId`, `entityUuid`, `entityType`. `padding`
-marks letterbox bars.
+marks letterbox bars. Block cells additionally carry `cutoutChecked` — `true`
+when the label was confirmed against rendered quad texels (see below).
 
 Hit cells (block and entity) also carry `egoForward`/`egoRight`/`egoUp`: the
 ray hit point decomposed into the camera's egocentric frame — `forward` is
 along the look direction, `right`/`up` are the camera right/up axes, all in
 meters. The basis vectors are exported as `meta.json.cameraBasis`; absolute
 hit/block positions are recoverable as `camera + forward*f + right*r + up*u`.
+
+Transparent-texture blocks (crossed plants, fancy-graphics leaves, glass) are
+refined per texel: a hit on a non-opaque cube is intersected with the block's
+baked quads and the sprite alpha at the hit UV is sampled — rays through
+transparent texels continue past the block to whatever the pixel actually shows
+(the next block, an entity, or sky). `cutoutChecked: true` on a block cell means
+its label passed this check; without it the label is the raw outline-shape hit
+(solid blocks, or states whose model exposes no quads, e.g. fluids).
+
+Blocks inside a render section whose chunk mesh has not been built yet are
+invisible on the captured frame (the pixels show sky/clouds while the block
+exists in world data). Rays pass through such sections entirely, so a cell
+labels what the pixel shows, not what the world contains.
+
+If the camera eye block suffocates the player (`shouldSuffocate` — e.g. a
+`/tp` landing inside terrain), the capture is skipped: the response is
+`skipped: true` with `skipReason: camera_inside_block` and no files are
+written.
 
 ## `region.json.gz`
 
@@ -76,6 +95,10 @@ when off-screen or behind), `hitCells` (how many grid rays hit it), `onGround`,
   stays exact under sprint/zoom FOV changes.
 - `depth` is world-space distance along the ray. `egoForward/egoRight/egoUp`
   use the `cameraBasis` vectors exported in `meta.json`.
+- Cutout-aware hits move the reported `depth`/`pos` to the quad surface the ray
+  actually crosses, and a block passed through this way contributes no
+  `viewVisible` mark for that pixel. The same applies to blocks passed through
+  because their render section had no built mesh.
 
 ## Training data: `scripts/generate-spatial-qa`
 

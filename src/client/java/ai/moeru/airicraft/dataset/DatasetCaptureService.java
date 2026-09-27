@@ -83,6 +83,7 @@ public final class DatasetCaptureService {
 	private CaptureJob activeJob;
 	private long captureCounter;
 	private long completedCaptures;
+	private long skippedCaptures;
 	private String lastCaptureId;
 	private String lastCaptureDirectory;
 	private final Deque<String> recentCaptureIds = new ArrayDeque<>();
@@ -206,6 +207,11 @@ public final class DatasetCaptureService {
 			}
 
 			CaptureOptions options = job.options();
+			BlockPos eyePos = BlockPos.ofFloored(view.cameraPos().x(), view.cameraPos().y(), view.cameraPos().z());
+			if (client.world.getBlockState(eyePos).shouldSuffocate(client.world, eyePos)) {
+				skip(job, "camera_inside_block");
+				return;
+			}
 			LabelData labels = labeler.label(
 				client,
 				view,
@@ -283,7 +289,7 @@ public final class DatasetCaptureService {
 		files.put("meta", metaPath.toString());
 
 		appendIndex(root, captureId, directory, options.label(), capturedAtMs, stats, files);
-		return new CaptureResult(captureId, directory.toString(), Map.copyOf(files), stats, capturedAtMs);
+		return new CaptureResult(captureId, directory.toString(), Map.copyOf(files), stats, capturedAtMs, null);
 	}
 
 	private Map<String, Object> metaPayload(
@@ -447,6 +453,16 @@ public final class DatasetCaptureService {
 		}
 	}
 
+	private void skip(CaptureJob job, String reason) {
+		synchronized (lock) {
+			if (activeJob != null && activeJob.future() == job.future()) {
+				activeJob = null;
+			}
+			skippedCaptures++;
+		}
+		job.future().complete(new CaptureResult(null, null, Map.of(), Map.of(), Instant.now().toEpochMilli(), reason));
+	}
+
 	private void finish(CaptureJob job, CaptureResult result) {
 		synchronized (lock) {
 			if (activeJob != null && activeJob.future() == job.future()) {
@@ -488,6 +504,7 @@ public final class DatasetCaptureService {
 			status.put("available", true);
 			status.put("captureInProgress", activeJob != null);
 			status.put("completedCaptures", completedCaptures);
+			status.put("skippedCaptures", skippedCaptures);
 			status.put("lastCaptureId", lastCaptureId);
 			status.put("lastCaptureDirectory", lastCaptureDirectory);
 			status.put("recentCaptureIds", List.copyOf(recentCaptureIds));
@@ -618,7 +635,8 @@ public final class DatasetCaptureService {
 		String directory,
 		Map<String, String> files,
 		Map<String, Object> stats,
-		long capturedAtMs
+		long capturedAtMs,
+		String skipReason
 	) {
 	}
 }

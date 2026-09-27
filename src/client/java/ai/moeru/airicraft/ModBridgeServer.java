@@ -661,6 +661,10 @@ public final class ModBridgeServer {
 	private static Map<String, Object> datasetCapturePayload(DatasetCaptureService.CaptureResult result) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("available", true);
+		payload.put("skipped", result.skipReason() != null);
+		if (result.skipReason() != null) {
+			payload.put("skipReason", result.skipReason());
+		}
 		payload.put("captureId", result.captureId());
 		payload.put("directory", result.directory());
 		payload.put("files", result.files());

@@ -9,8 +9,10 @@ import ai.moeru.airicraft.dataset.ViewGeometry.SourcePixel;
 import ai.moeru.airicraft.dataset.ViewGeometry.Vec;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.chunk.ChunkBuilder;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.registry.Registries;
 import net.minecraft.state.property.Property;
@@ -19,6 +21,8 @@ import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.ChunkSectionPos;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.RaycastContext;
 
@@ -36,6 +40,9 @@ import java.util.Set;
  * region with a line-of-sight mask, and the entities inside it.
  */
 public final class DatasetViewLabeler {
+	private static final int MAX_CUTOUT_HOPS = 16;
+	private final CutoutSampler cutoutSampler = new CutoutSampler();
+
 	public LabelData label(
 		MinecraftClient client,
 		View view,
@@ -48,6 +55,7 @@ public final class DatasetViewLabeler {
 		Vec eye = view.cameraPos();
 		Vec3d eyeVec = new Vec3d(eye.x(), eye.y(), eye.z());
 
+		Set<Long> renderedSections = renderedSections(client);
 		Set<Long> viewVisibleBlocks = new HashSet<>();
 		Map<Integer, Integer> entityHitCells = new HashMap<>();
 		List<LabelCell> cells = new ArrayList<>();
@@ -58,7 +66,7 @@ public final class DatasetViewLabeler {
 			for (int cellX = 0; cellX < outW; cellX += stridePx) {
 				int w = Math.min(stridePx, outW - cellX);
 				int h = Math.min(stridePx, outH - cellY);
-				cells.add(labelCell(client, world, eyeVec, view, cellX, cellY, w, h, reach, viewVisibleBlocks, entityHitCells));
+				cells.add(labelCell(client, world, eyeVec, view, cellX, cellY, w, h, reach, renderedSections, viewVisibleBlocks, entityHitCells));
 			}
 		}
 
@@ -89,6 +97,7 @@ public final class DatasetViewLabeler {
 		int cellW,
 		int cellH,
 		double reach,
+		Set<Long> renderedSections,
 		Set<Long> viewVisibleBlocks,
 		Map<Integer, Integer> entityHitCells
 	) {
@@ -98,7 +107,7 @@ public final class DatasetViewLabeler {
 			view.letterbox(), centerX, centerY, view.sourceWidth(), view.sourceHeight()
 		);
 		if (source == null) {
-			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null);
+			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 		}
 
 		Vec dir = ViewGeometry.sourcePixelRay(
@@ -107,9 +116,8 @@ public final class DatasetViewLabeler {
 		Vec3d dirVec = new Vec3d(dir.x(), dir.y(), dir.z());
 		Vec3d rayEnd = eyeVec.add(dirVec.multiply(reach));
 
-		BlockHitResult blockHit = world.raycast(new RaycastContext(
-			eyeVec, rayEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.ANY, client.player
-		));
+		OpaqueHit opaqueHit = raycastOpaque(world, client, eyeVec, dirVec, rayEnd, renderedSections);
+		BlockHitResult blockHit = opaqueHit.hit();
 
 		Box entitySearchBox = client.player.getBoundingBox().stretch(dirVec.multiply(reach)).expand(1.0D);
 		EntityHitResult entityHit = ProjectileUtil.raycast(
@@ -134,7 +142,8 @@ public final class DatasetViewLabeler {
 				null, null, null, null, null,
 				entity.getId(), entity.getUuidAsString(),
 				Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
-				entity.getName().getString()
+				entity.getName().getString(),
+				null
 			);
 		}
 		if (blockHit != null && blockHit.getType() == HitResult.Type.BLOCK) {
@@ -143,16 +152,93 @@ public final class DatasetViewLabeler {
 			BlockState state = world.getBlockState(pos);
 			Vec3d hitPos = blockHit.getPos();
 			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
+			boolean cutoutChecked = opaqueHit.cutoutVerified();
 			return new LabelCell(
 				cellX, cellY, cellW, cellH, "block", blockDistance,
 				ego.forward(), ego.right(), ego.up(),
 				pos.getX(), pos.getY(), pos.getZ(),
 				Registries.BLOCK.getId(state.getBlock()).toString(),
 				stateKey(state),
-				null, null, null, null
+				null, null, null, null,
+				cutoutChecked
 			);
 		}
-		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null);
+		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+	}
+
+	/**
+	 * Render sections whose chunk mesh has data this frame. Blocks in sections
+	 * with no built mesh are invisible on the captured frame, so rays must pass
+	 * through them rather than label the pixels with the hidden block.
+	 */
+	private static Set<Long> renderedSections(MinecraftClient client) {
+		Set<Long> rendered = new HashSet<>();
+		for (ChunkBuilder.BuiltChunk chunk : client.worldRenderer.getBuiltChunks()) {
+			var data = chunk.getCurrentRenderData();
+			if (data != null && data.hasData()) {
+				rendered.add(chunk.getSectionPos());
+			}
+		}
+		return rendered;
+	}
+
+	private static Vec3d exitRenderedSection(BlockPos pos, Vec3d start, Vec3d dir) {
+		int sx = pos.getX() >> 4;
+		int sy = pos.getY() >> 4;
+		int sz = pos.getZ() >> 4;
+		Box sectionBox = new Box(sx << 4, sy << 4, sz << 4, (sx << 4) + 16, (sy << 4) + 16, (sz << 4) + 16);
+		double tExit = CutoutSampler.rayBoxExit(start, dir, sectionBox);
+		return tExit < 0 ? null : start.add(dir.multiply(tExit));
+	}
+
+	/**
+	 * Raycasts along the ray, skipping through texel-transparent geometry
+	 * (crossed plants, fancy leaves, glass) whose outline shape reports a hit
+	 * but whose rendered pixels let the background through, and through render
+	 * sections whose mesh has not been built yet (their pixels show sky/clouds
+	 * even though the block exists in world data).
+	 */
+	private OpaqueHit raycastOpaque(ClientWorld world, MinecraftClient client, Vec3d eyeVec, Vec3d dirVec, Vec3d rayEnd, Set<Long> renderedSections) {
+		PlayerEntity player = client.player;
+		Vec3d start = eyeVec;
+		for (int hop = 0; hop <= MAX_CUTOUT_HOPS; hop++) {
+			BlockHitResult hit = world.raycast(new RaycastContext(
+				start, rayEnd, RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.ANY, player
+			));
+			if (hit == null || hit.getType() != HitResult.Type.BLOCK) {
+				return new OpaqueHit(hit, false);
+			}
+			BlockPos pos = hit.getBlockPos();
+			if (!renderedSections.contains(ChunkSectionPos.from(pos).asLong())) {
+				Vec3d next = exitRenderedSection(pos, start, dirVec);
+				if (next == null || next.squaredDistanceTo(eyeVec) >= rayEnd.squaredDistanceTo(eyeVec)) {
+					return new OpaqueHit(BlockHitResult.createMissed(rayEnd, hit.getSide(), pos), false);
+				}
+				start = next;
+				continue;
+			}
+			BlockState state = world.getBlockState(pos);
+			if (!cutoutSampler.needsCheck(state, world, pos)
+				|| !cutoutSampler.hasQuads(client, state, pos)) {
+				return new OpaqueHit(hit, false);
+			}
+			CutoutSampler.QuadHit quadHit = cutoutSampler.sample(client, world, state, pos, start, dirVec);
+			if (quadHit != null) {
+				return new OpaqueHit(new BlockHitResult(quadHit.pos(), hit.getSide(), pos, hit.isInsideBlock()), true);
+			}
+			Vec3d next = cutoutSampler.advancePast(world, pos, state, player, start, dirVec);
+			if (next == null || next.distanceTo(start) < 1.0E-6D) {
+				return new OpaqueHit(hit, false);
+			}
+			if (next.squaredDistanceTo(eyeVec) >= rayEnd.squaredDistanceTo(eyeVec)) {
+				return new OpaqueHit(BlockHitResult.createMissed(rayEnd, hit.getSide(), BlockPos.ofFloored(rayEnd)), false);
+			}
+			start = next;
+		}
+		return new OpaqueHit(BlockHitResult.createMissed(rayEnd, Direction.UP, BlockPos.ofFloored(rayEnd)), false);
+	}
+
+	private record OpaqueHit(BlockHitResult hit, boolean cutoutVerified) {
 	}
 
 	private List<RegionCell> scanRegion(ClientWorld world, BlockBounds bounds, Set<Long> viewVisibleBlocks) {
@@ -301,7 +387,8 @@ public final class DatasetViewLabeler {
 		Integer blockX, Integer blockY, Integer blockZ,
 		String blockId,
 		String stateKey,
-		Integer entityId, String entityUuid, String entityType, String entityName
+		Integer entityId, String entityUuid, String entityType, String entityName,
+		Boolean cutoutChecked
 	) {
 	}
 
