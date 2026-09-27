@@ -20,7 +20,9 @@ import net.minecraft.client.render.RenderTickCounter;
 import ai.moeru.airicraft.mixin.client.GameRendererAccessor;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.LightType;
 import org.joml.Matrix4f;
 
 import javax.imageio.ImageIO;
@@ -303,6 +305,14 @@ public final class DatasetCaptureService {
 		meta.put("dimensionId", client.world.getRegistryKey().getValue().toString());
 		meta.put("worldTime", client.world.getTime());
 		meta.put("timeOfDay", client.world.getTimeOfDay());
+		meta.put("moonPhase", client.world.getMoonPhase());
+		meta.put("raining", client.world.isRaining());
+		meta.put("thundering", client.world.isThundering());
+		BlockPos eyeBlock = BlockPos.ofFloored(view.cameraPos().x(), view.cameraPos().y(), view.cameraPos().z());
+		meta.put("biome", client.world.getBiomeAccess().getBiome(eyeBlock).getIdAsString());
+		meta.put("skyLight", client.world.getLightLevel(LightType.SKY, eyeBlock));
+		meta.put("blockLight", client.world.getLightLevel(LightType.BLOCK, eyeBlock));
+		meta.put("lightLevel", client.world.getLightLevel(eyeBlock));
 		meta.put("playerPos", Map.of("x", player.getX(), "y", player.getY(), "z", player.getZ()));
 		meta.put("playerYaw", (double) player.getYaw());
 		meta.put("playerPitch", (double) player.getPitch());

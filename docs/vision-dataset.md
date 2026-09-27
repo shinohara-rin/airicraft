@@ -24,6 +24,8 @@ freeze the world between captures.
 <output-dir>/<captureId>/
   frame.png        854x480 first-person frame, letterboxed like ticks screenshots
   meta.json        camera pose, effective FOV, projection, letterbox, world info
+                   (dimensionId, worldTime, timeOfDay, moonPhase, raining,
+                   thundering, biome at eye, skyLight/blockLight/lightLevel)
   labels.json.gz   raycast grid — one record per cell
   region.json.gz   voxel dump around the camera, with viewVisible LOS mask
   entities.json    entities with box projection and covered cells
