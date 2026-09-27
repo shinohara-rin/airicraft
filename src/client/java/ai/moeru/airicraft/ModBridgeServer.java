@@ -631,7 +631,8 @@ public final class ModBridgeServer {
 			request.regionAbove() == null ? defaults.regionAbove() : request.regionAbove(),
 			request.includeRegion() == null || request.includeRegion(),
 			request.includeEntities() == null || request.includeEntities(),
-			request.outputDir()
+			request.outputDir(),
+			request.lighting()
 		);
 	}
 
@@ -2970,7 +2971,8 @@ public final class ModBridgeServer {
 		Integer regionAbove,
 		Boolean includeRegion,
 		Boolean includeEntities,
-		String outputDir
+		String outputDir,
+		String lighting
 	) {
 	}
 

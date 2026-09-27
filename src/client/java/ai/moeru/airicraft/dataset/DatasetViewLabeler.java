@@ -107,7 +107,7 @@ public final class DatasetViewLabeler {
 			view.letterbox(), centerX, centerY, view.sourceWidth(), view.sourceHeight()
 		);
 		if (source == null) {
-			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 		}
 
 		Vec dir = ViewGeometry.sourcePixelRay(
@@ -143,7 +143,8 @@ public final class DatasetViewLabeler {
 				entity.getId(), entity.getUuidAsString(),
 				Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
 				entity.getName().getString(),
-				null
+				null,
+				world.getLightLevel(BlockPos.ofFloored(entity.getEyePos()))
 			);
 		}
 		if (blockHit != null && blockHit.getType() == HitResult.Type.BLOCK) {
@@ -153,6 +154,8 @@ public final class DatasetViewLabeler {
 			Vec3d hitPos = blockHit.getPos();
 			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
 			boolean cutoutChecked = opaqueHit.cutoutVerified();
+			// The light on the hit face lives in the air cell just outside it.
+			int hitLight = world.getLightLevel(pos.offset(blockHit.getSide()));
 			return new LabelCell(
 				cellX, cellY, cellW, cellH, "block", blockDistance,
 				ego.forward(), ego.right(), ego.up(),
@@ -160,10 +163,11 @@ public final class DatasetViewLabeler {
 				Registries.BLOCK.getId(state.getBlock()).toString(),
 				stateKey(state),
 				null, null, null, null,
-				cutoutChecked
+				cutoutChecked,
+				hitLight
 			);
 		}
-		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	/**
@@ -388,7 +392,8 @@ public final class DatasetViewLabeler {
 		String blockId,
 		String stateKey,
 		Integer entityId, String entityUuid, String entityType, String entityName,
-		Boolean cutoutChecked
+		Boolean cutoutChecked,
+		Integer hitLight
 	) {
 	}
 

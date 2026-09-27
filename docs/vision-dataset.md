@@ -68,6 +68,20 @@ If the camera eye block suffocates the player (`shouldSuffocate` — e.g. a
 (`camera_submerged`), the capture is skipped: the response is
 `skipped: true` with `skipReason` set and no files are written.
 
+### Lighting metadata
+
+Block cells carry `hitLight`: the combined light level (0–15) in the air cell
+in front of the hit face — the light actually illuminating that texel. Entity
+cells carry the light level at the entity's eye position; `sky`/`padding`
+cells have `hitLight: null`. Frame-level darkness is recorded in
+`meta.json.stats` as `meanLuminance` (0–255 perceived luminance over the
+letterboxed output) and `darkPixelFraction` (share of pixels below luminance
+20). `meta.json.lighting` records the capture's lighting mode tag from
+`--lighting` (`natural` when unset): use e.g. `natural`, `nightvision`
+(`/effect minecraft:night_vision` applied before capture), or `torch`
+(planted light sources) so training can group or filter dark frames instead
+of treating illegible frames as valid samples.
+
 ## `region.json.gz`
 
 Axis-aligned region centered on the camera (`--region-radius`,

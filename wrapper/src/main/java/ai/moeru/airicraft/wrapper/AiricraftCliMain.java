@@ -2317,6 +2317,9 @@ public final class AiricraftCliMain {
 		@Option(names = "--output-dir", description = "Dataset root directory; defaults to <gameDir>/airicraft/dataset.")
 		private String outputDir;
 
+		@Option(names = "--lighting", description = "Lighting mode tag recorded in meta.json (e.g. natural, nightvision, torch).")
+		private String lighting;
+
 		private DatasetCaptureCommand(CliContext context) {
 			super(context, "dataset capture");
 		}
@@ -2351,6 +2354,7 @@ public final class AiricraftCliMain {
 			if (noRegion) body.put("includeRegion", false);
 			if (noEntities) body.put("includeEntities", false);
 			if (outputDir != null) body.put("outputDir", outputDir);
+			if (lighting != null) body.put("lighting", lighting);
 			return transport().post("/v1/dataset/capture", body);
 		}
 	}

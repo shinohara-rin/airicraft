@@ -65,6 +65,7 @@ import java.util.zip.GZIPOutputStream;
 public final class DatasetCaptureService {
 	private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 	private static final int MAX_STRIDE_PX = 64;
+	private static final double DARK_LUMINANCE = 20.0D;
 	private static final double MAX_REACH = 256.0D;
 	private static final int MAX_REGION_RADIUS = 64;
 	private static final int MAX_REGION_CELLS = 4_000_000;
@@ -227,12 +228,14 @@ public final class DatasetCaptureService {
 					: null,
 				options.includeEntities()
 			);
-			byte[] png = encodePng(image);
+			BufferedImage scaledFrame = scaleFrame(image);
+			byte[] png = encodePng(scaledFrame);
+			double[] luminance = luminanceStats(scaledFrame);
 			long capturedAtMs = Instant.now().toEpochMilli();
 			String captureId = nextCaptureId(capturedAtMs);
 			writerExecutor.execute(() -> {
 				try {
-					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs);
+					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs, luminance);
 					finish(job, result);
 					job.future().complete(result);
 				}
@@ -259,7 +262,8 @@ public final class DatasetCaptureService {
 		LabelData labels,
 		byte[] png,
 		String captureId,
-		long capturedAtMs
+		long capturedAtMs,
+		double[] luminance
 	) throws IOException {
 		CaptureOptions options = job.options();
 		Path root = options.resolvedDatasetDir();
@@ -288,6 +292,8 @@ public final class DatasetCaptureService {
 		}
 
 		Map<String, Object> stats = stats(labels);
+		stats.put("meanLuminance", Math.round(luminance[0] * 10.0D) / 10.0D);
+		stats.put("darkPixelFraction", Math.round(luminance[1] * 10000.0D) / 10000.0D);
 		Path metaPath = directory.resolve("meta.json");
 		Map<String, Object> meta = metaPayload(client, job, view, projectionMatrix, captureId, capturedAtMs, labels, stats);
 		writeJson(metaPath, meta);
@@ -384,6 +390,7 @@ public final class DatasetCaptureService {
 			));
 		}
 		meta.put("stats", stats);
+		meta.put("lighting", options.lighting() == null ? "natural" : options.lighting());
 		return meta;
 	}
 
@@ -530,12 +537,15 @@ public final class DatasetCaptureService {
 		return new Vec(value.x, value.y, value.z);
 	}
 
-	private static byte[] encodePng(NativeImage image) {
+	private static BufferedImage scaleFrame(NativeImage image) {
 		BufferedImage sourceImage = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_ARGB);
 		sourceImage.setRGB(0, 0, image.getWidth(), image.getHeight(), image.copyPixelsArgb(), 0, image.getWidth());
-		BufferedImage scaledImage = LetterboxImageScaler.scaleToCanvas(
+		return LetterboxImageScaler.scaleToCanvas(
 			sourceImage, ViewGeometry.OUTPUT_WIDTH, ViewGeometry.OUTPUT_HEIGHT
 		);
+	}
+
+	private static byte[] encodePng(BufferedImage scaledImage) {
 		try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
 			if (!ImageIO.write(scaledImage, "png", outputStream)) {
 				throw new IOException("No PNG writer is available");
@@ -545,6 +555,27 @@ public final class DatasetCaptureService {
 		catch (IOException exception) {
 			throw new BridgeUnavailableException("capture_failed", "Failed to encode screenshot");
 		}
+	}
+
+	// [meanLuminance, darkPixelFraction] over the letterboxed output frame;
+	// "dark" = per-pixel perceived luminance below DARK_LUMINANCE.
+	private static double[] luminanceStats(BufferedImage image) {
+		int width = image.getWidth();
+		int height = image.getHeight();
+		int[] argb = image.getRGB(0, 0, width, height, null, 0, width);
+		double sum = 0.0D;
+		int dark = 0;
+		for (int pixel : argb) {
+			int r = (pixel >> 16) & 0xFF;
+			int g = (pixel >> 8) & 0xFF;
+			int b = pixel & 0xFF;
+			double luminance = 0.2126D * r + 0.7152D * g + 0.0722D * b;
+			sum += luminance;
+			if (luminance < DARK_LUMINANCE) {
+				dark++;
+			}
+		}
+		return new double[] { sum / argb.length, (double) dark / argb.length };
 	}
 
 	private static void writeJson(Path path, Object payload) throws IOException {
@@ -588,10 +619,11 @@ public final class DatasetCaptureService {
 		int regionAbove,
 		boolean includeRegion,
 		boolean includeEntities,
-		String outputDir
+		String outputDir,
+		String lighting
 	) {
 		public static CaptureOptions defaults() {
-			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null);
+			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null, null);
 		}
 
 		public void validate() {
