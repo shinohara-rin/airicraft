@@ -175,7 +175,7 @@ public final class DatasetViewLabeler {
 	 * with no built mesh are invisible on the captured frame, so rays must pass
 	 * through them rather than label the pixels with the hidden block.
 	 */
-	private static Set<Long> renderedSections(MinecraftClient client) {
+	static Set<Long> renderedSections(MinecraftClient client) {
 		Set<Long> rendered = new HashSet<>();
 		for (ChunkBuilder.BuiltChunk chunk : client.worldRenderer.getBuiltChunks()) {
 			var data = chunk.getCurrentRenderData();

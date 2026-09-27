@@ -22,6 +22,7 @@ import ai.moeru.airicraft.mixin.client.GameRendererAccessor;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LightType;
 import org.joml.Matrix4f;
@@ -45,6 +46,7 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -66,6 +68,9 @@ public final class DatasetCaptureService {
 	private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 	private static final int MAX_STRIDE_PX = 64;
 	private static final double DARK_LUMINANCE = 20.0D;
+	private static final long CHUNK_SETTLE_TIMEOUT_MS = 10_000L;
+	private static final int READY_RADIUS_SECTIONS = 3;
+	private static final int READY_RADIUS_SECTIONS_Y = 2;
 	private static final double MAX_REACH = 256.0D;
 	private static final int MAX_REGION_RADIUS = 64;
 	private static final int MAX_REGION_CELLS = 4_000_000;
@@ -147,6 +152,10 @@ public final class DatasetCaptureService {
 			if (activeJob == null || activeJob.phase() != CapturePhase.PENDING) {
 				return;
 			}
+			if (!worldSettled(client)
+					&& System.currentTimeMillis() - activeJob.requestedAtMs() < CHUNK_SETTLE_TIMEOUT_MS) {
+				return;
+			}
 			activeJob = activeJob.withPhase(CapturePhase.CAPTURING);
 			job = activeJob;
 		}
@@ -158,6 +167,45 @@ public final class DatasetCaptureService {
 			Airicraft.LOGGER.warn("Failed to capture dataset frame", throwable);
 			fail(job, new BridgeUnavailableException("capture_failed", "Failed to capture dataset frame"));
 		}
+	}
+
+	/**
+	 * Whether every world section overlapping the capture volume around the
+	 * camera either has a built chunk mesh or is genuinely empty/unloaded.
+	 * After a teleport the frame is captured before nearby chunks finish
+	 * meshing; waiting a few frames keeps holes out of the image.
+	 */
+	private static boolean worldSettled(MinecraftClient client) {
+		Camera camera = client.gameRenderer.getCamera();
+		Vec3d pos = camera != null && camera.isReady() ? camera.getPos() : client.player.getEyePos();
+		int cx = ChunkSectionPos.getSectionCoord(pos.getX());
+		int cy = ChunkSectionPos.getSectionCoord(pos.getY());
+		int cz = ChunkSectionPos.getSectionCoord(pos.getZ());
+		Set<Long> rendered = DatasetViewLabeler.renderedSections(client);
+		int y0 = Math.max(client.world.getBottomSectionCoord(), cy - READY_RADIUS_SECTIONS_Y);
+		int y1 = Math.min(client.world.getTopSectionCoord() - 1, cy + READY_RADIUS_SECTIONS_Y);
+		for (int sx = cx - READY_RADIUS_SECTIONS; sx <= cx + READY_RADIUS_SECTIONS; sx++) {
+			for (int sz = cz - READY_RADIUS_SECTIONS; sz <= cz + READY_RADIUS_SECTIONS; sz++) {
+				if (!client.world.isChunkLoaded(sx, sz)) {
+					return false;
+				}
+				var sections = client.world.getChunk(sx, sz).getSectionArray();
+				for (int sy = y0; sy <= y1; sy++) {
+					int index = client.world.sectionCoordToIndex(sy);
+					if (index < 0 || index >= sections.length) {
+						continue;
+					}
+					var section = sections[index];
+					if (section == null || section.isEmpty()) {
+						continue;
+					}
+					if (!rendered.contains(ChunkSectionPos.asLong(sx, sy, sz))) {
+						return false;
+					}
+				}
+			}
+		}
+		return true;
 	}
 
 	private void renderCapture(MinecraftClient client, CaptureJob job, RenderTickCounter tickCounter) {
@@ -233,9 +281,10 @@ public final class DatasetCaptureService {
 			double[] luminance = luminanceStats(scaledFrame);
 			long capturedAtMs = Instant.now().toEpochMilli();
 			String captureId = nextCaptureId(capturedAtMs);
+			long settleWaitMs = capturedAtMs - job.requestedAtMs();
 			writerExecutor.execute(() -> {
 				try {
-					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs, luminance);
+					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs, luminance, settleWaitMs);
 					finish(job, result);
 					job.future().complete(result);
 				}
@@ -263,7 +312,8 @@ public final class DatasetCaptureService {
 		byte[] png,
 		String captureId,
 		long capturedAtMs,
-		double[] luminance
+		double[] luminance,
+		long settleWaitMs
 	) throws IOException {
 		CaptureOptions options = job.options();
 		Path root = options.resolvedDatasetDir();
@@ -294,6 +344,7 @@ public final class DatasetCaptureService {
 		Map<String, Object> stats = stats(labels);
 		stats.put("meanLuminance", Math.round(luminance[0] * 10.0D) / 10.0D);
 		stats.put("darkPixelFraction", Math.round(luminance[1] * 10000.0D) / 10000.0D);
+		stats.put("settleWaitMs", settleWaitMs);
 		Path metaPath = directory.resolve("meta.json");
 		Map<String, Object> meta = metaPayload(client, job, view, projectionMatrix, captureId, capturedAtMs, labels, stats);
 		writeJson(metaPath, meta);
@@ -597,13 +648,13 @@ public final class DatasetCaptureService {
 		WRITING
 	}
 
-	private record CaptureJob(CapturePhase phase, CaptureOptions options, CompletableFuture<CaptureResult> future) {
+	private record CaptureJob(CapturePhase phase, CaptureOptions options, CompletableFuture<CaptureResult> future, long requestedAtMs) {
 		private CaptureJob(CaptureOptions options, CompletableFuture<CaptureResult> future) {
-			this(CapturePhase.PENDING, options, future);
+			this(CapturePhase.PENDING, options, future, System.currentTimeMillis());
 		}
 
 		private CaptureJob withPhase(CapturePhase nextPhase) {
-			return new CaptureJob(nextPhase, options, future);
+			return new CaptureJob(nextPhase, options, future, requestedAtMs);
 		}
 	}
 
