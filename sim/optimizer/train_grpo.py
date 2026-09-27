@@ -40,6 +40,90 @@ FAM_POOLS = {"standard": None,
                        ("creeper", 0.15)],
              "nether": NETHER_MOB_POOL}
 OBS_DELAY = 3  # ActionProfile.obsDelayTicks
+TRAJ_GLOBS = [str(Path(__file__).parent / "traj_v2/*.jsonl"),
+              str(Path(__file__).parent / "traj_me11/*.jsonl")]
+
+
+# ---------------- GAIL: learned per-tick reward ---------------------------
+# Discriminator D(state_feats, act_feats) -> logit; reward = clipped logit
+# (log-odds). Expert = champ AST trajectories; negatives = each iter's own
+# rollouts. The state/action pair for D is the SAME-tick (obs_i, action_i)
+# — the action actually applied at tick i — unlike the policy-side pairing
+# (obs_{i-3}, action_i) needed for logp.
+
+SF_DIM = PE.GE + PE.EF + 1        # g | mean live ef | n/K
+AF_DIM = 2 + (PE.K + 1) + 4       # mv | tgt onehot(+none) | flags
+
+
+def state_feats(obs):
+    g, ef, tid, n = PE.encode_egt(obs)
+    live = ef[:n] if n > 0 else np.zeros((1, PE.EF), dtype=np.float32)
+    return np.concatenate([g, live.mean(0), [n / PE.K]]) \
+        .astype(np.float32)
+
+
+def act_feats(mv, tgt, flags):
+    oh = np.zeros(PE.K + 1, dtype=np.float32)
+    oh[tgt if 0 <= tgt < PE.K else PE.K] = 1.0
+    return np.concatenate([mv, oh, flags]).astype(np.float32)
+
+
+class GailD(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(SF_DIM + AF_DIM, 64), nn.ReLU(),
+                                 nn.Linear(64, 64), nn.ReLU(),
+                                 nn.Linear(64, 1))
+
+    def forward(self, sf, af):
+        return self.net(torch.cat([sf, af], -1)).squeeze(-1)
+
+
+def load_expert_pairs():
+    """(sf, af) positive pairs from champ AST trajectory JSONLs."""
+    import glob
+    sfs, afs = [], []
+    n_ep = 0
+    for pat in TRAJ_GLOBS:
+        for fp in sorted(glob.glob(pat)):
+            obs_l, it_l = [], []
+            try:
+                with open(fp) as f:
+                    for line in f:
+                        try:
+                            d = json.loads(line)
+                        except json.JSONDecodeError:
+                            break
+                        if d.get("type") == "tick":
+                            obs_l.append(d["obs"])
+                            it_l.append(d.get("intent") or {})
+            except FileNotFoundError:
+                continue
+            n_ep += 1
+            for obs, it in zip(obs_l, it_l):
+                hs = PE.hostiles_of(obs)
+                ent = it.get("lookEntity")
+                tgt = -1
+                if ent is not None:
+                    for k, e in enumerate(hs[:PE.K]):
+                        if e.get("id") == ent:
+                            tgt = k
+                            break
+                mdir = np.array(it.get("moveDir") or [0.0, 0.0],
+                                dtype=np.float32)
+                nm = np.linalg.norm(mdir)
+                if nm > 1e-6:
+                    mdir = mdir / nm
+                flags = np.array([
+                    1.0 if it.get("attack") else 0.0,
+                    1.0 if it.get("useHand") == "off" else 0.0,
+                    1.0 if it.get("sprint") else 0.0,
+                    1.0 if it.get("jump") else 0.0], dtype=np.float32)
+                sfs.append(state_feats(obs))
+                afs.append(act_feats(mdir, tgt, flags))
+    print(f"[gail] expert pairs: {len(sfs)} ticks from {n_ep} episodes",
+          flush=True)
+    return np.stack(sfs), np.stack(afs)
 
 
 def ep_return(score):
@@ -141,13 +225,16 @@ def replay_episode(pol, obs_list, sampled_list, device="cpu"):
                 continue
             j = max(0, i - OBS_DELAY)
             g, ef, tid, n = PE.encode_egt(obs_list[j])
+            mv = np.array(sm["mv"], dtype=np.float32)
+            flags = np.array(sm.get("flags") or [0]*4, dtype=np.float32)
             out.append({"g": g, "ef": ef, "tid": tid, "n": n,
                         "h": h.squeeze(0).numpy().copy(),
-                        "mv": np.array(sm["mv"], dtype=np.float32),
-                        "tgt": int(sm.get("tgt", -1)),
-                        "flags": np.array(sm.get("flags") or [0]*4,
-                                          dtype=np.float32),
-                        "old_logp": float(sm["logp"])})
+                        "mv": mv, "tgt": int(sm.get("tgt", -1)),
+                        "flags": flags,
+                        "old_logp": float(sm["logp"]),
+                        # same-tick (obs_i, action_i) pair for the GAIL D
+                        "dsf": state_feats(obs_list[i]),
+                        "daf": act_feats(mv, int(sm.get("tgt", -1)), flags)})
             xg = torch.tensor(g[None], dtype=torch.float32)
             xe = torch.tensor(ef[None], dtype=torch.float32)
             xt = torch.tensor(tid[None], dtype=torch.long)
@@ -200,6 +287,22 @@ def main():
     ap.add_argument("--epochs", type=int, default=4)
     ap.add_argument("--mb", type=int, default=512)
     ap.add_argument("--initempty", default=None)
+    ap.add_argument("--gail", action="store_true",
+                    help="learned per-tick reward: GAIL discriminator on "
+                         "champ AST trajectories vs own rollouts")
+    ap.add_argument("--gail-out", type=float, default=1.0,
+                    help="outcome bonus weight added to mean D reward "
+                         "({clear:+1, died:-1, timeout:-0.3} * this)")
+    ap.add_argument("--gail-mix", type=float, default=0.0,
+                    help="if >0: reward = ep_return + mix*mean_D_logit "
+                         "(learned term auxiliary to shaping, not a "
+                         "replacement)")
+    ap.add_argument("--gail-lr", type=float, default=3e-4)
+    ap.add_argument("--gail-warmup", type=int, default=3,
+                    help="iters that only train D (no policy update)")
+    ap.add_argument("--gail-epochs", type=int, default=2)
+    ap.add_argument("--gail-buf", type=int, default=2,
+                    help="iters of negative replay kept for D")
     ap.add_argument("--evalevery", type=int, default=10)
     ap.add_argument("--neval", type=int, default=12)
     ap.add_argument("--familymix", action="store_true")
@@ -228,6 +331,14 @@ def main():
         print(f"[init] egt load from {args.initempty}", flush=True)
     opt = torch.optim.Adam(pol.parameters(), lr=args.lr)
     ema_flat = pol.flat() if args.ema > 0 else None
+
+    disc = dopt = None
+    exp_sf = exp_af = None
+    neg_buf = []
+    if args.gail:
+        exp_sf, exp_af = load_expert_pairs()
+        disc = GailD()
+        dopt = torch.optim.Adam(disc.parameters(), lr=args.gail_lr)
 
     def sample_set(r, n):
         s = []
@@ -299,6 +410,57 @@ def main():
             except OSError:
                 pass
 
+        # ---- GAIL discriminator update + learned rewards ------------------
+        if disc is not None:
+            neg_sf = np.stack([r["dsf"] for r in all_ticks]) \
+                if all_ticks else np.zeros((0, SF_DIM), np.float32)
+            neg_af = np.stack([r["daf"] for r in all_ticks]) \
+                if all_ticks else np.zeros((0, AF_DIM), np.float32)
+            neg_buf.append((neg_sf, neg_af))
+            while len(neg_buf) > args.gail_buf:
+                neg_buf.pop(0)
+            bsf = np.concatenate([x[0] for x in neg_buf])
+            baf = np.concatenate([x[1] for x in neg_buf])
+            d_loss = 0.0
+            n_db = 0
+            for _e in range(args.gail_epochs):
+                bs = min(4096, len(bsf), len(exp_sf))
+                pi = rng.choice(len(exp_sf), bs, replace=False)
+                ni = rng.choice(len(bsf), bs, replace=False)
+                sf = torch.tensor(np.concatenate([exp_sf[pi], bsf[ni]]))
+                af = torch.tensor(np.concatenate([exp_af[pi], baf[ni]]))
+                lab = torch.cat([torch.ones(bs), torch.zeros(bs)])
+                logits = disc(sf, af)
+                dl = nn.functional.binary_cross_entropy_with_logits(
+                    logits, lab)
+                # mild gradient penalty keeps logits bounded early
+                dl = dl + 1e-4 * (logits ** 2).mean()
+                dopt.zero_grad(); dl.backward(); dopt.step()
+                d_loss += dl.item(); n_db += 1
+            with torch.no_grad():
+                sf_t = torch.tensor(neg_sf)
+                af_t = torch.tensor(neg_af)
+                # learned per-tick reward = clipped log-odds
+                r_t = disc(sf_t, af_t).clamp(-8, 8).numpy()
+            k = 0
+            ep_rets = np.zeros(args.envs)
+            for ai in range(args.envs):
+                ep_ticks = [r for r in all_ticks if r["ep"] == ai]
+                n_t = len(ep_ticks)
+                base = float(r_t[k:k + n_t].mean()) if n_t else -1.0
+                k += n_t
+                oc = scores[ai].get("outcome") if scores[ai] else None
+                if args.gail_mix > 0:
+                    ep_rets[ai] = ep_return(scores[ai]) \
+                        + args.gail_mix * base
+                else:
+                    ob = {"ALL_MOBS_CLEARED": 1.0, "PLAYER_DIED": -1.0,
+                          "TIMEOUT": -0.3}.get(oc, 0.0)
+                    ep_rets[ai] = base + args.gail_out * ob
+            print(f"  [gail] d_loss={d_loss/max(n_db,1):.3f} "
+                  f"r_mean={r_t.mean():.2f}±{r_t.std():.2f} "
+                  f"ep_rets={np.round(ep_rets,1).tolist()}", flush=True)
+
         # iter-1 sanity: Python-side logp under the just-deployed weights
         # must match the Java-side logp recorded during sampling (drift >~1e-2
         # means the replayed obs/h stream diverges from what Java saw).
@@ -344,7 +506,7 @@ def main():
         # ---- update --------------------------------------------------------
         pl = el = 0.0
         nb = 0
-        if all_ticks:
+        if all_ticks and not (disc is not None and it <= args.gail_warmup):
             XG = torch.tensor(np.stack([r["g"] for r in all_ticks]))
             XE = torch.tensor(np.stack([r["ef"] for r in all_ticks]))
             XT = torch.tensor(np.stack([r["tid"] for r in all_ticks]),

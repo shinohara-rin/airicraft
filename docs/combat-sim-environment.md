@@ -923,7 +923,7 @@ fresh familymix eval batches):
   server-side sprint rollouts for ~10x sample throughput, or fixed-
   episode-count evaluation to break the sampled/deterministic gap.
 
-### grpo — server-side sampled rollouts + group baseline (commit TODO)
+### grpo — server-side sampled rollouts + group baseline (commit 9ef617ad)
 
 Motivation: kill the two walls found by egt1 at once — critic distortion
 (noisy value net in a high-variance multi-family env) and the ~60s/iter
@@ -1004,3 +1004,56 @@ Reading it honestly:
   not close. The stall/die asymmetry in the scalar reward is the next
   lever (e.g. milder death penalty + stronger per-kill terms, or a
   fixed-eval horizon), not more capacity.
+
+### gail — learned imitation reward on top of GRPO (`--gail`)
+
+Question: can the reward be *learned* instead of hand-shaped? Setup:
+expert = 106,590 (state,action) pairs parsed from 436 champ AST trajectory
+JSONLs (`traj_v2/`, `traj_me11/`; same-tick pairing — the action actually
+applied, not the 3-tick-delayed decision). D = MLP(50→64→64→1) over
+`[g16 | mean-live-ef18 | n/8] ⊕ [mv2 | tgt-onehot9 | flags4]`, trained each
+iter by BCE on balanced expert/learner batches (learner buffer keeps last
+`--gail-buf` iters) + `1e-4·logits²` regularizer. Two reward modes:
+- **pure** (`--gail`): `r_t = clip(D(sf,af), −8, 8)`, episode return =
+  `mean(r_t) + gail_out·(clear+1 / died−1 / timeout−0.3)`
+- **mix** (`--gail-mix W`): `ep_return + W·mean(D logit)` — the heuristic
+  scalar plus an imitation-logit bonus.
+
+**gail1 (pure), killed ~iter 150 — confirmed negative.** D sharpened fine
+(d_loss 0.69→0.19) but evals declined 1.4→~0.8 kills over 150 iters:
+classic distribution shift. Once the learner drifts off the expert
+manifold, "non-expert" reward gives no gradient toward anything — every
+off-manifold action is equally bad. Pure GAIL needs DAgger-style online
+expert relabeling or a much tighter learner/expert loop to work here.
+
+**gailmix1 (mix, W=5)**: plateaued at ~1.0-1.5 kills for ~300 iters
+(below grpo1's trajectory at matched iters), then a late step-jump —
+train-eval 4.15@360 / 4.29@400 kills — and finished at:
+
+| policy | kills | −taken | clear | survived | −ticks |
+|---|---|---|---|---|---|
+| baseline | 3.5 | −15.2 | .50 | .583 | −238 |
+| **gailmix1** | **3.13** | **−8.3** | **.375** | **.833** | **−382** |
+| grpo1† | 1.71 | −3.5 | .167 | 1.0 | −534 |
+| me11_dom | 4.25 | −6.0 | .792 | .917 | −254 |
+| sel1 | 5.04 | −9.5 | .667 | .875 | −292 |
+
+†grpo1 row from the earlier eval batch on the same seed-7777 set
+(episodes are stochastic; cross-batch numbers are approximate).
+
+Per-scenario dominance: gailmix1 vs grpo1 8-2, vs baseline 4-1, vs hyb1
+6-6, vs me11_dom 2-5, vs sel1 1-4. Degenerate audit clean (not stall —
+8/24 scenarios still 0-kill timeouts but the engaged half fights hard).
+
+Honest verdict on "can reward be learned": **yes, but only as an
+auxiliary term**. The imitation-reward mix broke grpo1's bimodal
+"fight-winnable, stonewall-the-rest" optimum — kills 1.71→3.13, clear
+.167→.375 on the fresh set — at the cost of the safety columns (taken
+−3.5→−8.3, survived 1.0→.833). Pure GAIL collapsed outright. The learned
+reward works as a steering prior *inside* a shaped scalar, not as a
+replacement. The remaining 0-kill-scenario stall and the gap to
+me11_dom/sel1 are still there — the champion gap is not a reward-shape
+problem alone.
+
+Snapshot: `sim/optimizer/champ_gailmix1.npy` (EMA weights, deployable via
+`params.net` egt spec).
