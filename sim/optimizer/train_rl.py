@@ -33,6 +33,7 @@ from optimize_cmaes import (  # noqa: E402
 from optimize_net import (  # noqa: E402
     encode, hostiles_of, spec_of, pack, unpack, stack_encode,
     SIZES, INPUT, K, STACK, F, G, FRAME)
+import policy_egt as PE  # noqa: E402
 
 RUN_DIR = Path(__file__).resolve().parent.parent / "run" / "sim-server"
 EP_DIR = RUN_DIR / "sim" / "episodes"
@@ -155,6 +156,7 @@ AST = None  # champ program for neuro-symbolic hybrid mode (--ast)
 SEL = None      # --sel: list of champ programs; net picks one per tick
 SEL_SIZES = None
 PTR = False     # --ptr: PolicyPtr pointer-head policy
+EGT = False     # --egt: entity-set + GRU policy (policy_egt.py, layout 'egt')
 FAMILYMIX = False  # --familymix: balance scenario pools uniformly
 FAM_POOLS = {"standard": None,
              "ranged": [("skeleton", 0.65), ("zombie", 0.20), ("creeper", 0.15)],
@@ -239,6 +241,7 @@ class Env:
         self.traj = []
         self.ep_scores = []
         self.hist = deque(maxlen=STACK)   # recent encodes for frame-stack
+        self.hidden = np.zeros(PE.D_H, dtype=np.float32)  # egt GRU state
 
     def reset_phase1(self):
         """Reset arena + spawn a fresh scenario. No world ticks happen here;
@@ -283,6 +286,7 @@ class Env:
         self.need_reset = False
         self.done_seen = False
         self.hist.clear()
+        self.hidden = np.zeros(PE.D_H, dtype=np.float32)
 
     def finish_transition(self, a):
         """Fold a step response into acc + close/mark the trajectory tail.
@@ -303,7 +307,8 @@ class Env:
             self.delete_log()
         elif not a["done"]:
             self.obs = a["obs"]
-            self.hist.append(encode(a["obs"]))
+            if not EGT:
+                self.hist.append(encode(a["obs"]))
         return r
 
     def delete_log(self):
@@ -362,6 +367,13 @@ def main():
                          "(slot feats + global ctx) instead of positional "
                          "target logits — the neural analog of AST's "
                          "conditioned target grammar")
+    ap.add_argument("--egt", action="store_true",
+                    help="entity-set + GRU policy (policy_egt): egocentric "
+                         "spatial feats, entity MLP + cross-attention, GRU "
+                         "memory instead of the 20-frame stack")
+    ap.add_argument("--initempty", default=None,
+                    help="egt only: load a complete egt flat vec "
+                         "(e.g. distilled_egt.npy)")
     args = ap.parse_args()
 
     if args.ast:
@@ -378,6 +390,10 @@ def main():
     if args.ptr:
         global PTR
         PTR = True
+    if args.egt:
+        global EGT
+        EGT = True
+        PTR = True   # ptr-style per-entity target scores; K becomes PE.K
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -392,11 +408,20 @@ def main():
         sim.setup_arena(name)
     call("POST", "/v1/step", {"ticks": 10})
 
-    pol = PolicyPtr() if PTR else Policy(SIZES if SEL is None else SEL_SIZES)
-    val = Value()
+    AK = PE.K if EGT else K
+    pol = (PE.PolicyEGT() if EGT
+           else PolicyPtr() if PTR
+           else Policy(SIZES if SEL is None else SEL_SIZES))
+    val = None if EGT else Value()   # egt folds the value head into the policy
+    if args.initempty and EGT:
+        PE.load_egt(pol, np.load(args.initempty))
+        print(f"[init] full egt load from {args.initempty}", flush=True)
     if args.init:
         iv = np.load(args.init)
-        if PTR:
+        if EGT:
+            raise SystemExit("--init is for legacy trunk warm-starts; use "
+                             "--initempty for egt flat vecs")
+        elif PTR:
             pol.load_trunk(iv)
         elif SEL is not None:
             # hidden layers are shared with the 12-out BC champion: reuse
@@ -408,10 +433,11 @@ def main():
         else:
             pol.load_flat(iv)
         print(f"[init] warm from {args.init}", flush=True)
-    if args.initfull and PTR:
+    if args.initfull and PTR and not EGT:
         pol.load_full(np.load(args.initfull))
         print(f"[init] full ptr load from {args.initfull}", flush=True)
-    opt = torch.optim.Adam(list(pol.parameters()) + list(val.parameters()), lr=args.lr)
+    opt_params = list(pol.parameters()) + ([] if EGT else list(val.parameters()))
+    opt = torch.optim.Adam(opt_params, lr=args.lr)
 
     envs = [Env(n, np.random.default_rng(args.seed * 977 + i),
                 netherfrac=args.netherfrac) for i, n in enumerate(arenas)]
@@ -461,12 +487,31 @@ def main():
             idx = [i for i, e in enumerate(envs)
                    if not e.need_reset and e.obs is not None]
             if idx:
-                xs = torch.tensor(np.stack([stack_encode(envs[i].hist) for i in idx]),
-                                  dtype=torch.float32)
-                with torch.no_grad():
-                    y = pol(xs)
-                    v = val(xs)
-                n_valid = [min(len(hostiles_of(envs[i].obs)), K) for i in idx]
+                if EGT:
+                    feats = [PE.encode_egt(envs[i].obs) for i in idx]
+                    xg = torch.tensor(np.stack([f[0] for f in feats]),
+                                      dtype=torch.float32)
+                    xe = torch.tensor(np.stack([f[1] for f in feats]),
+                                      dtype=torch.float32)
+                    xt = torch.tensor(np.stack([f[2] for f in feats]),
+                                      dtype=torch.long)
+                    xn = torch.tensor([f[3] for f in feats],
+                                      dtype=torch.long)
+                    xh = torch.tensor(np.stack([envs[i].hidden for i in idx]),
+                                      dtype=torch.float32)
+                    with torch.no_grad():
+                        y, v, h_new = pol(xg, xe, xt, xn, xh)
+                    for j, i in enumerate(idx):
+                        envs[i].hidden_new = h_new[j].numpy()
+                    n_valid = xn.tolist()
+                else:
+                    xs = torch.tensor(np.stack([stack_encode(envs[i].hist) for i in idx]),
+                                      dtype=torch.float32)
+                    with torch.no_grad():
+                        y = pol(xs)
+                        v = val(xs)
+                    n_valid = [min(len(hostiles_of(envs[i].obs)), K)
+                               for i in idx]
                 if SEL is not None:
                     prog_d = Categorical(logits=y[:, :len(SEL)])
                     pg = prog_d.sample()
@@ -477,11 +522,11 @@ def main():
                 else:
                     std = torch.exp(pol.log_std)
                     move_d = Normal(y[:, 0:2], std.expand_as(y[:, 0:2]))
-                    tgt_logits = y[:, 2:2 + K].clone()
+                    tgt_logits = y[:, 2:2 + AK].clone()
                     for r_i, nv in enumerate(n_valid):
                         tgt_logits[r_i, nv:] = -1e9
                     tgt_d = Categorical(logits=tgt_logits)
-                    flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
+                    flag_d = Bernoulli(logits=y[:, 2 + AK:2 + AK + 4])
                     mv = move_d.sample()
                     tg = tgt_d.sample()
                     fg = flag_d.sample()
@@ -508,15 +553,24 @@ def main():
                     if a is None:
                         continue
                     r = e.finish_transition(a)
-                    e.traj.append({"x": xs[j].numpy(), "mv": mv[j].numpy(),
-                                   "tgt": (int(pg[j]) if SEL is not None
-                                           else tg[j].item()),
-                                   "flg": fg[j].numpy(),
-                                   "hasT": (True if SEL is not None
-                                            else bool(hasT[j])),
-                                   "nv": n_valid[j],
-                                   "logp": logp[j].item(), "v": v[j].item(),
-                                   "r": r, "done": a["done"]})
+                    rec = {"mv": mv[j].numpy(),
+                           "tgt": (int(pg[j]) if SEL is not None
+                                   else tg[j].item()),
+                           "flg": fg[j].numpy(),
+                           "hasT": (True if SEL is not None
+                                    else bool(hasT[j])),
+                           "nv": n_valid[j],
+                           "logp": logp[j].item(), "v": v[j].item(),
+                           "r": r, "done": a["done"]}
+                    if EGT:
+                        rec["g"] = feats[j][0]
+                        rec["ef"] = feats[j][1]
+                        rec["tid"] = feats[j][2]
+                        rec["h"] = xh[j].numpy()   # hidden BEFORE this step
+                        e.hidden = e.hidden_new    # advance GRU state
+                    else:
+                        rec["x"] = xs[j].numpy()
+                    e.traj.append(rec)
                     if a["done"]:
                         ep_end += 1
                 # episodes not in idx still ticked under pending intents:
@@ -561,7 +615,7 @@ def main():
                     a = obs0.get(e.name)
                     if a is not None and not a["done"]:
                         e.obs = a.get("obs")
-                        if e.obs is not None:
+                        if e.obs is not None and not EGT:
                             e.hist.append(encode(e.obs))
 
         # ------------------------------------------------ GAE + PPO update
@@ -572,8 +626,20 @@ def main():
             if n == 0:
                 continue
             with torch.no_grad():
-                boot = 0.0 if (tr[-1]["done"] or not e.hist) else float(
-                    val(torch.tensor(stack_encode(e.hist), dtype=torch.float32)))
+                if tr[-1]["done"] or e.obs is None:
+                    boot = 0.0
+                elif EGT:
+                    bg, bef, btid, bn = PE.encode_egt(e.obs)
+                    boot = float(pol(torch.tensor(bg).unsqueeze(0),
+                                     torch.tensor(bef).unsqueeze(0),
+                                     torch.tensor(btid).unsqueeze(0),
+                                     torch.tensor([bn]),
+                                     torch.tensor(e.hidden).unsqueeze(0))[1])
+                elif e.hist:
+                    boot = float(val(torch.tensor(
+                        stack_encode(e.hist), dtype=torch.float32)))
+                else:
+                    boot = 0.0
             lastgae = 0.0
             for t in reversed(range(n)):
                 nonterm = 0.0 if tr[t]["done"] else 1.0
@@ -585,7 +651,20 @@ def main():
             flat.extend(tr)
 
         if flat:
-            X = torch.tensor(np.stack([t["x"] for t in flat]), dtype=torch.float32)
+            if EGT:
+                XG = torch.tensor(np.stack([t["g"] for t in flat]),
+                                  dtype=torch.float32)
+                XE = torch.tensor(np.stack([t["ef"] for t in flat]),
+                                  dtype=torch.float32)
+                XT = torch.tensor(np.stack([t["tid"] for t in flat]),
+                                  dtype=torch.long)
+                XN = torch.tensor([t["nv"] for t in flat], dtype=torch.long)
+                XH = torch.tensor(np.stack([t["h"] for t in flat]),
+                                  dtype=torch.float32)
+                X = None
+            else:
+                X = torch.tensor(np.stack([t["x"] for t in flat]),
+                                 dtype=torch.float32)
             Mv = torch.tensor(np.stack([t["mv"] for t in flat]), dtype=torch.float32)
             Tg = torch.tensor([t["tgt"] for t in flat], dtype=torch.long)
             Fg = torch.tensor(np.stack([t["flg"] for t in flat]), dtype=torch.float32)
@@ -603,20 +682,23 @@ def main():
                 perm = torch.randperm(n)
                 for s in range(0, n, args.mb):
                     b = perm[s:s + args.mb]
-                    y = pol(X[b])
+                    if EGT:
+                        y, vb, _ = pol(XG[b], XE[b], XT[b], XN[b], XH[b])
+                    else:
+                        y = pol(X[b])
                     if SEL is not None:
                         prog_d = Categorical(logits=y[:, :len(SEL)])
                         lp = prog_d.log_prob(Tg[b])
                         entm = torch.zeros(1)
                         entb = prog_d.entropy().mean()
                     else:
-                        tgt_logits = y[:, 2:2 + K].clone()
+                        tgt_logits = y[:, 2:2 + AK].clone()
                         for r_i in range(len(b)):
                             tgt_logits[r_i, Nv[b][r_i]:] = -1e9
                         move_d = Normal(y[:, 0:2],
                                         torch.exp(pol.log_std).expand_as(y[:, 0:2]))
                         tgt_d = Categorical(logits=tgt_logits)
-                        flag_d = Bernoulli(logits=y[:, 2 + K:2 + K + 4])
+                        flag_d = Bernoulli(logits=y[:, 2 + AK:2 + AK + 4])
                         lp = (move_d.log_prob(Mv[b]).sum(-1)
                               + torch.where(Ht[b], tgt_d.log_prob(Tg[b]),
                                             torch.zeros(len(b)))
@@ -628,17 +710,16 @@ def main():
                     s1 = ratio * Adv[b]
                     s2 = torch.clamp(ratio, 1 - args.clip, 1 + args.clip) * Adv[b]
                     pol_loss = -torch.min(s1, s2).mean()
-                    v = val(X[b])
+                    v = vb if EGT else val(X[b])
                     v_loss = 0.5 * ((v - Ret[b]) ** 2).mean()
                     loss = pol_loss + v_loss - args.ent * entm - args.entb * entb
                     if args.margin > 0 and SEL is None:
-                        fl = y[:, 2 + K:2 + K + 4]
+                        fl = y[:, 2 + AK:2 + AK + 4]
                         loss = loss + args.marginw * torch.relu(
                             args.margin - fl.abs()).mean()
                     opt.zero_grad()
                     loss.backward()
-                    nn.utils.clip_grad_norm_(
-                        list(pol.parameters()) + list(val.parameters()), 0.5)
+                    nn.utils.clip_grad_norm_(opt_params, 0.5)
                     opt.step()
                     pl += pol_loss.item(); vl += v_loss.item(); el += (entm + entb).item()
                     nb += 1
@@ -681,7 +762,10 @@ def main():
             # churning live weights: averaged iterates smooth PPO oscillation
             eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_eval_set(eval_rng, args.neval)
-            if PTR:
+            if EGT:
+                params = [{"net": PE.spec_of_egt(eval_flat)} for _ in arenas]
+                epol = "net"
+            elif PTR:
                 params = [{"net": spec_of_ptr(eval_flat)} for _ in arenas]
                 epol = "net"
             elif SEL is not None:

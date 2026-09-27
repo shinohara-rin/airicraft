@@ -25,6 +25,7 @@ from optimize_cmaes import (Sim, metrics_of, METRIC_NAMES,  # noqa: E402
                             NETHER_MOB_POOL)
 from optimize_net import spec_of, INPUT  # noqa: E402
 from train_rl import spec_of_ptr, spec_of_sized, FAM_POOLS  # noqa: E402
+import policy_egt as PE  # noqa: E402
 
 
 def load_ast(path):
@@ -98,6 +99,9 @@ def main():
     ap.add_argument("--arenas", type=int, default=8)
     ap.add_argument("--ptr3", default="results_ptr3/pol_best.npy")
     ap.add_argument("--ptr2b", default="results_ptr2b/pol_best.npy")
+    ap.add_argument("--egt", default=None,
+                    help="flat .npy of an egt policy to include in the eval")
+    ap.add_argument("--egt-name", default="egt")
     ap.add_argument("--out", default="eval_final.json")
     args = ap.parse_args()
 
@@ -127,6 +131,9 @@ def main():
         candidates.append(("ptr2b", "net", load_ptr(args.ptr2b)))
     if Path(args.ptr3).exists():
         candidates.append(("ptr3", "net", load_ptr(args.ptr3)))
+    if args.egt and Path(args.egt).exists():
+        candidates.append((args.egt_name, "net",
+                           {"net": PE.spec_of_egt(np.load(args.egt))}))
 
     results = {}
     for name, policy, params in candidates:

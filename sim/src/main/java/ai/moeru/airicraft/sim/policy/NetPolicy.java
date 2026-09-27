@@ -8,7 +8,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Feed-forward neural policy for continuous-structure search. The optimizer
@@ -40,6 +42,16 @@ public final class NetPolicy implements CombatPolicy {
 	static final int INPUT = FRAME * STACK;
 	static final int OUTPUT = 2 + K + 4; // moveXY(2) + target scores(K) + atk/shield/sprint/jump(4)
 
+	// "egt" layout (see policy_egt.py): entity-set encoder + GRU memory.
+	static final int EK = 8;           // hostile slots fed to the entity encoder
+	static final int EEF = 18;         // per-entity numeric feats
+	static final int EGE = 16;         // egt globals
+	static final int ETE = 8;          // type embedding dim
+	static final int EDE = 32;         // entity embed dim
+	static final int EDH = 48;         // GRU hidden
+	private static final double[] DIST_CENTERS = {1.0, 3.0, 5.0, 8.0, 14.0};
+	private static final double DIST_SIGMA = 2.0;
+
 	private List<double[][]> w;   // per layer: out x in
 	private List<double[]> b;     // per layer: out
 	private boolean ready;
@@ -53,10 +65,31 @@ public final class NetPolicy implements CombatPolicy {
 	private List<double[][]> headW;   // [move 48->2, flags 48->4]
 	private List<double[]> headB;
 
+	// egt layout state
+	private boolean egtReady;
+	private List<double[][]> egtEntW; private List<double[]> egtEntB;
+	private List<double[][]> egtGlobW; private List<double[]> egtGlobB;
+	private double[][] egtAttq;       // [D_E][D_E], y = W x (no bias)
+	private double[][] egtWih; private double[][] egtWhh;
+	private double[] egtBih; private double[] egtBhh;
+	private List<double[][]> egtPtrW; private List<double[]> egtPtrB;
+	private List<double[][]> egtHeadW; private List<double[]> egtHeadB;  // mv, fl, v
+	private double[][] egtTypeEmb;    // [NT][TE]
+	private Map<String, Integer> egtTypeMap;
+	private final double[] egtHidden = new double[EDH];
+
 	private static boolean isRanged(String type) {
 		return type.contains("skeleton") || type.contains("stray")
 				|| type.contains("pillager") || type.contains("witch")
 				|| type.contains("blaze") || type.contains("breeze");
+	}
+
+	// exact base-name match for egt (avoids wither_skeleton -> "skeleton")
+	private static boolean isRangedExact(String type) {
+		String base = type.substring(type.lastIndexOf('.') + 1);
+		return base.equals("skeleton") || base.equals("stray")
+				|| base.equals("pillager") || base.equals("witch")
+				|| base.equals("blaze") || base.equals("breeze");
 	}
 
 	@Override
@@ -67,6 +100,7 @@ public final class NetPolicy implements CombatPolicy {
 	@Override
 	public void reset() {
 		frames.clear();
+		java.util.Arrays.fill(egtHidden, 0.0);
 	}
 
 	@Override
@@ -76,6 +110,10 @@ public final class NetPolicy implements CombatPolicy {
 			return;
 		}
 		JsonObject spec = net.getAsJsonObject();
+		if (spec.has("layout") && "egt".equals(spec.get("layout").getAsString())) {
+			configureEgt(spec);
+			return;
+		}
 		JsonArray layers = spec.getAsJsonArray("layers");
 		if (layers == null) {
 			return;
@@ -131,6 +169,66 @@ public final class NetPolicy implements CombatPolicy {
 			bv[o] = bArr.get(o).getAsDouble();
 		}
 		return bv;
+	}
+
+	private void configureEgt(JsonObject spec) {
+		egtTypeEmb = readMatrix(spec.getAsJsonArray("typeEmb"));
+		egtTypeMap = new HashMap<>();
+		JsonArray vocab = spec.getAsJsonArray("typeVocab");
+		for (int i = 0; i < vocab.size(); i++) {
+			egtTypeMap.put(vocab.get(i).getAsString(), i);
+		}
+		egtEntW = readLayers(spec.getAsJsonArray("ent"));
+		egtGlobW = readLayers(spec.getAsJsonArray("glob"));
+		egtEntB = readBiases(spec.getAsJsonArray("ent"));
+		egtGlobB = readBiases(spec.getAsJsonArray("glob"));
+		egtAttq = readMatrix(spec.getAsJsonArray("attq"));
+		JsonObject gru = spec.getAsJsonObject("gru");
+		egtWih = readMatrix(gru.getAsJsonArray("wih"));
+		egtWhh = readMatrix(gru.getAsJsonArray("whh"));
+		egtBih = readVec(gru.getAsJsonArray("bih"));
+		egtBhh = readVec(gru.getAsJsonArray("bhh"));
+		egtPtrW = readLayers(spec.getAsJsonArray("ptr"));
+		egtPtrB = readBiases(spec.getAsJsonArray("ptr"));
+		egtHeadW = readLayers(spec.getAsJsonArray("heads"));
+		egtHeadB = readBiases(spec.getAsJsonArray("heads"));
+		egtReady = true;
+	}
+
+	private static double[][] readMatrix(JsonArray arr) {
+		double[][] m = new double[arr.size()][];
+		for (int i = 0; i < arr.size(); i++) {
+			JsonArray row = arr.get(i).getAsJsonArray();
+			m[i] = new double[row.size()];
+			for (int j = 0; j < row.size(); j++) {
+				m[i][j] = row.get(j).getAsDouble();
+			}
+		}
+		return m;
+	}
+
+	private static double[] readVec(JsonArray arr) {
+		double[] v = new double[arr.size()];
+		for (int i = 0; i < arr.size(); i++) {
+			v[i] = arr.get(i).getAsDouble();
+		}
+		return v;
+	}
+
+	private static List<double[][]> readLayers(JsonArray arr) {
+		List<double[][]> out = new ArrayList<>();
+		for (JsonElement le : arr) {
+			out.add(readW(le.getAsJsonObject()));
+		}
+		return out;
+	}
+
+	private static List<double[]> readBiases(JsonArray arr) {
+		List<double[]> out = new ArrayList<>();
+		for (JsonElement le : arr) {
+			out.add(readB(le.getAsJsonObject()));
+		}
+		return out;
 	}
 
 	private static double[] applyNet(List<double[][]> lw, List<double[]> lb,
@@ -237,6 +335,223 @@ public final class NetPolicy implements CombatPolicy {
 		return x;
 	}
 
+	// ------------------------------------------------- egt encode/forward --
+
+	private static List<JsonObject> hostilesOf(JsonObject obs) {
+		List<JsonObject> hostiles = new ArrayList<>();
+		for (JsonElement el : obs.getAsJsonArray("entities")) {
+			JsonObject e = el.getAsJsonObject();
+			boolean hostile = e.has("hostile") && e.get("hostile").getAsBoolean();
+			boolean isTargeting = e.has("targetingPlayer") && e.get("targetingPlayer").getAsBoolean();
+			if (e.has("health") && (hostile || isTargeting)) {
+				hostiles.add(e);
+			}
+		}
+		hostiles.sort(Comparator.comparingDouble(e -> e.get("dist").getAsDouble()));
+		return hostiles;
+	}
+
+	private static double[] matvec(double[][] wm, double[] bv, double[] x) {
+		double[] o = new double[wm.length];
+		for (int r = 0; r < wm.length; r++) {
+			double s = bv == null ? 0.0 : bv[r];
+			double[] row = wm[r];
+			for (int c = 0; c < row.length; c++) {
+				s += row[c] * x[c];
+			}
+			o[r] = s;
+		}
+		return o;
+	}
+
+	private static void tanhInPlace(double[] a) {
+		for (int i = 0; i < a.length; i++) {
+			a[i] = Math.tanh(a[i]);
+		}
+	}
+
+	/** Mirror of policy_egt.encode_egt: globals + per-entity feats + type ids. */
+	private double[] forwardEgt(JsonObject obs, List<JsonObject> hostiles) {
+		JsonObject p = obs.getAsJsonObject("player");
+		double px = p.getAsJsonObject("pos").get("x").getAsDouble();
+		double py = p.getAsJsonObject("pos").get("y").getAsDouble();
+		double pz = p.getAsJsonObject("pos").get("z").getAsDouble();
+		double pvx = p.getAsJsonObject("vel").get("x").getAsDouble();
+		double pvz = p.getAsJsonObject("vel").get("z").getAsDouble();
+		double yaw = Math.toRadians(p.has("yaw") ? p.get("yaw").getAsDouble() : 0.0);
+		double fx = -Math.sin(yaw), fz = Math.cos(yaw);   // MC facing in (x,z)
+
+		double ux = 0, uz = 0, lit = 0, aiming = 0, targeting = 0;
+		double hpSum = 0, nd = 99.0;
+		double[][] ef = new double[EK][EEF];
+		int[] tid = new int[EK];
+		java.util.Arrays.fill(tid, egtTypeEmb.length - 1);   // "other"
+
+		int n = Math.min(hostiles.size(), EK);
+		for (int k = 0; k < n; k++) {
+			JsonObject e = hostiles.get(k);
+			double dx = e.getAsJsonObject("pos").get("x").getAsDouble() - px;
+			double dz = e.getAsJsonObject("pos").get("z").getAsDouble() - pz;
+			double d = Math.max(e.get("dist").getAsDouble(), 1e-6);
+			double ex = dx / d, ez = dz / d;
+			ux += ex; uz += ez;
+			hpSum += e.get("health").getAsDouble();
+			if (d < nd) nd = d;
+			String t = e.get("type").getAsString();
+			double fuz = e.has("fuse") ? e.get("fuse").getAsDouble() : 0.0;
+			double aim = e.has("aiming") && e.get("aiming").getAsBoolean() ? 1 : 0;
+			double tgt = e.has("targetingPlayer") && e.get("targetingPlayer").getAsBoolean() ? 1 : 0;
+			if (fuz > 0.4) lit++;
+			aiming += aim;
+			targeting += tgt;
+
+			double cosb = fx * ex + fz * ez;
+			double sinb = fx * ez - fz * ex;
+			double rvx = e.getAsJsonObject("vel").get("x").getAsDouble() - pvx;
+			double rvz = e.getAsJsonObject("vel").get("z").getAsDouble() - pvz;
+			double vrad = rvx * ex + rvz * ez;
+			double vtan = rvx * ez - rvz * ex;
+			double spd = Math.hypot(e.getAsJsonObject("vel").get("x").getAsDouble(),
+					e.getAsJsonObject("vel").get("z").getAsDouble());
+
+			double[] row = ef[k];
+			row[0] = clamp(d / 20.0, 0, 1);
+			for (int i = 0; i < DIST_CENTERS.length; i++) {
+				double dd = d - DIST_CENTERS[i];
+				row[1 + i] = Math.exp(-(dd * dd) / (2 * DIST_SIGMA * DIST_SIGMA));
+			}
+			row[6] = sinb;
+			row[7] = cosb;
+			row[8] = clamp((e.getAsJsonObject("pos").get("y").getAsDouble() - py) / 4.0, -1, 1);
+			row[9] = clamp(vrad / 5.0, -1, 1);
+			row[10] = clamp(vtan / 5.0, -1, 1);
+			row[11] = clamp(spd / 5.0, 0, 1);
+			row[12] = clamp(e.get("health").getAsDouble()
+					/ Math.max(e.has("maxHealth") ? e.get("maxHealth").getAsDouble() : 20.0, 1.0), 0, 1);
+			row[13] = e.has("playerHits") ? clamp(e.get("playerHits").getAsDouble() / 6.0, 0, 1) : 0;
+			row[14] = tgt;
+			row[15] = isRangedExact(t) ? 1 : 0;
+			row[16] = clamp(fuz, 0, 1);
+			row[17] = aim;
+			String base = t.substring(t.lastIndexOf('.') + 1);
+			tid[k] = egtTypeMap.getOrDefault(base, egtTypeEmb.length - 1);
+		}
+
+		double encirc = n > 0 ? 1.0 - Math.hypot(ux, uz) / n : 0.0;
+		double[] g = new double[EGE];
+		g[0] = clamp(p.get("health").getAsDouble() / 20.0, 0, 1);
+		g[1] = clamp(p.get("attackCooldown").getAsDouble(), 0, 1);
+		g[2] = clamp(p.get("lastAttackedTicks").getAsInt() / 60.0, 0, 1);
+		g[3] = p.has("usingItem") && p.get("usingItem").getAsBoolean() ? 1 : 0;
+		g[4] = clamp(p.has("useTicks") ? p.get("useTicks").getAsDouble() / 40.0 : 0, 0, 1);
+		g[5] = p.has("offhandPct") ? clamp(p.get("offhandPct").getAsDouble(), 0, 1) : 1;
+		g[6] = p.has("onGround") && p.get("onGround").getAsBoolean() ? 1 : 0;
+		g[7] = p.has("food") ? clamp(p.get("food").getAsInt() / 20.0, 0, 1) : 1;
+		g[8] = clamp(hostiles.size() / 9.0, 0, 1);
+		g[9] = clamp(encirc, 0, 1);
+		g[10] = clamp(lit / 3.0, 0, 1);
+		g[11] = clamp(aiming / 4.0, 0, 1);
+		g[12] = clamp(targeting / 9.0, 0, 1);
+		g[13] = clamp(hpSum / 200.0, 0, 1);
+		g[14] = clamp(nd / 20.0, 0, 1);
+		g[15] = p.has("sprinting") && p.get("sprinting").getAsBoolean() ? 1 : 0;
+
+		// entity encoder
+		double[][] E = new double[EK][EDE];
+		for (int k = 0; k < EK; k++) {
+			double[] in = new double[EEF + ETE];
+			System.arraycopy(ef[k], 0, in, 0, EEF);
+			System.arraycopy(egtTypeEmb[tid[k]], 0, in, EEF, ETE);
+			double[] a = matvec(egtEntW.get(0), egtEntB.get(0), in);
+			tanhInPlace(a);
+			a = matvec(egtEntW.get(1), egtEntB.get(1), a);
+			tanhInPlace(a);
+			E[k] = a;
+		}
+		// global encoder + cross-attention (single head, player-state query)
+		double[] gv = matvec(egtGlobW.get(0), egtGlobB.get(0), g);
+		tanhInPlace(gv);
+		gv = matvec(egtGlobW.get(1), egtGlobB.get(1), gv);
+		tanhInPlace(gv);
+		double[] q = matvec(egtAttq, null, gv);
+		double[] wts = new double[n];
+		double mx = Double.NEGATIVE_INFINITY;
+		for (int k = 0; k < n; k++) {
+			double s = 0;
+			for (int i = 0; i < EDE; i++) s += E[k][i] * q[i];
+			wts[k] = s / Math.sqrt(EDE);
+			if (wts[k] > mx) mx = wts[k];
+		}
+		double wsum = 0;
+		for (int k = 0; k < n; k++) {
+			wts[k] = Math.exp(wts[k] - mx);
+			wsum += wts[k];
+		}
+		double[] attn = new double[EDE];
+		double[] meanE = new double[EDE];
+		for (int k = 0; k < n; k++) {
+			double w = wsum > 0 ? wts[k] / wsum : 0;
+			for (int i = 0; i < EDE; i++) {
+				attn[i] += w * E[k][i];
+				meanE[i] += E[k][i] / n;
+			}
+		}
+		double[] fused = new double[3 * EDE];
+		System.arraycopy(gv, 0, fused, 0, EDE);
+		System.arraycopy(attn, 0, fused, EDE, EDE);
+		System.arraycopy(meanE, 0, fused, 2 * EDE, EDE);
+
+		// GRUCell update — PyTorch gate order [r; z; n]:
+		//   r = sig(W_ir x + b_ir + W_hr h + b_hr),   z likewise
+		//   n = tanh(W_in x + b_in + r * (W_hn h + b_hn))
+		//   h' = (1 - z) * n + z * h
+		double[] h = egtHidden;
+		double[] hn = new double[EDH];    // W_hn h + b_hn (reset gate applies later)
+		double[] hnew = new double[EDH];
+		for (int i = 0; i < EDH; i++) {
+			double xr = egtBih[i], xz = egtBih[EDH + i], xn = egtBih[2 * EDH + i];
+			double hr = egtBhh[i], hz = egtBhh[EDH + i], hh = egtBhh[2 * EDH + i];
+			for (int c = 0; c < fused.length; c++) {
+				xr += egtWih[i][c] * fused[c];
+				xz += egtWih[EDH + i][c] * fused[c];
+				xn += egtWih[2 * EDH + i][c] * fused[c];
+			}
+			for (int c = 0; c < EDH; c++) {
+				hr += egtWhh[i][c] * h[c];
+				hz += egtWhh[EDH + i][c] * h[c];
+				hh += egtWhh[2 * EDH + i][c] * h[c];
+			}
+			hn[i] = hh;
+			double r = 1.0 / (1.0 + Math.exp(-(xr + hr)));
+			double z = 1.0 / (1.0 + Math.exp(-(xz + hz)));
+			double ng = Math.tanh(xn + r * hn[i]);
+			hnew[i] = (1.0 - z) * ng + z * h[i];
+		}
+		System.arraycopy(hnew, 0, egtHidden, 0, EDH);
+
+		// heads: move(2), flags(4) over h; ptr scorer over [h | E_k]
+		double[] mv = matvec(egtHeadW.get(0), egtHeadB.get(0), hnew);
+		double[] fl = matvec(egtHeadW.get(1), egtHeadB.get(1), hnew);
+		double[] out = new double[2 + EK + 4];
+		out[0] = mv[0]; out[1] = mv[1];
+		for (int k = 0; k < EK; k++) {
+			if (k >= n) {
+				out[2 + k] = -1e9;   // dead slot: never argmax
+				continue;
+			}
+			double[] pin = new double[EDH + EDE];
+			System.arraycopy(hnew, 0, pin, 0, EDH);
+			System.arraycopy(E[k], 0, pin, EDH, EDE);
+			double[] pa = matvec(egtPtrW.get(0), egtPtrB.get(0), pin);
+			tanhInPlace(pa);
+			out[2 + k] = matvec(egtPtrW.get(1), egtPtrB.get(1), pa)[0];
+		}
+		for (int i = 0; i < 4; i++) {
+			out[2 + EK + i] = fl[i];
+		}
+		return out;
+	}
+
 	// ----------------------------------------------------------- forward --
 
 	private double[] forward(double[] x) {
@@ -301,6 +616,9 @@ public final class NetPolicy implements CombatPolicy {
 
 	@Override
 	public Intent decide(JsonObject obs) {
+		if (egtReady) {
+			return decideEgt(obs);
+		}
 		double[] x = stackInput(obs);
 		if (x == null) {
 			return Intent.IDLE;
@@ -368,6 +686,35 @@ public final class NetPolicy implements CombatPolicy {
 				.jump(flagOut[3] > 0 && player.has("onGround")
 						&& player.get("onGround").getAsBoolean());
 		if (flagOut[1] > 0) {
+			bld.useHand("off");
+		} else {
+			bld.stopUsing(true);
+		}
+		return bld.build();
+	}
+
+	private Intent decideEgt(JsonObject obs) {
+		List<JsonObject> hostiles = hostilesOf(obs);
+		double[] y = forwardEgt(obs, hostiles);   // also advances the GRU state
+		JsonObject player = obs.getAsJsonObject("player");
+		Intent.Builder bld = Intent.builder()
+				.moveDir(y[0], y[1])
+				.attack(y[2 + EK] > 0)
+				.sprint(y[2 + EK + 2] > 0)
+				.jump(y[2 + EK + 3] > 0 && player.has("onGround")
+						&& player.get("onGround").getAsBoolean());
+		if (!hostiles.isEmpty()) {
+			int ti = 0;
+			double best = Double.NEGATIVE_INFINITY;
+			for (int k = 0; k < EK && k < hostiles.size(); k++) {
+				if (y[2 + k] > best) {
+					best = y[2 + k];
+					ti = k;
+				}
+			}
+			bld.lookEntity(hostiles.get(ti).get("id").getAsInt());
+		}
+		if (y[2 + EK + 1] > 0) {
 			bld.useHand("off");
 		} else {
 			bld.stopUsing(true);
