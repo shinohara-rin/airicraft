@@ -391,7 +391,7 @@ class PlannerOrchestratorTest {
 			tick.set(40);
 			orchestrator.recordEvents(events.query(null), 2000);
 			orchestrator.submit(requestAt(40, 2000, "Alice", "What happened?"));
-			backend.awaitCalls(3, Duration.ofSeconds(5));
+			awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(5));
 			var conversation = backend.conversation(2);
 			assertTrue(conversation.messages().stream().anyMatch(message -> "observe".equals(message.toolCallId())
 				&& message.content().contains("Cancelled by clear_queue")));
