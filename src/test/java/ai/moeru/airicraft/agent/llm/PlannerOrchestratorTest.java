@@ -369,7 +369,7 @@ class PlannerOrchestratorTest {
 			"controller", "idle", Map.of(), events.query(null)));
 		try {
 			orchestrator.submit(requestAt(10, 500, "Alice", "Inspect the area"));
-			backend.awaitCalls(1, Duration.ofSeconds(5));
+			awaitBackendCallCount(orchestrator, backend, 1, Duration.ofSeconds(5));
 			backend.succeed(0, PlannerResponse.toolCalls(List.of(
 				new PlannerToolCall("read", "inspect_fixture", new JsonObject(), null),
 				new PlannerToolCall("observe", PlannerToolCatalog.OBSERVE, new JsonObject(), null)), null));
@@ -378,7 +378,7 @@ class PlannerOrchestratorTest {
 			orchestrator.tickToolQueue();
 			tick.set(20);
 			orchestrator.submit(requestAt(20, 1000, "Alice", "Cancel the plan"));
-			backend.awaitCalls(2, Duration.ofSeconds(5));
+			awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(5));
 			backend.succeed(1, PlannerResponse.toolCalls(List.of(
 				new PlannerToolCall("clear", "clear_queue", new JsonObject(), null)), null));
 			backend.awaitCompletions(2, Duration.ofSeconds(5));
