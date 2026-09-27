@@ -98,7 +98,7 @@ public final class DatasetViewLabeler {
 			view.letterbox(), centerX, centerY, view.sourceWidth(), view.sourceHeight()
 		);
 		if (source == null) {
-			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null);
+			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null);
 		}
 
 		Vec dir = ViewGeometry.sourcePixelRay(
@@ -126,8 +126,11 @@ public final class DatasetViewLabeler {
 
 		if (entity != null && entityDistance < blockDistance) {
 			entityHitCells.merge(entity.getId(), 1, Integer::sum);
+			Vec3d hitPos = entityHit.getPos();
+			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
 			return new LabelCell(
 				cellX, cellY, cellW, cellH, "entity", entityDistance,
+				ego.forward(), ego.right(), ego.up(),
 				null, null, null, null, null,
 				entity.getId(), entity.getUuidAsString(),
 				Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
@@ -138,15 +141,18 @@ public final class DatasetViewLabeler {
 			BlockPos pos = blockHit.getBlockPos();
 			viewVisibleBlocks.add(pos.asLong());
 			BlockState state = world.getBlockState(pos);
+			Vec3d hitPos = blockHit.getPos();
+			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
 			return new LabelCell(
 				cellX, cellY, cellW, cellH, "block", blockDistance,
+				ego.forward(), ego.right(), ego.up(),
 				pos.getX(), pos.getY(), pos.getZ(),
 				Registries.BLOCK.getId(state.getBlock()).toString(),
 				stateKey(state),
 				null, null, null, null
 			);
 		}
-		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null);
+		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null);
 	}
 
 	private List<RegionCell> scanRegion(ClientWorld world, BlockBounds bounds, Set<Long> viewVisibleBlocks) {
@@ -208,6 +214,7 @@ public final class DatasetViewLabeler {
 			boolean onScreen = screen != null
 				&& screen.x() >= 0.0D && screen.x() < view.sourceWidth()
 				&& screen.y() >= 0.0D && screen.y() < view.sourceHeight();
+			Egocentric ego = view.egocentric(new Vec(entityPos.x - eyeVec.x, entityPos.y - eyeVec.y, entityPos.z - eyeVec.z));
 			entities.add(new EntityLabel(
 				entity.getId(),
 				entity.getUuidAsString(),
@@ -215,6 +222,7 @@ public final class DatasetViewLabeler {
 				entity.getName().getString(),
 				entity.hasCustomName(),
 				new Pos(entityPos.x, entityPos.y, entityPos.z),
+				ego,
 				new BoxLabel(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ),
 				distance,
 				screen == null ? null : new ScreenLabel(screen.x(), screen.y(), screen.depth(), onScreen),
@@ -289,6 +297,7 @@ public final class DatasetViewLabeler {
 		int x, int y, int w, int h,
 		String kind,
 		Double depth,
+		Double egoForward, Double egoRight, Double egoUp,
 		Integer blockX, Integer blockY, Integer blockZ,
 		String blockId,
 		String stateKey,
@@ -324,6 +333,7 @@ public final class DatasetViewLabeler {
 		String name,
 		boolean customNamed,
 		Pos pos,
+		Egocentric ego,
 		BoxLabel box,
 		double distance,
 		ScreenLabel screen,

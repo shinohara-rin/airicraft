@@ -222,6 +222,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, this::createAgentActionGraphInspectResponse));
 			httpServer.createContext("/v1/agent/action-goals", this::handleAgentActionGoals);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
+			httpServer.createContext("/v1/agent/debug/command", this::handleAgentDebugCommand);
 			httpServer.createContext("/v1/agent/debug/idle-trigger", this::handleAgentDebugIdleTrigger);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
 				httpServer.createContext("/v1/agent/debug/state", exchange -> handleJson(exchange, this::createAgentDebugStateResponse));
@@ -1163,6 +1164,30 @@ public final class ModBridgeServer {
 				payload.put("task", agentRuntime().taskSnapshot());
 				payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
 				payload.put("lastDialogueResponse", agentRuntime().lastDialogueResponse().orElse(null));
+				payload.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
+				return payload;
+			});
+		});
+	}
+
+	private void handleAgentDebugCommand(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", DebugCommandRequest.class, request -> {
+			if (request == null || request.command() == null || request.command().isBlank()) {
+				throw new BridgeUnavailableException("invalid_request", "Missing command");
+			}
+			return onClientThread(() -> {
+				var client = getClient();
+				ensureWorldLoaded(client);
+				String command = request.command().trim();
+				if (command.startsWith("/")) {
+					command = command.substring(1);
+				}
+				client.getNetworkHandler().sendChatCommand(command);
+
+				Map<String, Object> payload = new LinkedHashMap<>();
+				payload.put("available", true);
+				payload.put("accepted", true);
+				payload.put("command", command);
 				payload.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
 				return payload;
 			});
@@ -2879,6 +2904,9 @@ public final class ModBridgeServer {
 	}
 
 	private record DebugChatRequest(String senderName, String message) {
+	}
+
+	private record DebugCommandRequest(String command) {
 	}
 
 	private record AgentToolCallRequest(String name, JsonObject arguments, Integer timeoutMs) {

@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.dataset.DatasetViewLabeler.LabelData;
 import ai.moeru.airicraft.dataset.DatasetViewLabeler.RegionBoundsSpec;
 import ai.moeru.airicraft.dataset.DatasetViewLabeler.View;
+import ai.moeru.airicraft.dataset.ViewGeometry.Basis;
 import ai.moeru.airicraft.dataset.ViewGeometry.Letterbox;
 import ai.moeru.airicraft.dataset.ViewGeometry.Projection;
 import ai.moeru.airicraft.dataset.ViewGeometry.Vec;
@@ -322,6 +323,13 @@ public final class DatasetCaptureService {
 			"x", cameraPos.x(), "y", cameraPos.y(), "z", cameraPos.z(),
 			"yaw", (double) client.gameRenderer.getCamera().getYaw(),
 			"pitch", (double) client.gameRenderer.getCamera().getPitch()
+		));
+		// Egocentric frame used by labels' egoForward/egoRight/egoUp and entities' ego.
+		Basis basis = view.basis();
+		meta.put("cameraBasis", Map.of(
+			"forward", Map.of("x", basis.forward().x(), "y", basis.forward().y(), "z", basis.forward().z()),
+			"right", Map.of("x", basis.right().x(), "y", basis.right().y(), "z", basis.right().z()),
+			"up", Map.of("x", basis.up().x(), "y", basis.up().y(), "z", basis.up().z())
 		));
 		// True row-major: element M[r][c] is JOML accessor m<c><r>.
 		meta.put("projectionMatrixRowMajor", List.of(

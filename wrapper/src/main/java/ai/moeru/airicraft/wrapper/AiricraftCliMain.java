@@ -93,6 +93,7 @@ public final class AiricraftCliMain {
 		agent.addSubcommand("debug", new UsageCommand(out, "airicraft agent debug", "Agent debug commands"));
 		CommandLine agentDebug = agent.getSubcommands().get("debug");
 		agentDebug.addSubcommand(new AgentDebugChatCommand(context));
+		agentDebug.addSubcommand(new AgentDebugCommandCommand(context));
 		agentDebug.addSubcommand(new AgentDebugIdleTriggerCommand(context));
 		agentDebug.addSubcommand(new AgentDebugStateCommand(context));
 		agentDebug.addSubcommand(new AgentDebugTimelineCommand(context));
@@ -683,6 +684,21 @@ public final class AiricraftCliMain {
 		@Override
 		Map<String, Object> runCommand() {
 			return transport().post("/v1/agent/debug/chat", Map.of("message", message));
+		}
+	}
+
+	@Command(name = "command", mixinStandardHelpOptions = true, description = "Send a slash command to the integrated server (e.g. /tp, /time, /weather).")
+	private static final class AgentDebugCommandCommand extends BaseCommand {
+		@Option(names = "--command", required = true, description = "Command to execute, with or without the leading slash.")
+		private String command;
+
+		private AgentDebugCommandCommand(CliContext context) {
+			super(context, "agent debug command");
+		}
+
+		@Override
+		Map<String, Object> runCommand() {
+			return transport().post("/v1/agent/debug/command", Map.of("command", command));
 		}
 	}
 

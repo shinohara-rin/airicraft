@@ -103,6 +103,7 @@
 - `airicraft player focus`
 - `airicraft player look-at --x <x> --y <y> --z <z>`
 - `airicraft agent debug chat --message <text>`
+- `airicraft agent debug command --command <text>` — executes a real slash command on the integrated server (`sendChatCommand`; cheats must be on). `agent debug chat` only injects the text as an agent chat event, it does NOT run commands.
 - `airicraft agent debug idle-trigger`
 - `airicraft agent debug state`
 - `airicraft agent debug timeline [--since <entry-id>]`
@@ -160,6 +161,7 @@
 - `GET /v1/focus`
 - `GET /v1/world-snapshot`
 - `GET|POST|DELETE /v1/highlights`
+- `POST /v1/agent/debug/command` — `{command}` executes via `sendChatCommand` on the client thread
 - `POST /v1/dataset/capture`
 - `GET /v1/dataset/status`
 

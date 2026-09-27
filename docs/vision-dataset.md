@@ -43,6 +43,12 @@ cells). Each cell is `kind: block|entity|sky|padding` plus, for blocks,
 (ray distance); for entities, `entityId`, `entityUuid`, `entityType`. `padding`
 marks letterbox bars.
 
+Hit cells (block and entity) also carry `egoForward`/`egoRight`/`egoUp`: the
+ray hit point decomposed into the camera's egocentric frame — `forward` is
+along the look direction, `right`/`up` are the camera right/up axes, all in
+meters. The basis vectors are exported as `meta.json.cameraBasis`; absolute
+hit/block positions are recoverable as `camera + forward*f + right*r + up*u`.
+
 ## `region.json.gz`
 
 Axis-aligned region centered on the camera (`--region-radius`,
@@ -54,9 +60,10 @@ this block visible?" even though it never produced a pixel label.
 
 ## `entities.json`
 
-Per entity: `pos`, `box`, `distance`, `screen` (projected pixel rect, may be
-`null` when off-screen or behind), `hitCells` (how many grid rays hit it),
-`onGround`, `airTicks`.
+Per entity: `pos` (absolute), `ego` (egocentric forward/right/up of the feet
+position), `box`, `distance`, `screen` (projected pixel rect, may be `null`
+when off-screen or behind), `hitCells` (how many grid rays hit it), `onGround`,
+`airTicks`.
 
 ## Consistency guarantees
 
@@ -67,8 +74,8 @@ Per entity: `pos`, `box`, `distance`, `screen` (projected pixel rect, may be
   *effective* FOV (`getFov(camera, tickProgress, true)` →
   `getBasicProjectionMatrix`), matching vanilla's matrix, so pixel↔world math
   stays exact under sprint/zoom FOV changes.
-- `depth` is world-space distance along the ray. Egocentric decomposition for
-  QA uses the `right/up/forward` basis in `meta.json.camera`.
+- `depth` is world-space distance along the ray. `egoForward/egoRight/egoUp`
+  use the `cameraBasis` vectors exported in `meta.json`.
 
 ## Training data: `scripts/generate-spatial-qa`
 
