@@ -164,7 +164,8 @@ public final class DatasetCaptureService {
 		float tickDelta = tickCounter.getTickProgress(true);
 		float fov = ((GameRendererAccessor) client.gameRenderer).airicraft$invokeGetFov(camera, tickDelta, true);
 		Matrix4f projectionMatrix = client.gameRenderer.getBasicProjectionMatrix(fov);
-		if (Math.abs(projectionMatrix.m32() + 1.0F) > 0.001F) {
+		// JOML m<column><row>: the perspective -1 sits at math M[3][2] = m23().
+		if (Math.abs(projectionMatrix.m23() + 1.0F) > 0.001F) {
 			throw new BridgeUnavailableException("projection_unavailable", "World projection matrix is not perspective this frame");
 		}
 
@@ -174,11 +175,12 @@ public final class DatasetCaptureService {
 		View view = new View(
 			vec(camera.getPos()),
 			ViewGeometry.cameraBasis(camera.getYaw(), camera.getPitch()),
+			// Projection uses math (row,col) convention: m02/m12 are JOML m20/m21.
 			new Projection(
 				projectionMatrix.m00(),
 				projectionMatrix.m11(),
-				projectionMatrix.m02(),
-				projectionMatrix.m12()
+				projectionMatrix.m20(),
+				projectionMatrix.m21()
 			),
 			ViewGeometry.letterbox(sourceWidth, sourceHeight, ViewGeometry.OUTPUT_WIDTH, ViewGeometry.OUTPUT_HEIGHT),
 			sourceWidth,
@@ -311,11 +313,12 @@ public final class DatasetCaptureService {
 			"yaw", (double) client.gameRenderer.getCamera().getYaw(),
 			"pitch", (double) client.gameRenderer.getCamera().getPitch()
 		));
+		// True row-major: element M[r][c] is JOML accessor m<c><r>.
 		meta.put("projectionMatrixRowMajor", List.of(
-			List.of((double) projectionMatrix.m00(), (double) projectionMatrix.m01(), (double) projectionMatrix.m02(), (double) projectionMatrix.m03()),
-			List.of((double) projectionMatrix.m10(), (double) projectionMatrix.m11(), (double) projectionMatrix.m12(), (double) projectionMatrix.m13()),
-			List.of((double) projectionMatrix.m20(), (double) projectionMatrix.m21(), (double) projectionMatrix.m22(), (double) projectionMatrix.m23()),
-			List.of((double) projectionMatrix.m30(), (double) projectionMatrix.m31(), (double) projectionMatrix.m32(), (double) projectionMatrix.m33())
+			List.of((double) projectionMatrix.m00(), (double) projectionMatrix.m10(), (double) projectionMatrix.m20(), (double) projectionMatrix.m30()),
+			List.of((double) projectionMatrix.m01(), (double) projectionMatrix.m11(), (double) projectionMatrix.m21(), (double) projectionMatrix.m31()),
+			List.of((double) projectionMatrix.m02(), (double) projectionMatrix.m12(), (double) projectionMatrix.m22(), (double) projectionMatrix.m32()),
+			List.of((double) projectionMatrix.m03(), (double) projectionMatrix.m13(), (double) projectionMatrix.m23(), (double) projectionMatrix.m33())
 		));
 		meta.put("configuredFov", client.options.getFov().getValue());
 		meta.put("fovYDegrees", view.projection().fovYDegrees());

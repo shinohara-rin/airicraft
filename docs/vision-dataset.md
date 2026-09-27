@@ -15,7 +15,7 @@ airicraft dataset status
 `airicraft dataset capture` blocks until the frame has been rendered, labeled,
 and written; the response includes the capture directory and file list.
 `--yaw`/`--pitch`/`--look-at` point the camera before the shot; without them the
-current view is captured. Tip: run `airicraft ticks pause` first to
+current view is captured. Tip: run `airicraft agent debug ticks pause` first to
 freeze the world between captures.
 
 ## Layout
@@ -84,7 +84,7 @@ the mod.
 
 ## Collection tips
 
-- Freeze time and entities: `airicraft ticks pause`, `airicraft entity freeze`.
+- Freeze the world between shots: `airicraft agent debug ticks pause`.
 - Capture diverse views by scripting `yaw`/`pitch` sweeps against the same
   position, or use `--look-at` on interesting blocks from a `voxels` scan.
 - `stridePx` trades label density for capture latency; 8 is a good default,

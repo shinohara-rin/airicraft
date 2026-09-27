@@ -48,7 +48,7 @@ public final class DatasetViewLabeler {
 		Vec eye = view.cameraPos();
 		Vec3d eyeVec = new Vec3d(eye.x(), eye.y(), eye.z());
 
-		Set<Long> viewVisibleBlocks = region != null ? new HashSet<>() : Set.of();
+		Set<Long> viewVisibleBlocks = new HashSet<>();
 		Map<Integer, Integer> entityHitCells = new HashMap<>();
 		List<LabelCell> cells = new ArrayList<>();
 
