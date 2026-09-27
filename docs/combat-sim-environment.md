@@ -855,3 +855,70 @@ Read of the evidence:
    distilled targets is the right shape, but flag/macro logic remains
    the rules' edge. The pragmatic ceiling today is sel1 — symbolic
    library + neural arbitration.
+
+### egt (entity-set encoder + cross-attention + GRU): capacity verified, same wall
+
+Motivated by the ptr-line diagnosis — the ptr scorer had the right shape but
+flat features + 6 fixed slots + no memory couldn't carry the champs'
+conditional grammar — egt restructures both the features and the network:
+
+- **Spatial feature engineering** (the net no longer has to learn 3D
+  geometry): per-entity RBF distance bins (centers 1/3/5/8/14, sigma 2),
+  sin/cos egocentric bearing in the player's facing frame (rotation-
+  invariant), radial+tangential relative-velocity decomposition, dy,
+  per-entity `fuse`/`aiming`/`targetingPlayer`/`playerHits`, plus a global
+  encirclement scalar (magnitude of the mean unit bearing vector — ~1 means
+  perfectly surrounded). 18 feats x 8 hostiles + 16 globals.
+- **Entity-set encoder**: shared MLP over live hostiles with a learned
+  10-way type embedding -> permutation-invariant by construction.
+- **Cross-attention**: player-state query over entity vectors -> context.
+- **GRU (48) cross-tick memory** replaces the 20-frame stack
+  (input ~1980 -> ~110 dims/tick, history no longer windowed).
+- **Pointer head as attention scorer** over entity vectors (K=8 slots, no
+  fixed-6 cap), plus move2 + flags4 + value heads. ~27k params.
+- Java `NetPolicy` `layout:"egt"` mirrors the Python forward bit-for-bit
+  (GRU gate order [r;z;n]); per-tick parity verified against a real
+  episode's obs stream to ~1e-5, discrete outputs identical.
+- `distill_egt.py`: per-episode TBPTT (chunk 64) over the champ
+  trajectories, with labels shifted +3 ticks to match the obs-delay
+  pipeline (recorded `intent_t` was decided on `obs_{t-3}`). Converged to
+  93.2% target agreement (ptr's scorer only reached 61%) — the feature +
+  memory upgrade is real: the AST target grammar is now *learnable*.
+
+Training: `train_rl.py --egt --initempty distilled_egt.npy --familymix`,
+PPO-EMA with per-step GRU hidden states recorded for exact logp
+reproduction (no stale-state backprop).
+
+Result (egt1, 540 iters before early stop; eval = deterministic EMA on
+fresh familymix eval batches):
+
+| policy | kills | taken | clear | survived | ticks |
+|---|---|---|---|---|---|
+| me11_dom | 4.58 | -5.3 | .875 | .917 | -249 |
+| sel1 | 4.75 | -8.7 | .625 | .875 | -311 |
+| baseline | 3.75 | -14.9 | .625 | .625 | -196 |
+| egt_best (iter 190) | 1.46 | -7.4 | .333 | .917 | -426 |
+| egt_latest (iter ~540) | ~0.9 | -4.0 | ~.06 | ~.97 | ~-580 |
+
+- **Same wall as every pure-neural attempt, with a twist**: sampled
+  rollouts held ~3.0 kills/episode all the way to iter 500+, but the
+  deterministic deployment eval peaked at 2.32 kills @iter 190 and then
+  *monotonically decayed into the pacifist corner* — by iter 470 the eval
+  reads [0.2 kills, 0% clear, 99% survived, ~600t] = the standoff-shield
+  degenerate pattern. Episode inspection shows the mechanism: shield
+  raised 100% of ticks (use=1.0), attack spam, hover at ~4-8 blocks —
+  shield movement slowdown (sneak speed) means the target is never
+  reached. Not a bug: a stable defensive fixed point the GRU makes extra
+  sticky.
+- egt_best still strictly dominates ptr2 on the mean vector and wins
+  per-scenario vs ptr1 7-4, ptr2 7-2, ptr2b 3-2, rl7 4-0 — it is the
+  strongest *non-rl5* pure-neural to date, but me11_dom dominates it 0-8
+  and sel1 0-9.
+- **Verdict**: capacity/feature-expressiveness is no longer the binding
+  constraint (93% distillability + real sampled fighting proves the net
+  can represent combat behavior). The binding constraint is the RL
+  landscape: sampled-fight vs deterministic-deploy divergence plus a
+  reward surface where stall < death < clear. Next lever is optimization,
+  not architecture: GRPO (group baseline removes the noisy critic),
+  server-side sprint rollouts for ~10x sample throughput, or fixed-
+  episode-count evaluation to break the sampled/deterministic gap.
