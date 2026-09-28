@@ -267,7 +267,8 @@ def replay_episode(pol, obs_list, sampled_list, device="cpu"):
     update (detached, stored once — updated weights reuse it, PPO-style).
     """
     out = []
-    h = torch.zeros(1, PE.D_H)
+    dev = torch.device(device)
+    h = torch.zeros(1, PE.D_H, device=dev)
     with torch.no_grad():
         for i, sm in enumerate(sampled_list):
             if sm is None:
@@ -277,17 +278,17 @@ def replay_episode(pol, obs_list, sampled_list, device="cpu"):
             mv = np.array(sm["mv"], dtype=np.float32)
             flags = np.array(sm.get("flags") or [0]*4, dtype=np.float32)
             out.append({"g": g, "ef": ef, "tid": tid, "n": n,
-                        "h": h.squeeze(0).numpy().copy(),
+                        "h": h.squeeze(0).cpu().numpy().copy(),
                         "mv": mv, "tgt": int(sm.get("tgt", -1)),
                         "flags": flags,
                         "old_logp": float(sm["logp"]),
                         # same-tick (obs_i, action_i) pair for the GAIL D
                         "dsf": state_feats(obs_list[i]),
                         "daf": act_feats(mv, int(sm.get("tgt", -1)), flags)})
-            xg = torch.tensor(g[None], dtype=torch.float32)
-            xe = torch.tensor(ef[None], dtype=torch.float32)
-            xt = torch.tensor(tid[None], dtype=torch.long)
-            xn = torch.tensor([n])
+            xg = torch.tensor(g[None], dtype=torch.float32, device=dev)
+            xe = torch.tensor(ef[None], dtype=torch.float32, device=dev)
+            xt = torch.tensor(tid[None], dtype=torch.long, device=dev)
+            xn = torch.tensor([n], device=dev)
             _, _, h = pol(xg, xe, xt, xn, h)
     return out
 
@@ -305,7 +306,8 @@ def replay_batch(pol, episodes):
     for e, (obs_l, _s) in enumerate(episodes):
         encs[e] = [PE.encode_egt(o) for o in obs_l]
     lmax = max((len(s) for _o, s in episodes), default=0)
-    h = torch.zeros(E, PE.D_H)
+    dev = next(pol.parameters()).device
+    h = torch.zeros(E, PE.D_H, device=dev)
     with torch.no_grad():
         for i in range(lmax):
             act = [e for e in range(E)
@@ -319,9 +321,10 @@ def replay_batch(pol, episodes):
             tid = np.stack([encs[e][j][2] for e, j in zip(act, ja)])
             n = np.array([encs[e][j][3] for e, j in zip(act, ja)])
             h_prev = h[act].clone()
-            _, _, h2 = pol(torch.tensor(g), torch.tensor(ef),
-                           torch.tensor(tid, dtype=torch.long),
-                           torch.tensor(n), h_prev)
+            _, _, h2 = pol(torch.tensor(g, device=dev),
+                           torch.tensor(ef, device=dev),
+                           torch.tensor(tid, dtype=torch.long, device=dev),
+                           torch.tensor(n, device=dev), h_prev)
             for row, e in zip(range(len(act)), act):
                 sm = episodes[e][1][i]
                 mv = np.array(sm["mv"], dtype=np.float32)
@@ -329,7 +332,8 @@ def replay_batch(pol, episodes):
                                  dtype=np.float32)
                 out[e].append({
                     "g": g[row], "ef": ef[row], "tid": tid[row],
-                    "n": int(n[row]), "h": h_prev[row].numpy().copy(),
+                    "n": int(n[row]),
+                    "h": h_prev[row].cpu().numpy().copy(),
                     "mv": mv, "tgt": int(sm.get("tgt", -1)),
                     "flags": flags, "old_logp": float(sm["logp"]),
                     "dsf": state_feats(episodes[e][0][i]),
@@ -518,7 +522,7 @@ def main():
         # Java sees the 5-decimal-rounded spec — replay under the same
         # rounded weights so hidden states/logits match what generated the
         # actions (unrounded replay drifts ~0.1 nats over an episode).
-        pol_shadow = PE.PolicyEGT()
+        pol_shadow = PE.PolicyEGT().to(device)
         PE.load_egt(pol_shadow, np.round(cur_flat, 5))
         pol_shadow.eval()
         params = [{"net": spec, "sample": True} for _ in arenas]
@@ -663,25 +667,27 @@ def main():
         if it == 1 and all_ticks:
             with torch.no_grad():
                 lp_py = []  # per-head python logp
+                pol_shadow.to(device)
                 for r in all_ticks[:400]:
                     y, _, _ = pol_shadow(
-                        torch.tensor(r["g"][None]),
-                        torch.tensor(r["ef"][None]),
-                        torch.tensor(r["tid"][None], dtype=torch.long),
-                        torch.tensor([r["n"]]),
-                        torch.tensor(r["h"][None]))
+                        torch.tensor(r["g"][None], device=device),
+                        torch.tensor(r["ef"][None], device=device),
+                        torch.tensor(r["tid"][None], dtype=torch.long,
+                                     device=device),
+                        torch.tensor([r["n"]], device=device),
+                        torch.tensor(r["h"][None], device=device))
                     m = y[0, :2]
                     sd = pol.log_std.exp()
                     lp = Normal(m, sd).log_prob(
-                        torch.tensor(r["mv"])).sum().item()
+                        torch.tensor(r["mv"], device=device)).sum().item()
                     sc = y[0, 2:2 + PE.K].clone()
                     sc[r["n"]:] = -1e9
                     if r["tgt"] >= 0 and r["n"] > 0:
                         lp += Categorical(logits=sc).log_prob(
-                            torch.tensor(r["tgt"])).item()
+                            torch.tensor(r["tgt"], device=device)).item()
                     flg = y[0, 2 + PE.K:2 + PE.K + 4]
                     lp += Bernoulli(logits=flg).log_prob(
-                        torch.tensor(r["flags"])).sum().item()
+                        torch.tensor(r["flags"], device=device)).sum().item()
                     lp_py.append(lp)
                 lp_java = [r["old_logp"] for r in all_ticks[:400]]
                 d = np.abs(np.array(lp_py) - np.array(lp_java))
@@ -728,7 +734,7 @@ def main():
             for _ep in range(args.epochs):
                 rng.shuffle(idx_all)
                 for c0 in range(0, len(idx_all), args.mb):
-                    b = torch.tensor(idx_all[c0:c0 + args.mb])
+                    b = torch.tensor(idx_all[c0:c0 + args.mb], device=device)
                     lp, ent, fl = logp_of(pol, XG[b], XE[b], XT[b], XN[b],
                                           XH[b], MV[b], TG[b], FG[b])
                     ratio = torch.exp((lp - OLP[b]).clamp(-8, 8))
