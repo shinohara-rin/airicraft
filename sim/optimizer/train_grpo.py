@@ -813,7 +813,12 @@ def main():
             if not deg and (best_key is None or key > best_key):
                 best_key = key
                 np.save(out / "pol_best.npy", eval_flat)
+                if wb:
+                    wb.save(str(out / "pol_best.npy"), policy="live")
                 print(f"  [best] {key}", flush=True)
+            np.save(out / "pol_last.npy", eval_flat)
+            if wb:
+                wb.save(str(out / "pol_last.npy"), policy="live")
 
     print("[done]", flush=True)
     if wb:
