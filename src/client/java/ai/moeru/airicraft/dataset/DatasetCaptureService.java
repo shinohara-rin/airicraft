@@ -71,6 +71,7 @@ public final class DatasetCaptureService {
 	private static final double CAMERA_SETTLE_DISTANCE = 8.0D;
 	private static final int STABLE_FRAMES_REQUIRED = 5;
 	private static final double MAX_REACH = 256.0D;
+	private static final double MAX_FAR_REACH = 1024.0D;
 	private static final int MAX_REGION_RADIUS = 64;
 	private static final int MAX_REGION_CELLS = 4_000_000;
 	private static final int MAX_RECENT_RESULT_IDS = 8;
@@ -323,11 +324,15 @@ public final class DatasetCaptureService {
 				skip(job, "camera_submerged");
 				return;
 			}
+			double farReach = options.farReach() != null
+				? Math.max(options.farReach(), options.reach())
+				: Math.max(client.options.getViewDistance().getValue() * 16.0D, options.reach());
 			LabelData labels = labeler.label(
 				client,
 				view,
 				options.stridePx(),
 				options.reach(),
+				farReach,
 				options.includeRegion()
 					? new RegionBoundsSpec(options.regionRadius(), options.regionBelow(), options.regionAbove())
 					: null,
@@ -339,9 +344,10 @@ public final class DatasetCaptureService {
 			long capturedAtMs = Instant.now().toEpochMilli();
 			String captureId = nextCaptureId(capturedAtMs);
 			long settleWaitMs = capturedAtMs - job.requestedAtMs();
+			double farReachFinal = farReach;
 			writerExecutor.execute(() -> {
 				try {
-					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs, luminance, settleWaitMs);
+					CaptureResult result = writeCapture(client, job, view, projectionMatrix, labels, png, captureId, capturedAtMs, luminance, settleWaitMs, farReachFinal);
 					finish(job, result);
 					job.future().complete(result);
 				}
@@ -370,7 +376,8 @@ public final class DatasetCaptureService {
 		String captureId,
 		long capturedAtMs,
 		double[] luminance,
-		long settleWaitMs
+		long settleWaitMs,
+		double farReach
 	) throws IOException {
 		CaptureOptions options = job.options();
 		Path root = options.resolvedDatasetDir();
@@ -383,7 +390,7 @@ public final class DatasetCaptureService {
 		files.put("frame", framePath.toString());
 
 		Path labelsPath = directory.resolve("labels.json.gz");
-		writeJsonGz(labelsPath, labelsPayload(view, options, labels));
+		writeJsonGz(labelsPath, labelsPayload(view, options, labels, farReach));
 		files.put("labels", labelsPath.toString());
 
 		if (options.includeRegion()) {
@@ -403,7 +410,7 @@ public final class DatasetCaptureService {
 		stats.put("darkPixelFraction", Math.round(luminance[1] * 10000.0D) / 10000.0D);
 		stats.put("settleWaitMs", settleWaitMs);
 		Path metaPath = directory.resolve("meta.json");
-		Map<String, Object> meta = metaPayload(client, job, view, projectionMatrix, captureId, capturedAtMs, labels, stats);
+		Map<String, Object> meta = metaPayload(client, job, view, projectionMatrix, captureId, capturedAtMs, labels, stats, farReach);
 		writeJson(metaPath, meta);
 		files.put("meta", metaPath.toString());
 
@@ -419,7 +426,8 @@ public final class DatasetCaptureService {
 		String captureId,
 		long capturedAtMs,
 		LabelData labels,
-		Map<String, Object> stats
+		Map<String, Object> stats,
+		double farReach
 	) {
 		CaptureOptions options = job.options();
 		ClientPlayerEntity player = client.player;
@@ -482,6 +490,8 @@ public final class DatasetCaptureService {
 		Map<String, Object> labelsMeta = new LinkedHashMap<>();
 		labelsMeta.put("stridePx", options.stridePx());
 		labelsMeta.put("reach", options.reach());
+		labelsMeta.put("farReach", farReach);
+		labelsMeta.put("samplesPerCell", DatasetViewLabeler.SAMPLE_OFFSETS.length);
 		labelsMeta.put("cellCols", labels.cellCols());
 		labelsMeta.put("cellRows", labels.cellRows());
 		meta.put("labels", labelsMeta);
@@ -502,13 +512,14 @@ public final class DatasetCaptureService {
 		return meta;
 	}
 
-	private Map<String, Object> labelsPayload(View view, CaptureOptions options, LabelData labels) {
+	private Map<String, Object> labelsPayload(View view, CaptureOptions options, LabelData labels, double farReach) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		payload.put("formatVersion", 1);
 		payload.put("imageWidth", view.outputWidth());
 		payload.put("imageHeight", view.outputHeight());
 		payload.put("stridePx", options.stridePx());
 		payload.put("reach", options.reach());
+		payload.put("farReach", farReach);
 		payload.put("cellCols", labels.cellCols());
 		payload.put("cellRows", labels.cellRows());
 		payload.put("cells", labels.cells());
@@ -519,12 +530,14 @@ public final class DatasetCaptureService {
 		int blockCells = 0;
 		int entityCells = 0;
 		int skyCells = 0;
+		int distantCells = 0;
 		int paddingCells = 0;
 		for (var cell : labels.cells()) {
 			switch (cell.kind()) {
 				case "block" -> blockCells++;
 				case "entity" -> entityCells++;
 				case "sky" -> skyCells++;
+				case "distant" -> distantCells++;
 				case "padding" -> paddingCells++;
 				default -> { }
 			}
@@ -540,6 +553,7 @@ public final class DatasetCaptureService {
 		stats.put("blockCells", blockCells);
 		stats.put("entityCells", entityCells);
 		stats.put("skyCells", skyCells);
+		stats.put("distantCells", distantCells);
 		stats.put("paddingCells", paddingCells);
 		stats.put("regionCells", labels.region().size());
 		stats.put("viewVisibleRegionCells", viewVisibleRegionCells);
@@ -744,10 +758,11 @@ public final class DatasetCaptureService {
 		boolean includeEntities,
 		String outputDir,
 		String lighting,
-		Integer fov
+		Integer fov,
+		Double farReach
 	) {
 		public static CaptureOptions defaults() {
-			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null, null, null);
+			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null, null, null, null);
 		}
 
 		public void validate() {
@@ -774,6 +789,9 @@ public final class DatasetCaptureService {
 			}
 			if (fov != null && (fov < 30 || fov > 110)) {
 				throw new BridgeUnavailableException("invalid_request", "fov must be between 30 and 110");
+			}
+			if (farReach != null && (farReach <= 0.0D || farReach > MAX_FAR_REACH)) {
+				throw new BridgeUnavailableException("invalid_request", "farReach must be between 0 and " + MAX_FAR_REACH);
 			}
 			if (includeRegion) {
 				long cells = (2L * regionRadius + 1L) * (2L * regionRadius + 1L) * ((long) regionBelow + regionAbove + 1L);

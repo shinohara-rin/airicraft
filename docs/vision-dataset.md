@@ -38,11 +38,23 @@ file `captures.jsonl` at its root is appended once per capture.
 ## `labels.json.gz`
 
 `cells[]` is a grid over the **output** image (default stride 8 px → 107x60
-cells). Each cell is `kind: block|entity|sky|padding` plus, for blocks,
+cells). Each cell is `kind: block|entity|sky|distant|padding` plus, for blocks,
 `blockX/Y/Z`, `blockId`, `stateKey` (`minecraft:oak_log[axis=y]`), and `depth`
 (ray distance); for entities, `entityId`, `entityUuid`, `entityType`. `padding`
 marks letterbox bars. Block cells additionally carry `cutoutChecked` — `true`
 when the label was confirmed against rendered quad texels (see below).
+
+Each cell is decided by 5 sub-pixel rays (centre + four quarter offsets) rather
+than a single centre ray, so thin geometry (leaf litter, sugar cane, torches,
+ferns) that a centre ray would slip past still earns its label. `support`
+(0–1) is the winning label's vote share — 1.0 means unanimous,
+`alsoPresent` lists the other subjects that won at least one sample. When the
+vote is a miss, one extended ray probes out to `farReach` (default: the
+render-distance edge, overridable with `--far-reach`): a hit becomes
+`kind: distant` with the real block position/id and depth; a below-horizon
+miss is also `distant` (terrain exists but is beyond the loaded world); an
+above-horizon miss is `sky`. Distant cells separate "unresolvable far
+terrain" from true sky so training can treat them as their own class.
 
 Hit cells (block and entity) also carry `egoForward`/`egoRight`/`egoUp`: the
 ray hit point decomposed into the camera's egocentric frame — `forward` is
@@ -65,9 +77,10 @@ labels what the pixel shows, not what the world contains.
 
 Before capturing, the service also waits for chunk meshes to settle: it
 holds the request until the renderer's built-chunk signature is unchanged
-for 5 consecutive frames (min 350 ms, camera must match the player eye
+for 5 consecutive frames AND every chunk inside the view distance is loaded
+into world data (min 350 ms, camera must match the player eye
 position within 8 blocks, hard timeout 10 s — occlusion-culled sections
-never get meshes, so per-section completeness cannot be a condition). The
+never get meshes, so per-section mesh completeness cannot be a condition). The
 wait time is recorded as `stats.settleWaitMs`; after a long `/tp` expect
 roughly 5–10 s, repeated captures at the same spot ~0.5 s.
 

@@ -41,6 +41,16 @@ import java.util.Set;
  */
 public final class DatasetViewLabeler {
 	private static final int MAX_CUTOUT_HOPS = 16;
+	/**
+	 * Sub-pixel sample positions inside a label cell, as fractions of the cell
+	 * size. Thin cutout geometry (leaf litter, sugar cane, torches) often misses
+	 * a single centre ray, so cells vote over these offsets instead.
+	 */
+	static final double[][] SAMPLE_OFFSETS = {
+		{0.5D, 0.5D},
+		{0.25D, 0.25D}, {0.75D, 0.25D},
+		{0.25D, 0.75D}, {0.75D, 0.75D}
+	};
 	private final CutoutSampler cutoutSampler = new CutoutSampler();
 
 	public LabelData label(
@@ -48,6 +58,7 @@ public final class DatasetViewLabeler {
 		View view,
 		int stridePx,
 		double reach,
+		double farReach,
 		RegionBoundsSpec region,
 		boolean includeEntities
 	) {
@@ -66,7 +77,7 @@ public final class DatasetViewLabeler {
 			for (int cellX = 0; cellX < outW; cellX += stridePx) {
 				int w = Math.min(stridePx, outW - cellX);
 				int h = Math.min(stridePx, outH - cellY);
-				cells.add(labelCell(client, world, eyeVec, view, cellX, cellY, w, h, reach, renderedSections, viewVisibleBlocks, entityHitCells));
+				cells.add(labelCell(client, world, eyeVec, view, cellX, cellY, w, h, reach, farReach, renderedSections, viewVisibleBlocks, entityHitCells));
 			}
 		}
 
@@ -97,25 +108,149 @@ public final class DatasetViewLabeler {
 		int cellW,
 		int cellH,
 		double reach,
+		double farReach,
 		Set<Long> renderedSections,
 		Set<Long> viewVisibleBlocks,
 		Map<Integer, Integer> entityHitCells
 	) {
-		double centerX = cellX + cellW / 2.0D;
-		double centerY = cellY + cellH / 2.0D;
-		SourcePixel source = ViewGeometry.outputToSource(
-			view.letterbox(), centerX, centerY, view.sourceWidth(), view.sourceHeight()
-		);
-		if (source == null) {
-			return new LabelCell(cellX, cellY, cellW, cellH, "padding", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+		List<Candidate> votes = new ArrayList<>(SAMPLE_OFFSETS.length);
+		for (double[] offset : SAMPLE_OFFSETS) {
+			double sampleX = cellX + offset[0] * cellW;
+			double sampleY = cellY + offset[1] * cellH;
+			SourcePixel source = ViewGeometry.outputToSource(
+				view.letterbox(), sampleX, sampleY, view.sourceWidth(), view.sourceHeight()
+			);
+			if (source == null) {
+				votes.add(Candidate.PADDING);
+				continue;
+			}
+			Vec dir = ViewGeometry.sourcePixelRay(
+				view.basis(), view.projection(), source.x(), source.y(), view.sourceWidth(), view.sourceHeight()
+			);
+			votes.add(sampleRay(client, world, eyeVec, new Vec3d(dir.x(), dir.y(), dir.z()), reach, renderedSections, viewVisibleBlocks));
 		}
 
-		Vec dir = ViewGeometry.sourcePixelRay(
-			view.basis(), view.projection(), source.x(), source.y(), view.sourceWidth(), view.sourceHeight()
-		);
-		Vec3d dirVec = new Vec3d(dir.x(), dir.y(), dir.z());
-		Vec3d rayEnd = eyeVec.add(dirVec.multiply(reach));
+		Candidate winner = pickWinner(votes);
+		List<String> alsoPresent = votes.stream()
+			.filter(candidate -> candidate != winner)
+			.map(Candidate::subject)
+			.filter(subject -> subject != null)
+			.distinct()
+			.toList();
+		double support = votes.stream().filter(candidate -> candidate.key().equals(winner.key())).count()
+			/ (double) SAMPLE_OFFSETS.length;
 
+		if (winner.kind().equals("entity")) {
+			Entity entity = winner.entity();
+			entityHitCells.merge(entity.getId(), 1, Integer::sum);
+			Vec3d hitPos = winner.hitPos();
+			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
+			return new LabelCell(
+				cellX, cellY, cellW, cellH, "entity", winner.depth(),
+				ego.forward(), ego.right(), ego.up(),
+				null, null, null, null, null,
+				entity.getId(), entity.getUuidAsString(),
+				Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
+				entity.getName().getString(),
+				null,
+				world.getLightLevel(BlockPos.ofFloored(entity.getEyePos())),
+				support, alsoPresent
+			);
+		}
+		if (winner.kind().equals("block")) {
+			BlockPos pos = winner.blockPos();
+			BlockState state = world.getBlockState(pos);
+			Vec3d hitPos = winner.hitPos();
+			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
+			return new LabelCell(
+				cellX, cellY, cellW, cellH, "block", winner.depth(),
+				ego.forward(), ego.right(), ego.up(),
+				pos.getX(), pos.getY(), pos.getZ(),
+				Registries.BLOCK.getId(state.getBlock()).toString(),
+				stateKey(state),
+				null, null, null, null,
+				winner.cutoutChecked(),
+				winner.hitLight(),
+				support, alsoPresent
+			);
+		}
+		if (winner.kind().equals("miss") && farReach > reach) {
+			// Near miss: probe out to the render-distance edge. Terrain that is
+			// visible but unresolvable (fog, thin silhouette) becomes "distant";
+			// a below-horizon ray that still hits nothing is distant terrain
+			// beyond the loaded world rather than sky.
+			Vec3d dirVec = winner.direction();
+			OpaqueHit far = raycastOpaque(world, client, eyeVec, dirVec, eyeVec.add(dirVec.multiply(farReach)), renderedSections);
+			BlockHitResult farHit = far.hit();
+			if (farHit != null && farHit.getType() == HitResult.Type.BLOCK) {
+				BlockPos pos = farHit.getBlockPos();
+				BlockState state = world.getBlockState(pos);
+				Vec3d hitPos = farHit.getPos();
+				double depth = hitPos.distanceTo(eyeVec);
+				Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
+				return new LabelCell(
+					cellX, cellY, cellW, cellH, "distant", depth,
+					ego.forward(), ego.right(), ego.up(),
+					pos.getX(), pos.getY(), pos.getZ(),
+					Registries.BLOCK.getId(state.getBlock()).toString(),
+					stateKey(state),
+					null, null, null, null,
+					false,
+					world.getLightLevel(pos.offset(farHit.getSide())),
+					support, alsoPresent
+				);
+			}
+			String kind = dirVec.y < 0.0D ? "distant" : "sky";
+			return new LabelCell(cellX, cellY, cellW, cellH, kind, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, support, alsoPresent);
+		}
+		String kind = winner.kind().equals("padding") ? "padding" : "sky";
+		return new LabelCell(cellX, cellY, cellW, cellH, kind, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, support, alsoPresent);
+	}
+
+	/**
+	 * Majority vote over the cell's sub-pixel samples; ties resolve to the
+	 * nearer surface, which is what the pixels there actually show.
+	 */
+	private static Candidate pickWinner(List<Candidate> votes) {
+		Map<String, List<Candidate>> byKey = new HashMap<>();
+		for (Candidate vote : votes) {
+			byKey.computeIfAbsent(vote.key(), key -> new ArrayList<>()).add(vote);
+		}
+		List<Candidate> best = null;
+		for (List<Candidate> group : byKey.values()) {
+			if (best == null
+				|| group.size() > best.size()
+				|| (group.size() == best.size() && minDepth(group) < minDepth(best))) {
+				best = group;
+			}
+		}
+		Candidate winner = best.get(0);
+		for (Candidate candidate : best) {
+			if (candidate.depth() < winner.depth()) {
+				winner = candidate;
+			}
+		}
+		return winner;
+	}
+
+	private static double minDepth(List<Candidate> group) {
+		double min = Double.POSITIVE_INFINITY;
+		for (Candidate candidate : group) {
+			min = Math.min(min, candidate.depth());
+		}
+		return min;
+	}
+
+	private Candidate sampleRay(
+		MinecraftClient client,
+		ClientWorld world,
+		Vec3d eyeVec,
+		Vec3d dirVec,
+		double reach,
+		Set<Long> renderedSections,
+		Set<Long> viewVisibleBlocks
+	) {
+		Vec3d rayEnd = eyeVec.add(dirVec.multiply(reach));
 		OpaqueHit opaqueHit = raycastOpaque(world, client, eyeVec, dirVec, rayEnd, renderedSections);
 		BlockHitResult blockHit = opaqueHit.hit();
 
@@ -133,41 +268,18 @@ public final class DatasetViewLabeler {
 		double entityDistance = entityHit == null ? Double.POSITIVE_INFINITY : entityHit.getPos().distanceTo(eyeVec);
 
 		if (entity != null && entityDistance < blockDistance) {
-			entityHitCells.merge(entity.getId(), 1, Integer::sum);
-			Vec3d hitPos = entityHit.getPos();
-			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
-			return new LabelCell(
-				cellX, cellY, cellW, cellH, "entity", entityDistance,
-				ego.forward(), ego.right(), ego.up(),
-				null, null, null, null, null,
-				entity.getId(), entity.getUuidAsString(),
-				Registries.ENTITY_TYPE.getId(entity.getType()).toString(),
-				entity.getName().getString(),
-				null,
-				world.getLightLevel(BlockPos.ofFloored(entity.getEyePos()))
-			);
+			return new Candidate("entity", entityDistance, entityHit.getPos(), null, null, entity, false,
+				world.getLightLevel(BlockPos.ofFloored(entity.getEyePos())), dirVec);
 		}
 		if (blockHit != null && blockHit.getType() == HitResult.Type.BLOCK) {
 			BlockPos pos = blockHit.getBlockPos();
 			viewVisibleBlocks.add(pos.asLong());
-			BlockState state = world.getBlockState(pos);
-			Vec3d hitPos = blockHit.getPos();
-			Egocentric ego = view.egocentric(new Vec(hitPos.x - eyeVec.x, hitPos.y - eyeVec.y, hitPos.z - eyeVec.z));
-			boolean cutoutChecked = opaqueHit.cutoutVerified();
 			// The light on the hit face lives in the air cell just outside it.
 			int hitLight = world.getLightLevel(pos.offset(blockHit.getSide()));
-			return new LabelCell(
-				cellX, cellY, cellW, cellH, "block", blockDistance,
-				ego.forward(), ego.right(), ego.up(),
-				pos.getX(), pos.getY(), pos.getZ(),
-				Registries.BLOCK.getId(state.getBlock()).toString(),
-				stateKey(state),
-				null, null, null, null,
-				cutoutChecked,
-				hitLight
-			);
+			return new Candidate("block", blockDistance, blockHit.getPos(), pos, world.getBlockState(pos), null,
+				opaqueHit.cutoutVerified(), hitLight, dirVec);
 		}
-		return new LabelCell(cellX, cellY, cellW, cellH, "sky", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+		return new Candidate("miss", Double.POSITIVE_INFINITY, null, null, null, null, false, null, dirVec);
 	}
 
 	/**
@@ -243,6 +355,35 @@ public final class DatasetViewLabeler {
 	}
 
 	private record OpaqueHit(BlockHitResult hit, boolean cutoutVerified) {
+	}
+
+	private record Candidate(
+		String kind,
+		double depth,
+		Vec3d hitPos,
+		BlockPos blockPos,
+		BlockState blockState,
+		Entity entity,
+		boolean cutoutChecked,
+		Integer hitLight,
+		Vec3d direction
+	) {
+		static final Candidate PADDING = new Candidate("padding", Double.POSITIVE_INFINITY, null, null, null, null, false, null, null);
+
+		String subject() {
+			if (kind.equals("block") && blockState != null) {
+				return Registries.BLOCK.getId(blockState.getBlock()).toString();
+			}
+			if (kind.equals("entity") && entity != null) {
+				return Registries.ENTITY_TYPE.getId(entity.getType()).toString();
+			}
+			return null;
+		}
+
+		String key() {
+			String subject = subject();
+			return subject == null ? kind : kind + "|" + subject;
+		}
 	}
 
 	private List<RegionCell> scanRegion(ClientWorld world, BlockBounds bounds, Set<Long> viewVisibleBlocks) {
@@ -393,7 +534,9 @@ public final class DatasetViewLabeler {
 		String stateKey,
 		Integer entityId, String entityUuid, String entityType, String entityName,
 		Boolean cutoutChecked,
-		Integer hitLight
+		Integer hitLight,
+		Double support,
+		List<String> alsoPresent
 	) {
 	}
 

@@ -127,7 +127,7 @@
 - `airicraft highlights list`
 - `airicraft highlights clear --highlight-id <id>`
 - `airicraft highlights clear-all`
-- `airicraft dataset capture [--label <text>] [--yaw <deg>] [--pitch <deg>] [--look-at <x,y,z>] [--stride-px <n>] [--reach <n>] [--region-radius <n>] [--region-below <n>] [--region-above <n>] [--no-region] [--no-entities] [--output-dir <path>]`
+- `airicraft dataset capture [--label <text>] [--yaw <deg>] [--pitch <deg>] [--look-at <x,y,z>] [--stride-px <n>] [--reach <n>] [--far-reach <n>] [--region-radius <n>] [--region-below <n>] [--region-above <n>] [--no-region] [--no-entities] [--output-dir <path>] [--lighting <tag>] [--fov <30-110>]`
 - `airicraft dataset status`
 - `airicraft help [command...]`
 

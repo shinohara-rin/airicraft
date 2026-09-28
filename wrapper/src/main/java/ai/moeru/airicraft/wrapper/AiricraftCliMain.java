@@ -2322,6 +2322,9 @@ public final class AiricraftCliMain {
 		@Option(names = "--fov", description = "Override client field of view for this capture (30-110).")
 		private Integer fov;
 
+		@Option(names = "--far-reach", description = "Distant-probe raycast reach in blocks for cells that miss the primary reach; defaults to the render distance edge.")
+		private Double farReach;
+
 		private DatasetCaptureCommand(CliContext context) {
 			super(context, "dataset capture");
 		}
@@ -2358,6 +2361,7 @@ public final class AiricraftCliMain {
 			if (outputDir != null) body.put("outputDir", outputDir);
 			if (lighting != null) body.put("lighting", lighting);
 			if (fov != null) body.put("fov", fov);
+			if (farReach != null) body.put("farReach", farReach);
 			return transport().post("/v1/dataset/capture", body);
 		}
 	}

@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 ANSWER_SKY = "sky"
+ANSWER_DISTANT = "distant terrain"
 ANSWER_NOTHING = "nothing"
 
 
@@ -187,6 +188,7 @@ def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -
     block_cells = [c for c in cells if c["kind"] == "block"]
     entity_cells = [c for c in cells if c["kind"] == "entity"]
     sky_cells = [c for c in cells if c["kind"] == "sky"]
+    distant_cells = [c for c in cells if c["kind"] == "distant"]
 
     # block_at_pixel / entity_at_pixel / sky
     pool = block_cells[:]
@@ -213,6 +215,14 @@ def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -
              pick(rng, QUESTIONS["block_at_pixel"]).format(px=int(px), py=int(py)),
              ANSWER_SKY,
              {"pixel": [int(px), int(py)]})
+    pool = distant_cells[:]
+    rng.shuffle(pool)
+    for cell in pool[: max(2, max_per_type // 4)]:
+        px, py = cell_center(cell)
+        emit(examples, capture, "block_at_pixel",
+             pick(rng, QUESTIONS["block_at_pixel"]).format(px=int(px), py=int(py)),
+             cell["blockId"] or ANSWER_DISTANT,
+             {"pixel": [int(px), int(py)], "blockPos": list(block_cell_pos(cell)) if cell.get("blockX") is not None else None})
 
     # point_to: nearest cell per block id / entity type
     by_block: dict[str, list[dict]] = {}
@@ -362,7 +372,17 @@ def patch_labels(capture: dict, patch_size: int) -> list[dict]:
                 "kind": kind,
                 "subject": subject or None,
             }
+            extras: set[str] = set()
+            for c in members:
+                for s in c.get("alsoPresent") or []:
+                    extras.add(s)
+            extras.discard(subject)
+            if extras:
+                entry["alsoPresent"] = sorted(extras)
             if kind == "block" and center_cell.get("blockX") is not None:
+                entry["blockPos"] = [center_cell["blockX"], center_cell["blockY"], center_cell["blockZ"]]
+                entry["distance"] = center_cell.get("depth")
+            elif kind == "distant" and center_cell.get("blockX") is not None:
                 entry["blockPos"] = [center_cell["blockX"], center_cell["blockY"], center_cell["blockZ"]]
                 entry["distance"] = center_cell.get("depth")
             elif kind == "entity":

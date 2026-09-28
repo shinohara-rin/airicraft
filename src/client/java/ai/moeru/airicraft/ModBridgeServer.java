@@ -633,7 +633,8 @@ public final class ModBridgeServer {
 			request.includeEntities() == null || request.includeEntities(),
 			request.outputDir(),
 			request.lighting(),
-			request.fov()
+			request.fov(),
+			request.farReach()
 		);
 	}
 
@@ -2974,7 +2975,8 @@ public final class ModBridgeServer {
 		Boolean includeEntities,
 		String outputDir,
 		String lighting,
-		Integer fov
+		Integer fov,
+		Double farReach
 	) {
 	}
 
