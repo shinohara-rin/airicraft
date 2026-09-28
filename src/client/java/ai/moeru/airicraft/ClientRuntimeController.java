@@ -382,6 +382,13 @@ public final class ClientRuntimeController {
 		return plannerDebugOverlay.onMouseScroll(mouseX, mouseY, verticalAmount);
 	}
 
+	public void onWorldRenderAboutToStart() {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client != null) {
+			datasetCaptureService.suppressBlockOutlineWhileCapturing(client);
+		}
+	}
+
 	public void onFirstPersonFrameRendered(net.minecraft.client.render.RenderTickCounter tickCounter) {
 		MinecraftClient client = MinecraftClient.getInstance();
 		if (client != null) {

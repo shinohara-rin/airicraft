@@ -2319,6 +2319,8 @@ public final class AiricraftCliMain {
 
 		@Option(names = "--lighting", description = "Lighting mode tag recorded in meta.json (e.g. natural, nightvision, torch).")
 		private String lighting;
+		@Option(names = "--fov", description = "Override client field of view for this capture (30-110).")
+		private Integer fov;
 
 		private DatasetCaptureCommand(CliContext context) {
 			super(context, "dataset capture");
@@ -2355,6 +2357,7 @@ public final class AiricraftCliMain {
 			if (noEntities) body.put("includeEntities", false);
 			if (outputDir != null) body.put("outputDir", outputDir);
 			if (lighting != null) body.put("lighting", lighting);
+			if (fov != null) body.put("fov", fov);
 			return transport().post("/v1/dataset/capture", body);
 		}
 	}

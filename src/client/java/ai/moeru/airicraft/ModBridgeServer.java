@@ -632,7 +632,8 @@ public final class ModBridgeServer {
 			request.includeRegion() == null || request.includeRegion(),
 			request.includeEntities() == null || request.includeEntities(),
 			request.outputDir(),
-			request.lighting()
+			request.lighting(),
+			request.fov()
 		);
 	}
 
@@ -2972,7 +2973,8 @@ public final class ModBridgeServer {
 		Boolean includeRegion,
 		Boolean includeEntities,
 		String outputDir,
-		String lighting
+		String lighting,
+		Integer fov
 	) {
 	}
 

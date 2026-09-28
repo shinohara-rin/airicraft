@@ -86,6 +86,7 @@ public final class DatasetCaptureService {
 	});
 
 	private CaptureJob activeJob;
+	private Integer restoreFov;
 	private long lastBuiltSignature = Long.MIN_VALUE;
 	private int stableFrames;
 	private long captureCounter;
@@ -117,6 +118,10 @@ public final class DatasetCaptureService {
 			activeJob = job;
 			stableFrames = 0;
 			lastBuiltSignature = Long.MIN_VALUE;
+			if (options.fov() != null) {
+				restoreFov = client.options.getFov().getValue();
+				client.options.getFov().setValue(options.fov());
+			}
 		}
 
 		snapCamera(client, options, cameraController);
@@ -178,8 +183,23 @@ public final class DatasetCaptureService {
 		}
 		catch (Throwable throwable) {
 			Airicraft.LOGGER.warn("Failed to capture dataset frame", throwable);
+			restoreFov(client);
 			fail(job, new BridgeUnavailableException("capture_failed", "Failed to capture dataset frame"));
 		}
+	}
+
+	/**
+	 * Called at the very start of world rendering each frame: while a capture
+	 * is pending, hide the crosshair block-outline so the saved frame has no
+	 * selection wireframe.
+	 */
+	public void suppressBlockOutlineWhileCapturing(MinecraftClient client) {
+		synchronized (lock) {
+			if (activeJob == null) {
+				return;
+			}
+		}
+		client.crosshairTarget = null;
 	}
 
 	/**
@@ -201,8 +221,33 @@ public final class DatasetCaptureService {
 		if (camera == null || !camera.isReady()) {
 			return false;
 		}
-		return client.player != null
-			&& camera.getPos().distanceTo(client.player.getEyePos()) <= CAMERA_SETTLE_DISTANCE;
+		if (client.player == null
+				|| camera.getPos().distanceTo(client.player.getEyePos()) > CAMERA_SETTLE_DISTANCE) {
+			return false;
+		}
+		return renderDistanceLoaded(client, camera);
+	}
+
+	/**
+	 * Every chunk position inside render distance must have arrived in the
+	 * world data, not just stopped changing the built-mesh set. Right after a
+	 * teleport the server still streams distant chunks; a stable built set
+	 * alone can settle while whole chunks are still absent, leaving visible
+	 * sky holes.
+	 */
+	private static boolean renderDistanceLoaded(MinecraftClient client, Camera camera) {
+		BlockPos pos = camera.getBlockPos();
+		int cx = pos.getX() >> 4;
+		int cz = pos.getZ() >> 4;
+		int radius = client.options.getViewDistance().getValue();
+		for (int dx = -radius; dx <= radius; dx++) {
+			for (int dz = -radius; dz <= radius; dz++) {
+				if (!client.world.isChunkLoaded(cx + dx, cz + dz)) {
+					return false;
+				}
+			}
+		}
+		return true;
 	}
 
 	private static long builtSignature(MinecraftClient client) {
@@ -254,6 +299,7 @@ public final class DatasetCaptureService {
 	}
 
 	private void completeCapture(MinecraftClient client, CaptureJob job, View view, Matrix4f projectionMatrix, NativeImage image) {
+		restoreFov(client);
 		try (image) {
 			synchronized (lock) {
 				if (activeJob != job || job.phase() != CapturePhase.CAPTURING) {
@@ -554,6 +600,7 @@ public final class DatasetCaptureService {
 			job = activeJob;
 			activeJob = null;
 		}
+		restoreFov(MinecraftClient.getInstance());
 		if (job != null) {
 			job.future().completeExceptionally(new BridgeUnavailableException(code, message));
 		}
@@ -566,6 +613,20 @@ public final class DatasetCaptureService {
 			}
 		}
 		job.future().completeExceptionally(exception);
+	}
+
+	private void restoreFov(MinecraftClient client) {
+		if (client == null || client.options == null) {
+			return;
+		}
+		Integer previous;
+		synchronized (lock) {
+			previous = restoreFov;
+			restoreFov = null;
+		}
+		if (previous != null) {
+			client.options.getFov().setValue(previous);
+		}
 	}
 
 	public Map<String, Object> status() {
@@ -678,10 +739,11 @@ public final class DatasetCaptureService {
 		boolean includeRegion,
 		boolean includeEntities,
 		String outputDir,
-		String lighting
+		String lighting,
+		Integer fov
 	) {
 		public static CaptureOptions defaults() {
-			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null, null);
+			return new CaptureOptions(null, null, null, null, 8, 96.0D, 32, 8, 24, true, true, null, null, null);
 		}
 
 		public void validate() {
@@ -705,6 +767,9 @@ public final class DatasetCaptureService {
 			}
 			if (lookAt != null && lookAt.length != 3) {
 				throw new BridgeUnavailableException("invalid_request", "lookAt must contain exactly 3 coordinates");
+			}
+			if (fov != null && (fov < 30 || fov > 110)) {
+				throw new BridgeUnavailableException("invalid_request", "fov must be between 30 and 110");
 			}
 			if (includeRegion) {
 				long cells = (2L * regionRadius + 1L) * (2L * regionRadius + 1L) * ((long) regionBelow + regionAbove + 1L);
