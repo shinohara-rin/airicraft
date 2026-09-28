@@ -399,38 +399,42 @@ def main(argv=None) -> int:
         return 2
 
     rng = random.Random(args.seed)
-    captures = [load_capture(d) for d in capture_dirs]
-    eval_ids = split_captures(captures, args.eval_fraction, rng)
-
-    train: list[dict] = []
-    ev: list[dict] = []
-    patches: list[dict] = []
-    for capture in captures:
-        examples = generate_for_capture(capture, rng, args.max_per_type_per_capture)
-        target = ev if capture["id"] in eval_ids else train
-        split = "eval" if capture["id"] in eval_ids else "train"
-        for example in examples:
-            example["split"] = split
-            target.append(example)
-        patches.extend(patch_labels(capture, args.patch_size))
+    metas = [{"id": (load_json(d / "meta.json").get("captureId") or d.name), "dir": d}
+             for d in capture_dirs]
+    eval_ids = split_captures(metas, args.eval_fraction, rng)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "train.jsonl").write_text(
-        "".join(json.dumps(e) + "\n" for e in train), encoding="utf-8")
-    (args.out / "eval.jsonl").write_text(
-        "".join(json.dumps(e) + "\n" for e in ev), encoding="utf-8")
-    (args.out / "patch_labels.jsonl").write_text(
-        "".join(json.dumps(e) + "\n" for e in patches), encoding="utf-8")
-
+    patch_count = 0
     type_counts: dict[str, int] = {}
-    for e in train + ev:
-        type_counts[e["type"]] = type_counts.get(e["type"], 0) + 1
+    train_path = args.out / "train.jsonl"
+    eval_path = args.out / "eval.jsonl"
+    patch_path = args.out / "patch_labels.jsonl"
+    # Stream captures one at a time: region.json.gz files are tens of MB each,
+    # so loading the whole dataset up front OOMs on large runs.
+    with train_path.open("w", encoding="utf-8") as train_out, \
+            eval_path.open("w", encoding="utf-8") as eval_out, \
+            patch_path.open("w", encoding="utf-8") as patch_out:
+        for meta in metas:
+            capture = load_capture(meta["dir"])
+            capture["id"] = meta["id"]
+            is_eval = meta["id"] in eval_ids
+            out = eval_out if is_eval else train_out
+            for example in generate_for_capture(capture, rng, args.max_per_type_per_capture):
+                example["split"] = "eval" if is_eval else "train"
+                out.write(json.dumps(example) + "\n")
+                type_counts[example["type"]] = type_counts.get(example["type"], 0) + 1
+            for patch in patch_labels(capture, args.patch_size):
+                patch_out.write(json.dumps(patch) + "\n")
+                patch_count += 1
+
+    train_examples = sum(1 for _ in train_path.open())
+    eval_examples = sum(1 for _ in eval_path.open())
     summary = {
-        "captures": len(captures),
+        "captures": len(metas),
         "evalCaptures": len(eval_ids),
-        "trainExamples": len(train),
-        "evalExamples": len(ev),
-        "patchLabels": len(patches),
+        "trainExamples": train_examples,
+        "evalExamples": eval_examples,
+        "patchLabels": patch_count,
         "examplesByType": type_counts,
     }
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
