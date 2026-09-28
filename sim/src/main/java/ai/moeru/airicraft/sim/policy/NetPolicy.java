@@ -48,8 +48,10 @@ public final class NetPolicy implements CombatPolicy {
 	static final int EEF = 18;         // per-entity numeric feats
 	static final int EGE = 16;         // egt globals
 	static final int ETE = 8;          // type embedding dim
-	static final int EDE = 32;         // entity embed dim
-	static final int EDH = 48;         // GRU hidden
+	// entity embed / GRU hidden dims are derived from the loaded spec so
+	// differently-sized egt checkpoints deploy without recompiling.
+	private int ede = 32;
+	private int edh = 48;
 	private static final double[] DIST_CENTERS = {1.0, 3.0, 5.0, 8.0, 14.0};
 	private static final double DIST_SIGMA = 2.0;
 
@@ -86,7 +88,7 @@ public final class NetPolicy implements CombatPolicy {
 	private List<double[][]> egtHeadW; private List<double[]> egtHeadB;  // mv, fl, v
 	private double[][] egtTypeEmb;    // [NT][TE]
 	private Map<String, Integer> egtTypeMap;
-	private final double[] egtHidden = new double[EDH];
+	private double[] egtHidden = new double[48];
 
 	private static boolean isRanged(String type) {
 		return type.contains("skeleton") || type.contains("stray")
@@ -213,6 +215,9 @@ public final class NetPolicy implements CombatPolicy {
 		egtPtrB = readBiases(spec.getAsJsonArray("ptr"));
 		egtHeadW = readLayers(spec.getAsJsonArray("heads"));
 		egtHeadB = readBiases(spec.getAsJsonArray("heads"));
+		ede = egtGlobW.get(0).length;
+		edh = egtBih.length / 3;
+		egtHidden = new double[edh];
 		egtReady = true;
 	}
 
@@ -478,7 +483,7 @@ public final class NetPolicy implements CombatPolicy {
 		g[15] = p.has("sprinting") && p.get("sprinting").getAsBoolean() ? 1 : 0;
 
 		// entity encoder
-		double[][] E = new double[EK][EDE];
+		double[][] E = new double[EK][ede];
 		for (int k = 0; k < EK; k++) {
 			double[] in = new double[EEF + ETE];
 			System.arraycopy(ef[k], 0, in, 0, EEF);
@@ -499,8 +504,8 @@ public final class NetPolicy implements CombatPolicy {
 		double mx = Double.NEGATIVE_INFINITY;
 		for (int k = 0; k < n; k++) {
 			double s = 0;
-			for (int i = 0; i < EDE; i++) s += E[k][i] * q[i];
-			wts[k] = s / Math.sqrt(EDE);
+			for (int i = 0; i < ede; i++) s += E[k][i] * q[i];
+			wts[k] = s / Math.sqrt(ede);
 			if (wts[k] > mx) mx = wts[k];
 		}
 		double wsum = 0;
@@ -508,39 +513,39 @@ public final class NetPolicy implements CombatPolicy {
 			wts[k] = Math.exp(wts[k] - mx);
 			wsum += wts[k];
 		}
-		double[] attn = new double[EDE];
-		double[] meanE = new double[EDE];
+		double[] attn = new double[ede];
+		double[] meanE = new double[ede];
 		for (int k = 0; k < n; k++) {
 			double w = wsum > 0 ? wts[k] / wsum : 0;
-			for (int i = 0; i < EDE; i++) {
+			for (int i = 0; i < ede; i++) {
 				attn[i] += w * E[k][i];
 				meanE[i] += E[k][i] / n;
 			}
 		}
-		double[] fused = new double[3 * EDE];
-		System.arraycopy(gv, 0, fused, 0, EDE);
-		System.arraycopy(attn, 0, fused, EDE, EDE);
-		System.arraycopy(meanE, 0, fused, 2 * EDE, EDE);
+		double[] fused = new double[3 * ede];
+		System.arraycopy(gv, 0, fused, 0, ede);
+		System.arraycopy(attn, 0, fused, ede, ede);
+		System.arraycopy(meanE, 0, fused, 2 * ede, ede);
 
 		// GRUCell update — PyTorch gate order [r; z; n]:
 		//   r = sig(W_ir x + b_ir + W_hr h + b_hr),   z likewise
 		//   n = tanh(W_in x + b_in + r * (W_hn h + b_hn))
 		//   h' = (1 - z) * n + z * h
 		double[] h = egtHidden;
-		double[] hn = new double[EDH];    // W_hn h + b_hn (reset gate applies later)
-		double[] hnew = new double[EDH];
-		for (int i = 0; i < EDH; i++) {
-			double xr = egtBih[i], xz = egtBih[EDH + i], xn = egtBih[2 * EDH + i];
-			double hr = egtBhh[i], hz = egtBhh[EDH + i], hh = egtBhh[2 * EDH + i];
+		double[] hn = new double[edh];    // W_hn h + b_hn (reset gate applies later)
+		double[] hnew = new double[edh];
+		for (int i = 0; i < edh; i++) {
+			double xr = egtBih[i], xz = egtBih[edh + i], xn = egtBih[2 * edh + i];
+			double hr = egtBhh[i], hz = egtBhh[edh + i], hh = egtBhh[2 * edh + i];
 			for (int c = 0; c < fused.length; c++) {
 				xr += egtWih[i][c] * fused[c];
-				xz += egtWih[EDH + i][c] * fused[c];
-				xn += egtWih[2 * EDH + i][c] * fused[c];
+				xz += egtWih[edh + i][c] * fused[c];
+				xn += egtWih[2 * edh + i][c] * fused[c];
 			}
-			for (int c = 0; c < EDH; c++) {
+			for (int c = 0; c < edh; c++) {
 				hr += egtWhh[i][c] * h[c];
-				hz += egtWhh[EDH + i][c] * h[c];
-				hh += egtWhh[2 * EDH + i][c] * h[c];
+				hz += egtWhh[edh + i][c] * h[c];
+				hh += egtWhh[2 * edh + i][c] * h[c];
 			}
 			hn[i] = hh;
 			double r = 1.0 / (1.0 + Math.exp(-(xr + hr)));
@@ -548,7 +553,7 @@ public final class NetPolicy implements CombatPolicy {
 			double ng = Math.tanh(xn + r * hn[i]);
 			hnew[i] = (1.0 - z) * ng + z * h[i];
 		}
-		System.arraycopy(hnew, 0, egtHidden, 0, EDH);
+		System.arraycopy(hnew, 0, egtHidden, 0, edh);
 
 		// heads: move(2), flags(4) over h; ptr scorer over [h | E_k]
 		double[] mv = matvec(egtHeadW.get(0), egtHeadB.get(0), hnew);
@@ -560,9 +565,9 @@ public final class NetPolicy implements CombatPolicy {
 				out[2 + k] = -1e9;   // dead slot: never argmax
 				continue;
 			}
-			double[] pin = new double[EDH + EDE];
-			System.arraycopy(hnew, 0, pin, 0, EDH);
-			System.arraycopy(E[k], 0, pin, EDH, EDE);
+			double[] pin = new double[edh + ede];
+			System.arraycopy(hnew, 0, pin, 0, edh);
+			System.arraycopy(E[k], 0, pin, edh, ede);
 			double[] pa = matvec(egtPtrW.get(0), egtPtrB.get(0), pin);
 			tanhInPlace(pa);
 			out[2 + k] = matvec(egtPtrW.get(1), egtPtrB.get(1), pa)[0];

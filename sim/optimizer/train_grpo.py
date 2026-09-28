@@ -268,7 +268,7 @@ def replay_episode(pol, obs_list, sampled_list, device="cpu"):
     """
     out = []
     dev = torch.device(device)
-    h = torch.zeros(1, PE.D_H, device=dev)
+    h = torch.zeros(1, pol.d_h, device=dev)
     with torch.no_grad():
         for i, sm in enumerate(sampled_list):
             if sm is None:
@@ -307,7 +307,7 @@ def replay_batch(pol, episodes):
         encs[e] = [PE.encode_egt(o) for o in obs_l]
     lmax = max((len(s) for _o, s in episodes), default=0)
     dev = next(pol.parameters()).device
-    h = torch.zeros(E, PE.D_H, device=dev)
+    h = torch.zeros(E, pol.d_h, device=dev)
     with torch.no_grad():
         for i in range(lmax):
             act = [e for e in range(E)
@@ -352,14 +352,14 @@ def logp_of(pol, g, ef, tid, n, h, mv, tgt, flags):
     mv_ent = mv_d.entropy().sum(-1)
 
     scores = y[:, 2:2 + PE.K]
-    mask = torch.arange(PE.K).unsqueeze(0) >= n.unsqueeze(1)
+    mask = torch.arange(PE.K, device=n.device).unsqueeze(0) \
+        >= n.unsqueeze(1)
     scores = scores.masked_fill(mask, -1e9)
     tgt_d = Categorical(logits=scores)
     has_tgt = tgt >= 0
-    tgt_lp = torch.where(has_tgt, tgt_d.log_prob(tgt.clamp(min=0)),
-                         torch.zeros(len(tgt)))
-    tgt_ent = torch.where(
-        n > 0, tgt_d.entropy(), torch.zeros(len(tgt)))
+    z = torch.zeros(len(tgt), device=tgt.device)
+    tgt_lp = torch.where(has_tgt, tgt_d.log_prob(tgt.clamp(min=0)), z)
+    tgt_ent = torch.where(n > 0, tgt_d.entropy(), z)
 
     fl = y[:, 2 + PE.K:2 + PE.K + 4]
     fl_d = Bernoulli(logits=fl)
@@ -413,6 +413,8 @@ def main():
                          "(default: run/sim-server for one instance, "
                          "run/sim-inst-i for a fleet)")
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--d_e", type=int, default=PE.D_E)
+    ap.add_argument("--d_h", type=int, default=PE.D_H)
     ap.add_argument("--wandb", action="store_true",
                     help="log metrics + replay videos to Weights & Biases "
                          "(needs `wandb` installed and WANDB_API_KEY set)")
@@ -482,7 +484,7 @@ def main():
             sim.setup_arena(name)
         sim.call("POST", "/v1/step", {"ticks": 10})
 
-    pol = PE.PolicyEGT().to(device)
+    pol = PE.PolicyEGT(args.d_e, args.d_h).to(device)
     if args.initempty:
         PE.load_egt(pol, np.load(args.initempty))
         pol.to(device)  # load_egt assigns CPU tensors into .data
@@ -518,13 +520,13 @@ def main():
     for it in range(1, args.iters + 1):
         t0 = time.time()
         cur_flat = pol.flat()
-        spec = PE.spec_of_egt(cur_flat)
+        spec = PE.spec_of_egt(cur_flat, pol.d_e, pol.d_h)
         # Java sees the 5-decimal-rounded spec — replay under the same
         # rounded weights so hidden states/logits match what generated the
         # actions (unrounded replay drifts ~0.1 nats over an episode).
-        pol_shadow = PE.PolicyEGT().to(device)
+        pol_shadow = PE.PolicyEGT(args.d_e, args.d_h)
         PE.load_egt(pol_shadow, np.round(cur_flat, 5))
-        pol_shadow.eval()
+        pol_shadow.to(device).eval()  # load_egt writes CPU tensors into .data
         params = [{"net": spec, "sample": True} for _ in arenas]
         sets = [sample_set(rng, 1)[0] for _ in range(args.groups)]
         scenarios = []
@@ -782,7 +784,7 @@ def main():
         if it % args.evalevery == 0:
             eval_flat = ema_flat if ema_flat is not None else pol.flat()
             es = sample_set(eval_rng, args.neval)
-            eparams = [{"net": PE.spec_of_egt(eval_flat)} for _ in arenas]
+            eparams = [{"net": PE.spec_of_egt(eval_flat, pol.d_e, pol.d_h)} for _ in arenas]
             acc = np.zeros(len(METRIC_NAMES))
             n_done = 0
             for scen_fam, scen, terr in es:

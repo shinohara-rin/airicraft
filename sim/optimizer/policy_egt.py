@@ -159,20 +159,22 @@ class PolicyEGT(nn.Module):
     the action tensor [mv(2) | scores(K) | flags(4)], the value estimate, and
     the new hidden state — so callers keep `h` per env per episode."""
 
-    def __init__(self):
+    def __init__(self, d_e=D_E, d_h=D_H):
         super().__init__()
+        self.d_e = d_e
+        self.d_h = d_h
         self.typeEmb = nn.Embedding(NT, TE)
-        self.ent1 = nn.Linear(EF + TE, D_E)
-        self.ent2 = nn.Linear(D_E, D_E)
-        self.g1 = nn.Linear(GE, D_E)
-        self.g2 = nn.Linear(D_E, D_E)
-        self.attq = nn.Linear(D_E, D_E, bias=False)
-        self.gru = nn.GRUCell(3 * D_E, D_H)
-        self.ptr1 = nn.Linear(D_H + D_E, 16)
+        self.ent1 = nn.Linear(EF + TE, d_e)
+        self.ent2 = nn.Linear(d_e, d_e)
+        self.g1 = nn.Linear(GE, d_e)
+        self.g2 = nn.Linear(d_e, d_e)
+        self.attq = nn.Linear(d_e, d_e, bias=False)
+        self.gru = nn.GRUCell(3 * d_e, d_h)
+        self.ptr1 = nn.Linear(d_h + d_e, 16)
         self.ptr2 = nn.Linear(16, 1)
-        self.mvH = nn.Linear(D_H, 2)
-        self.flH = nn.Linear(D_H, 4)
-        self.vH = nn.Linear(D_H, 1)
+        self.mvH = nn.Linear(d_h, 2)
+        self.flH = nn.Linear(d_h, 4)
+        self.vH = nn.Linear(d_h, 1)
         self.log_std = nn.Parameter(torch.full((2,), -1.0))
 
     def forward(self, g, ef, tid, n_live, h):
@@ -184,8 +186,9 @@ class PolicyEGT(nn.Module):
         e = torch.tanh(self.ent2(e))                   # (B,K,D_E)
         gv = torch.tanh(self.g2(torch.tanh(self.g1(g))))   # (B,D_E)
         q = self.attq(gv).unsqueeze(1)                 # (B,1,D_E)
-        logits = (e @ q.transpose(1, 2)).squeeze(-1) / np.sqrt(D_E)  # (B,K)
-        mask = torch.arange(K).unsqueeze(0) >= n_live.unsqueeze(1)
+        logits = (e @ q.transpose(1, 2)).squeeze(-1) / np.sqrt(self.d_e)
+        mask = torch.arange(K, device=n_live.device).unsqueeze(0) \
+            >= n_live.unsqueeze(1)
         logits = logits.masked_fill(mask, -1e9)
         w = torch.softmax(logits, dim=-1).unsqueeze(1)  # (B,1,K)
         alive = (n_live > 0).float().unsqueeze(1)
@@ -225,41 +228,41 @@ def _pop(vec, off, shape):
     return vec[off:off + n].reshape(shape), off + n
 
 
-def unpack_egt(vec):
+def unpack_egt(vec, d_e=D_E, d_h=D_H):
     """flat -> dict of named arrays; inverse of PolicyEGT.flat()."""
     off = 0
     d = {}
     d["typeEmb"], off = _pop(vec, off, (NT, TE))
-    d["ent1w"], off = _pop(vec, off, (D_E, EF + TE))
-    d["ent1b"], off = _pop(vec, off, (D_E,))
-    d["ent2w"], off = _pop(vec, off, (D_E, D_E))
-    d["ent2b"], off = _pop(vec, off, (D_E,))
-    d["g1w"], off = _pop(vec, off, (D_E, GE))
-    d["g1b"], off = _pop(vec, off, (D_E,))
-    d["g2w"], off = _pop(vec, off, (D_E, D_E))
-    d["g2b"], off = _pop(vec, off, (D_E,))
-    d["attq"], off = _pop(vec, off, (D_E, D_E))
-    d["wih"], off = _pop(vec, off, (3 * D_H, 3 * D_E))
-    d["whh"], off = _pop(vec, off, (3 * D_H, D_H))
-    d["bih"], off = _pop(vec, off, (3 * D_H,))
-    d["bhh"], off = _pop(vec, off, (3 * D_H,))
-    d["ptr1w"], off = _pop(vec, off, (16, D_H + D_E))
+    d["ent1w"], off = _pop(vec, off, (d_e, EF + TE))
+    d["ent1b"], off = _pop(vec, off, (d_e,))
+    d["ent2w"], off = _pop(vec, off, (d_e, d_e))
+    d["ent2b"], off = _pop(vec, off, (d_e,))
+    d["g1w"], off = _pop(vec, off, (d_e, GE))
+    d["g1b"], off = _pop(vec, off, (d_e,))
+    d["g2w"], off = _pop(vec, off, (d_e, d_e))
+    d["g2b"], off = _pop(vec, off, (d_e,))
+    d["attq"], off = _pop(vec, off, (d_e, d_e))
+    d["wih"], off = _pop(vec, off, (3 * d_h, 3 * d_e))
+    d["whh"], off = _pop(vec, off, (3 * d_h, d_h))
+    d["bih"], off = _pop(vec, off, (3 * d_h,))
+    d["bhh"], off = _pop(vec, off, (3 * d_h,))
+    d["ptr1w"], off = _pop(vec, off, (16, d_h + d_e))
     d["ptr1b"], off = _pop(vec, off, (16,))
     d["ptr2w"], off = _pop(vec, off, (1, 16))
     d["ptr2b"], off = _pop(vec, off, (1,))
-    d["mvw"], off = _pop(vec, off, (2, D_H))
+    d["mvw"], off = _pop(vec, off, (2, d_h))
     d["mvb"], off = _pop(vec, off, (2,))
-    d["flw"], off = _pop(vec, off, (4, D_H))
+    d["flw"], off = _pop(vec, off, (4, d_h))
     d["flb"], off = _pop(vec, off, (4,))
-    d["vw"], off = _pop(vec, off, (1, D_H))
+    d["vw"], off = _pop(vec, off, (1, d_h))
     d["vb"], off = _pop(vec, off, (1,))
     d["log_std"], off = _pop(vec, off, (2,))
     return d
 
 
-def spec_of_egt(vec):
+def spec_of_egt(vec, d_e=D_E, d_h=D_H):
     """flat params -> params.net JSON for NetPolicy (layout 'egt')."""
-    d = unpack_egt(vec)
+    d = unpack_egt(vec, d_e, d_h)
     def layer(w, b):
         return {"shape": [int(w.shape[1]), int(w.shape[0])],
                 "w": np.round(w, 5).tolist(),
@@ -285,7 +288,7 @@ def spec_of_egt(vec):
 
 def load_egt(pol, vec):
     """Load a flat egt vec into a PolicyEGT module."""
-    d = unpack_egt(vec)
+    d = unpack_egt(vec, pol.d_e, pol.d_h)
     pol.typeEmb.weight.data = torch.tensor(d["typeEmb"])
     for l, wn, bn in ((pol.ent1, "ent1w", "ent1b"), (pol.ent2, "ent2w", "ent2b"),
                       (pol.g1, "g1w", "g1b"), (pol.g2, "g2w", "g2b"),
@@ -303,9 +306,13 @@ def load_egt(pol, vec):
     pol.log_std.data = torch.tensor(d["log_std"], dtype=torch.float32)
 
 
-EGT_FLAT_DIM = int(np.sum([np.prod(s) for s in (
-    (NT, TE), (D_E, EF + TE), (D_E,), (D_E, D_E), (D_E,), (D_E, GE), (D_E,),
-    (D_E, D_E), (D_E,), (D_E, D_E),
-    (3 * D_H, 3 * D_E), (3 * D_H, D_H), (3 * D_H,), (3 * D_H,),
-    (16, D_H + D_E), (16,), (1, 16), (1,), (2, D_H), (2,), (4, D_H), (4,),
-    (1, D_H), (1,), (2,))]))
+def egt_flat_dim(d_e=D_E, d_h=D_H):
+    return int(np.sum([np.prod(s) for s in (
+        (NT, TE), (d_e, EF + TE), (d_e,), (d_e, d_e), (d_e,), (d_e, GE), (d_e,),
+        (d_e, d_e), (d_e,), (d_e, d_e),
+        (3 * d_h, 3 * d_e), (3 * d_h, d_h), (3 * d_h,), (3 * d_h,),
+        (16, d_h + d_e), (16,), (1, 16), (1,), (2, d_h), (2,), (4, d_h), (4,),
+        (1, d_h), (1,), (2,))]))
+
+
+EGT_FLAT_DIM = egt_flat_dim()
