@@ -188,18 +188,18 @@ public final class CutoutSampler {
 	static boolean opaqueAt(Sprite sprite, float atlasU, float atlasV) {
 		try {
 			var contents = sprite.getContents();
-			float u16 = sprite.getFrameFromU(atlasU);
-			float v16 = sprite.getFrameFromV(atlasV);
-			int x = clampPixel(u16, contents.getWidth());
-			int y = clampPixel(v16, contents.getHeight());
+			// getFrameFromU/V return the normalized 0..1 position within the
+			// sprite's frame, not 0..16 texel units.
+			int x = clampPixel(sprite.getFrameFromU(atlasU), contents.getWidth());
+			int y = clampPixel(sprite.getFrameFromV(atlasV), contents.getHeight());
 			return !contents.isPixelTransparent(0, x, y);
 		} catch (RuntimeException ignored) {
 			return true;
 		}
 	}
 
-	private static int clampPixel(float frameCoord, int size) {
-		int px = (int) Math.floor(frameCoord / 16.0F * size);
+	private static int clampPixel(float frameFraction, int size) {
+		int px = (int) Math.floor(frameFraction * size);
 		return Math.max(0, Math.min(size - 1, px));
 	}
 
