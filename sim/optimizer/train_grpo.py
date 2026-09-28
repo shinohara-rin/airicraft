@@ -19,6 +19,7 @@ vs train_rl.py (PPO + /v1/step external loop):
 import argparse
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -408,6 +409,18 @@ def main():
                          "(default: run/sim-server for one instance, "
                          "run/sim-inst-i for a fleet)")
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--wandb", action="store_true",
+                    help="log metrics + replay videos to Weights & Biases "
+                         "(needs `wandb` installed and WANDB_API_KEY set)")
+    ap.add_argument("--wandb-project", default="airicraft-combat")
+    ap.add_argument("--wandb-name", default=None)
+    ap.add_argument("--wandb-entity", default=None)
+    ap.add_argument("--video-every", type=int, default=0,
+                    help="render N batch episodes to mp4 and log them every "
+                         "this many iters (0=off)")
+    ap.add_argument("--video-n", type=int, default=2,
+                    help="episodes per video upload: best-return ep plus "
+                         "first died/timeout for contrast")
     ap.add_argument("--out", default=str(Path(__file__).parent / "results_grpo"))
     args = ap.parse_args()
 
@@ -439,6 +452,24 @@ def main():
         sub = [f"gr{k}" for k in idxs]
         arenas.extend(sub)
         insts.append((Sim(sub, api=b), rundirs[i], idxs))
+    wb = None
+    if args.wandb:
+        offline = os.environ.get("WANDB_MODE") == "offline"
+        if not os.environ.get("WANDB_API_KEY") and not offline:
+            print("[warn] --wandb set but WANDB_API_KEY is not in the "
+                  "environment — logging disabled (set WANDB_MODE=offline "
+                  "to log locally and `wandb sync` later)", flush=True)
+        else:
+            try:
+                import wandb
+                wandb.init(project=args.wandb_project,
+                           name=args.wandb_name,
+                           entity=args.wandb_entity or None,
+                           config=dict(vars(args)))
+                wb = wandb
+            except Exception as e:
+                print(f"[warn] wandb disabled: {e}", flush=True)
+
     print(f"[setup] {len(bases)} instance(s), {len(arenas)} arenas "
           f"({[len(i[2]) for i in insts]}) ...", flush=True)
     for sim, _rd, _idx in insts:
@@ -510,9 +541,9 @@ def main():
         all_ticks = []          # per-tick replay records
         ep_rets = np.zeros(args.envs)
         outcomes = {}
-        parsed_eps = []         # (ai, obs_l, smp_l)
+        parsed_eps = []         # (ai, obs_l, smp_l, path)
         for ai, (sc, pth) in enumerate(zip(scores, paths)):
-            parsed = parse_episode(pth)
+            parsed = parse_episode(pth) if pth is not None else None
             if parsed is None:
                 ep_rets[ai] = ep_return(sc) if sc else -50.0
                 continue
@@ -522,20 +553,52 @@ def main():
             ep_rets[ai] = ep_return(score)
             outcomes[score.get("outcome", "?")] = \
                 outcomes.get(score.get("outcome", "?"), 0) + 1
-            parsed_eps.append((ai, obs_l, smp_l))
-            try:
-                pth.unlink()
-            except OSError:
-                pass
-        for (ai, _o, _s), recs in zip(
+            parsed_eps.append((ai, obs_l, smp_l, pth))
+        for (ai, _o, _s, _p), recs in zip(
                 parsed_eps,
                 replay_batch(pol_shadow,
-                             [(o, s) for _a, o, s in parsed_eps])):
+                             [(o, s) for _a, o, s, _p in parsed_eps])):
             gidx = ai // G
             for r in recs:
                 r["group"] = gidx
                 r["ep"] = ai
             all_ticks.extend(recs)
+
+        # optional replay videos: best-return ep + first death/timeout
+        if wb and args.video_every and it % args.video_every == 0 \
+                and parsed_eps:
+            try:
+                from render_replay import render
+                picks = []
+                ai_best = int(np.argmax(
+                    [ep_rets[a] for a, *_ in parsed_eps]))
+                picks.append(parsed_eps[ai_best])
+                for pe in parsed_eps:
+                    oc = scores[pe[0]].get("outcome") if scores[pe[0]] else None
+                    if oc in ("PLAYER_DIED", "TIMEOUT") \
+                            and pe[0] != picks[0][0]:
+                        picks.append(pe)
+                        break
+                for pi, (ai, _o, _s, pth) in enumerate(
+                        picks[:args.video_n]):
+                    mp4 = out / f"replay_it{it}_ep{ai}.mp4"
+                    try:
+                        render(str(pth), str(mp4))
+                        wb.log({f"replay/ep{ai}": wb.Video(
+                            str(mp4), fps=12, format="mp4",
+                            caption=f"iter {it} arena{ai} "
+                                    f"ret={ep_rets[ai]:.1f} "
+                                    f"{scores[ai].get('outcome')}")},
+                            step=it)
+                    except Exception as e:
+                        print(f"  [warn] video ep{ai}: {e}", flush=True)
+            except ImportError:
+                print("  [warn] render_replay unavailable", flush=True)
+        for _a, _o, _s, pth in parsed_eps:
+            try:
+                pth.unlink()
+            except OSError:
+                pass
 
         # ---- GAIL discriminator update + learned rewards ------------------
         if disc is not None:
@@ -589,13 +652,17 @@ def main():
             print(f"  [gail] d_loss={d_loss/max(n_db,1):.3f} "
                   f"r_mean={r_t.mean():.2f}±{r_t.std():.2f} "
                   f"ep_rets={np.round(ep_rets,1).tolist()}", flush=True)
+            if wb:
+                wb.log({"iter": it, "gail/d_loss": d_loss / max(n_db, 1),
+                        "gail/r_mean": float(r_t.mean()),
+                        "gail/r_std": float(r_t.std())}, step=it)
 
         # iter-1 sanity: Python-side logp under the just-deployed weights
         # must match the Java-side logp recorded during sampling (drift >~1e-2
         # means the replayed obs/h stream diverges from what Java saw).
         if it == 1 and all_ticks:
             with torch.no_grad():
-                lp_py = []
+                lp_py = []  # per-head python logp
                 for r in all_ticks[:400]:
                     y, _, _ = pol_shadow(
                         torch.tensor(r["g"][None]),
@@ -620,6 +687,9 @@ def main():
                 d = np.abs(np.array(lp_py) - np.array(lp_java))
                 print(f"[sanity] logp |py-java| mean={d.mean():.4f} "
                       f"max={d.max():.4f} (expect ~1e-3)", flush=True)
+                if wb:
+                    wb.log({"sanity/drift_mean": float(d.mean()),
+                            "sanity/drift_max": float(d.max())}, step=it)
 
         # group-normalized sequence advantages (GRPO)
         adv = np.zeros(args.envs)
@@ -688,6 +758,17 @@ def main():
         print(f"[{it}] ticks={len(all_ticks)} rets={np.round(ep_rets,1).tolist()}"
               f" outcomes={outcomes} pl={pl:.4f} ent={el:.2f}"
               f" dt={time.time() - t0:.1f}s", flush=True)
+        if wb:
+            wd = {"iter": it, "ticks": len(all_ticks), "pol_loss": pl,
+                  "entropy": el, "dt": time.time() - t0,
+                  "ret/mean": float(ep_rets.mean()),
+                  "ret/min": float(ep_rets.min()),
+                  "ret/max": float(ep_rets.max()),
+                  "rets": wb.Histogram(np.nan_to_num(ep_rets, nan=-50.0)),
+                  "adv/absmax": float(np.abs(adv).max())}
+            for k, v in outcomes.items():
+                wd[f"outcome/{k}"] = v
+            wb.log(wd, step=it)
 
         np.save(out / "pol_latest.npy", pol.flat())
 
@@ -720,6 +801,13 @@ def main():
             hist.flush()
             print(f"[eval {it}] {np.round(vec, 3).tolist()}"
                   + ("  [DEGENERATE?]" if deg else ""), flush=True)
+            if wb:
+                wb.log({"iter": it, "eval/kills": float(vec[0]),
+                        "eval/taken": float(-vec[1]),
+                        "eval/clear": float(vec[2]),
+                        "eval/survived": float(vec[3]),
+                        "eval/ticks": float(-vec[4]),
+                        "eval/degenerate": bool(deg)}, step=it)
             key = (round(float(vec[0]), 3), round(float(vec[2]), 3),
                    round(float(vec[3]), 3), round(float(vec[4]), 3))
             if not deg and (best_key is None or key > best_key):
@@ -728,6 +816,8 @@ def main():
                 print(f"  [best] {key}", flush=True)
 
     print("[done]", flush=True)
+    if wb:
+        wb.finish()
 
 
 if __name__ == "__main__":

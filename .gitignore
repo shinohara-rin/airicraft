@@ -63,3 +63,7 @@ eval-output
 
 /automatic_playtest/
 /hosted_playtest/
+sim/optimizer/wandb/
+sim/optimizer/*.log
+sim/optimizer/results_*/
+sim/optimizer/*.mp4

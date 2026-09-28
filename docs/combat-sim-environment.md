@@ -1095,3 +1095,31 @@ env+parse+batched replay+CPU update): ~5s. The env is once again the
 throughput limiter, not the learner — which is exactly what a GPU box wants:
 the update side is already trivially small for an A100 while the sim fleet
 feeds it at CPU-fleet rates.
+
+### W&B training monitor (`--wandb` + `render_replay.py`)
+
+`train_grpo.py --wandb` streams every training signal to Weights & Biases
+(project `airicraft-combat` by default, `--wandb-project/--wandb-name/
+--wandb-entity` override). Auth: `WANDB_API_KEY` in the environment; without
+it the flag warns and disables logging — or set `WANDB_MODE=offline` to write
+a local run dir (`sim/optimizer/wandb/`) that `wandb sync` uploads later. All
+wandb calls are guarded: no package, no key, or a wandb init failure never
+breaks training.
+
+Logged per iteration (`step=iter`): `ret/mean|min|max` + return histogram,
+`adv/absmax`, `outcome/<name>` counts, `pol_loss`, `entropy`, `dt`,
+`iter` wall-clock. Iter 1 also logs `sanity/drift_mean|max` (python-vs-java
+sampled logp — expect ~1e-3; alerts when the replay math regresses). Eval
+blocks log the five-dim vector unpack as `eval/kills`, `eval/taken`,
+`eval/clear`, `eval/survived`, `eval/ticks` plus `eval/degenerate`.
+
+**Replay videos**: `render_replay.py` renders any episode JSONL to a
+top-down mp4 (512px, entity colors per mob type, hp bars, creeper fuse
+rings, player yaw wedge + shield ring + move arrow, HUD with tick/hp/mob
+count/cooldown/flag state). Standalone:
+`python3 render_replay.py <ep.jsonl> <out.mp4> --fps 12 --stride 4`.
+In the trainer, `--video-every N` renders `--video-n` episodes per upload
+(best-return episode + first death/timeout for contrast) straight from the
+batch JSONL before it's deleted, and logs them as `replay/ep<arena>`
+`wandb.Video` at the same step — the dashboard shows the run's own behavior
+alongside the metric curves, including degenerate modes when they appear.
