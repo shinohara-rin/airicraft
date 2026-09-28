@@ -221,7 +221,7 @@ def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -
         px, py = cell_center(cell)
         emit(examples, capture, "block_at_pixel",
              pick(rng, QUESTIONS["block_at_pixel"]).format(px=int(px), py=int(py)),
-             cell["blockId"] or ANSWER_DISTANT,
+             cell.get("blockId") or ANSWER_DISTANT,
              {"pixel": [int(px), int(py)], "blockPos": list(block_cell_pos(cell)) if cell.get("blockX") is not None else None})
 
     # point_to: nearest cell per block id / entity type
