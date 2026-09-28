@@ -1,5 +1,6 @@
 package ai.moeru.airicraft.agent.llm;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public record PlannerTriggerBatch(
@@ -90,7 +91,28 @@ public record PlannerTriggerBatch(
 	}
 
 	public LlmChatMessage toTerminalMessage() {
-		return LlmChatMessage.user(renderPrompt(), LlmMessageKind.USER_TURN);
+		return LlmChatMessage.user(renderPrompt(), LlmMessageKind.USER_TURN,
+			triggers.size() == 1 ? triggers.getFirst().fields() : null);
+	}
+
+	/**
+	 * Messages preceding an observation: only player chat stays a user turn. Runtime wakeups become notices that the
+	 * observation carries; generic wakeups add nothing because their evidence is already in the observed events.
+	 */
+	public List<LlmChatMessage> toObservedMessages() {
+		var messages = new ArrayList<LlmChatMessage>();
+		var chat = new StringBuilder();
+		for (PlannerTrigger trigger : triggers) {
+			if (trigger.type() == PlannerTriggerType.CHAT) {
+				if (!chat.isEmpty()) chat.append('\n');
+				chat.append(trigger.speaker() == null || trigger.speaker().isBlank() ? "Someone" : trigger.speaker())
+					.append(": ").append(trigger.text());
+			}
+			else if (!usesGenericWakePrompt(trigger.type()))
+				messages.add(LlmChatMessage.user(trigger.text(), LlmMessageKind.NOTICE, trigger.fields()));
+		}
+		if (!chat.isEmpty()) messages.addFirst(LlmChatMessage.user(chat.toString(), LlmMessageKind.USER_TURN));
+		return List.copyOf(messages);
 	}
 
 	private static String genericWakePrompt() {

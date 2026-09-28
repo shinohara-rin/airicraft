@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlannerReferencesTest {
+	@Test void longNonIdentityTokensDoNotStallPresentation() {
+		String text = "a".repeat(30_000);
+		assertTimeoutPreemptively(java.time.Duration.ofMillis(500),
+			() -> assertEquals(text, new PlannerReferences().present(text)));
+	}
+
 	private static final String WORK = "JOB:job-11111111-2222-3333-4444-555555555555";
 	private static final String HOLD = "hold-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 	@Test void resolvesExactNativeWorkAndHoldBeforeToolValidationAcrossRoles() {
@@ -39,6 +45,18 @@ class PlannerReferencesTest {
 		assertEquals(checkpoint, references.present(checkpoint));
 	}
 
+	@Test void presentedToolArgumentsKeepExactNumericParameters() {
+		var references = new PlannerReferences();
+		String arguments = "{\"workId\":\"" + WORK + "\",\"position\":{\"x\":12.3456789}}";
+		var messages = List.<Map<String,Object>>of(Map.of("role", "assistant", "content", "",
+			"tool_calls", List.of(Map.of("id", "call_1", "type", "function",
+				"function", Map.of("name", "inspect_work", "arguments", arguments)))));
+		String wire = references.presentMessages(messages).get(0).getAsJsonObject().getAsJsonArray("tool_calls")
+			.get(0).getAsJsonObject().getAsJsonObject("function").get("arguments").getAsString();
+		assertTrue(wire.contains("12.3456789"));
+		assertTrue(wire.contains(references.present(WORK)));
+	}
+
 	@Test void expiredOrInventedReferencesNeverResolveToAnotherIdentity() {
 		var references = new PlannerReferences(1);
 		String old = references.present(WORK);
@@ -57,13 +75,14 @@ class PlannerReferencesTest {
 		assertEquals("literal " + ref, resolved.get("narration").getAsString());
 		assertEquals(HOLD, resolved.getAsJsonArray("uuids").get(0).getAsString());
 	}
-	@Test void sentencePunctuationDoesNotBecomePartOfAnIdentity() {
+	@Test void proseIsNotSearchedForAnIdentity() {
 		var references = new PlannerReferences();
 		String ref = references.present(WORK);
-		assertEquals("Work " + ref + ".", references.present("Work " + WORK + "."));
-		assertEquals("Work " + ref + ": next", references.present("Work " + WORK + ": next"));
+		assertEquals("Work " + WORK + ".", references.present("Work " + WORK + "."));
+		assertEquals("Work " + WORK + ": next", references.present("Work " + WORK + ": next"));
 		String child = WORK + ":child-2";
-		assertEquals("Use " + references.present(child) + ".", references.present("Use " + child + "."));
+		assertEquals("Use " + child + ".", references.present("Use " + child + "."));
+		assertNotEquals(child, references.present(child));
 		assertEquals(WORK, references.resolveArguments(JsonParser.parseString("{\"workId\":\"" + ref + "\"}").getAsJsonObject()).get("workId").getAsString());
 	}
 

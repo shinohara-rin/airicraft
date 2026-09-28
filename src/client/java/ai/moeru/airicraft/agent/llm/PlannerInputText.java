@@ -10,55 +10,28 @@ public final class PlannerInputText {
 	private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 	private PlannerInputText() {}
 
-	/** The canonical history stays intact for cursors, replay and recorder dispatch metadata. */
+	/** Plain text stays plain text; only recognized tool envelopes have typed fields to present. */
 	public static String message(String role, String content) {
-		// Round only planner-facing evidence; canonical state and protocol identities stay exact.
-		// Quote alternatives are disjoint: possessive repetition avoids recursive backtracking
-		// (and stack overflow) on long quoted inspection evidence.
-		var numbers = java.util.regex.Pattern.compile(
-		"\"(?:\\\\.|[^\"\\\\])*+\"|(?<![\\p{L}\\p{N}_./@+-])[-+]?(?:[0-9]+\\.[0-9]+|\\.[0-9]+|[0-9]+[eE][+-]?[0-9]+)(?:[eE][+-]?[0-9]+)?(?![\\p{L}\\p{N}_./@])").matcher(content);
-		var rounded = new StringBuilder();
-		while (numbers.find()) {
-			String value = numbers.group();
-			String replacement = value.startsWith("\"") ? value : new java.math.BigDecimal(value)
-				.setScale(1, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
-			numbers.appendReplacement(rounded, java.util.regex.Matcher.quoteReplacement(replacement));
-		}
-		numbers.appendTail(rounded);
-		content = rounded.toString();
-
-		if (role.equals("tool")) return toolResult(content);
-		if (!role.equals("user")) return content;
-		String[] paragraphs = content.split("\n\n", -1);
-		for (int i = 0; i < paragraphs.length; i++) paragraphs[i] = decisionParagraph(paragraphs[i]);
-		return String.join("\n\n", paragraphs);
+		return role.equals("tool") ? toolResult(content) : content;
 	}
 
-	private static String decisionParagraph(String content) {
-		String prefix = "DECISION CONTEXT: ";
-		if (!content.startsWith(prefix + "{")) return content;
-		try {
-			var object = JsonParser.parseString(content.substring(prefix.length())).getAsJsonObject();
-			return decision(object);
-		} catch (JsonParseException | IllegalStateException exception) {
-			return content;
-		}
+	public static String observation(Map<String, Object> payload) {
+		return observation(GSON.toJsonTree(payload).getAsJsonObject());
 	}
 
-	public static String decision(Map<String, Object> payload) {
-		return decision(GSON.toJsonTree(payload).getAsJsonObject());
-	}
-
-	private static String decision(JsonObject payload) {
+	/** Prose rendering of an {@code observe} result; the canonical JSON stays in history. */
+	public static String observation(JsonObject payload) {
+		payload = PlannerFieldPresentation.project(payload, null, null).getAsJsonObject();
 		Fields context = new Fields(payload);
-		StringBuilder out = new StringBuilder("DECISION CONTEXT:\n");
+		StringBuilder out = new StringBuilder();
 		out.append(context.phrase("worldSessionId", "World ")).append(context.phrase("tick", "; client tick "))
 			.append(context.phrase("serverTick", "; server tick ")).append(".\n");
 		out.append(context.phrase("decisionOwner", "Decisions: ")).append(context.phrase("actuatorOwner", "; actuation: ")).append(".\n");
-		JsonElement changes = context.take("stateChanges");
-		if (changes != null) out.append("State changes (set replaces the exact path; remove deletes it; omitted fields unchanged): ").append(text(changes)).append('\n');
-		JsonElement baseline = context.take("stateBaseline");
-		if (baseline != null) out.append("Full state baseline (replaces previous state).\n");
+		JsonElement patch = context.take("currentPatch");
+		if (patch != null) out.append(patch.isJsonArray() && patch.getAsJsonArray().isEmpty()
+			? "State unchanged since the previous observation.\n"
+			: "State changes (RFC 6902 JSON Patch against the previous observation's state): " + text(patch) + "\n");
+		context.take("stateBaseline");
 		JsonElement current = context.take("current");
 		JsonElement currentWork = current != null && current.isJsonObject() ? current.getAsJsonObject().get("work") : null;
 		if (current != null && current.isJsonObject()) {
@@ -79,6 +52,10 @@ public final class PlannerInputText {
 			}
 			out.append(facts.rest());
 		} else if (current != null) out.append("Current: ").append(text(current)).append('\n');
+		JsonElement queue = context.take("toolQueue");
+		if (queue != null) out.append("Tool queue: ").append(text(queue)).append('\n');
+		JsonElement notices = context.take("notices");
+		if (notices != null && notices.isJsonArray()) for (var notice : notices.getAsJsonArray()) out.append("Notice: ").append(text(notice)).append('\n');
 		out.append(context.phrase("afterEventSequence", "Evidence after ")).append(context.phrase("throughEventSequence", " through ")).append(".\n");
 		JsonElement missing = context.take("missingEventRange");
 		if (missing != null) out.append("MISSING evidence: ").append(text(missing)).append('\n');
@@ -93,17 +70,17 @@ public final class PlannerInputText {
 	/** Only generated JSON tool envelopes are eligible. Plain text and unknown shapes stay exact. */
 	public static String toolResult(String content) {
 		if (!content.startsWith("Tool result for ")) return content;
-		int separator = content.indexOf(": ");
-		if (separator < 0) return content;
-		String body = content.substring(separator + 2);
-		if (!body.startsWith("{")) return content;
-		JsonElement parsed;
-		try { parsed = JsonParser.parseString(body); }
-		catch (JsonParseException exception) { return content; }
-		if (!parsed.isJsonObject()) return content;
-		JsonObject object = parsed.getAsJsonObject();
-		if (!object.has("workId") && !object.has("accepted")) return content;
-		return content.substring(0, separator + 2) + work(object);
+		String prefix = PlannerFieldPresentation.envelopePrefix(content);
+		if (prefix == null) return content;
+		JsonElement fields = PlannerFieldPresentation.fields(content);
+		if (fields == null) return content;
+		JsonObject object = PlannerFieldPresentation.project(fields, null, null).getAsJsonObject();
+		return !object.has("workId") && !object.has("accepted") ? content
+			: toolResult(prefix, object);
+	}
+
+	static String toolResult(String prefix, JsonObject object) {
+		return prefix + work(object);
 	}
 
 	static String work(JsonObject object) {

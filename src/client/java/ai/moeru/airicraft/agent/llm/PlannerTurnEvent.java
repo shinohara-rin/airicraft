@@ -18,8 +18,15 @@ public record PlannerTurnEvent(
 	PlannerToolCall toolCall,
 	String toolResultText,
 	long tick,
-	boolean imageAttached
+	boolean imageAttached,
+	JsonElement toolResultFields
 ) {
+	public PlannerTurnEvent(long id, Kind kind, long timestampMs, long generation, int attempt, String phase,
+		PlannerRequest request, LlmConversation conversation, PlannerConversationDebugMessage debugMessage,
+		JsonElement assistantRawContent, PlannerToolCall toolCall, String toolResultText, long tick, boolean imageAttached) {
+		this(id, kind, timestampMs, generation, attempt, phase, request, conversation, debugMessage,
+			assistantRawContent, toolCall, toolResultText, tick, imageAttached, PlannerFieldPresentation.fields(toolResultText));
+	}
 	public enum Kind {
 		SUBMISSION,
 		DEBUG_CARD,
@@ -41,12 +48,20 @@ public record PlannerTurnEvent(
 			debugMessage.generation(),
 			debugMessage.phase(),
 			debugMessage.attempt(),
-			debugMessage.hasImageAttachment()
+			debugMessage.hasImageAttachment(),
+			debugMessage.timestampMs(),
+			debugMessage.superseded(),
+			debugMessage.fields()
 		);
 		assistantRawContent = assistantRawContent == null || assistantRawContent.isJsonNull()
 			? null
 			: assistantRawContent.deepCopy();
 		toolResultText = toolResultText == null ? "" : toolResultText;
+		toolResultFields = toolResultFields == null || toolResultFields.isJsonNull() ? null : toolResultFields.deepCopy();
 		attempt = Math.max(0, attempt);
+	}
+
+	@Override public JsonElement toolResultFields() {
+		return toolResultFields == null ? null : toolResultFields.deepCopy();
 	}
 }

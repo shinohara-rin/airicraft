@@ -31,6 +31,9 @@ public class AiricraftClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		ai.moeru.airicraft.settings.AiricraftSettings.register();
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.START_SERVER_TICK.register(
+			server -> RUNTIME_CONTROLLER.automaticPlaytest().onHostedServerTick(server));
 		ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> dispatcher.register(
 			ClientCommandManager.literal("airicraft")
 				.then(ClientCommandManager.literal("noplanner")
@@ -59,8 +62,23 @@ public class AiricraftClient implements ClientModInitializer {
 						}))
 					.then(ClientCommandManager.literal("conversation")
 						.executes(context -> {
+							RUNTIME_CONTROLLER.setPlannerDebugConversationView(PlannerConversationView.CHRONICLE);
 							RUNTIME_CONTROLLER.setPlannerDebugOverlayMode(PlannerDebugOverlayMode.CONVERSATION);
-							context.getSource().sendFeedback(debugOverlayText(RUNTIME_CONTROLLER.plannerDebugOverlayMode()));
+							context.getSource().sendFeedback(debugOverlayText(RUNTIME_CONTROLLER.plannerDebugOverlayMode(), RUNTIME_CONTROLLER.plannerDebugConversationView()));
+							return 1;
+						}))
+					.then(ClientCommandManager.literal("context")
+						.executes(context -> {
+							RUNTIME_CONTROLLER.setPlannerDebugConversationView(PlannerConversationView.CONTEXT);
+							RUNTIME_CONTROLLER.setPlannerDebugOverlayMode(PlannerDebugOverlayMode.CONVERSATION);
+							context.getSource().sendFeedback(debugOverlayText(RUNTIME_CONTROLLER.plannerDebugOverlayMode(), RUNTIME_CONTROLLER.plannerDebugConversationView()));
+							return 1;
+						}))
+					.then(ClientCommandManager.literal("verbose")
+						.executes(context -> {
+							RUNTIME_CONTROLLER.setPlannerDebugConversationVerbose(!RUNTIME_CONTROLLER.plannerDebugConversationVerbose());
+							context.getSource().sendFeedback(Text.literal(
+								"Airicraft debug verbose: " + (RUNTIME_CONTROLLER.plannerDebugConversationVerbose() ? "on" : "off")));
 							return 1;
 						}))
 					.then(ClientCommandManager.literal("off")
@@ -95,5 +113,12 @@ public class AiricraftClient implements ClientModInitializer {
 
 	private static Text debugOverlayText(PlannerDebugOverlayMode mode) {
 		return Text.literal("Airicraft debug overlay: " + mode.name().toLowerCase(Locale.ROOT));
+	}
+
+	private static Text debugOverlayText(PlannerDebugOverlayMode mode, PlannerConversationView view) {
+		if (mode != PlannerDebugOverlayMode.CONVERSATION) {
+			return debugOverlayText(mode);
+		}
+		return Text.literal("Airicraft debug overlay: conversation (" + view.name().toLowerCase(Locale.ROOT) + ")");
 	}
 }

@@ -114,6 +114,8 @@ public final class ModBridgeServer {
 	private volatile HttpServer server;
 	private volatile String token;
 
+	String diagnosticCredential() { return token == null ? "" : token; }
+
 	public ModBridgeServer(
 		Supplier<HighlightManager> highlightManagerSupplier,
 		Supplier<EmbodiedAgentRuntime> agentRuntimeSupplier,
@@ -1736,6 +1738,8 @@ public final class ModBridgeServer {
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
+			response.put("chronicleConversation", agentRuntime().plannerChronicleConversationDebugSnapshot());
+			response.put("contextConversation", agentRuntime().plannerContextConversationDebugSnapshot());
 			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("lastChatTick", agentRuntime().lastChatTick());
@@ -1752,6 +1756,8 @@ public final class ModBridgeServer {
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
+			response.put("chronicleConversation", agentRuntime().plannerChronicleConversationDebugSnapshot());
+			response.put("contextConversation", agentRuntime().plannerContextConversationDebugSnapshot());
 			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("contextExcerpt", agentRuntime().plannerContextExcerpt());
@@ -1778,6 +1784,8 @@ public final class ModBridgeServer {
 			response.put("conversation", agentRuntime().plannerConversationDebugSnapshot());
 			response.put("canonicalConversation", agentRuntime().plannerCanonicalConversationDebugSnapshot());
 			response.put("projectedConversation", agentRuntime().plannerProjectedConversationDebugSnapshot());
+			response.put("chronicleConversation", agentRuntime().plannerChronicleConversationDebugSnapshot());
+			response.put("contextConversation", agentRuntime().plannerContextConversationDebugSnapshot());
 			response.put("conversationSources", agentRuntime().debugConversationSources());
 			response.put("plannerJournal", agentRuntime().plannerShellJournal());
 			response.put("plannerAttempts", agentRuntime().debugPlannerAttempts());

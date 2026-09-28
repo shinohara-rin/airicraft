@@ -7,6 +7,7 @@ import ai.moeru.airicraft.agent.AgentConfigLoader;
 import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.baritone.BaritoneFacade;
 import ai.moeru.airicraft.agent.baritone.LiveBaritoneFacade;
+import ai.moeru.airicraft.agent.character.CharacterCardLoader;
 import ai.moeru.airicraft.agent.control.CameraController;
 import ai.moeru.airicraft.agent.idle.IdleIdeasConfig;
 import ai.moeru.airicraft.agent.idle.IdleIdeasLoader;
@@ -32,10 +33,12 @@ import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.text.ClickEvent;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import org.lwjgl.glfw.GLFW;
 
 import java.net.URI;
 import java.util.LinkedHashMap;
@@ -68,7 +71,7 @@ public final class ClientRuntimeController {
 	public ClientRuntimeController() {
 		this.config = AiricraftConfigLoader.load();
 		this.cameraController = new CameraController(config.cameraLerpDefaultTicks());
-		this.agentRuntime = createRuntime(config, AgentConfigLoader.load());
+		this.agentRuntime = createRuntime(config, AgentConfigLoader.load().withCharacter(CharacterCardLoader.load()));
 		this.agentRuntime.updateIdleIdeasConfig(IdleIdeasLoader.load());
 		this.dashboardObservationStore = new DashboardObservationStore(config.debugDashboard().historyByteBudget());
 		this.dashboardObservationCollector = new DashboardObservationCollector(
@@ -81,7 +84,7 @@ public final class ClientRuntimeController {
 					: dashboard;
 			}
 		);
-		this.debugDashboardServer = new DebugDashboardServer(dashboardObservationStore);
+		this.debugDashboardServer = new DebugDashboardServer(dashboardObservationStore, this::diagnosticEnvironment, this::diagnosticSecrets);
 		this.bridgeServer = new ModBridgeServer(
 			this::highlightManager,
 			this::agentRuntime,
@@ -133,8 +136,49 @@ public final class ClientRuntimeController {
 		plannerDebugOverlay.setMode(mode);
 	}
 
+	public PlannerConversationView plannerDebugConversationView() {
+		return plannerDebugOverlay.conversationView();
+	}
+
+	public void setPlannerDebugConversationView(PlannerConversationView view) {
+		plannerDebugOverlay.setConversationView(view);
+	}
+
+	public boolean plannerDebugConversationVerbose() {
+		return plannerDebugOverlay.conversationVerbose();
+	}
+
+	public void setPlannerDebugConversationVerbose(boolean verbose) {
+		plannerDebugOverlay.setConversationVerbose(verbose);
+	}
+
 	public DashboardObservationStore liveRecording() {
 		return dashboardObservationStore;
+	}
+
+	private Map<String, Object> diagnosticEnvironment() {
+		return ai.moeru.airicraft.dashboard.DiagnosticEnvironment.capture(currentAgentRuntime().config().llm());
+	}
+
+	private java.util.List<String> diagnosticSecrets() {
+		var agent = currentAgentRuntime().config();
+		var secrets = new java.util.ArrayList<String>(agent.observability().otlpHeaders().values());
+		secrets.add(agent.llm().apiKey()); secrets.add(agent.llm().visionApiKey()); secrets.add(bridgeServer.diagnosticCredential());
+		return secrets.stream().filter(java.util.Objects::nonNull).toList();
+	}
+
+	public ai.moeru.airicraft.dashboard.DiagnosticReport.Draft markDiagnosticReport() { return debugDashboardServer.markReport(); }
+
+	public java.util.concurrent.CompletableFuture<ai.moeru.airicraft.dashboard.DiagnosticReport> previewDiagnosticReport(
+		ai.moeru.airicraft.dashboard.DiagnosticReport.Draft draft, ai.moeru.airicraft.dashboard.DiagnosticReport.Request request) {
+		return java.util.concurrent.CompletableFuture.supplyAsync(() -> debugDashboardServer.previewReport(draft, request));
+	}
+
+	public java.util.concurrent.CompletableFuture<java.nio.file.Path> saveDiagnosticReport(ai.moeru.airicraft.dashboard.DiagnosticReport report) {
+		return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+			try { return report.save(net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir().resolve("airicraft-reports")); }
+			catch (java.io.IOException exception) { throw new java.io.UncheckedIOException(exception); }
+		});
 	}
 
 	public FirstPersonScreenshotService screenshotService() {
@@ -188,7 +232,30 @@ public final class ClientRuntimeController {
 			}
 		}
 		automaticPlaytest.onClientTick(client);
+		pollConversationScrollKeys(client);
 		announceDashboardUrl(client);
+	}
+
+	// The HUD has no cursor to hover the pane, and the wheel drives the hotbar;
+	// PgUp/PgDn/Home/End scroll the conversation overlay when no screen is open.
+	private void pollConversationScrollKeys(MinecraftClient client) {
+		if (client == null || client.currentScreen != null || client.getWindow() == null
+			|| plannerDebugOverlay.mode() != PlannerDebugOverlayMode.CONVERSATION) {
+			return;
+		}
+		long handle = client.getWindow().getHandle();
+		if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_PAGE_UP)) {
+			plannerDebugOverlay.scrollConversationBy(-PlannerDebugOverlay.CONVERSATION_KEY_SCROLL_STEP_PX);
+		}
+		if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_PAGE_DOWN)) {
+			plannerDebugOverlay.scrollConversationBy(PlannerDebugOverlay.CONVERSATION_KEY_SCROLL_STEP_PX);
+		}
+		if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_HOME)) {
+			plannerDebugOverlay.scrollConversationToStart();
+		}
+		if (InputUtil.isKeyPressed(handle, GLFW.GLFW_KEY_END)) {
+			plannerDebugOverlay.scrollConversationToEnd();
+		}
 	}
 
 	private void announceDashboardUrl(MinecraftClient client) {
@@ -292,7 +359,8 @@ public final class ClientRuntimeController {
 			drawContext,
 			clientTickDebugRuntime.status(),
 			clientTickDebugRuntime.traceStatus(),
-			plannerEnabled
+			plannerEnabled,
+			automaticPlaytest.emptyHostPaused()
 		);
 	}
 
@@ -323,7 +391,7 @@ public final class ClientRuntimeController {
 		IdleIdeasConfig nextIdleIdeasConfig;
 		try {
 			nextConfig = AiricraftConfigLoader.loadStrict();
-			nextAgentConfig = AgentConfigLoader.loadStrict();
+			nextAgentConfig = AgentConfigLoader.loadStrict().withCharacter(CharacterCardLoader.loadStrict());
 			nextIdleIdeasConfig = IdleIdeasLoader.loadStrict();
 		}
 		catch (ConfigLoadException exception) {
@@ -376,6 +444,8 @@ public final class ClientRuntimeController {
 	}
 
 	private EmbodiedAgentRuntime createRuntime(AiricraftConfig airicraftConfig, AgentConfig agentConfig) {
+		var miningOpportunityPolicy = new ai.moeru.airicraft.agent.tasks.MiningOpportunityPolicyState();
+		var miningOpportunityJournal = new ai.moeru.airicraft.agent.tasks.MiningOpportunityJournal();
 		SmeltingProcessManager smeltingProcessManager = new SmeltingProcessManager();
 		BaritoneTaskExecutor baritoneTaskExecutor = new BaritoneTaskExecutor(baritoneFacade);
 		UnderwaterHarvestTaskExecutor underwaterHarvestTaskExecutor = new UnderwaterHarvestTaskExecutor(
@@ -391,7 +461,7 @@ public final class ClientRuntimeController {
 			new ReturnToSurfaceTaskExecutor(baritoneFacade, cameraController),
 			new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks(), cameraController, baritoneFacade),
 			new BlockBreakTaskExecutor(cameraController),
-			new TargetAcquisitionTaskExecutor(baritoneFacade, cameraController),
+			new TargetAcquisitionTaskExecutor(baritoneFacade, cameraController, miningOpportunityPolicy, miningOpportunityJournal),
 			underwaterHarvestTaskExecutor,
 			new ai.moeru.airicraft.agent.tasks.CropTendingTaskExecutor(baritoneFacade, cameraController,
 				new BlockInteractionTaskExecutor(airicraftConfig.blockInteractionDelayTicks(), cameraController, baritoneFacade)),
@@ -407,7 +477,9 @@ public final class ClientRuntimeController {
 			AgentObservability.create(agentConfig.observability()),
 			smeltingProcessManager,
 			cameraController,
-			baritoneFacade
+			baritoneFacade,
+			miningOpportunityPolicy,
+			miningOpportunityJournal
 		);
 		runtime.setPlannerEnabled(plannerEnabled);
 		return runtime;
@@ -434,6 +506,9 @@ public final class ClientRuntimeController {
 			payload.put("llm", llmPayload());
 			payload.put("observability", observabilityPayload());
 			payload.put("idleIdeas", idleIdeasPayload());
+			payload.put("character", Map.of(
+				"name", agentConfig.character().name(),
+				"source", agentConfig.character().source()));
 			return payload;
 		}
 

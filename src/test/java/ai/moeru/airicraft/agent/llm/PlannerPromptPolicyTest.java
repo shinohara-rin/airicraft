@@ -1,6 +1,11 @@
 package ai.moeru.airicraft.agent.llm;
 
+import ai.moeru.airicraft.agent.character.CharacterCard;
+import ai.moeru.airicraft.agent.character.CharacterPrompt;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -10,10 +15,13 @@ class PlannerPromptPolicyTest {
 	void promptUsesEvidenceWorkAndFixedCatalogContracts() {
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY);
 
-		assertTrue(prompt.startsWith("You are the planner for a Minecraft companion."));
-		assertTrue(prompt.contains("Available tools: discover_tools, start_action_goal, inspect_action_goal, cancel_action_goal, clear_goal."));
-		assertTrue(prompt.contains("discover_tools is catalog assistance"));
-		assertTrue(prompt.contains("advertised typed schema is authoritative"));
+		assertTrue(prompt.startsWith("You are the companion, one of the players in this Minecraft world."));
+		assertTrue(prompt.contains("\nRULES\n"));
+		assertFalse(prompt.contains("discover_tools"));
+		assertFalse(prompt.contains("DECISION CONTEXT"));
+		assertFalse(prompt.contains("TASK UPDATE"));
+		assertTrue(prompt.contains("schemas are authoritative"));
+		assertTrue(prompt.contains("the runtime calls observe for you"));
 		assertFalse(prompt.contains("navigate_to"));
 		assertTrue(prompt.contains("check_position"));
 		assertFalse(prompt.contains("craft_recipe"));
@@ -37,28 +45,21 @@ class PlannerPromptPolicyTest {
 	}
 
 	@Test
-	void providerInstructionsAppearOnlyAfterProviderToolDiscovery() {
+	void providerInstructionsAppearWithTheirProvider() {
 		PlannerToolRegistry registry = PlannerToolRegistry.of(
 			new PromptOnlyProvider("Use search_recipes for broad recipe-viewer searches before inventing recipe ids.")
 		);
 
-		String initialPrompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, registry);
-		assertFalse(initialPrompt.contains("search_recipes"));
-
-		registry.discoverTools("recipe", 4);
-		String discoveredPrompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, registry);
-		assertTrue(discoveredPrompt.contains("search_recipes"));
-		assertTrue(discoveredPrompt.contains("Use search_recipes for broad recipe-viewer searches"));
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, registry);
+		assertTrue(prompt.contains("Use search_recipes for broad recipe-viewer searches"));
 	}
 
 	@Test
-	void providerGuidanceArrivesWithTheDiscoveredSchema() {
+	void providerGuidanceArrivesWithItsSchema() {
 		PlannerToolRegistry registry = PlannerToolRegistry.of(
 			new WorldFeatureSearchToolProvider(WorldFeatureSearchTool.textOnly(ignored -> "unused"))
 		);
 
-		assertFalse(PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, registry).contains("find_world_features"));
-		registry.discoverTools("feature", 4);
 		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, registry);
 
 		assertTrue(prompt.contains("find_world_features"));
@@ -100,5 +101,30 @@ class PlannerPromptPolicyTest {
 		public java.util.concurrent.CompletableFuture<String> execute(PlannerToolCall toolCall) {
 			return java.util.concurrent.CompletableFuture.completedFuture("unused");
 		}
+	}
+
+	@Test
+	void cardTextCannotInjectTemplatePlaceholders() {
+		CharacterCard card = new CharacterCard("Eve", "Says {{vision_instruction}} and {{unknown}} a lot.", "", "", "", "",
+			List.of(), List.of(), List.of(), null, null, Map.of(), "test");
+
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, PlannerToolRegistry.empty(),
+			CharacterPrompt.render(card, null));
+
+		assertTrue(prompt.startsWith("You are Eve,"));
+		assertTrue(prompt.contains("Says { {vision_instruction} } and { {unknown} } a lot."));
+		assertFalse(prompt.contains("{{"));
+	}
+
+	@Test
+	void theCharacterOpensThePlannerPromptBeforeTheRules() {
+		String prompt = PlannerPromptPolicy.systemPrompt(PlannerVisionMode.EXTERNAL_SUMMARY, PlannerToolRegistry.empty(),
+			CharacterPrompt.render(CharacterCard.defaults(), "Airi"));
+
+		int priorities = prompt.indexOf("PRIORITIES");
+		int rules = prompt.indexOf("\nRULES\n");
+		assertTrue(prompt.startsWith("You are Airi,"));
+		assertTrue(priorities > 0 && rules > priorities);
+		assertTrue(prompt.contains("Be a responsive teammate, as talkative as your character."));
 	}
 }

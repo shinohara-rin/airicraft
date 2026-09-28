@@ -23,7 +23,7 @@ import java.util.function.Consumer;
 
 public final class PlannerToolCatalog {
 	private static final Gson GSON = new Gson();
-	public static final String DISCOVER_TOOLS = "discover_tools";
+	public static final String OBSERVE = "observe";
 	public static final String TAKE_A_LOOK = "take_a_look";
 	public static final String INSPECT_WORLD = "inspect_world";
 	public static final String CLOSE_CONTAINER = "close_container";
@@ -67,6 +67,8 @@ public final class PlannerToolCatalog {
 	public static final String UPDATE_EVENT_POLICY = "update_event_policy";
 	public static final String CONFIGURE_PATHFIND = "configure_pathfind";
 	public static final String CONFIGURE_LIGHTING = "configure_lighting";
+	public static final String CONFIGURE_FOOD = "configure_food";
+	public static final String CONFIGURE_OPPORTUNISTIC_MINING = "configure_opportunistic_mining";
 	public static final String CONFIGURE_REFLEX = "configure_reflex";
 
 	private static final Consumer<JsonObject> NO_ARGUMENT_VALIDATION = arguments -> {
@@ -75,10 +77,10 @@ public final class PlannerToolCatalog {
 
 	private static List<BuiltInTool> createBuiltInTools() {
 		return List.of(
-		builtInTool(DISCOVER_TOOLS, true, false, tool(DISCOVER_TOOLS, "Find tools by capability in the advertised catalog. Discovery does not change the fixed role schemas.", properties(
-				prop("query", string("Short capability or tool search, for example smelting, navigation, exact world blocks, or map waypoints.")),
-				prop("maxResults", integer("Maximum concise tool cards to return, from 1 to 5. Defaults to 4."))
-			), List.of("query")), PlannerToolCatalog::validateDiscoverToolsArguments),
+		builtInTool(OBSERVE, true, false, tool(OBSERVE, "Observe current state, tool queue, runtime notices and relevant events since the previous observation. "
+				+ "The runtime calls this before every decision; call it yourself only to refresh state mid-turn. "
+				+ "State after the first observation is shown as an RFC 6902 JSON Patch against the previous observation.",
+				properties(), List.of()), NO_ARGUMENT_VALIDATION),
 		builtInTool(TAKE_A_LOOK, true, tool(TAKE_A_LOOK, "Inspect current first-person view.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 				prop("prompt", string("Short prompt describing what to inspect.")),
@@ -183,25 +185,15 @@ public final class PlannerToolCatalog {
 			), List.of()), PlannerToolCatalog::validateNearbyEntitiesArguments),
 		builtInTool(START_ACTION_GOAL, false, tool(START_ACTION_GOAL, "Start one runtime-owned action graph goal from a high-level typed intent. Prefer this over low-level action tools for execution.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
-					prop("kind", enumString("Typed action goal kind. inventory_item, crafting_output, smelting_output, and catalog resource_collection are executable in v1; other kinds are reserved graph goal surfaces during migration.", List.of(
+				prop("kind", enumString("Typed action goal kind. crafting_output and smelting_output are aliases of inventory_item.", List.of(
 					"inventory_item",
 					"resource_collection",
-					"movement",
-					"block_modification",
-					"entity_interaction",
-					"item_transfer",
 					"smelting_output",
 					"crafting_output"
 				))),
 				prop("itemId", optionalString("Inventory/crafting/smelting output item id, for example minecraft:bread.")),
 				prop("quantity", integer("Desired minimum quantity.")),
-					prop("resourceKind", optionalString("Resource kind for resource_collection goals. Supported values: " + String.join(", ", ResourceGatheringCatalog.supportedKindNames()) + ".")),
-				prop("x", integer("Target block x coordinate for movement or block goals.")),
-				prop("y", integer("Target block y coordinate for movement or block goals.")),
-				prop("z", integer("Target block z coordinate for movement or block goals.")),
-				prop("targetPlayer", optionalString("Target player for item transfer goals.")),
-				prop("entityTypeId", optionalString("Entity type id for entity interaction goals.")),
-				prop("operation", optionalString("Goal operation, for example move_to, place, use, break, attack, give, collect."))
+				prop("resourceKind", optionalString("Resource kind for resource_collection goals. Supported values: " + String.join(", ", ResourceGatheringCatalog.supportedKindNames()) + "."))
 			), List.of("kind")), PlannerToolCatalog::validateStartActionGoalArguments),
 		builtInTool(LIST_ACTION_GOALS, true, tool(LIST_ACTION_GOALS, "List foreground, suspended, runnable, and recent terminal action graph executions.", properties(
 				prop("narration", optionalString("Optional pre-action narration."))
@@ -238,21 +230,21 @@ public final class PlannerToolCatalog {
 				prop("useTowering", bool("Whether the executor may build a pillar underfoot while jumping if path navigation cannot return to the surface. Defaults to true when omitted.")),
 				prop("fillerBlockIds", stringArray("Optional namespaced block/item ids to use for towering. Omit to use defaults: " + String.join(", ", ReturnToSurfaceStepArgs.DEFAULT_FILLER_BLOCK_IDS) + "."))
 			), List.of()), PlannerToolCatalog::validateReturnToSurfaceArguments),
-		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Acquire matching blocks inside a fixed loaded area, using System 1 target selection and bounded excavation approaches, including fully buried sources. Use when observed block resources and this supported mining capability serve the objective. Do not pass item ids from inventory itemCounts. Likely underground work requires at least one torch unless explicitly overridden.", properties(
+		builtInTool(MINE_BLOCKS, false, tool(MINE_BLOCKS, "Acquire at least the requested number of matching blocks inside a fixed loaded area, using System 1 target selection and bounded excavation approaches, including fully buried sources. The default opportunistic mining policy may also break nearby exposed ore and a few more blocks of the requested ore after the count is reached; disable it for an exact quota. Review task.mining_opportunity observations in the next DECISION CONTEXT for extra breaks and matching item gains; a break alone does not confirm pickup. Do not pass item ids from inventory itemCounts. Likely underground work requires at least one torch unless explicitly overridden.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 				prop("blockIds", stringArray("Namespaced block ids to mine, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
-				prop("quantity", integer("Number of blocks to mine.")),
+				prop("quantity", integer("Minimum number of matching blocks to mine when opportunistic mining is enabled.")),
 				prop("constraints", acquisitionConstraintsSchema()),
 				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
-		builtInTool(ENSURE_BLOCKS_IN_INVENTORY, false, tool(ENSURE_BLOCKS_IN_INVENTORY, "Ensure the inventory contains at least a target count from mined block drops. Do not pass inventory item ids.", properties(
+		builtInTool(ENSURE_BLOCKS_IN_INVENTORY, false, tool(ENSURE_BLOCKS_IN_INVENTORY, "Ensure the inventory contains at least a target count from mined block drops. While mining ore, nearby optional ore breaks appear as task.mining_opportunity observations in the next DECISION CONTEXT. Do not pass inventory item ids.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 				prop("blockIds", stringArray("Namespaced block ids whose drops count toward the target, for example minecraft:iron_ore. These must be block ids, not item ids such as minecraft:raw_iron.")),
 				prop("quantity", integer("Minimum matching item count required in inventory. Existing inventory and pickups count.")),
 				prop("constraints", acquisitionConstraintsSchema()),
 				prop("allowUnilluminated", bool("Explicitly allow predicted underground or unilluminated mining with no torches. Default false."))
 			), List.of("blockIds", "quantity")), PlannerToolCatalog::validateMineBlocksArguments),
-		builtInTool(COLLECT_RESOURCE, false, tool(COLLECT_RESOURCE, "Collect a supported resource kind within a fixed loaded area. System 1 selects targets, approaches, breaks and collects drops. Optional constraints restrict the search; no speculative mining or distant exploration. Use break_blocks for exact coordinates.", properties(
+		builtInTool(COLLECT_RESOURCE, false, tool(COLLECT_RESOURCE, "Collect a supported resource kind within a fixed loaded area. System 1 selects targets, approaches, breaks and collects drops. While collecting ore, nearby optional ore breaks appear as task.mining_opportunity observations in the next DECISION CONTEXT. Optional constraints restrict the search; no speculative mining or distant exploration. Use break_blocks for exact coordinates.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 					prop("resourceKind", enumString("Resource kind.", ResourceGatheringCatalog.supportedKindNames())),
 				prop("quantity", integer("Additional items to collect; completion requires inventory gain.")),
@@ -300,7 +292,7 @@ public final class PlannerToolCatalog {
 				prop("itemId", string("Exact namespaced item id from inspect_inventory itemCounts.")),
 				prop("quantity", integer("Number of items to drop."))
 			), List.of("targetPlayer", "itemId", "quantity")), PlannerToolCatalog::validateGivePlayerArguments),
-		builtInTool(ATTACK_ENTITY, false, tool(ATTACK_ENTITY, "Attack one nearby entity. Default mode kill attacks until death, then collects nearby item drops within 4 blocks of the death position for up to 200 active ticks. Completion waits for local drops to clear and reports collectedItems as observed inventory gains in TASK UPDATE, including partial gains on failure; full inventory or unreachable drops report a failure after the kill. hit_once stops after one landed hit without collection. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
+		builtInTool(ATTACK_ENTITY, false, tool(ATTACK_ENTITY, "Attack one nearby entity. Default mode kill attacks until death, then collects nearby item drops within 4 blocks of the death position for up to 200 active ticks. Completion waits for local drops to clear and reports collectedItems as observed inventory gains in its terminal result, including partial gains on failure; full inventory or unreachable drops report a failure after the kill. hit_once stops after one landed hit without collection. Always copy the uuid token shown by inspect_nearby_entities or focus, and optionally include name or entityTypeId.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 				prop("uuid", optionalString("Entity uuid token copied from inspect_nearby_entities or focus. Full uuid also works.")),
 				prop("name", optionalString("Visible custom name or display name when available.")),
@@ -342,7 +334,7 @@ public final class PlannerToolCatalog {
 			prop("x1", integer("Minimum destination x.")), prop("y1", integer("Minimum destination y.")), prop("z1", integer("Minimum destination z.")),
 			prop("x2", integer("Maximum destination x.")), prop("y2", integer("Maximum destination y.")), prop("z2", integer("Maximum destination z."))
 		), List.of("uuids", "itemId", "x1", "y1", "z1", "x2", "y2", "z2")), ai.moeru.airicraft.agent.tasks.LureEntitiesStepArgs::parse),
-		builtInTool(TEND_CROPS, false, tool(TEND_CROPS, "Tend one existing flat crop plot, at most 16 by 16 blocks within 64 blocks of you. System 1 inspects the plot, harvests mature crops, collects drops and replants, and plants empty farmland when seeds are available. Leaves immature crops and other blocks intact. Deliberately edits crops within preserved places. One pass; does not wait for growth or till soil. Read TASK UPDATE for counts and missing seeds.", properties(
+		builtInTool(TEND_CROPS, false, tool(TEND_CROPS, "Tend one existing flat crop plot, at most 16 by 16 blocks within 64 blocks of you. System 1 inspects the plot, harvests mature crops, collects drops and replants, and plants empty farmland when seeds are available. Leaves immature crops and other blocks intact. Deliberately edits crops within preserved places. One pass; does not wait for growth or till soil. Its terminal result reports counts and missing seeds.", properties(
 			prop("narration", optionalString("Optional visible narration.")),
 			prop("seedItemId", string("Crop planting item, e.g. minecraft:wheat_seeds, minecraft:carrot, minecraft:potato, minecraft:beetroot_seeds.")),
 			prop("x1", integer("Minimum plot x.")), prop("y", integer("Crop block y; soil is one block below.")),
@@ -379,14 +371,24 @@ public final class PlannerToolCatalog {
 			prop("maxThreatDistance", integer("Maximum eligible mob distance in blocks, 1..32; default 16.")),
 			prop("requireLineOfSight", bool("Ignore mobs out of line of sight when true; default true."))
 		), List.of()), PlannerToolCatalog::validateConfigureReflexArguments),
+		builtInTool(CONFIGURE_FOOD, false, tool(CONFIGURE_FOOD, "Read or replace automatic inventory eating policy. Call with {} to read; provide goal and foodChoice together to replace. Defaults: movement and any. movement eats only when hunger prevents sprinting; heal eats while injured to sustain natural regeneration; off disables idle eating. Combat reflex may eat below half health after a safe retreat, even when idle eating is off. cooked_only limits automatic choices to ordinary cooked food; any allows known ordinary safe vanilla food. Special and modded food remains available through eat_food. Policy lasts until agent session reset.", properties(
+			prop("goal", enumString("Automatic idle eating goal.", List.of("off", "movement", "heal"))),
+			prop("foodChoice", enumString("Automatic food selection.", List.of("any", "cooked_only")))
+		), List.of()), PlannerToolCatalog::validateConfigureFoodArguments),
 		builtInTool(CONFIGURE_LIGHTING, false, tool(CONFIGURE_LIGHTING, "Configure automatic torch placement while mining, navigating, or idle after standing still for five seconds. Uses the average over only air cells in a centered 5x5 horizontal square at foot level; occupied cells do not count. Any sky-visible cell in that square prevents placement. Enabled by default underground when average combined light is strictly below 4 (spacing 6); can be disabled explicitly. Keeps offhand equipment such as a shield, temporarily uses a carried torch and restores the held item. Does not interrupt combat, item use or active block breaking. Confirmed placements are batched into the next planner window.", properties(
 				prop("narration", optionalString("Optional pre-action narration.")),
 				prop("enabled", bool("Whether automatic torch placement is enabled.")),
 				prop("mode", enumString("Lighting rule. darkness averages combined light; spawn_proof averages block light.", List.of("darkness", "spawn_proof"))),
 				prop("maxLightLevel", integer("Place when the selected 5x5 foot-level average is strictly below this threshold, from 0 to 15; default 4.")),
-				prop("requireUnderground", bool("Compatibility field; always applied as true. Any sky-visible cell in the 5x5 foot-level sample prevents automatic placement.")),
 				prop("minSpacingBlocks", integer("Minimum search radius around the player without an existing torch, from 1 to 16."))
-			), List.of("enabled", "mode", "maxLightLevel", "requireUnderground", "minSpacingBlocks")), PlannerToolCatalog::validateConfigureLightingArguments)
+			), List.of("enabled", "mode", "maxLightLevel", "minSpacingBlocks")), PlannerToolCatalog::validateConfigureLightingArguments),
+		builtInTool(CONFIGURE_OPPORTUNISTIC_MINING, false, tool(CONFIGURE_OPPORTUNISTIC_MINING,
+			"Configure automatic nearby ore breaks during an active mining task. Enabled by default. Stops for exposed ore within interaction reach, then resumes the original target. After the requested count, it may mine a few more exposed blocks of the requested ore. It never excavates a detour or starts while navigating for another purpose. Disable when exact block edits or strict quotas matter.", properties(
+				prop("narration", optionalString("Optional pre-action narration.")),
+				prop("enabled", bool("Whether nearby ore opportunities are enabled.")),
+				prop("maxExtraBlocks", integer("Maximum extra ore blocks per mining task, from 0 to 32; default 6.")),
+				prop("maxExtraTicks", integer("Maximum active ticks spent breaking extra ore per mining task, from 0 to 1200; default 200."))
+			), List.of("enabled", "maxExtraBlocks", "maxExtraTicks")), PlannerToolCatalog::validateConfigureOpportunisticMiningArguments)
 	);
 	}
 	private static final Map<String, BuiltInTool> BUILT_IN_TOOLS_BY_NAME = builtInToolsByName();
@@ -599,16 +601,6 @@ public final class PlannerToolCatalog {
 		requireString(arguments, "targetPlayer");
 	}
 
-	private static void validateDiscoverToolsArguments(JsonObject arguments) {
-		requireString(arguments, "query");
-		if (arguments.has("maxResults") && !arguments.get("maxResults").isJsonNull()) {
-			int maxResults = requireInt(arguments, "maxResults");
-			if (maxResults < 1 || maxResults > 5) {
-				throw new JsonParseException("maxResults must be between 1 and 5");
-			}
-		}
-	}
-
 	private static void validateNearbyEntitiesArguments(JsonObject arguments) {
 		for (String key : List.of("radius", "maxResults")) {
 			if (!arguments.has(key)) continue;
@@ -684,41 +676,19 @@ public final class PlannerToolCatalog {
 
 	private static void validateStartActionGoalArguments(JsonObject arguments) {
 		String kind = requireString(arguments, "kind");
-		if (!List.of(
-			"inventory_item",
-			"resource_collection",
-			"movement",
-			"block_modification",
-			"entity_interaction",
-			"item_transfer",
-			"smelting_output",
-			"crafting_output"
-		).contains(kind)) {
-			throw new JsonParseException("Unsupported action goal kind: " + kind);
-		}
 		if ("inventory_item".equals(kind) || "smelting_output".equals(kind) || "crafting_output".equals(kind)) {
 			requireString(arguments, "itemId");
 			requirePositiveInt(arguments, "quantity");
 		}
-		if ("resource_collection".equals(kind)) {
+		else if ("resource_collection".equals(kind)) {
 			String resourceKind = requireString(arguments, "resourceKind");
 			if (ResourceGatheringCatalog.entry(resourceKind).isEmpty()) {
 				throw new JsonParseException("Unsupported resourceKind: " + resourceKind);
 			}
 			requirePositiveInt(arguments, "quantity");
 		}
-		if ("movement".equals(kind) || "block_modification".equals(kind)) {
-			requireInt(arguments, "x");
-			requireInt(arguments, "y");
-			requireInt(arguments, "z");
-		}
-		if ("entity_interaction".equals(kind)) {
-			requireString(arguments, "entityTypeId");
-		}
-		if ("item_transfer".equals(kind)) {
-			requireString(arguments, "targetPlayer");
-			requireString(arguments, "itemId");
-			requirePositiveInt(arguments, "quantity");
+		else {
+			throw new JsonParseException("Unsupported action goal kind: " + kind);
 		}
 	}
 
@@ -1098,11 +1068,30 @@ public final class PlannerToolCatalog {
 		if (maxLightLevel < 0 || maxLightLevel > 15) {
 			throw new JsonParseException("maxLightLevel must be between 0 and 15");
 		}
-		requireBoolean(arguments, "requireUnderground");
 		int minSpacingBlocks = requireInt(arguments, "minSpacingBlocks");
 		if (minSpacingBlocks < 1 || minSpacingBlocks > 16) {
 			throw new JsonParseException("minSpacingBlocks must be between 1 and 16");
 		}
+	}
+
+	private static void validateConfigureFoodArguments(JsonObject arguments) {
+		if (arguments.isEmpty()) return;
+		String goal = requireString(arguments, "goal");
+		String foodChoice = requireString(arguments, "foodChoice");
+		if (arguments.size() != 2 || !List.of("off", "movement", "heal").contains(goal)
+			|| !List.of("any", "cooked_only").contains(foodChoice)) {
+			throw new JsonParseException("Expected goal=off|movement|heal and foodChoice=any|cooked_only");
+		}
+	}
+
+	private static void validateConfigureOpportunisticMiningArguments(JsonObject arguments) {
+		requireBoolean(arguments, "enabled");
+		int maxExtraBlocks = requireInt(arguments, "maxExtraBlocks");
+		int maxExtraTicks = requireInt(arguments, "maxExtraTicks");
+		if (maxExtraBlocks < 0 || maxExtraBlocks > 32)
+			throw new JsonParseException("maxExtraBlocks must be between 0 and 32");
+		if (maxExtraTicks < 0 || maxExtraTicks > 1200)
+			throw new JsonParseException("maxExtraTicks must be between 0 and 1200");
 	}
 
 	private static void validateConfigureReflexArguments(JsonObject arguments) {

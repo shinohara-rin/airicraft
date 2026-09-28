@@ -51,6 +51,8 @@ import ai.moeru.airicraft.agent.tasks.LedgerStepKind;
 import ai.moeru.airicraft.agent.tasks.LedgerStepPayload;
 import ai.moeru.airicraft.agent.tasks.LedgerStepStatus;
 import ai.moeru.airicraft.agent.tasks.MissionType;
+import ai.moeru.airicraft.agent.tasks.MiningOpportunityJournal;
+import ai.moeru.airicraft.agent.tasks.MiningOpportunityPolicyState;
 import ai.moeru.airicraft.agent.tasks.ReturnToSurfaceStepArgs;
 import ai.moeru.airicraft.agent.tasks.SmeltItemsStepArgs;
 import ai.moeru.airicraft.agent.tasks.SmeltingFuelMode;
@@ -79,6 +81,7 @@ import ai.moeru.airicraft.agent.tasks.StepExecutionResult;
 import ai.moeru.airicraft.agent.tasks.StepExecutionStatus;
 import ai.moeru.airicraft.agent.llm.PlannerToolCall;
 import ai.moeru.airicraft.agent.llm.PlannerToolCatalog;
+import ai.moeru.airicraft.agent.llm.PlannerInputText;
 import ai.moeru.airicraft.agent.llm.PlannerTrigger;
 import ai.moeru.airicraft.agent.llm.PlannerTriggerType;
 import com.google.gson.JsonParser;
@@ -104,12 +107,40 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class EmbodiedAgentRuntimeTest {
+	@Test void optionalMiningObservationReachesNextPlannerDecisionContext() {
+		var config = AgentConfig.defaults();
+		var journal = new MiningOpportunityJournal();
+		var runtime = new EmbodiedAgentRuntime(AiricraftConfig.defaults(), config,
+			new FirstPersonScreenshotService(), new FakeWorldTaskExecutor(),
+			ai.moeru.airicraft.agent.observability.AgentObservability.create(config.observability()),
+			new ai.moeru.airicraft.agent.tasks.SmeltingProcessManager(),
+			new ai.moeru.airicraft.agent.control.CameraController(), null,
+			new MiningOpportunityPolicyState(), journal);
+		try {
+			runtime.overrideSessionSnapshotForTests(loadedRemoteSession());
+			journal.record(new MiningOpportunityJournal.Notice("iron-task", "iron-job",
+				List.of("minecraft:iron_ore"), "minecraft:coal_ore", List.of("minecraft:coal"), new GoalPosition(7, 62, 22, true),
+				false, MiningOpportunityJournal.Stage.BROKEN, 0, null));
+			runtime.onClientTick(null);
+			String context = ai.moeru.airicraft.agent.llm.PlannerObservation.render(runtime.currentPlannerDecisionContext().observation(0));
+			assertTrue(context.contains("task.mining_opportunity"), context);
+			assertTrue(context.contains("minecraft:coal_ore"), context);
+			assertTrue(context.contains("minecraft:coal"), context);
+			assertTrue(context.contains("iron-task"), context);
+			assertTrue(context.contains("side_ore_detour"), context);
+			assertTrue(context.contains("\"x\":7"), context);
+			String presented = PlannerInputText.message("user", context);
+			assertTrue(presented.contains("minecraft:coal_ore"), presented);
+			assertTrue(presented.contains("side_ore_detour"), presented);
+		} finally { runtime.shutdown(); }
+	}
+
 	private static void assertTaskEvidence(EmbodiedAgentRuntime runtime, String type, Map<String, String> expected) {
 		var matching = runtime.recentEvents(null).events().stream().filter(event -> type.equals(event.type()))
 			.filter(event -> expected.entrySet().stream().allMatch(entry -> entry.getValue().equals(String.valueOf(event.payload().get(entry.getKey())))))
 			.toList();
 		assertFalse(matching.isEmpty(), "Expected identified task evidence: " + expected);
-		String context = runtime.currentPlannerDecisionContext().message(0).content();
+		String context = ai.moeru.airicraft.agent.llm.PlannerObservation.render(runtime.currentPlannerDecisionContext().observation(0));
 		assertTrue(context.contains(type), context);
 		for (String value : expected.values()) assertTrue(context.contains(value), context);
 	}
@@ -189,6 +220,28 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void normalCombatResolutionDeliversOutcomeSummaryAndEvidence() {
+		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		try {
+			var summary = Map.<String, Object>of("text", "Confirmed dead (1): Zombie. Still alive (0): none. Health 20 -> 16.",
+				"confirmedDead", List.of(Map.of("uuid", "zombie-1", "entityTypeId", "minecraft:zombie")),
+				"surviving", List.of(), "unconfirmed", List.of(), "healthAfter", 16);
+			var event = new SemanticEvent(1, 400, 20000, "reflex.resolved",
+				Map.of("reason", "no_eligible_threats", "cause", "MOB_ATTACK", "nextState", "IDLE",
+					"combatSummary", summary, "position", "3,64,7", "remainingThreats", List.of()));
+			var trigger = runtime.createPlannerTriggerForTests(event,
+				new EventRoutingProfile("reflex.resolved", true, PlannerTriggerType.SYSTEM, true));
+			assertTrue(trigger.text().contains("Confirmed dead (1): Zombie"));
+			assertTrue(trigger.text().contains("Still alive (0): none"));
+			assertTrue(trigger.text().contains("20 -> 16"));
+			assertTrue(trigger.text().contains("3,64,7"));
+			assertEquals("zombie-1", trigger.fields().getAsJsonObject().getAsJsonObject("combatSummary")
+				.getAsJsonArray("confirmedDead").get(0).getAsJsonObject().get("uuid").getAsString());
+		}
+		finally { runtime.shutdown(); }
+	}
+
+	@Test
 	void stalledCombatTriggerReportsUnresolvedThreatAndTacticalHold() {
 		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		try {
@@ -218,6 +271,43 @@ class EmbodiedAgentRuntimeTest {
 				ai.moeru.airicraft.agent.llm.PlannerToolRegistry.empty())).join();
 			assertTrue(queried.contains("maxThreatDistance=8"));
 			assertTrue(queried.contains("drowningEnabled=true"));
+		}
+		finally { runtime.shutdown(); }
+	}
+
+	@Test void plannerCanReadAndReplaceFoodPolicyThroughActionExecutor() {
+		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		try {
+			var settings = com.google.gson.JsonParser.parseString("{\"goal\":\"heal\",\"foodChoice\":\"cooked_only\"}").getAsJsonObject();
+			String applied = runtime.execute(PlannerToolCatalog.parseToolCall("configure_food", settings,
+				ai.moeru.airicraft.agent.llm.PlannerToolRegistry.empty())).join();
+			assertTrue(applied.contains("goal=HEAL"), applied);
+			String queried = runtime.execute(PlannerToolCatalog.parseToolCall("configure_food", new com.google.gson.JsonObject(),
+				ai.moeru.airicraft.agent.llm.PlannerToolRegistry.empty())).join();
+			assertTrue(queried.contains("foodChoice=COOKED_ONLY"), queried);
+			String invalid = runtime.execute(new PlannerToolCall("bad-food", "configure_food",
+				com.google.gson.JsonParser.parseString("{\"goal\":\"heal\",\"foodChoice\":\"poisonous\"}").getAsJsonObject(),
+				null, null)).join();
+			assertTrue(invalid.startsWith("TOOL_ERROR:"), invalid);
+			runtime.onWorldLeave();
+			String reset = runtime.execute(PlannerToolCatalog.parseToolCall("configure_food", new com.google.gson.JsonObject(),
+				ai.moeru.airicraft.agent.llm.PlannerToolRegistry.empty())).join();
+			assertTrue(reset.contains("goal=MOVEMENT"), reset);
+		}
+		finally { runtime.shutdown(); }
+	}
+
+	@Test
+	void plannerCanBoundOpportunisticMining() {
+		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		try {
+			var settings = com.google.gson.JsonParser.parseString("""
+				{"enabled":false,"maxExtraBlocks":4,"maxExtraTicks":160}
+				""").getAsJsonObject();
+			String result = runtime.execute(PlannerToolCatalog.parseToolCall("configure_opportunistic_mining", settings,
+				ai.moeru.airicraft.agent.llm.PlannerToolRegistry.empty())).join();
+			assertTrue(result.contains("enabled=false"));
+			assertTrue(result.contains("maxExtraBlocks=4"));
 		}
 		finally { runtime.shutdown(); }
 	}
@@ -983,7 +1073,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
 		assertEquals(new WorldTaskRequest.DropItems(new DropItemsStepArgs("minecraft:oak_log", 2, null)), request.task());
 	}
@@ -1022,7 +1112,7 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
-	void mineBlocksToolResultWarnsPlannerToWaitForTaskUpdate() {
+	void mineBlocksToolResultWarnsPlannerToWaitForTerminalResult() {
 		FakeWorldTaskExecutor executor = new FakeWorldTaskExecutor();
 		EmbodiedAgentRuntime runtime = EmbodiedAgentRuntime.createForTests(executor);
 		runtime.overrideSessionSnapshotForTests(new SessionSnapshot(
@@ -1050,7 +1140,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.MINE, request.type());
 		assertEquals(new GoalMineSpec(List.of("minecraft:dirt"), 1), request.goal().mineSpec());
 	}
@@ -1226,7 +1316,7 @@ class EmbodiedAgentRuntimeTest {
 		WorldTaskRequest request = executor.lastActiveTask.orElseThrow();
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.MINE, request.type());
 		assertEquals(new GoalMineSpec(List.of("minecraft:dirt"), 3), request.goal().mineSpec());
 	}
@@ -1533,6 +1623,28 @@ class EmbodiedAgentRuntimeTest {
 	}
 
 	@Test
+	void possibleItemOfferReachesPlannerBeforePickup() throws Exception {
+		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
+		var payload = Map.<String, Object>of("player", "Alice", "playerUuid", "alice-id",
+			"itemId", "minecraft:bread", "count", 3, "inferred", true,
+			"position", Map.of("x", 2, "y", 65, "z", 0));
+		Field field = EmbodiedAgentRuntime.class.getDeclaredField("eventPipeline");
+		field.setAccessible(true);
+		var pipeline = (ai.moeru.airicraft.agent.events.AgentEventPipeline) field.get(runtime);
+		pipeline.appendRaw(20, "social.item_offered", payload);
+		var triggers = pipeline.drain(runtime::createPlannerTriggerForTests);
+		assertEquals(1, triggers.size());
+		assertEquals(payload, pipeline.plannerEventBuffer().query(null).events().getFirst().payload());
+		var trigger = triggers.getFirst();
+		assertEquals(PlannerTriggerType.SYSTEM, trigger.type());
+		assertEquals("item_offer:alice-id", trigger.coalescingKey());
+		assertTrue(trigger.text().contains("Alice"));
+		assertTrue(trigger.text().contains("minecraft:bread"));
+		assertTrue(trigger.text().contains("inferred"));
+		assertTrue(trigger.text().contains("not confirmed pickup"));
+	}
+
+	@Test
 	void physicalEpisodesDeliverObservedPositionAndTaskContextToPlanner() throws Exception {
 		var runtime = EmbodiedAgentRuntime.createForTests(new FakeWorldTaskExecutor());
 		var payload = Map.<String,Object>of("kind","fall","phase","ended","position",Map.of("x",318,"y",-12,"z",279),
@@ -1755,7 +1867,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.ATTACK_ENTITY, request.type());
 		assertEquals(new EntityInteractionStepArgs(
 			new EntitySelector(null, null, "minecraft:sheep"),
@@ -1827,7 +1939,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.USE_ENTITY, request.type());
 		assertEquals(new EntityInteractionStepArgs(
 			new EntitySelector(null, "Dinner", null),
@@ -2785,7 +2897,7 @@ class EmbodiedAgentRuntimeTest {
 		assertTrue(result.contains("accepted"));
 		assertTrue(result.contains("queued"));
 		assertTrue(result.contains("does not mean completed"));
-		assertTrue(result.contains("TASK UPDATE"));
+		assertTrue(result.contains("terminal result in a later observation"), result);
 		assertEquals(WorldTaskType.DROP_ITEMS, request.type());
 		assertEquals(new WorldTaskRequest.DropItems(new DropItemsStepArgs("minecraft:oak_log", 2, "Alice")), request.task());
 	}
@@ -3361,9 +3473,11 @@ class EmbodiedAgentRuntimeTest {
 		runtime.onClientTick(null);
 		ActionGraphExecutionSnapshot graph = runtime.startActionGoal(ActionGoal.inventoryItem("minecraft:bread", 1), "test");
 
+		var journalBeforeDeath = runtime.plannerShellJournal();
 		runtime.overrideSessionSnapshotForTests(deadRemoteSession());
 		runtime.onClientTick(null);
 
+		assertEquals(journalBeforeDeath, runtime.plannerShellJournal(), "Death must not reset the planner");
 		assertEquals(TaskState.CANCELLED, runtime.taskSnapshot().state());
 		assertEquals(ActionGraphExecutionState.CANCELLED, runtime.actionGraphExecution(graph.executionId()).execution().state());
 		assertEquals(1, executor.onWorldLeaveCalls);

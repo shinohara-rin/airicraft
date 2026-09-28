@@ -14,8 +14,10 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,6 +28,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpenAiCompatibleLlmBackendTest {
+	@Test void rejectsEmptyLoadCompletion() throws Exception {
+		try (TestServer server = TestServer.start(new AtomicReference<>(),
+			"{\"choices\":[{\"finish_reason\":\"load\",\"message\":{\"role\":\"assistant\"}}]}")) {
+			var backend = new OpenAiCompatibleLlmBackend(config(server.port(), false));
+			assertThrows(LlmBackendException.class, () -> backend.generate(
+				LlmConversation.of(List.of(LlmChatMessage.user("Gather wood", LlmMessageKind.TASK)))));
+		}
+	}
+
+	@Test void identifiesOpenCodeSessionsWithoutSendingTheirHeaderToOtherProviders() {
+		var client = new OpenAiCompatibleChatClient(config(1, false));
+		var first = client.buildHttpRequest(java.net.URI.create("https://opencode.ai/zen/go/v1/chat/completions"), "{}");
+		var next = client.buildHttpRequest(java.net.URI.create("https://opencode.ai/zen/go/v1/chat/completions"), "{}");
+		assertEquals("Airicraft/1.0", first.headers().firstValue("User-Agent").orElseThrow());
+		assertFalse(first.headers().firstValue("x-opencode-session").orElseThrow().isBlank());
+		assertEquals(first.headers().firstValue("x-opencode-session"), next.headers().firstValue("x-opencode-session"));
+		var other = client.buildHttpRequest(java.net.URI.create("https://example.com/v1/chat/completions"), "{}");
+		assertTrue(other.headers().firstValue("x-opencode-session").isEmpty());
+	}
+
 	@Test void compactionLimitsNewestImagesWithoutChangingTranscriptOrToolPairing() throws Exception {
 		var messages = new java.util.ArrayList<LlmChatMessage>();
 		messages.add(LlmChatMessage.system("summarize"));
@@ -96,7 +118,9 @@ class OpenAiCompatibleLlmBackendTest {
 		String arguments = "{\"workId\":\"" + reference + "\",\"reason\":\"new approach\"}";
 		try (TestServer server = TestServer.start(body, toolCallResponse("call_1", "cancel_work", arguments.replace("\"", "\\\"")))) {
 			var backend = new OpenAiCompatibleLlmBackend(config(server.port(), false), registry);
-			var result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.user("Current work: " + nativeId, LlmMessageKind.NOTICE))));
+			String context = "{\"workId\":\"" + nativeId + "\"}";
+			var result = backend.generate(LlmConversation.of(List.of(LlmChatMessage.user(context, LlmMessageKind.NOTICE,
+				JsonParser.parseString(context)))));
 			assertFalse(body.get().contains(nativeId));
 			assertTrue(body.get().contains(reference));
 			assertEquals(nativeId, result.payload().toolCall().arguments().get("workId").getAsString());
@@ -212,17 +236,11 @@ class OpenAiCompatibleLlmBackendTest {
 			assertEquals("auto", body.get("tool_choice").getAsString());
 			JsonArray tools = body.getAsJsonArray("tools");
 			assertNotNull(tools);
-			assertEquals(5, tools.size());
-			assertEquals(PlannerToolCatalog.DISCOVER_TOOLS, tools.get(0).getAsJsonObject()
+			assertEquals(PlannerToolCatalog.openAiTools().size(), tools.size());
+			assertEquals(PlannerToolCatalog.OBSERVE, tools.get(0).getAsJsonObject()
 				.getAsJsonObject("function").get("name").getAsString());
-			assertEquals(PlannerToolCatalog.START_ACTION_GOAL, tools.get(1).getAsJsonObject()
-				.getAsJsonObject("function").get("name").getAsString());
-			JsonObject discoverSchema = tools.get(0).getAsJsonObject()
-				.getAsJsonObject("function")
-				.getAsJsonObject("parameters")
-				.getAsJsonObject("properties")
-				.getAsJsonObject("query");
-			assertEquals("string", discoverSchema.get("type").getAsString());
+			assertTrue(tools.asList().stream().anyMatch(tool -> PlannerToolCatalog.START_ACTION_GOAL.equals(tool.getAsJsonObject()
+				.getAsJsonObject("function").get("name").getAsString())));
 			assertEquals("planner-model", body.get("model").getAsString());
 		}
 	}
@@ -252,32 +270,6 @@ class OpenAiCompatibleLlmBackendTest {
 			assertEquals(-8, toolCall.arguments().get("z").getAsInt());
 			assertTrue(toolCall.arguments().get("exactY").getAsBoolean());
 			assertEquals("", result.payload().replyText());
-		}
-	}
-
-	@Test
-	void chatClientUsesTheCurrentSurfaceOnEachPlannerRequest() throws Exception {
-		AtomicReference<String> bodyRef = new AtomicReference<>();
-		PlannerToolRegistry registry = PlannerToolRegistry.of();
-		try (TestServer server = TestServer.start(bodyRef, plaintextResponse("Done."))) {
-			OpenAiCompatibleChatClient client = new OpenAiCompatibleChatClient(config(server.port(), false), registry);
-			LlmConversation conversation = LlmConversation.of(List.of(LlmChatMessage.system("system")));
-
-			client.complete(conversation, LlmRequestOptions.planner());
-			List<String> initialToolNames = toolNames(JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("tools"));
-			assertEquals(List.of(
-				PlannerToolCatalog.DISCOVER_TOOLS,
-				PlannerToolCatalog.START_ACTION_GOAL,
-				PlannerToolCatalog.INSPECT_ACTION_GOAL,
-				PlannerToolCatalog.CANCEL_ACTION_GOAL,
-				PlannerToolCatalog.CLEAR_GOAL
-			), initialToolNames);
-
-			registry.discoverTools("navigation", 3);
-			client.complete(conversation, LlmRequestOptions.planner());
-			List<String> discoveredToolNames = toolNames(JsonParser.parseString(bodyRef.get()).getAsJsonObject().getAsJsonArray("tools"));
-			assertTrue(discoveredToolNames.contains(PlannerToolCatalog.NAVIGATE_TO));
-			assertFalse(discoveredToolNames.contains(PlannerToolCatalog.CRAFT_RECIPE));
 		}
 	}
 
@@ -530,6 +522,85 @@ class OpenAiCompatibleLlmBackendTest {
 			assertEquals("tool", tool.get("role").getAsString());
 			assertEquals("call_inv", tool.get("tool_call_id").getAsString());
 		}
+	}
+
+	@Test
+	void switchesToTypedToolResultsUntilBackendResetAfterChatCompletion400() throws Exception {
+		var chatBodies = new ArrayList<String>();
+		var messageBodies = new ArrayList<String>();
+		var chatAttempts = new AtomicInteger();
+		var server = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0);
+		server.createContext("/chat/completions", exchange -> {
+			String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+			chatBodies.add(body);
+			chatAttempts.incrementAndGet();
+			byte[] response = "{\"error\":{\"message\":\"Hosted inference request was rejected\",\"code\":\"upstream_error\"}}".getBytes(StandardCharsets.UTF_8);
+			exchange.sendResponseHeaders(400, response.length);
+			exchange.getResponseBody().write(response);
+			exchange.close();
+		});
+		server.createContext("/messages", exchange -> {
+			messageBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+			byte[] response = "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"planner-model\",\"content\":[{\"type\":\"text\",\"text\":\"Done.\"}],\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":10,\"output_tokens\":2}}".getBytes(StandardCharsets.UTF_8);
+			exchange.sendResponseHeaders(200, response.length);
+			exchange.getResponseBody().write(response);
+			exchange.close();
+		});
+		server.start();
+		try {
+			var backend = new OpenAiCompatibleLlmBackend(config(server.getAddress().getPort(), false));
+			var call = new PlannerToolCall("call_inv", "inspect_inventory", new JsonObject(), null, null);
+			var conversation = LlmConversation.of(List.of(
+				LlmChatMessage.system("Use the inventory result."),
+				LlmChatMessage.assistantToolCall("", call),
+				LlmChatMessage.tool("call_inv", "Empty inventory")
+			));
+
+			assertEquals(200, backend.generate(conversation).statusCode());
+			assertEquals(1, chatAttempts.get());
+			assertEquals(1, messageBodies.size());
+			JsonArray first = JsonParser.parseString(chatBodies.get(0)).getAsJsonObject().getAsJsonArray("messages");
+			assertEquals(3, first.size());
+			assertEquals("tool", first.get(2).getAsJsonObject().get("role").getAsString());
+			JsonObject fallback = JsonParser.parseString(messageBodies.get(0)).getAsJsonObject();
+			JsonArray typed = fallback.getAsJsonArray("messages");
+			assertEquals("user", typed.get(0).getAsJsonObject().get("role").getAsString());
+			assertEquals("tool_use", typed.get(1).getAsJsonObject().getAsJsonArray("content").get(0).getAsJsonObject().get("type").getAsString());
+			assertEquals("tool_result", typed.get(2).getAsJsonObject().getAsJsonArray("content").get(0).getAsJsonObject().get("type").getAsString());
+			assertEquals("call_inv", typed.get(2).getAsJsonObject().getAsJsonArray("content").get(0).getAsJsonObject().get("tool_use_id").getAsString());
+			assertTrue(fallback.getAsJsonArray("tools").toString().contains("\"name\":\"inspect_inventory\""));
+
+			assertEquals(200, backend.generate(conversation).statusCode());
+			assertEquals(1, chatAttempts.get());
+			assertEquals(2, messageBodies.size());
+			backend.resetBackend();
+			assertEquals(200, backend.generate(conversation).statusCode());
+			assertEquals(2, chatAttempts.get());
+			assertEquals(3, messageBodies.size());
+		} finally {
+			server.stop(0);
+		}
+	}
+
+	@Test
+	void anthropicToolUseReplyBecomesTheSamePlannerToolCall() {
+		String nativeResponse = """
+			{"id":"msg_2","type":"message","role":"assistant","model":"planner-model",
+			 "content":[{"type":"thinking","thinking":"private"},
+			            {"type":"tool_use","id":"toolu_next","name":"inspect_inventory","input":{"prompt":"check"}}],
+			 "stop_reason":"tool_use","usage":{"input_tokens":12,"output_tokens":4}}
+			""";
+		JsonObject normalized = JsonParser.parseString(AnthropicMessagesCodec.chatCompletionResponse(nativeResponse)).getAsJsonObject();
+		JsonObject message = normalized.getAsJsonArray("choices").get(0).getAsJsonObject().getAsJsonObject("message");
+		JsonObject call = message.getAsJsonArray("tool_calls").get(0).getAsJsonObject();
+		assertTrue(!message.has("content") || message.get("content").isJsonNull());
+		assertEquals("toolu_next", call.get("id").getAsString());
+		assertEquals("inspect_inventory", call.getAsJsonObject("function").get("name").getAsString());
+		assertEquals("check", JsonParser.parseString(call.getAsJsonObject("function").get("arguments").getAsString())
+			.getAsJsonObject().get("prompt").getAsString());
+		assertEquals(12, OpenAiCompatibleChatClient.parseUsage(normalized.toString()).promptTokens());
+		assertEquals(4, OpenAiCompatibleChatClient.parseUsage(normalized.toString()).completionTokens());
+		assertFalse(normalized.toString().contains("private"));
 	}
 
 	@Test
