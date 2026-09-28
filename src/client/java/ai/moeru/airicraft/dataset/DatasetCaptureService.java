@@ -114,7 +114,11 @@ public final class DatasetCaptureService {
 			if (activeJob != null) {
 				throw new BridgeUnavailableException("capture_in_progress", "A dataset capture is already in progress");
 			}
-			job = new CaptureJob(options, new CompletableFuture<>());
+			job = new CaptureJob(
+				options,
+				new CompletableFuture<>(),
+				options.fov() != null ? options.fov() : client.options.getFov().getValue()
+			);
 			activeJob = job;
 			stableFrames = 0;
 			lastBuiltSignature = Long.MIN_VALUE;
@@ -459,7 +463,7 @@ public final class DatasetCaptureService {
 			List.of((double) projectionMatrix.m02(), (double) projectionMatrix.m12(), (double) projectionMatrix.m22(), (double) projectionMatrix.m32()),
 			List.of((double) projectionMatrix.m03(), (double) projectionMatrix.m13(), (double) projectionMatrix.m23(), (double) projectionMatrix.m33())
 		));
-		meta.put("configuredFov", client.options.getFov().getValue());
+		meta.put("configuredFov", job.appliedFov());
 		meta.put("fovYDegrees", view.projection().fovYDegrees());
 		meta.put("image", Map.of(
 			"width", view.outputWidth(),
@@ -716,13 +720,13 @@ public final class DatasetCaptureService {
 		WRITING
 	}
 
-	private record CaptureJob(CapturePhase phase, CaptureOptions options, CompletableFuture<CaptureResult> future, long requestedAtMs) {
-		private CaptureJob(CaptureOptions options, CompletableFuture<CaptureResult> future) {
-			this(CapturePhase.PENDING, options, future, System.currentTimeMillis());
+	private record CaptureJob(CapturePhase phase, CaptureOptions options, CompletableFuture<CaptureResult> future, long requestedAtMs, int appliedFov) {
+		private CaptureJob(CaptureOptions options, CompletableFuture<CaptureResult> future, int appliedFov) {
+			this(CapturePhase.PENDING, options, future, System.currentTimeMillis(), appliedFov);
 		}
 
 		private CaptureJob withPhase(CapturePhase nextPhase) {
-			return new CaptureJob(nextPhase, options, future, requestedAtMs);
+			return new CaptureJob(nextPhase, options, future, requestedAtMs, appliedFov);
 		}
 	}
 
