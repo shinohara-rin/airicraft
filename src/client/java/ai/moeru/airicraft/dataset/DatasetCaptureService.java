@@ -21,9 +21,11 @@ import net.minecraft.client.render.RenderTickCounter;
 import ai.moeru.airicraft.mixin.client.GameRendererAccessor;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
+import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LightType;
+import net.minecraft.world.chunk.WorldChunk;
 import org.joml.Matrix4f;
 
 import javax.imageio.ImageIO;
@@ -175,8 +177,14 @@ public final class DatasetCaptureService {
 				lastBuiltSignature = signature;
 			}
 			settled = worldSettled(client, activeJob, stableFrames);
-			if (!settled
-					&& System.currentTimeMillis() - activeJob.requestedAtMs() < CHUNK_SETTLE_TIMEOUT_MS) {
+			if (!settled) {
+				if (System.currentTimeMillis() - activeJob.requestedAtMs() < CHUNK_SETTLE_TIMEOUT_MS) {
+					return;
+				}
+				// Never write a frame the world didn't settle for: whatever made
+				// it through the timeout would show unrendered void.
+				restoreFov(client);
+				skip(activeJob, "world_settle_timeout");
 				return;
 			}
 			activeJob = activeJob.withPhase(CapturePhase.CAPTURING);
@@ -244,10 +252,22 @@ public final class DatasetCaptureService {
 		BlockPos pos = camera.getBlockPos();
 		int cx = pos.getX() >> 4;
 		int cz = pos.getZ() >> 4;
+		// Chunks beyond the server's send radius never carry block data: they
+		// stay packet-registered shells, so the non-empty requirement only
+		// applies inside the radius the server actually streams.
 		int radius = client.options.getViewDistance().getValue();
-		for (int dx = -radius; dx <= radius; dx++) {
-			for (int dz = -radius; dz <= radius; dz++) {
-				if (!client.world.isChunkLoaded(cx + dx, cz + dz)) {
+		IntegratedServer server = client.getServer();
+		if (server != null) {
+			radius = Math.min(radius, server.getPlayerManager().getViewDistance());
+		}
+		// isChunkLoaded alone also passes for packet-registered shells whose
+		// section data has not arrived; the streaming edge is asymmetric by a
+		// ring or two, so only the inner square is required to have data.
+		int inner = Math.max(1, radius - 2);
+		for (int dx = -inner; dx <= inner; dx++) {
+			for (int dz = -inner; dz <= inner; dz++) {
+				WorldChunk chunk = client.world.getChunk(cx + dx, cz + dz);
+				if (chunk == null || chunk.isEmpty()) {
 					return false;
 				}
 			}
