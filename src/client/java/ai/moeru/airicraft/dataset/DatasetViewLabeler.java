@@ -131,10 +131,10 @@ public final class DatasetViewLabeler {
 		}
 
 		Candidate winner = pickWinner(votes);
+		String winnerSubject = winner.subject();
 		List<String> alsoPresent = votes.stream()
-			.filter(candidate -> candidate != winner)
 			.map(Candidate::subject)
-			.filter(subject -> subject != null)
+			.filter(subject -> subject != null && !subject.equals(winnerSubject))
 			.distinct()
 			.toList();
 		double support = votes.stream().filter(candidate -> candidate.key().equals(winner.key())).count()
