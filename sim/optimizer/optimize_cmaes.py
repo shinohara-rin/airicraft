@@ -371,8 +371,8 @@ class NSGA2:
 
 # ------------------------------------------------------------------- http --
 
-def call(method: str, path: str, body=None):
-    req = urllib.request.Request(API + path, method=method)
+def call(method: str, path: str, body=None, api=None):
+    req = urllib.request.Request((api or API) + path, method=method)
     data = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -387,12 +387,15 @@ def call(method: str, path: str, body=None):
 FLOOR_Y = -60  # flat world ground level used for arena centers
 
 
-def episode_score(ep_log: str) -> dict:
-    """Read the terminal 'end' record's score from an episode JSONL on disk."""
-    # API returns a path relative to the server run dir.
+def episode_score(ep_log: str, run_dir=None) -> dict:
+    """Read the terminal 'end' record's score from an episode JSONL on disk.
+
+    The API returns a path relative to the server run dir; run_dir overrides
+    RUN_DIR for fleet instances writing under run/sim-inst-i.
+    """
     p = Path(ep_log)
     if not p.is_absolute():
-        p = RUN_DIR / p
+        p = Path(run_dir) / p if run_dir else RUN_DIR / p
     # scan backwards: a tail line can be truncated mid-write if the log is
     # read while the episode is still flushing records
     last_rec = None
@@ -497,36 +500,40 @@ class Sim:
     relative to the arena center (where the player spawns).
     """
 
-    def __init__(self, arenas):
+    def __init__(self, arenas, api=None):
         self.arenas = arenas
+        self.api = api or API
         self.center = {name: (1000 + i * ARENA_SPACING, FLOOR_Y, 0)
                        for i, name in enumerate(arenas)}
 
+    def call(self, method, path, body=None):
+        return call(method, path, body, api=self.api)
+
     def setup_arena(self, name):
         cx, cy, cz = self.center[name]
-        call("POST", "/v1/arena", {"name": name, "world": "minecraft:overworld",
+        self.call("POST", "/v1/arena", {"name": name, "world": "minecraft:overworld",
                                    "center": [cx, cy, cz], "size": ARENA_SIZE})
-        call("POST", "/v1/player", {"arena": name, "name": "bot"})
-        call("POST", "/v1/equip", {"arena": name, "items": [
+        self.call("POST", "/v1/player", {"arena": name, "name": "bot"})
+        self.call("POST", "/v1/equip", {"arena": name, "items": [
             {"id": "minecraft:iron_sword", "slot": "main"}]})
 
     def reset_and_spawn(self, name, scenario, jitter=None, terrain=None):
-        call("POST", "/v1/reset", {"arena": name})
+        self.call("POST", "/v1/reset", {"arena": name})
         # reset() clears the inventory -> re-equip weapon + shield afterwards
-        call("POST", "/v1/equip", {"arena": name, "items": [
+        self.call("POST", "/v1/equip", {"arena": name, "items": [
             {"id": "minecraft:iron_sword", "slot": "main"},
             {"id": "minecraft:shield", "slot": "off"}]})
         cx, cy, cz = self.center[name]
         if terrain:
             for block, pts in terrain:
                 pos = [[cx + dx, cy + dy, cz + dz] for dx, dy, dz in pts]
-                call("POST", "/v1/terrain", {"arena": name, "block": block, "pos": pos})
+                self.call("POST", "/v1/terrain", {"arena": name, "block": block, "pos": pos})
         for i, (typ, dx, dz) in enumerate(scenario):
             jx = jz = 0.0
             if jitter is not None:
                 jx, jz = jitter[i]
             x, z = cx + dx + jx, cz + dz + jz
-            call("POST", "/v1/spawn", {"arena": name, "type": typ,
+            self.call("POST", "/v1/spawn", {"arena": name, "type": typ,
                                        "pos": [x, cy, z],
                                        "minDist": 5.0})
 
@@ -565,7 +572,7 @@ class Sim:
         # (entities spawned into a still-loading chunk only materialize on the
         # next entity-load pass; a few ticks guarantees they are in the live set).
         try:
-            call("POST", "/v1/tick", {"mode": "sprint", "ticks": 10})
+            self.call("POST", "/v1/tick", {"mode": "sprint", "ticks": 10})
         except RuntimeError:
             pass
         for name, params in zip(self.arenas, params_list):
@@ -573,22 +580,22 @@ class Sim:
                     "maxTicks": MAX_TICKS, "obsRadius": 20.0}
             if params:
                 body["params"] = params
-            ep = call("POST", "/v1/episode", body)
+            ep = self.call("POST", "/v1/episode", body)
             logs.append(ep["log"])
         # sprint is synchronous: server ticks in bursts until the count is spent
         try:
-            call("POST", "/v1/tick", {"mode": "sprint", "ticks": MAX_TICKS + 50})
+            self.call("POST", "/v1/tick", {"mode": "sprint", "ticks": MAX_TICKS + 50})
         except RuntimeError as e:
             print(f"  [warn] sprint call: {e}", flush=True)
         deadline = time.time() + 900
         while time.time() < deadline:
-            st = call("GET", "/v1/status")
+            st = self.call("GET", "/v1/status")
             if st.get("gate") == "RUN" and len(st.get("episodes", [])) == 0:
                 break
             if st.get("gate") == "RUN":
                 # sprint budget drained while episodes still run -> top up
                 try:
-                    call("POST", "/v1/tick", {"mode": "sprint",
+                    self.call("POST", "/v1/tick", {"mode": "sprint",
                                                "ticks": MAX_TICKS + 50})
                 except RuntimeError:
                     pass

@@ -18,7 +18,9 @@ vs train_rl.py (PPO + /v1/step external loop):
 """
 import argparse
 import json
+import math
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -166,13 +168,18 @@ def parse_episode(path):
     return obs, sampled, score
 
 
-def run_batch_train(sim, params, scenarios, terrains):
-    """run_batch variant: keeps episode JSONL, returns (scores, paths)."""
+def run_batch_train(sim, params, scenarios, terrains, run_dir=RUN_DIR):
+    """run_batch variant: keeps episode JSONL, returns (scores, paths).
+
+    `run_dir` is the instance's server run directory used to resolve the
+    relative episode-log paths the API returns (each fleet instance writes
+    under its own run dir).
+    """
     logs = []
     for name, prm, scen, terr in zip(sim.arenas, params, scenarios, terrains):
         sim.reset_and_spawn(name, scen, None, terr)
     try:
-        call("POST", "/v1/tick", {"mode": "sprint", "ticks": 10})
+        sim.call("POST", "/v1/tick", {"mode": "sprint", "ticks": 10})
     except RuntimeError:
         pass
     for name, prm in zip(sim.arenas, params):
@@ -180,29 +187,70 @@ def run_batch_train(sim, params, scenarios, terrains):
                 "maxTicks": MAX_TICKS, "obsRadius": 20.0}
         if prm:
             body["params"] = prm
-        ep = call("POST", "/v1/episode", body)
+        ep = sim.call("POST", "/v1/episode", body)
         logs.append(ep["log"])
     try:
-        call("POST", "/v1/tick", {"mode": "sprint", "ticks": MAX_TICKS + 50})
+        sim.call("POST", "/v1/tick", {"mode": "sprint", "ticks": MAX_TICKS + 50})
     except RuntimeError as e:
         print(f"  [warn] sprint call: {e}", flush=True)
     deadline = time.time() + 900
     while time.time() < deadline:
-        st = call("GET", "/v1/status")
+        st = sim.call("GET", "/v1/status")
         if st.get("gate") == "RUN" and len(st.get("episodes", [])) == 0:
             break
         if st.get("gate") == "RUN":
             try:
-                call("POST", "/v1/tick",
-                     {"mode": "sprint", "ticks": MAX_TICKS + 50})
+                sim.call("POST", "/v1/tick",
+                         {"mode": "sprint", "ticks": MAX_TICKS + 50})
             except RuntimeError:
                 pass
         time.sleep(0.3)
     scores, paths = [], []
     for lg in logs:
-        scores.append(episode_score(lg))
+        scores.append(episode_score(lg, run_dir=run_dir))
         p = Path(lg)
-        paths.append(p if p.is_absolute() else RUN_DIR / p)
+        paths.append(p if p.is_absolute() else Path(run_dir) / p)
+    return scores, paths
+
+
+def run_batch_all(insts, params, scenarios, terrains):
+    """Run one arena-batch per fleet instance in parallel.
+
+    insts: list of (Sim, run_dir, idx_list) where idx_list holds the global
+    arena indices this instance covers. params/scenarios/terrains are the
+    global envs-length lists. Returns (scores, paths) in global order.
+    """
+    if len(insts) == 1:
+        sim, rd, idxs = insts[0]
+        return run_batch_train(
+            sim, [params[i] for i in idxs], [scenarios[i] for i in idxs],
+            [terrains[i] for i in idxs], rd)
+    out = [None] * len(insts)
+
+    def work(k):
+        sim, rd, idxs = insts[k]
+        try:
+            out[k] = run_batch_train(
+                sim, [params[i] for i in idxs], [scenarios[i] for i in idxs],
+                [terrains[i] for i in idxs], rd)
+        except BaseException as e:  # propagate after join
+            out[k] = e
+
+    threads = [threading.Thread(target=work, args=(k,), daemon=True)
+               for k in range(len(insts))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    for o in out:
+        if isinstance(o, BaseException):
+            raise o
+    n = sum(len(i[2]) for i in insts)
+    scores, paths = [None] * n, [None] * n
+    for (sim, rd, idxs), (sc, pt) in zip(insts, out):
+        for j, gi in enumerate(idxs):
+            scores[gi] = sc[j]
+            paths[gi] = pt[j]
     return scores, paths
 
 
@@ -240,6 +288,52 @@ def replay_episode(pol, obs_list, sampled_list, device="cpu"):
             xt = torch.tensor(tid[None], dtype=torch.long)
             xn = torch.tensor([n])
             _, _, h = pol(xg, xe, xt, xn, h)
+    return out
+
+
+def replay_batch(pol, episodes):
+    """Batched replay_episode: step all episodes' GRU streams in lockstep,
+    one forward per time index instead of one per (episode, tick).
+
+    episodes: list of (obs_list, sampled_list). Returns a parallel list of
+    record lists identical in content to replay_episode's per-episode output.
+    """
+    E = len(episodes)
+    out = [[] for _ in range(E)]
+    encs = [None] * E
+    for e, (obs_l, _s) in enumerate(episodes):
+        encs[e] = [PE.encode_egt(o) for o in obs_l]
+    lmax = max((len(s) for _o, s in episodes), default=0)
+    h = torch.zeros(E, PE.D_H)
+    with torch.no_grad():
+        for i in range(lmax):
+            act = [e for e in range(E)
+                   if i < len(episodes[e][1])
+                   and episodes[e][1][i] is not None]
+            if not act:
+                continue
+            ja = [max(0, i - OBS_DELAY) for e in act]
+            g = np.stack([encs[e][j][0] for e, j in zip(act, ja)])
+            ef = np.stack([encs[e][j][1] for e, j in zip(act, ja)])
+            tid = np.stack([encs[e][j][2] for e, j in zip(act, ja)])
+            n = np.array([encs[e][j][3] for e, j in zip(act, ja)])
+            h_prev = h[act].clone()
+            _, _, h2 = pol(torch.tensor(g), torch.tensor(ef),
+                           torch.tensor(tid, dtype=torch.long),
+                           torch.tensor(n), h_prev)
+            for row, e in zip(range(len(act)), act):
+                sm = episodes[e][1][i]
+                mv = np.array(sm["mv"], dtype=np.float32)
+                flags = np.array(sm.get("flags") or [0] * 4,
+                                 dtype=np.float32)
+                out[e].append({
+                    "g": g[row], "ef": ef[row], "tid": tid[row],
+                    "n": int(n[row]), "h": h_prev[row].numpy().copy(),
+                    "mv": mv, "tgt": int(sm.get("tgt", -1)),
+                    "flags": flags, "old_logp": float(sm["logp"]),
+                    "dsf": state_feats(episodes[e][0][i]),
+                    "daf": act_feats(mv, int(sm.get("tgt", -1)), flags)})
+            h[act] = h2
     return out
 
 
@@ -306,6 +400,14 @@ def main():
     ap.add_argument("--evalevery", type=int, default=10)
     ap.add_argument("--neval", type=int, default=12)
     ap.add_argument("--familymix", action="store_true")
+    ap.add_argument("--sims", default="http://127.0.0.1:8777",
+                    help="comma-separated sim control base URLs, one per "
+                         "fleet instance; arenas are split across them")
+    ap.add_argument("--rundirs", default="",
+                    help="comma-separated run dirs parallel to --sims "
+                         "(default: run/sim-server for one instance, "
+                         "run/sim-inst-i for a fleet)")
+    ap.add_argument("--device", default="cpu")
     ap.add_argument("--out", default=str(Path(__file__).parent / "results_grpo"))
     args = ap.parse_args()
 
@@ -316,18 +418,39 @@ def main():
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     eval_rng = np.random.default_rng(999)
+    device = torch.device(args.device)
 
-    arenas = [f"gr{i}" for i in range(args.envs)]
-    sim = Sim(arenas)
-    print("[setup] arenas ...", flush=True)
-    call("POST", "/v1/tick", {"mode": "freeze"})
-    for name in arenas:
-        sim.setup_arena(name)
-    call("POST", "/v1/step", {"ticks": 10})
+    bases = [b.strip() for b in args.sims.split(",") if b.strip()]
+    if args.rundirs.strip():
+        rundirs = [Path(d.strip()) for d in args.rundirs.split(",")]
+    elif len(bases) == 1:
+        rundirs = [RUN_DIR]
+    else:
+        rundirs = [RUN_DIR.parent / f"sim-inst-{i}" for i in range(len(bases))]
+    assert len(rundirs) == len(bases)
+    # contiguous arena blocks per instance
+    per = math.ceil(args.envs / len(bases))
+    insts = []          # (Sim, run_dir, global_idx_list)
+    arenas = []
+    for i, b in enumerate(bases):
+        idxs = list(range(i * per, min((i + 1) * per, args.envs)))
+        if not idxs:
+            continue
+        sub = [f"gr{k}" for k in idxs]
+        arenas.extend(sub)
+        insts.append((Sim(sub, api=b), rundirs[i], idxs))
+    print(f"[setup] {len(bases)} instance(s), {len(arenas)} arenas "
+          f"({[len(i[2]) for i in insts]}) ...", flush=True)
+    for sim, _rd, _idx in insts:
+        sim.call("POST", "/v1/tick", {"mode": "freeze"})
+        for name in sim.arenas:
+            sim.setup_arena(name)
+        sim.call("POST", "/v1/step", {"ticks": 10})
 
-    pol = PE.PolicyEGT()
+    pol = PE.PolicyEGT().to(device)
     if args.initempty:
         PE.load_egt(pol, np.load(args.initempty))
+        pol.to(device)  # load_egt assigns CPU tensors into .data
         print(f"[init] egt load from {args.initempty}", flush=True)
     opt = torch.optim.Adam(pol.parameters(), lr=args.lr)
     ema_flat = pol.flat() if args.ema > 0 else None
@@ -337,7 +460,7 @@ def main():
     neg_buf = []
     if args.gail:
         exp_sf, exp_af = load_expert_pairs()
-        disc = GailD()
+        disc = GailD().to(device)
         dopt = torch.optim.Adam(disc.parameters(), lr=args.gail_lr)
 
     def sample_set(r, n):
@@ -377,7 +500,7 @@ def main():
                 terrains.append(sets[g][2])
 
         try:
-            scores, paths = run_batch_train(sim, params, scenarios, terrains)
+            scores, paths = run_batch_all(insts, params, scenarios, terrains)
         except RuntimeError as e:
             # transient spawn/terrain failures — drop the iteration
             print(f"[{it}] batch failed, skipping: {e}", flush=True)
@@ -387,9 +510,8 @@ def main():
         all_ticks = []          # per-tick replay records
         ep_rets = np.zeros(args.envs)
         outcomes = {}
-        n_bad_lp = 0
+        parsed_eps = []         # (ai, obs_l, smp_l)
         for ai, (sc, pth) in enumerate(zip(scores, paths)):
-            gidx = ai // G
             parsed = parse_episode(pth)
             if parsed is None:
                 ep_rets[ai] = ep_return(sc) if sc else -50.0
@@ -400,15 +522,20 @@ def main():
             ep_rets[ai] = ep_return(score)
             outcomes[score.get("outcome", "?")] = \
                 outcomes.get(score.get("outcome", "?"), 0) + 1
-            recs = replay_episode(pol_shadow, obs_l, smp_l)
-            for r in recs:
-                r["group"] = gidx
-                r["ep"] = ai
-            all_ticks.extend(recs)
+            parsed_eps.append((ai, obs_l, smp_l))
             try:
                 pth.unlink()
             except OSError:
                 pass
+        for (ai, _o, _s), recs in zip(
+                parsed_eps,
+                replay_batch(pol_shadow,
+                             [(o, s) for _a, o, s in parsed_eps])):
+            gidx = ai // G
+            for r in recs:
+                r["group"] = gidx
+                r["ep"] = ai
+            all_ticks.extend(recs)
 
         # ---- GAIL discriminator update + learned rewards ------------------
         if disc is not None:
@@ -427,9 +554,11 @@ def main():
                 bs = min(4096, len(bsf), len(exp_sf))
                 pi = rng.choice(len(exp_sf), bs, replace=False)
                 ni = rng.choice(len(bsf), bs, replace=False)
-                sf = torch.tensor(np.concatenate([exp_sf[pi], bsf[ni]]))
-                af = torch.tensor(np.concatenate([exp_af[pi], baf[ni]]))
-                lab = torch.cat([torch.ones(bs), torch.zeros(bs)])
+                sf = torch.tensor(np.concatenate([exp_sf[pi], bsf[ni]]),
+                                  device=device)
+                af = torch.tensor(np.concatenate([exp_af[pi], baf[ni]]),
+                                  device=device)
+                lab = torch.cat([torch.ones(bs), torch.zeros(bs)]).to(device)
                 logits = disc(sf, af)
                 dl = nn.functional.binary_cross_entropy_with_logits(
                     logits, lab)
@@ -438,10 +567,10 @@ def main():
                 dopt.zero_grad(); dl.backward(); dopt.step()
                 d_loss += dl.item(); n_db += 1
             with torch.no_grad():
-                sf_t = torch.tensor(neg_sf)
-                af_t = torch.tensor(neg_af)
+                sf_t = torch.tensor(neg_sf, device=device)
+                af_t = torch.tensor(neg_af, device=device)
                 # learned per-tick reward = clipped log-odds
-                r_t = disc(sf_t, af_t).clamp(-8, 8).numpy()
+                r_t = disc(sf_t, af_t).clamp(-8, 8).cpu().numpy()
             k = 0
             ep_rets = np.zeros(args.envs)
             for ai in range(args.envs):
@@ -507,19 +636,24 @@ def main():
         pl = el = 0.0
         nb = 0
         if all_ticks and not (disc is not None and it <= args.gail_warmup):
-            XG = torch.tensor(np.stack([r["g"] for r in all_ticks]))
-            XE = torch.tensor(np.stack([r["ef"] for r in all_ticks]))
+            XG = torch.tensor(np.stack([r["g"] for r in all_ticks]),
+                              device=device)
+            XE = torch.tensor(np.stack([r["ef"] for r in all_ticks]),
+                              device=device)
             XT = torch.tensor(np.stack([r["tid"] for r in all_ticks]),
-                              dtype=torch.long)
-            XN = torch.tensor([r["n"] for r in all_ticks])
-            XH = torch.tensor(np.stack([r["h"] for r in all_ticks]))
-            MV = torch.tensor(np.stack([r["mv"] for r in all_ticks]))
-            TG = torch.tensor([r["tgt"] for r in all_ticks])
-            FG = torch.tensor(np.stack([r["flags"] for r in all_ticks]))
+                              dtype=torch.long, device=device)
+            XN = torch.tensor([r["n"] for r in all_ticks], device=device)
+            XH = torch.tensor(np.stack([r["h"] for r in all_ticks]),
+                              device=device)
+            MV = torch.tensor(np.stack([r["mv"] for r in all_ticks]),
+                              device=device)
+            TG = torch.tensor([r["tgt"] for r in all_ticks], device=device)
+            FG = torch.tensor(np.stack([r["flags"] for r in all_ticks]),
+                              device=device)
             OLP = torch.tensor([r["old_logp"] for r in all_ticks],
-                               dtype=torch.float32)
+                               dtype=torch.float32, device=device)
             ADV = torch.tensor([r["adv"] for r in all_ticks],
-                               dtype=torch.float32)
+                               dtype=torch.float32, device=device)
             idx_all = np.arange(len(all_ticks))
             for _ep in range(args.epochs):
                 rng.shuffle(idx_all)
@@ -566,8 +700,8 @@ def main():
             n_done = 0
             for scen_fam, scen, terr in es:
                 try:
-                    sc2, _lp = run_batch_train(
-                        sim, eparams, [scen] * len(arenas),
+                    sc2, _lp = run_batch_all(
+                        insts, eparams, [scen] * len(arenas),
                         [terr] * len(arenas))
                     for p2 in _lp:
                         try:

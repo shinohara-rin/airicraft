@@ -188,8 +188,10 @@ class PolicyEGT(nn.Module):
         mask = torch.arange(K).unsqueeze(0) >= n_live.unsqueeze(1)
         logits = logits.masked_fill(mask, -1e9)
         w = torch.softmax(logits, dim=-1).unsqueeze(1)  # (B,1,K)
-        attn = (w @ e).squeeze(1)                      # (B,D_E)
         alive = (n_live > 0).float().unsqueeze(1)
+        # Java leaves attn=0 when no live slots; softmax over an all-masked
+        # row returns uniform weights over padded slots — must zero it here.
+        attn = (w @ e).squeeze(1) * alive              # (B,D_E)
         mean_e = (e * (~mask).float().unsqueeze(-1)).sum(1) / \
             n_live.clamp(min=1).unsqueeze(1) * alive
         fused = torch.cat([gv, attn, mean_e], dim=-1)  # (B,3*D_E)

@@ -1057,3 +1057,41 @@ problem alone.
 
 Snapshot: `sim/optimizer/champ_gailmix1.npy` (EMA weights, deployable via
 `params.net` egt spec).
+
+### fleet — multi-instance parallel rollout (`sim_fleet.sh`)
+
+The tick gate is per server process, so horizontal scaling = N independent
+server processes. `sim_fleet.sh start N` boots N isolated sim servers without
+Gradle: each gets `run/sim-inst-i/` (fresh flat world — gamerules self-apply
+at boot), MC port `25575+i`, control port `8777+i` via `-Dairicraft.sim.port`,
+classpath reused from `build/loom-cache/argFiles/runServer`. `stop`/`status`
+manage the set.
+
+Trainer side (`train_grpo.py --sims a,b,c [--rundirs d1,d2,d3] [--device X]`):
+contiguous arena blocks per instance (`run_batch_all` threads
+`run_batch_train` per instance and merges results back into global arena
+order, preserving the `ai // G` group map); `episode_score`/`parse_episode`
+resolve JSONL paths per-instance run dir. Everything is `--device`-aware so
+the same script runs on a GPU box unchanged.
+
+**parity bug found + fixed here**: `PolicyEGT.forward` let softmax over an
+all-masked target row produce uniform weights over padded slots, so `attn`
+was nonzero whenever `n_live == 0` while the Java mirror leaves it zero —
+every no-hostiles tick fed a different GRU input, and hidden state diverged
+until mobs respawned (drift appeared mid-episode only in episodes that
+cleared a wave — i.e. only in 600-tick timeouts). Fixed by gating `attn` with
+`alive`; replayed logp now matches Java at 0.0000 on every episode including
+the 600-tick ones that previously drifted up to 1.85 nats.
+
+**replay batching**: `replay_batch` steps all episodes' GRU streams in
+lockstep — one batched forward per time index instead of one per (ep, tick)
+— ~2x on the replay stage, still exactly 0.0000 |py-java| drift.
+
+Measured on this 8-core box (champ_egt1 weights, hard+nether mix, 600-tick
+cap): single instance 12 arenas ≈ 1.1k ticks/s; 6-instance fleet ≈
+**4.3k ticks/s aggregate env throughput** (~720/s per instance — per-instance
+rate drops under CPU contention, net ~4x). End-to-end GRPO iter (36 envs,
+env+parse+batched replay+CPU update): ~5s. The env is once again the
+throughput limiter, not the learner — which is exactly what a GPU box wants:
+the update side is already trivially small for an A100 while the sim fleet
+feeds it at CPU-fleet rates.
