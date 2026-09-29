@@ -1123,3 +1123,43 @@ In the trainer, `--video-every N` renders `--video-n` episodes per upload
 batch JSONL before it's deleted, and logs them as `replay/ep<arena>`
 `wandb.Video` at the same step — the dashboard shows the run's own behavior
 alongside the metric curves, including degenerate modes when they appear.
+
+### grpo7a6 — long-horizon 32x48 GRPO at scale (fleet + wandb)
+
+Sustained run: 8-instance fleet, 24 arenas (G=6 groups of 4), EGT 32x48
+(~27k params), epochs=8, warm-started from the grpo7a lineage best and
+trained on a colab CPU-high-ram VM at ~9 s/iter for the full 1500 iters.
+
+Training-time evals (the trainer's own familymix eval set, every 25
+iters) climbed well past the rule champion: `[4.89, -3.5, .899, .976]`
+@325, `[5.06, ...]` @500, `[6.02, -4.8, .639, .955]` @825 — the first
+neural run to hold the ~5-kill band across consecutive evals.
+
+**Unified fresh-seed CRN eval** (seed-7777, 24 unseen scenarios, same
+protocol as all prior finals — `eval_policies.py --egt
+results_grpo7a2/pol_best.npy`, log `eval_final_7a6`):
+
+| policy | kills | -taken | clear | survived | -ticks |
+|---|---|---|---|---|---|
+| baseline | 4.13 | -13.6 | .667 | .708 | -222 |
+| me11_dom | 4.54 | -5.5 | .833 | .958 | -252 |
+| sel1 | 4.58 | -7.5 | .667 | .875 | -276 |
+| hyb1 | 3.29 | -6.0 | .625 | .917 | -288 |
+| **grpo7a6_best** | **4.29** | **-4.2** | **.542** | **1.0** | **-415** |
+
+Per-scenario dominance wins: grpo7a6_best vs me11_dom 2-8, vs sel1 1-7,
+vs hyb1 2-7, vs baseline 1-3; vs rl7 5-0, ptr1 11-0, ptr2 8-2.
+
+Honest verdict: on unseen scenarios the net reaches champ-tier on the
+defensive axes — best damage avoidance (-4.2, field-best) and a perfect
+survival record (1.0, zero deaths in 24) — but still trails on
+completion: worst-in-class clear (.542) and slowest fights (-415t). No
+strict dominance either way vs the rule champs. The gap between
+training-eval peaks (5-6 kills) and fresh-seed means (4.29) is partly
+eval-set variance, partly the same stall-leaning profile as earlier
+runs: it survives everything but doesn't always finish inside the tick
+budget. Degenerate audit clean — 4.29 kills is real fighting, not
+pacifist stall.
+
+Checkpoints: `results_grpo7a2/pol_{best,last,latest}.npy` (synced to the
+wandb run `grpo7a6-cpu2-32x48-e8-24env` throughout training).
