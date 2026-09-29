@@ -1163,3 +1163,34 @@ pacifist stall.
 
 Checkpoints: `results_grpo7a2/pol_{best,last,latest}.npy` (synced to the
 wandb run `grpo7a6-cpu2-32x48-e8-24env` throughout training).
+
+## In-game deployment (neural reflex)
+
+The trained egt policy can drive the real client player through the
+survival reflex. `reflex/neural/NeuralCombatController` encodes the same
+privileged obs every combat tick (globals + 8 nearest hostiles x 18
+feats + type ids, identical math to the sim), runs the egt forward
+(`EgtNet`, pure-Java matmul, ~27k params, no runtime deps), and maps the
+decision onto legal client actuators: camera look-at (turn-rate lerped),
+8-way movement keys, rate-limited crosshair-raycast attack (2 ticks min
+interval, 3-block reach + box raycast, same limits as SimInputExecutor),
+and offhand shield raise/lower.
+
+`SurvivalReflexRuntime` still owns the episode lifecycle — begin,
+resolve, combat eating, stalemate/starvation escapes, and the
+creeper-fuse escape override stay rule-based; the net replaces only the
+per-tick tactics (shield/attack/target/positioning). `playerHits` and
+`lastHurtTick` are tracked client-side to fill the corresponding obs
+features; the GRU hidden state resets on each combat episode begin and
+resolve.
+
+Deploy:
+
+    cd sim/optimizer
+    python3 export_policy.py results_grpo7a2/pol_best.npy -o neural-policy.json
+    cp neural-policy.json run/config/airicraft/neural-policy.json
+
+`{"enabled": true, "spec": {spec_of_egt JSON}}`; absent/disabled file
+leaves the controller inert and the rule reflex untouched. Active state
+and the latest decision are exposed in `decisionEvidence` under
+`neuralPolicy`/`neuralDecision`.
