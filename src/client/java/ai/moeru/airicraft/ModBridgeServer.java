@@ -4,6 +4,7 @@ import ai.moeru.airicraft.agent.EmbodiedAgentRuntime;
 import ai.moeru.airicraft.agent.actions.ActionGraphDebugService;
 import ai.moeru.airicraft.agent.actions.ActionGoal;
 import ai.moeru.airicraft.agent.control.CameraController;
+import ai.moeru.airicraft.dataset.DatasetCaptureService;
 import ai.moeru.airicraft.bridge.BridgeExtensionRegistry;
 import ai.moeru.airicraft.bridge.BridgeRoute;
 import ai.moeru.airicraft.bridge.BridgeRouteContext;
@@ -96,6 +97,7 @@ public final class ModBridgeServer {
 	private static final long CODEX_TOOL_DEFAULT_TIMEOUT_MILLIS = 120_000L;
 	private static final long CODEX_TOOL_MAX_TIMEOUT_MILLIS = 300_000L;
 	private static final long CLIENT_TICK_DEBUG_TIMEOUT_MILLIS = 10_000L;
+	private static final long DATASET_CAPTURE_TIMEOUT_MILLIS = 60_000L;
 
 	private final Supplier<HighlightManager> highlightManagerSupplier;
 	private final Supplier<EmbodiedAgentRuntime> agentRuntimeSupplier;
@@ -105,6 +107,8 @@ public final class ModBridgeServer {
 	private final Supplier<ClientRuntimeController.ReloadResult> reloadSupplier;
 	private final Supplier<Map<String, Object>> dashboardStatusSupplier;
 	private final Supplier<Map<String, Object>> automaticPlaytestStatusSupplier;
+	private final Supplier<DatasetCaptureService> datasetCaptureServiceSupplier;
+	private final CameraController cameraController;
 	private final BridgeDiscoveryFile bridgeDiscoveryFile;
 	private final SingleplayerWorldService singleplayerWorldService = new SingleplayerWorldService();
 	private final SavedServerService savedServerService = new SavedServerService();
@@ -136,7 +140,8 @@ public final class ModBridgeServer {
 			cameraController,
 			bridgeDiscoveryFile,
 			() -> Map.of("enabled", false, "running", false),
-			() -> Map.of("enabled", false)
+			() -> Map.of("enabled", false),
+			DatasetCaptureService::new
 		);
 	}
 
@@ -150,7 +155,8 @@ public final class ModBridgeServer {
 		CameraController cameraController,
 		BridgeDiscoveryFile bridgeDiscoveryFile,
 		Supplier<Map<String, Object>> dashboardStatusSupplier,
-		Supplier<Map<String, Object>> automaticPlaytestStatusSupplier
+		Supplier<Map<String, Object>> automaticPlaytestStatusSupplier,
+		Supplier<DatasetCaptureService> datasetCaptureServiceSupplier
 	) {
 		this.highlightManagerSupplier = Objects.requireNonNull(highlightManagerSupplier, "highlightManagerSupplier");
 		this.agentRuntimeSupplier = Objects.requireNonNull(agentRuntimeSupplier, "agentRuntimeSupplier");
@@ -158,10 +164,12 @@ public final class ModBridgeServer {
 		this.worldCameraServiceSupplier = Objects.requireNonNull(worldCameraServiceSupplier, "worldCameraServiceSupplier");
 		this.clientTickDebugRuntimeSupplier = Objects.requireNonNull(clientTickDebugRuntimeSupplier, "clientTickDebugRuntimeSupplier");
 		this.reloadSupplier = Objects.requireNonNull(reloadSupplier, "reloadSupplier");
-		this.playerViewService = new PlayerViewService(Objects.requireNonNull(cameraController, "cameraController"));
+		this.cameraController = Objects.requireNonNull(cameraController, "cameraController");
+		this.playerViewService = new PlayerViewService(cameraController);
 		this.bridgeDiscoveryFile = Objects.requireNonNull(bridgeDiscoveryFile, "bridgeDiscoveryFile");
 		this.dashboardStatusSupplier = Objects.requireNonNull(dashboardStatusSupplier, "dashboardStatusSupplier");
 		this.automaticPlaytestStatusSupplier = Objects.requireNonNull(automaticPlaytestStatusSupplier, "automaticPlaytestStatusSupplier");
+		this.datasetCaptureServiceSupplier = Objects.requireNonNull(datasetCaptureServiceSupplier, "datasetCaptureServiceSupplier");
 	}
 
 	public synchronized void start() {
@@ -214,6 +222,7 @@ public final class ModBridgeServer {
 			httpServer.createContext("/v1/agent/action-graph/inspect", exchange -> handleJson(exchange, this::createAgentActionGraphInspectResponse));
 			httpServer.createContext("/v1/agent/action-goals", this::handleAgentActionGoals);
 			httpServer.createContext("/v1/agent/debug/chat", this::handleAgentDebugChat);
+			httpServer.createContext("/v1/agent/debug/command", this::handleAgentDebugCommand);
 			httpServer.createContext("/v1/agent/debug/idle-trigger", this::handleAgentDebugIdleTrigger);
 			httpServer.createContext("/v1/agent/debug/compact", this::handleAgentDebugCompact);
 				httpServer.createContext("/v1/agent/debug/state", exchange -> handleJson(exchange, this::createAgentDebugStateResponse));
@@ -230,6 +239,8 @@ public final class ModBridgeServer {
 				httpServer.createContext("/v1/agent/debug/trace/records", this::handleClientTickTraceRecords);
 				httpServer.createContext("/v1/agent/debug/recording", exchange -> handleJson(exchange, () -> liveRecordingResponse(exchange)));
 				httpServer.createContext("/v1/agent/tools", this::handleAgentTools);
+				httpServer.createContext("/v1/dataset/capture", this::handleDatasetCapture);
+				httpServer.createContext("/v1/dataset/status", exchange -> handleJson(exchange, this::createDatasetStatusResponse));
 			registerExtensionRoutes(httpServer);
 			httpServer.start();
 
@@ -587,6 +598,87 @@ public final class ModBridgeServer {
 		}
 	}
 
+
+	private void handleDatasetCapture(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", DatasetCaptureRequest.class, request -> {
+			CompletableFuture<DatasetCaptureService.CaptureResult> future = onClientThread(() -> {
+				var client = getClient();
+				ensureWorldLoaded(client);
+				return datasetCaptureService().requestCapture(client, toCaptureOptions(request), cameraController());
+			});
+			return datasetCapturePayload(awaitDatasetCapture(future));
+		});
+	}
+
+	private Object createDatasetStatusResponse() {
+		return datasetCaptureService().status();
+	}
+
+	private DatasetCaptureService.CaptureOptions toCaptureOptions(DatasetCaptureRequest request) {
+		if (request == null) {
+			return DatasetCaptureService.CaptureOptions.defaults();
+		}
+		var defaults = DatasetCaptureService.CaptureOptions.defaults();
+		return new DatasetCaptureService.CaptureOptions(
+			request.label(),
+			request.yaw(),
+			request.pitch(),
+			request.lookAt(),
+			request.stridePx() == null ? defaults.stridePx() : request.stridePx(),
+			request.reach() == null ? defaults.reach() : request.reach(),
+			request.regionRadius() == null ? defaults.regionRadius() : request.regionRadius(),
+			request.regionBelow() == null ? defaults.regionBelow() : request.regionBelow(),
+			request.regionAbove() == null ? defaults.regionAbove() : request.regionAbove(),
+			request.includeRegion() == null || request.includeRegion(),
+			request.includeEntities() == null || request.includeEntities(),
+			request.outputDir(),
+			request.lighting(),
+			request.fov(),
+			request.farReach()
+		);
+	}
+
+	private DatasetCaptureService.CaptureResult awaitDatasetCapture(
+		CompletableFuture<DatasetCaptureService.CaptureResult> captureFuture
+	) {
+		try {
+			return captureFuture.get(DATASET_CAPTURE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+		}
+		catch (TimeoutException exception) {
+			datasetCaptureService().failActiveCapture("capture_timeout", "Dataset capture timed out");
+			throw new BridgeUnavailableException("capture_timeout", "Dataset capture timed out");
+		}
+		catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			datasetCaptureService().failActiveCapture("capture_failed", "Dataset capture was interrupted");
+			throw new BridgeUnavailableException("capture_failed", "Dataset capture was interrupted");
+		}
+		catch (ExecutionException exception) {
+			if (exception.getCause() instanceof BridgeUnavailableException bridgeUnavailableException) {
+				throw bridgeUnavailableException;
+			}
+			throw new BridgeUnavailableException("capture_failed", "Failed to capture dataset frame");
+		}
+	}
+
+	private static Map<String, Object> datasetCapturePayload(DatasetCaptureService.CaptureResult result) {
+		Map<String, Object> payload = new LinkedHashMap<>();
+		payload.put("available", true);
+		payload.put("skipped", result.skipReason() != null);
+		if (result.skipReason() != null) {
+			payload.put("skipReason", result.skipReason());
+		}
+		payload.put("captureId", result.captureId());
+		payload.put("directory", result.directory());
+		payload.put("files", result.files());
+		payload.put("stats", result.stats());
+		payload.put("capturedAtMs", result.capturedAtMs());
+		return payload;
+	}
+
+	private DatasetCaptureService datasetCaptureService() {
+		return datasetCaptureServiceSupplier.get();
+	}
 
 	private void handleClientTickDebugState(HttpExchange exchange) throws IOException {
 		handleJson(exchange, () -> onClientThread(() -> clientTickDebugStatusPayload(clientTickDebugRuntime().status())));
@@ -1079,6 +1171,30 @@ public final class ModBridgeServer {
 				payload.put("task", agentRuntime().taskSnapshot());
 				payload.put("taskExecution", agentRuntime().taskExecutionSnapshot());
 				payload.put("lastDialogueResponse", agentRuntime().lastDialogueResponse().orElse(null));
+				payload.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
+				return payload;
+			});
+		});
+	}
+
+	private void handleAgentDebugCommand(HttpExchange exchange) throws IOException {
+		handleJsonBody(exchange, "POST", DebugCommandRequest.class, request -> {
+			if (request == null || request.command() == null || request.command().isBlank()) {
+				throw new BridgeUnavailableException("invalid_request", "Missing command");
+			}
+			return onClientThread(() -> {
+				var client = getClient();
+				ensureWorldLoaded(client);
+				String command = request.command().trim();
+				if (command.startsWith("/")) {
+					command = command.substring(1);
+				}
+				client.getNetworkHandler().sendChatCommand(command);
+
+				Map<String, Object> payload = new LinkedHashMap<>();
+				payload.put("available", true);
+				payload.put("accepted", true);
+				payload.put("command", command);
 				payload.put("sessionMode", agentRuntime().sessionSnapshot().mode().name());
 				return payload;
 			});
@@ -2649,6 +2765,10 @@ public final class ModBridgeServer {
 			.orElseThrow(() -> new BridgeUnavailableException("map_provider_unavailable", "No map provider is available"));
 	}
 
+	private CameraController cameraController() {
+		return cameraController;
+	}
+
 	private FirstPersonScreenshotService screenshotService() {
 		return Objects.requireNonNull(screenshotServiceSupplier.get(), "screenshotService");
 	}
@@ -2793,6 +2913,9 @@ public final class ModBridgeServer {
 	private record DebugChatRequest(String senderName, String message) {
 	}
 
+	private record DebugCommandRequest(String command) {
+	}
+
 	private record AgentToolCallRequest(String name, JsonObject arguments, Integer timeoutMs) {
 	}
 
@@ -2835,6 +2958,25 @@ public final class ModBridgeServer {
 		Boolean once,
 		ClientTickTraceEntityQueryRequest entityQuery,
 		ClientTickTraceBlockQueryRequest blockQuery
+	) {
+	}
+
+	private record DatasetCaptureRequest(
+		String label,
+		Double yaw,
+		Double pitch,
+		double[] lookAt,
+		Integer stridePx,
+		Double reach,
+		Integer regionRadius,
+		Integer regionBelow,
+		Integer regionAbove,
+		Boolean includeRegion,
+		Boolean includeEntities,
+		String outputDir,
+		String lighting,
+		Integer fov,
+		Double farReach
 	) {
 	}
 

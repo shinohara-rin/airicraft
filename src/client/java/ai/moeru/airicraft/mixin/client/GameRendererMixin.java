@@ -10,6 +10,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GameRenderer.class)
 public class GameRendererMixin {
+	@Inject(method = "renderWorld", at = @At("HEAD"))
+	private void airicraft$beforeWorldRender(RenderTickCounter tickCounter, CallbackInfo ci) {
+		AiricraftClient.runtimeController().onWorldRenderAboutToStart();
+	}
+
 	@Inject(
 		method = "renderWorld",
 		at = @At(
@@ -18,6 +23,6 @@ public class GameRendererMixin {
 		)
 	)
 	private void airicraft$captureFirstPersonFrame(RenderTickCounter tickCounter, CallbackInfo ci) {
-		AiricraftClient.runtimeController().onFirstPersonFrameRendered();
+		AiricraftClient.runtimeController().onFirstPersonFrameRendered(tickCounter);
 	}
 }

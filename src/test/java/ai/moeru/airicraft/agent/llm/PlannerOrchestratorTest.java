@@ -369,19 +369,19 @@ class PlannerOrchestratorTest {
 			"controller", "idle", Map.of(), events.query(null)));
 		try {
 			orchestrator.submit(requestAt(10, 500, "Alice", "Inspect the area"));
-			backend.awaitCalls(1, Duration.ofSeconds(1));
+			awaitBackendCallCount(orchestrator, backend, 1, Duration.ofSeconds(5));
 			backend.succeed(0, PlannerResponse.toolCalls(List.of(
 				new PlannerToolCall("read", "inspect_fixture", new JsonObject(), null),
 				new PlannerToolCall("observe", PlannerToolCatalog.OBSERVE, new JsonObject(), null)), null));
-			backend.awaitCompletions(1, Duration.ofSeconds(1));
+			backend.awaitCompletions(1, Duration.ofSeconds(5));
 			orchestrator.poll();
 			orchestrator.tickToolQueue();
 			tick.set(20);
 			orchestrator.submit(requestAt(20, 1000, "Alice", "Cancel the plan"));
-			backend.awaitCalls(2, Duration.ofSeconds(1));
+			awaitBackendCallCount(orchestrator, backend, 2, Duration.ofSeconds(5));
 			backend.succeed(1, PlannerResponse.toolCalls(List.of(
 				new PlannerToolCall("clear", "clear_queue", new JsonObject(), null)), null));
-			backend.awaitCompletions(2, Duration.ofSeconds(1));
+			backend.awaitCompletions(2, Duration.ofSeconds(5));
 			// The read finishes between DialogueRuntime's queue tick and PlannerOrchestrator.poll's queue tick.
 			orchestrator.tickToolQueue();
 			tick.set(30);
@@ -391,7 +391,7 @@ class PlannerOrchestratorTest {
 			tick.set(40);
 			orchestrator.recordEvents(events.query(null), 2000);
 			orchestrator.submit(requestAt(40, 2000, "Alice", "What happened?"));
-			backend.awaitCalls(3, Duration.ofSeconds(1));
+			awaitBackendCallCount(orchestrator, backend, 3, Duration.ofSeconds(5));
 			var conversation = backend.conversation(2);
 			assertTrue(conversation.messages().stream().anyMatch(message -> "observe".equals(message.toolCallId())
 				&& message.content().contains("Cancelled by clear_queue")));

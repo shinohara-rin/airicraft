@@ -103,6 +103,7 @@
 - `airicraft player focus`
 - `airicraft player look-at --x <x> --y <y> --z <z>`
 - `airicraft agent debug chat --message <text>`
+- `airicraft agent debug command --command <text>` — executes a real slash command on the integrated server (`sendChatCommand`; cheats must be on). `agent debug chat` only injects the text as an agent chat event, it does NOT run commands.
 - `airicraft agent debug idle-trigger`
 - `airicraft agent debug state`
 - `airicraft agent debug timeline [--since <entry-id>]`
@@ -126,6 +127,8 @@
 - `airicraft highlights list`
 - `airicraft highlights clear --highlight-id <id>`
 - `airicraft highlights clear-all`
+- `airicraft dataset capture [--label <text>] [--yaw <deg>] [--pitch <deg>] [--look-at <x,y,z>] [--stride-px <n>] [--reach <n>] [--far-reach <n>] [--region-radius <n>] [--region-below <n>] [--region-above <n>] [--no-region] [--no-entities] [--output-dir <path>] [--lighting <tag>] [--fov <30-110>]`
+- `airicraft dataset status`
 - `airicraft help [command...]`
 
 ## CLI Output Contract
@@ -158,6 +161,11 @@
 - `GET /v1/focus`
 - `GET /v1/world-snapshot`
 - `GET|POST|DELETE /v1/highlights`
+- `POST /v1/agent/debug/command` — `{command}` executes via `sendChatCommand` on the client thread
+- `POST /v1/dataset/capture`
+- `GET /v1/dataset/status`
+
+- Dataset captures write `frame.png` + `meta.json` + `labels.json.gz` + `region.json.gz` + `entities.json` per capture under `<gameDir>/airicraft/dataset` (relative `--output-dir` resolves against the game dir), indexed by `captures.jsonl`; `scripts/generate-spatial-qa` turns them into spatial-QA train/eval JSONL. See `docs/vision-dataset.md`.
 
 ## Behavior Notes
 
