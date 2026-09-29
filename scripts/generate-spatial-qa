@@ -162,9 +162,21 @@ QUESTIONS = {
         "How many {name} are visible in the image?",
     ],
     "line_of_sight": [
-        "Is there a clear line of sight from the camera to the block at world position ({x}, {y}, {z})?",
+        "Is there a clear line of sight from the camera to the {name} {offset} from you?",
+        "Can you see the {name} {offset} from you, or is it occluded?",
     ],
 }
+
+
+def format_offset(fwd: float, right: float, up: float) -> str:
+    parts = []
+    if abs(fwd) >= 0.5:
+        parts.append(f"{abs(round(fwd))} block(s) {'forward' if fwd >= 0 else 'backward'}")
+    if abs(right) >= 0.5:
+        parts.append(f"{abs(round(right))} block(s) {'right' if right >= 0 else 'left'}")
+    if abs(up) >= 0.5:
+        parts.append(f"{abs(round(up))} block(s) {'up' if up >= 0 else 'down'}")
+    return ", ".join(parts) if parts else "right at you"
 
 
 def pick(rng: random.Random, options):
@@ -244,14 +256,7 @@ def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -
         px, py = cell_center(cell)
         pos = (cell["blockX"] + 0.5, cell["blockY"] + 0.5, cell["blockZ"] + 0.5)
         fwd, right, up = egocentric_offset(capture["meta"], pos)
-        parts = []
-        if abs(fwd) >= 0.5:
-            parts.append(f"{abs(round(fwd))} block(s) {'forward' if fwd >= 0 else 'backward'}")
-        if abs(right) >= 0.5:
-            parts.append(f"{abs(round(right))} block(s) {'right' if right >= 0 else 'left'}")
-        if abs(up) >= 0.5:
-            parts.append(f"{abs(round(up))} block(s) {'up' if up >= 0 else 'down'}")
-        answer = ", ".join(parts) if parts else "right at you"
+        answer = format_offset(fwd, right, up)
         emit(examples, capture, "egocentric_offset",
              pick(rng, QUESTIONS["egocentric_offset"]).format(
                  name=friendly(cell["blockId"]), px=int(px), py=int(py)),
@@ -331,10 +336,14 @@ def generate_for_capture(capture: dict, rng: random.Random, max_per_type: int) -
         rng.shuffle(visible)
         rng.shuffle(hidden)
         for cell, expected in [(c, True) for c in visible[:max_per_type]] + [(c, False) for c in hidden[:max_per_type]]:
+            fwd, right, up = egocentric_offset(capture["meta"], (cell["x"] + 0.5, cell["y"] + 0.5, cell["z"] + 0.5))
             emit(examples, capture, "line_of_sight",
-                 pick(rng, QUESTIONS["line_of_sight"]).format(x=cell["x"], y=cell["y"], z=cell["z"]),
+                 pick(rng, QUESTIONS["line_of_sight"]).format(
+                     name=friendly(cell.get("id") or "unknown"),
+                     offset=format_offset(fwd, right, up)),
                  "yes" if expected else "no",
-                 {"blockPos": [cell["x"], cell["y"], cell["z"]], "blockId": cell.get("id")})
+                 {"blockPos": [cell["x"], cell["y"], cell["z"]], "blockId": cell.get("id"),
+                  "forward": round(fwd, 3), "right": round(right, 3), "up": round(up, 3)})
 
     return examples
 
